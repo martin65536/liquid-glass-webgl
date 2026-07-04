@@ -30,9 +30,37 @@ const DP = 3
 const BUTTON_HEIGHT = 48 * DP
 const BUTTON_HORIZONTAL_PADDING = 16 * DP
 const BUTTON_SPACING = 16 * DP
-// 4.dp / size.height — used by LiquidButton.kt for the press scale-up.
-// We pass it through to the renderer; here it's just for reference.
-const PRESS_SCALE_DP = 4 * DP
+
+// Default highlight (faithful to Highlight.Default + HighlightStyle.Default):
+//   width = 0.5.dp, blurRadius = width/2 = 0.25.dp
+//   paint.strokeWidth = ceil(width.toPx()) * 2 = ceil(0.5*DP) * 2
+//   paint.blur(blurRadius.toPx()) = 0.25*DP
+//   color = White(1.0), angle = 45deg, falloff = 1.0, blendMode = Plus
+const HIGHLIGHT_WIDTH_DP = 0.5
+const HIGHLIGHT_STROKE_WIDTH_PX = 2 * Math.ceil(HIGHLIGHT_WIDTH_DP * DP) // 4 CSS px
+const HIGHLIGHT_BLUR_PX = (HIGHLIGHT_WIDTH_DP / 2) * DP                 // 0.75 CSS px
+
+// Default outer shadow (faithful to Shadow.Default):
+//   radius = 24.dp, offset = (0, radius/6 = 4.dp), color = Black.copy(alpha=0.1), layerAlpha = 1.0
+//   We fold color.a * layerAlpha into a single alpha (0.1).
+const DEFAULT_SHADOW = {
+  radius: 24 * DP,
+  alpha: 0.1,
+  offsetX: 0,
+  offsetY: (24 / 6) * DP, // = 4.dp
+  color: [0, 0, 0] as [number, number, number],
+}
+
+// Default highlight config (faithful to Highlight.Default + HighlightStyle.Default).
+const DEFAULT_HIGHLIGHT = {
+  mode: 0 as const, // Default
+  color: [1, 1, 1] as [number, number, number], // White(1.0)
+  angle: 45 * Math.PI / 180, // 45deg in radians
+  falloff: 1.0,
+  alpha: 1.0,
+  strokeWidth: HIGHLIGHT_STROKE_WIDTH_PX,
+  blur: HIGHLIGHT_BLUR_PX,
+}
 
 // Common glass params (matching LiquidButton.kt's effects block).
 const GLASS_PARAMS = {
@@ -84,8 +112,10 @@ export default function Home() {
       ...GLASS_PARAMS,
       tintColor: [0, 0, 0, 0],
       surfaceColor: [0, 0, 0, 0],
-      highlight: null,
-      outerShadow: null,
+      // Faithful to LiquidButton.kt: drawBackdrop() uses default highlight
+      // (Highlight.Default) and default shadow (Shadow.Default).
+      highlight: { ...DEFAULT_HIGHLIGHT },
+      outerShadow: { ...DEFAULT_SHADOW },
       label,
       labelColor: [0, 0, 0, 1],
       showChevron: false,

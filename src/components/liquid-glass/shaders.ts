@@ -153,6 +153,8 @@ uniform float uHighlightAngle;    // radians
 uniform float uHighlightFalloff;
 uniform float uHighlightAlpha;
 uniform float uHighlightMode;     // 0=default, 1=ambient, 2=plain
+uniform float uHighlightStrokeWidth; // px (full stroke width, matching paint.strokeWidth)
+uniform float uHighlightBlur;     // px (BlurMaskFilter radius)
 uniform float uInnerShadowRadius;
 uniform float uInnerShadowAlpha;
 uniform vec2  uInnerShadowOffset;
@@ -219,6 +221,56 @@ vec3 applyColorControls(vec3 c, float brightness, float contrast, float saturati
     outc.g = cr * c.r + (cg + cs) * c.g + cb * c.b + t / 255.0;
     outc.b = cr * c.r + cg * c.g + (cb + cs) * c.b + t / 255.0;
     return outc;
+}
+
+// --- HSV conversion + BlendMode.Hue ---------------------------
+// Faithful port of Skia's BlendMode.Hue (non-separable blend).
+// Hue blend: result takes hue from src, saturation+value from dst.
+// Used by drawRect(tint, BlendMode.Hue) in onDrawSurface.
+vec3 rgb2hsv(vec3 c) {
+    float maxC = max(c.r, max(c.g, c.b));
+    float minC = min(c.r, min(c.g, c.b));
+    float delta = maxC - minC;
+    float v = maxC;
+    float s = maxC < 1e-6 ? 0.0 : delta / maxC;
+    float h = 0.0;
+    if (delta > 1e-6) {
+        if (maxC == c.r) {
+            h = mod((c.g - c.b) / delta, 6.0);
+        } else if (maxC == c.g) {
+            h = (c.b - c.r) / delta + 2.0;
+        } else {
+            h = (c.r - c.g) / delta + 4.0;
+        }
+        h *= 60.0;
+        if (h < 0.0) h += 360.0;
+    }
+    return vec3(h / 360.0, s, v);
+}
+
+vec3 hsv2rgb(vec3 c) {
+    float h = c.x * 6.0;
+    float s = c.y;
+    float v = c.z;
+    float i = floor(h);
+    float f = h - i;
+    float p = v * (1.0 - s);
+    float q = v * (1.0 - s * f);
+    float t = v * (1.0 - s * (1.0 - f));
+    i = mod(i, 6.0);
+    if (i < 1.0) return vec3(v, t, p);
+    if (i < 2.0) return vec3(q, v, p);
+    if (i < 3.0) return vec3(p, v, t);
+    if (i < 4.0) return vec3(p, q, v);
+    if (i < 5.0) return vec3(t, p, v);
+    return vec3(v, p, q);
+}
+
+// BlendMode.Hue: take hue from src, sat+val from dst.
+vec3 blendHue(vec3 dst, vec3 src) {
+    vec3 dh = rgb2hsv(dst);
+    vec3 sh = rgb2hsv(src);
+    return hsv2rgb(vec3(sh.x, dh.y, dh.z));
 }
 
 void main() {
@@ -320,16 +372,15 @@ void main() {
     }
 
     // --- 3. onDrawSurface: tint (BlendMode.Hue + 0.75 alpha) -----
-    // The original does drawRect(tint, BlendMode.Hue) then drawRect(tint.copy(alpha=0.75)).
-    // Hue blend keeps backdrop L+S but takes tint H. We approximate with a
-    // hue-rotate toward tint while preserving luminance — for the catalog
-    // tints (blue/orange) this reads correctly.
+    // Faithful port of LiquidButton.kt onDrawSurface:
+    //   drawRect(tint, blendMode = BlendMode.Hue)
+    //   drawRect(tint.copy(alpha = 0.75f))
+    // First pass: replace backdrop hue with tint hue (Hue blend, alpha = tint.a).
+    // Second pass: overlay tint color at 0.75*alpha (SrcOver blend).
     if (uTintColor.a > 0.001) {
-        float luma = dot(color, vec3(0.213, 0.715, 0.072));
-        vec3 hueShifted = mix(color, uTintColor.rgb, 0.55);
-        hueShifted = mix(vec3(luma), hueShifted, 1.0);
-        color = mix(color, hueShifted, uTintColor.a * 0.55);
-        color = mix(color, uTintColor.rgb, uTintColor.a * 0.45);
+        vec3 hueBlended = blendHue(color, uTintColor.rgb);
+        color = mix(color, hueBlended, uTintColor.a);
+        color = mix(color, uTintColor.rgb, 0.75 * uTintColor.a);
     }
 
     // --- 4. onDrawSurface: surfaceColor (drawRect(surfaceColor)) --
@@ -338,28 +389,12 @@ void main() {
     }
 
     // --- 5. Highlight (edge specular) -----------------------------
-    // Default: color * pow(|dot(grad, normal)|, falloff)   (BlendMode.Plus)
-    // Ambient: vec3(t,t,t) * intensity where t = step(0, d) (only the lit half)
-    // Plain:   constant white(0.38) stroke (no shader)
-    if (uHighlightAlpha > 0.001 && uHighlightMode < 1.5) {
-        float gradRadius = min(radius * 1.5, min(halfSize.x, halfSize.y));
-        vec2 grad = gradSdRoundedRect(centeredCoord, halfSize, gradRadius);
-        vec2 normal = vec2(cos(uHighlightAngle), sin(uHighlightAngle));
-        float d = dot(grad, normal);
-        float intensity = pow(abs(d), uHighlightFalloff);
-        if (uHighlightMode > 0.5) {
-            // Ambient
-            float t = step(0.0, d);
-            color += vec3(t, t, t) * intensity * uHighlightAlpha;
-        } else {
-            // Default
-            color += uHighlightColor.rgb * intensity * uHighlightAlpha;
-        }
-    } else if (uHighlightMode > 1.5) {
-        // Plain — even stroke along the edge; intensity from proximity to edge.
-        float edge = 1.0 - smoothstep(-2.0, 1.0, sd);
-        color += uHighlightColor.rgb * edge * uHighlightAlpha * 0.6;
-    }
+    // NOTE: The rim highlight is drawn as a SEPARATE pass (see
+    // RIM_HIGHLIGHT_FRAGMENT_SHADER below) with true Plus/SrcOver blend,
+    // matching the original HighlightModifier.kt which records a separate
+    // graphics layer. Doing it inline here would dim the highlight via the
+    // element's edge AA, which is wrong — the highlight layer is composited
+    // on top with its own blend mode.
 
     // --- 6. Inner shadow ------------------------------------------
     // Offset inward SDF, darken where inside the offset band.
@@ -417,9 +452,11 @@ void main() {
     // inside the element so it doesn't bleed through the AA edge.
     float elementSd = sdRoundedRect(centeredCoord, halfSize, radius);
 
-    // Shadow intensity: 1 inside the shadow shape, fading to 0 over
-    // uShadowRadius pixels outside.
-    float shadow = 1.0 - smoothstep(0.0, uShadowRadius, sd);
+    // Shadow intensity: Gaussian falloff from the shadow shape's edge.
+    // BlurMaskFilter.NORMAL approximates a Gaussian with sigma ≈ radius/3.
+    // We use sigma = radius/3 for a similar visual concentration.
+    float sigma = max(uShadowRadius * 0.33, 1.0);
+    float shadow = exp(-sd * sd / (2.0 * sigma * sigma));
     // Mask out the shadow inside the element (the element covers it).
     // Using a smoothstep over elementSd avoids a hard edge that would
     // otherwise show through the element's own AA edge.
@@ -571,5 +608,95 @@ void main() {
         discard;
     }
     gl_FragColor = uColor;
+}
+`
+
+/* ------------------------------------------------------------------ *
+ * Rim highlight pass — faithful port of HighlightModifier.kt +
+ * DefaultHighlightShaderString / AmbientHighlightShaderString.
+ *
+ * The original draws a STROKE of width strokeWidth centered on the shape
+ * edge, blurred by blurRadius, clipped to inside the shape. The stroke is
+ * colored by the AGSL shader (Default or Ambient), then composited with
+ * the layer's blendMode (Plus for Default, SrcOver for Ambient).
+ *
+ * We model the visible (post-clip) stroke band as a smooth mask: 1 from
+ * sd = -strokeWidth/2 up to sd = 0 (edge), fading to 0 over blur pixels
+ * further inward. The outward half is removed by the shape clip (discard
+ * for sd > 0).
+ *
+ * Default shader: returns color * intensity, color = White(1.0).
+ *   Plus blend (renderer uses gl.ONE/gl.ONE): output rgb = color * intensity * mask.
+ * Ambient shader: returns half4(t,t,t,1.0) * intensity, t = step(0,d).
+ *   SrcOver blend: output = (t*i, t*i, t*i, i) where i = intensity * mask.
+ * ------------------------------------------------------------------ */
+export const RIM_HIGHLIGHT_FRAGMENT_SHADER = /* glsl */ `
+precision highp float;
+
+uniform vec2  uCanvasSize;
+uniform vec2  uOffset;          // element top-left in canvas px (top-left origin)
+uniform vec2  uSize;            // element size in canvas px
+uniform vec4  uCornerRadii;     // (topLeft, topRight, bottomRight, bottomLeft) in px
+uniform vec4  uHighlightColor;  // rgb + 1.0
+uniform float uHighlightAngle;  // radians
+uniform float uHighlightFalloff;
+uniform float uHighlightAlpha;
+uniform float uHighlightMode;     // 0=Default, 1=Ambient, 2=Plain
+uniform float uHighlightStrokeWidth;
+uniform float uHighlightBlur;
+
+${SDF_GLSL}
+
+void main() {
+    vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
+    vec2 localCoord = screenCoord - uOffset;
+    vec2 halfSize = uSize * 0.5;
+    vec2 centeredCoord = localCoord - halfSize;
+
+    float radius = radiusAt(localCoord, uCornerRadii);
+    float sd = sdRoundedRect(centeredCoord, halfSize, radius);
+
+    // Outside the shape — nothing to add (the stroke's outward half is clipped).
+    if (sd > 0.5) {
+        discard;
+    }
+
+    // Stroke mask: 1 inside the stroke band (sd in [-strokeWidth/2, 0]),
+    // fading to 0 over uHighlightBlur pixels further inward.
+    float strokeInner = -uHighlightStrokeWidth * 0.5;
+    float strokeMask = smoothstep(strokeInner - uHighlightBlur, strokeInner, sd);
+    // Edge AA: fade out as we approach the shape edge from inside.
+    float edgeAlpha = 1.0 - smoothstep(-0.5, 0.5, sd);
+    strokeMask *= edgeAlpha;
+
+    if (uHighlightMode < 0.5) {
+        // Default — shader returns color * intensity, Plus blend.
+        // Output rgb = color * intensity * mask * alpha. Renderer uses
+        // gl.blendFunc(ONE, ONE) so result = src + dst (clamped).
+        float gradRadius = min(radius * 1.5, min(halfSize.x, halfSize.y));
+        vec2 grad = gradSdRoundedRect(centeredCoord, halfSize, gradRadius);
+        vec2 normal = vec2(cos(uHighlightAngle), sin(uHighlightAngle));
+        float d = dot(grad, normal);
+        float intensity = pow(abs(d), uHighlightFalloff);
+        vec3 c = uHighlightColor.rgb * intensity * strokeMask * uHighlightAlpha;
+        gl_FragColor = vec4(c, 1.0);
+    } else if (uHighlightMode < 1.5) {
+        // Ambient — shader returns half4(t,t,t,1.0)*intensity, SrcOver blend.
+        // src.rgb = t*intensity, src.a = intensity. With SrcOver:
+        // result = src.rgb*src.a + dst*(1-src.a) = t*i^2 + dst*(1-i).
+        // We output (t*i, t*i, t*i, i) and let the renderer use SrcOver blend.
+        float gradRadius = min(radius * 1.5, min(halfSize.x, halfSize.y));
+        vec2 grad = gradSdRoundedRect(centeredCoord, halfSize, gradRadius);
+        vec2 normal = vec2(cos(uHighlightAngle), sin(uHighlightAngle));
+        float d = dot(grad, normal);
+        float intensity = pow(abs(d), uHighlightFalloff);
+        float t = step(0.0, d);
+        float i = intensity * strokeMask * uHighlightAlpha;
+        gl_FragColor = vec4(vec3(t) * i, i);
+    } else {
+        // Plain — even stroke, paint.color, Plus blend.
+        vec3 c = uHighlightColor.rgb * strokeMask * uHighlightAlpha;
+        gl_FragColor = vec4(c, 1.0);
+    }
 }
 `

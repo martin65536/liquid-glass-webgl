@@ -1,0 +1,1270 @@
+     1→package defpackage;
+     2→
+     3→import android.graphics.Rect;
+     4→import android.graphics.RenderEffect;
+     5→import android.os.Build;
+     6→import android.text.Spanned;
+     7→import android.text.TextPaint;
+     8→import android.text.style.MetricAffectingSpan;
+     9→import java.lang.reflect.Constructor;
+    10→import java.lang.reflect.Modifier;
+    11→import java.util.Arrays;
+    12→import java.util.List;
+    13→
+    14→/* compiled from: r8-map-id-3b96d3c35d690309f46512ed3b40f5bf8cb92090229117673df7fcbbe5498310 */
+    15→/* loaded from: classes.dex */
+    16→public abstract class d20 {
+    17→    public static final long A(long j, float f) {
+    18→        long floatToRawIntBits = j | (Float.floatToRawIntBits(f) & 4294967295L);
+    19→        u11[] u11VarArr = t11.b;
+    20→        return floatToRawIntBits;
+    21→    }
+    22→
+    23→    /* JADX WARN: Multi-variable type inference failed */
+    24→    /* JADX WARN: Type inference failed for: r10v2, types: [java.lang.Object[], java.lang.Object] */
+    25→    public static final boolean B(pt ptVar, oj ojVar) {
+    26→        pt[] ptVarArr = new pt[16];
+    27→        if (!ptVar.e.r) {
+    28→            q00.b("visitChildren called on an unattached node");
+    29→        }
+    30→        ef0 ef0Var = new ef0(new bd0[16]);
+    31→        bd0 bd0Var = ptVar.e;
+    32→        bd0 bd0Var2 = bd0Var.j;
+    33→        if (bd0Var2 == null) {
+    34→            k81.f(ef0Var, bd0Var);
+    35→        } else {
+    36→            ef0Var.b(bd0Var2);
+    37→        }
+    38→        int i = 0;
+    39→        while (true) {
+    40→            int i2 = ef0Var.g;
+    41→            if (i2 == 0) {
+    42→                break;
+    43→            }
+    44→            bd0 bd0Var3 = (bd0) ef0Var.k(i2 - 1);
+    45→            if ((bd0Var3.h & 1024) == 0) {
+    46→                k81.f(ef0Var, bd0Var3);
+    47→            } else {
+    48→                while (true) {
+    49→                    if (bd0Var3 == null) {
+    50→                        break;
+    51→                    }
+    52→                    if ((bd0Var3.g & 1024) != 0) {
+    53→                        ef0 ef0Var2 = null;
+    54→                        while (bd0Var3 != null) {
+    55→                            if (bd0Var3 instanceof pt) {
+    56→                                pt ptVar2 = (pt) bd0Var3;
+    57→                                int i3 = i + 1;
+    58→                                if (ptVarArr.length < i3) {
+    59→                                    int length = ptVarArr.length;
+    60→                                    ?? r10 = new Object[Math.max(i3, length * 2)];
+    61→                                    System.arraycopy(ptVarArr, 0, r10, 0, length);
+    62→                                    ptVarArr = r10;
+    63→                                }
+    64→                                ptVarArr[i] = ptVar2;
+    65→                                i = i3;
+    66→                            } else if ((bd0Var3.g & 1024) != 0 && (bd0Var3 instanceof jm)) {
+    67→                                int i4 = 0;
+    68→                                for (bd0 bd0Var4 = ((jm) bd0Var3).t; bd0Var4 != null; bd0Var4 = bd0Var4.j) {
+    69→                                    if ((bd0Var4.g & 1024) != 0) {
+    70→                                        i4++;
+    71→                                        if (i4 == 1) {
+    72→                                            bd0Var3 = bd0Var4;
+    73→                                        } else {
+    74→                                            if (ef0Var2 == null) {
+    75→                                                ef0Var2 = new ef0(new bd0[16]);
+    76→                                            }
+    77→                                            if (bd0Var3 != null) {
+    78→                                                ef0Var2.b(bd0Var3);
+    79→                                                bd0Var3 = null;
+    80→                                            }
+    81→                                            ef0Var2.b(bd0Var4);
+    82→                                        }
+    83→                                    }
+    84→                                }
+    85→                                if (i4 == 1) {
+    86→                                }
+    87→                            }
+    88→                            bd0Var3 = k81.h(ef0Var2);
+    89→                        }
+    90→                    } else {
+    91→                        bd0Var3 = bd0Var3.j;
+    92→                    }
+    93→                }
+    94→            }
+    95→        }
+    96→        Arrays.sort(ptVarArr, 0, i, qt.b);
+    97→        int i5 = i - 1;
+    98→        if (i5 < ptVarArr.length) {
+    99→            while (i5 >= 0) {
+   100→                pt ptVar3 = ptVarArr[i5];
+   101→                if (n20.B(ptVar3) && i(ptVar3, ojVar)) {
+   102→                    return true;
+   103→                }
+   104→                i5--;
+   105→            }
+   106→        }
+   107→        return false;
+   108→    }
+   109→
+   110→    /* JADX WARN: Multi-variable type inference failed */
+   111→    /* JADX WARN: Type inference failed for: r10v2, types: [java.lang.Object[], java.lang.Object] */
+   112→    public static final boolean C(pt ptVar, oj ojVar) {
+   113→        pt[] ptVarArr = new pt[16];
+   114→        if (!ptVar.e.r) {
+   115→            q00.b("visitChildren called on an unattached node");
+   116→        }
+   117→        ef0 ef0Var = new ef0(new bd0[16]);
+   118→        bd0 bd0Var = ptVar.e;
+   119→        bd0 bd0Var2 = bd0Var.j;
+   120→        if (bd0Var2 == null) {
+   121→            k81.f(ef0Var, bd0Var);
+   122→        } else {
+   123→            ef0Var.b(bd0Var2);
+   124→        }
+   125→        int i = 0;
+   126→        while (true) {
+   127→            int i2 = ef0Var.g;
+   128→            if (i2 == 0) {
+   129→                break;
+   130→            }
+   131→            bd0 bd0Var3 = (bd0) ef0Var.k(i2 - 1);
+   132→            if ((bd0Var3.h & 1024) == 0) {
+   133→                k81.f(ef0Var, bd0Var3);
+   134→            } else {
+   135→                while (true) {
+   136→                    if (bd0Var3 == null) {
+   137→                        break;
+   138→                    }
+   139→                    if ((bd0Var3.g & 1024) != 0) {
+   140→                        ef0 ef0Var2 = null;
+   141→                        while (bd0Var3 != null) {
+   142→                            if (bd0Var3 instanceof pt) {
+   143→                                pt ptVar2 = (pt) bd0Var3;
+   144→                                int i3 = i + 1;
+   145→                                if (ptVarArr.length < i3) {
+   146→                                    int length = ptVarArr.length;
+   147→                                    ?? r10 = new Object[Math.max(i3, length * 2)];
+   148→                                    System.arraycopy(ptVarArr, 0, r10, 0, length);
+   149→                                    ptVarArr = r10;
+   150→                                }
+   151→                                ptVarArr[i] = ptVar2;
+   152→                                i = i3;
+   153→                            } else if ((bd0Var3.g & 1024) != 0 && (bd0Var3 instanceof jm)) {
+   154→                                int i4 = 0;
+   155→                                for (bd0 bd0Var4 = ((jm) bd0Var3).t; bd0Var4 != null; bd0Var4 = bd0Var4.j) {
+   156→                                    if ((bd0Var4.g & 1024) != 0) {
+   157→                                        i4++;
+   158→                                        if (i4 == 1) {
+   159→                                            bd0Var3 = bd0Var4;
+   160→                                        } else {
+   161→                                            if (ef0Var2 == null) {
+   162→                                                ef0Var2 = new ef0(new bd0[16]);
+   163→                                            }
+   164→                                            if (bd0Var3 != null) {
+   165→                                                ef0Var2.b(bd0Var3);
+   166→                                                bd0Var3 = null;
+   167→                                            }
+   168→                                            ef0Var2.b(bd0Var4);
+   169→                                        }
+   170→                                    }
+   171→                                }
+   172→                                if (i4 == 1) {
+   173→                                }
+   174→                            }
+   175→                            bd0Var3 = k81.h(ef0Var2);
+   176→                        }
+   177→                    } else {
+   178→                        bd0Var3 = bd0Var3.j;
+   179→                    }
+   180→                }
+   181→            }
+   182→        }
+   183→        Arrays.sort(ptVarArr, 0, i, qt.b);
+   184→        for (int i5 = 0; i5 < i; i5++) {
+   185→            pt ptVar3 = ptVarArr[i5];
+   186→            if (n20.B(ptVar3) && q(ptVar3, ojVar)) {
+   187→                return true;
+   188→            }
+   189→        }
+   190→        return false;
+   191→    }
+   192→
+   193→    public static final void D(float[] fArr, float[] fArr2, int i, float[] fArr3) {
+   194→        float m;
+   195→        if (i == 0) {
+   196→            q00.a("At least one point must be provided");
+   197→        }
+   198→        int i2 = 2 >= i ? i - 1 : 2;
+   199→        int i3 = i2 + 1;
+   200→        float[][] fArr4 = new float[i3];
+   201→        for (int i4 = 0; i4 < i3; i4++) {
+   202→            fArr4[i4] = new float[i];
+   203→        }
+   204→        for (int i5 = 0; i5 < i; i5++) {
+   205→            fArr4[0][i5] = 1.0f;
+   206→            for (int i6 = 1; i6 < i3; i6++) {
+   207→                fArr4[i6][i5] = fArr4[i6 - 1][i5] * fArr[i5];
+   208→            }
+   209→        }
+   210→        float[][] fArr5 = new float[i3];
+   211→        for (int i7 = 0; i7 < i3; i7++) {
+   212→            fArr5[i7] = new float[i];
+   213→        }
+   214→        float[][] fArr6 = new float[i3];
+   215→        for (int i8 = 0; i8 < i3; i8++) {
+   216→            fArr6[i8] = new float[i3];
+   217→        }
+   218→        for (int i9 = 0; i9 < i3; i9++) {
+   219→            float[] fArr7 = fArr5[i9];
+   220→            float[] fArr8 = fArr4[i9];
+   221→            fArr8.getClass();
+   222→            fArr7.getClass();
+   223→            System.arraycopy(fArr8, 0, fArr7, 0, i);
+   224→            for (int i10 = 0; i10 < i9; i10++) {
+   225→                float[] fArr9 = fArr5[i10];
+   226→                float m2 = m(fArr7, fArr9);
+   227→                for (int i11 = 0; i11 < i; i11++) {
+   228→                    fArr7[i11] = fArr7[i11] - (fArr9[i11] * m2);
+   229→                }
+   230→            }
+   231→            float sqrt = (float) Math.sqrt(m(fArr7, fArr7));
+   232→            if (sqrt < 1.0E-6f) {
+   233→                sqrt = 1.0E-6f;
+   234→            }
+   235→            float f = 1.0f / sqrt;
+   236→            for (int i12 = 0; i12 < i; i12++) {
+   237→                fArr7[i12] = fArr7[i12] * f;
+   238→            }
+   239→            float[] fArr10 = fArr6[i9];
+   240→            for (int i13 = 0; i13 < i3; i13++) {
+   241→                if (i13 < i9) {
+   242→                    m = 0.0f;
+   243→                } else {
+   244→                    m = m(fArr7, fArr4[i13]);
+   245→                }
+   246→                fArr10[i13] = m;
+   247→            }
+   248→        }
+   249→        for (int i14 = i2; -1 < i14; i14--) {
+   250→            float m3 = m(fArr5[i14], fArr2);
+   251→            float[] fArr11 = fArr6[i14];
+   252→            int i15 = i14 + 1;
+   253→            if (i15 <= i2) {
+   254→                int i16 = i2;
+   255→                while (true) {
+   256→                    m3 -= fArr11[i16] * fArr3[i16];
+   257→                    if (i16 != i15) {
+   258→                        i16--;
+   259→                    }
+   260→                }
+   261→            }
+   262→            fArr3[i14] = m3 / fArr11[i14];
+   263→        }
+   264→    }
+   265→
+   266→    /* JADX WARN: Multi-variable type inference failed */
+   267→    /* JADX WARN: Removed duplicated region for block: B:146:0x02aa  */
+   268→    /* JADX WARN: Removed duplicated region for block: B:148:0x02ad  */
+   269→    /* JADX WARN: Removed duplicated region for block: B:152:0x02c1  */
+   270→    /* JADX WARN: Removed duplicated region for block: B:154:0x02d9  */
+   271→    /* JADX WARN: Removed duplicated region for block: B:156:0x02e2  */
+   272→    /* JADX WARN: Removed duplicated region for block: B:166:0x0315  */
+   273→    /* JADX WARN: Removed duplicated region for block: B:173:0x0337  */
+   274→    /* JADX WARN: Removed duplicated region for block: B:176:0x0341  */
+   275→    /* JADX WARN: Removed duplicated region for block: B:183:0x0376  */
+   276→    /* JADX WARN: Removed duplicated region for block: B:226:0x0419  */
+   277→    /* JADX WARN: Removed duplicated region for block: B:229:0x0350  */
+   278→    /* JADX WARN: Removed duplicated region for block: B:235:0x02c8  */
+   279→    /* JADX WARN: Removed duplicated region for block: B:240:0x02b4  */
+   280→    /*
+   281→        Code decompiled incorrectly, please refer to instructions dump.
+   282→        To view partially-correct add '--show-bad-code' argument
+   283→    */
+   284→    public static final void E(android.view.ViewStructure r38, defpackage.z40 r39, android.view.autofill.AutofillId r40, java.lang.String r41, defpackage.yo0 r42) {
+   285→        /*
+   286→            Method dump skipped, instructions count: 1057
+   287→            To view this dump add '--comments-level debug' option
+   288→        */
+   289→        throw new UnsupportedOperationException("Method not decompiled: defpackage.d20.E(android.view.ViewStructure, z40, android.view.autofill.AutofillId, java.lang.String, yo0):void");
+   290→    }
+   291→
+   292→    public static final void F(Object[] objArr, int i, int i2) {
+   293→        objArr.getClass();
+   294→        while (i < i2) {
+   295→            objArr[i] = null;
+   296→            i++;
+   297→        }
+   298→    }
+   299→
+   300→    /* JADX WARN: Multi-variable type inference failed */
+   301→    /* JADX WARN: Removed duplicated region for block: B:133:0x019a  */
+   302→    /* JADX WARN: Removed duplicated region for block: B:151:0x0197 A[EDGE_INSN: B:151:0x0197->B:132:0x0197 BREAK  A[LOOP:5: B:91:0x012c->B:146:0x012c], SYNTHETIC] */
+   303→    /* JADX WARN: Removed duplicated region for block: B:89:0x011f  */
+   304→    /* JADX WARN: Removed duplicated region for block: B:92:0x012e  */
+   305→    /* JADX WARN: Type inference failed for: r11v2, types: [java.lang.Object[], java.lang.Object] */
+   306→    /*
+   307→        Code decompiled incorrectly, please refer to instructions dump.
+   308→        To view partially-correct add '--show-bad-code' argument
+   309→    */
+   310→    public static final boolean G(defpackage.pt r12, defpackage.pt r13, int r14, defpackage.oj r15) {
+   311→        /*
+   312→            Method dump skipped, instructions count: 434
+   313→            To view this dump add '--comments-level debug' option
+   314→        */
+   315→        throw new UnsupportedOperationException("Method not decompiled: defpackage.d20.G(pt, pt, int, oj):boolean");
+   316→    }
+   317→
+   318→    public static final long H(long j, long j2) {
+   319→        float intBitsToFloat = Float.intBitsToFloat((int) (j2 >> 32)) * Float.intBitsToFloat((int) (j >> 32));
+   320→        float intBitsToFloat2 = Float.intBitsToFloat((int) (j2 & 4294967295L)) * Float.intBitsToFloat((int) (j & 4294967295L));
+   321→        return (Float.floatToRawIntBits(intBitsToFloat2) & 4294967295L) | (Float.floatToRawIntBits(intBitsToFloat) << 32);
+   322→    }
+   323→
+   324→    public static final long I(long j) {
+   325→        return (((int) Float.intBitsToFloat((int) (j & 4294967295L))) & 4294967295L) | (((int) Float.intBitsToFloat((int) (j >> 32))) << 32);
+   326→    }
+   327→
+   328→    public static final long J(long j) {
+   329→        return (Float.floatToRawIntBits((int) (j & 4294967295L)) & 4294967295L) | (Float.floatToRawIntBits((int) (j >> 32)) << 32);
+   330→    }
+   331→
+   332→    /* JADX WARN: Multi-variable type inference failed */
+   333→    /* JADX WARN: Type inference failed for: r11v0, types: [gv] */
+   334→    /* JADX WARN: Type inference failed for: r1v11 */
+   335→    /* JADX WARN: Type inference failed for: r1v12, types: [bd0] */
+   336→    /* JADX WARN: Type inference failed for: r1v13, types: [java.lang.Object] */
+   337→    /* JADX WARN: Type inference failed for: r1v14 */
+   338→    /* JADX WARN: Type inference failed for: r1v15 */
+   339→    /* JADX WARN: Type inference failed for: r1v16 */
+   340→    /* JADX WARN: Type inference failed for: r1v17 */
+   341→    /* JADX WARN: Type inference failed for: r1v18 */
+   342→    /* JADX WARN: Type inference failed for: r1v19 */
+   343→    /* JADX WARN: Type inference failed for: r1v6 */
+   344→    /* JADX WARN: Type inference failed for: r1v7, types: [bd0] */
+   345→    /* JADX WARN: Type inference failed for: r4v0 */
+   346→    /* JADX WARN: Type inference failed for: r4v1 */
+   347→    /* JADX WARN: Type inference failed for: r4v10 */
+   348→    /* JADX WARN: Type inference failed for: r4v11 */
+   349→    /* JADX WARN: Type inference failed for: r4v2 */
+   350→    /* JADX WARN: Type inference failed for: r4v3, types: [ef0] */
+   351→    /* JADX WARN: Type inference failed for: r4v4 */
+   352→    /* JADX WARN: Type inference failed for: r4v5 */
+   353→    /* JADX WARN: Type inference failed for: r4v6, types: [ef0] */
+   354→    /* JADX WARN: Type inference failed for: r4v8 */
+   355→    /* JADX WARN: Type inference failed for: r4v9 */
+   356→    public static final void K(bd0 bd0Var, Object obj, gv gvVar) {
+   357→        lg0 lg0Var;
+   358→        if (!bd0Var.e.r) {
+   359→            q00.b("visitAncestors called on an unattached node");
+   360→        }
+   361→        bd0 bd0Var2 = bd0Var.e.i;
+   362→        z40 E = k81.E(bd0Var);
+   363→        while (E != null) {
+   364→            if ((E.H.f.h & 262144) != 0) {
+   365→                while (bd0Var2 != null) {
+   366→                    if ((bd0Var2.g & 262144) != 0) {
+   367→                        jm jmVar = bd0Var2;
+   368→                        ?? r4 = 0;
+   369→                        while (jmVar != 0) {
+   370→                            boolean z = true;
+   371→                            if (jmVar instanceof w21) {
+   372→                                w21 w21Var = (w21) jmVar;
+   373→                                if (obj.equals(w21Var.z())) {
+   374→                                    z = ((Boolean) gvVar.e(w21Var)).booleanValue();
+   375→                                }
+   376→                                if (!z) {
+   377→                                    return;
+   378→                                }
+   379→                            } else if ((jmVar.g & 262144) != 0 && (jmVar instanceof jm)) {
+   380→                                bd0 bd0Var3 = jmVar.t;
+   381→                                int i = 0;
+   382→                                jmVar = jmVar;
+   383→                                r4 = r4;
+   384→                                while (bd0Var3 != null) {
+   385→                                    if ((bd0Var3.g & 262144) != 0) {
+   386→                                        i++;
+   387→                                        r4 = r4;
+   388→                                        if (i == 1) {
+   389→                                            jmVar = bd0Var3;
+   390→                                        } else {
+   391→                                            if (r4 == 0) {
+   392→                                                r4 = new ef0(new bd0[16]);
+   393→                                            }
+   394→                                            if (jmVar != 0) {
+   395→                                                r4.b(jmVar);
+   396→                                                jmVar = 0;
+   397→                                            }
+   398→                                            r4.b(bd0Var3);
+   399→                                        }
+   400→                                    }
+   401→                                    bd0Var3 = bd0Var3.j;
+   402→                                    jmVar = jmVar;
+   403→                                    r4 = r4;
+   404→                                }
+   405→                                if (i == 1) {
+   406→                                }
+   407→                            }
+   408→                            jmVar = k81.h(r4);
+   409→                        }
+   410→                    }
+   411→                    bd0Var2 = bd0Var2.i;
+   412→                }
+   413→            }
+   414→            E = E.s();
+   415→            if (E != null && (lg0Var = E.H) != null) {
+   416→                bd0Var2 = lg0Var.e;
+   417→            } else {
+   418→                bd0Var2 = null;
+   419→            }
+   420→        }
+   421→    }
+   422→
+   423→    /* JADX WARN: Multi-variable type inference failed */
+   424→    /* JADX WARN: Type inference failed for: r13v0, types: [gv] */
+   425→    /* JADX WARN: Type inference failed for: r5v0 */
+   426→    /* JADX WARN: Type inference failed for: r5v1, types: [bd0] */
+   427→    /* JADX WARN: Type inference failed for: r5v10 */
+   428→    /* JADX WARN: Type inference failed for: r5v11 */
+   429→    /* JADX WARN: Type inference failed for: r5v12 */
+   430→    /* JADX WARN: Type inference failed for: r5v13 */
+   431→    /* JADX WARN: Type inference failed for: r5v14 */
+   432→    /* JADX WARN: Type inference failed for: r5v15 */
+   433→    /* JADX WARN: Type inference failed for: r5v7 */
+   434→    /* JADX WARN: Type inference failed for: r5v8, types: [bd0] */
+   435→    /* JADX WARN: Type inference failed for: r5v9, types: [java.lang.Object] */
+   436→    /* JADX WARN: Type inference failed for: r6v0 */
+   437→    /* JADX WARN: Type inference failed for: r6v1 */
+   438→    /* JADX WARN: Type inference failed for: r6v10 */
+   439→    /* JADX WARN: Type inference failed for: r6v11 */
+   440→    /* JADX WARN: Type inference failed for: r6v2 */
+   441→    /* JADX WARN: Type inference failed for: r6v3, types: [ef0] */
+   442→    /* JADX WARN: Type inference failed for: r6v4 */
+   443→    /* JADX WARN: Type inference failed for: r6v5 */
+   444→    /* JADX WARN: Type inference failed for: r6v6, types: [ef0] */
+   445→    /* JADX WARN: Type inference failed for: r6v8 */
+   446→    /* JADX WARN: Type inference failed for: r6v9 */
+   447→    public static final void L(bd0 bd0Var, String str, gv gvVar) {
+   448→        v21 v21Var;
+   449→        if (!bd0Var.e.r) {
+   450→            q00.b("visitSubtreeIf called on an unattached node");
+   451→        }
+   452→        ef0 ef0Var = new ef0(new bd0[16]);
+   453→        bd0 bd0Var2 = bd0Var.e;
+   454→        bd0 bd0Var3 = bd0Var2.j;
+   455→        if (bd0Var3 == null) {
+   456→            k81.f(ef0Var, bd0Var2);
+   457→        } else {
+   458→            ef0Var.b(bd0Var3);
+   459→        }
+   460→        while (true) {
+   461→            int i = ef0Var.g;
+   462→            if (i != 0) {
+   463→                bd0 bd0Var4 = (bd0) ef0Var.k(i - 1);
+   464→                if ((bd0Var4.h & 262144) != 0) {
+   465→                    for (bd0 bd0Var5 = bd0Var4; bd0Var5 != null && bd0Var5.r; bd0Var5 = bd0Var5.j) {
+   466→                        if ((bd0Var5.g & 262144) != 0) {
+   467→                            jm jmVar = bd0Var5;
+   468→                            ?? r6 = 0;
+   469→                            while (jmVar != 0) {
+   470→                                if (jmVar instanceof w21) {
+   471→                                    w21 w21Var = (w21) jmVar;
+   472→                                    if (str.equals(w21Var.z())) {
+   473→                                        v21Var = (v21) gvVar.e(w21Var);
+   474→                                    } else {
+   475→                                        v21Var = v21.e;
+   476→                                    }
+   477→                                    if (v21Var != v21.g) {
+   478→                                        if (v21Var == v21.f) {
+   479→                                            break;
+   480→                                        }
+   481→                                    } else {
+   482→                                        return;
+   483→                                    }
+   484→                                } else if ((jmVar.g & 262144) != 0 && (jmVar instanceof jm)) {
+   485→                                    bd0 bd0Var6 = jmVar.t;
+   486→                                    int i2 = 0;
+   487→                                    jmVar = jmVar;
+   488→                                    r6 = r6;
+   489→                                    while (bd0Var6 != null) {
+   490→                                        if ((bd0Var6.g & 262144) != 0) {
+   491→                                            i2++;
+   492→                                            r6 = r6;
+   493→                                            if (i2 == 1) {
+   494→                                                jmVar = bd0Var6;
+   495→                                            } else {
+   496→                                                if (r6 == 0) {
+   497→                                                    r6 = new ef0(new bd0[16]);
+   498→                                                }
+   499→                                                if (jmVar != 0) {
+   500→                                                    r6.b(jmVar);
+   501→                                                    jmVar = 0;
+   502→                                                }
+   503→                                                r6.b(bd0Var6);
+   504→                                            }
+   505→                                        }
+   506→                                        bd0Var6 = bd0Var6.j;
+   507→                                        jmVar = jmVar;
+   508→                                        r6 = r6;
+   509→                                    }
+   510→                                    if (i2 == 1) {
+   511→                                    }
+   512→                                }
+   513→                                jmVar = k81.h(r6);
+   514→                            }
+   515→                        }
+   516→                    }
+   517→                }
+   518→                k81.f(ef0Var, bd0Var4);
+   519→            } else {
+   520→                return;
+   521→            }
+   522→        }
+   523→    }
+   524→
+   525→    /* JADX WARN: Multi-variable type inference failed */
+   526→    /* JADX WARN: Type inference failed for: r12v0, types: [w21, java.lang.Object] */
+   527→    /* JADX WARN: Type inference failed for: r13v0, types: [gv] */
+   528→    /* JADX WARN: Type inference failed for: r6v0 */
+   529→    /* JADX WARN: Type inference failed for: r6v1, types: [bd0] */
+   530→    /* JADX WARN: Type inference failed for: r6v10 */
+   531→    /* JADX WARN: Type inference failed for: r6v11 */
+   532→    /* JADX WARN: Type inference failed for: r6v12 */
+   533→    /* JADX WARN: Type inference failed for: r6v13 */
+   534→    /* JADX WARN: Type inference failed for: r6v14 */
+   535→    /* JADX WARN: Type inference failed for: r6v15 */
+   536→    /* JADX WARN: Type inference failed for: r6v7 */
+   537→    /* JADX WARN: Type inference failed for: r6v8, types: [bd0] */
+   538→    /* JADX WARN: Type inference failed for: r6v9, types: [java.lang.Object] */
+   539→    /* JADX WARN: Type inference failed for: r7v0 */
+   540→    /* JADX WARN: Type inference failed for: r7v1 */
+   541→    /* JADX WARN: Type inference failed for: r7v10 */
+   542→    /* JADX WARN: Type inference failed for: r7v11 */
+   543→    /* JADX WARN: Type inference failed for: r7v2 */
+   544→    /* JADX WARN: Type inference failed for: r7v3, types: [ef0] */
+   545→    /* JADX WARN: Type inference failed for: r7v4 */
+   546→    /* JADX WARN: Type inference failed for: r7v5 */
+   547→    /* JADX WARN: Type inference failed for: r7v6, types: [ef0] */
+   548→    /* JADX WARN: Type inference failed for: r7v8 */
+   549→    /* JADX WARN: Type inference failed for: r7v9 */
+   550→    public static final void M(w21 w21Var, gv gvVar) {
+   551→        v21 v21Var;
+   552→        if (!((bd0) w21Var).e.r) {
+   553→            q00.b("visitSubtreeIf called on an unattached node");
+   554→        }
+   555→        ef0 ef0Var = new ef0(new bd0[16]);
+   556→        bd0 bd0Var = ((bd0) w21Var).e;
+   557→        bd0 bd0Var2 = bd0Var.j;
+   558→        if (bd0Var2 == null) {
+   559→            k81.f(ef0Var, bd0Var);
+   560→        } else {
+   561→            ef0Var.b(bd0Var2);
+   562→        }
+   563→        while (true) {
+   564→            int i = ef0Var.g;
+   565→            if (i != 0) {
+   566→                bd0 bd0Var3 = (bd0) ef0Var.k(i - 1);
+   567→                if ((bd0Var3.h & 262144) != 0) {
+   568→                    for (bd0 bd0Var4 = bd0Var3; bd0Var4 != null && bd0Var4.r; bd0Var4 = bd0Var4.j) {
+   569→                        if ((bd0Var4.g & 262144) != 0) {
+   570→                            jm jmVar = bd0Var4;
+   571→                            ?? r7 = 0;
+   572→                            while (jmVar != 0) {
+   573→                                if (jmVar instanceof w21) {
+   574→                                    w21 w21Var2 = (w21) jmVar;
+   575→                                    if (o20.e(w21Var.z(), w21Var2.z()) && w21Var.getClass() == w21Var2.getClass()) {
+   576→                                        v21Var = (v21) gvVar.e(w21Var2);
+   577→                                    } else {
+   578→                                        v21Var = v21.e;
+   579→                                    }
+   580→                                    if (v21Var != v21.g) {
+   581→                                        if (v21Var == v21.f) {
+   582→                                            break;
+   583→                                        }
+   584→                                    } else {
+   585→                                        return;
+   586→                                    }
+   587→                                } else if ((jmVar.g & 262144) != 0 && (jmVar instanceof jm)) {
+   588→                                    bd0 bd0Var5 = jmVar.t;
+   589→                                    int i2 = 0;
+   590→                                    jmVar = jmVar;
+   591→                                    r7 = r7;
+   592→                                    while (bd0Var5 != null) {
+   593→                                        if ((bd0Var5.g & 262144) != 0) {
+   594→                                            i2++;
+   595→                                            r7 = r7;
+   596→                                            if (i2 == 1) {
+   597→                                                jmVar = bd0Var5;
+   598→                                            } else {
+   599→                                                if (r7 == 0) {
+   600→                                                    r7 = new ef0(new bd0[16]);
+   601→                                                }
+   602→                                                if (jmVar != 0) {
+   603→                                                    r7.b(jmVar);
+   604→                                                    jmVar = 0;
+   605→                                                }
+   606→                                                r7.b(bd0Var5);
+   607→                                            }
+   608→                                        }
+   609→                                        bd0Var5 = bd0Var5.j;
+   610→                                        jmVar = jmVar;
+   611→                                        r7 = r7;
+   612→                                    }
+   613→                                    if (i2 == 1) {
+   614→                                    }
+   615→                                }
+   616→                                jmVar = k81.h(r7);
+   617→                            }
+   618→                        }
+   619→                    }
+   620→                }
+   621→                k81.f(ef0Var, bd0Var3);
+   622→            } else {
+   623→                return;
+   624→            }
+   625→        }
+   626→    }
+   627→
+   628→    public static final double N(long j) {
+   629→        return ((j >>> 11) * 2048.0d) + (j & 2047);
+   630→    }
+   631→
+   632→    public static final int O(int i) {
+   633→        int i2 = 306783378 & i;
+   634→        int i3 = 613566756 & i;
+   635→        return (i & (-920350135)) | (i3 >> 1) | i2 | ((i2 << 1) & i3);
+   636→    }
+   637→
+   638→    public static final void P(b7 b7Var, d7 d7Var) {
+   639→        d7Var.f.setValue(b7Var.e.getValue());
+   640→        i7 i7Var = d7Var.g;
+   641→        i7 i7Var2 = b7Var.f;
+   642→        int b = i7Var.b();
+   643→        for (int i = 0; i < b; i++) {
+   644→            i7Var.e(i7Var2.a(i), i);
+   645→        }
+   646→        d7Var.i = b7Var.h;
+   647→        d7Var.h = b7Var.g;
+   648→        d7Var.j = ((Boolean) b7Var.i.getValue()).booleanValue();
+   649→    }
+   650→
+   651→    public static final void a(bw bwVar, int i) {
+   652→        boolean z;
+   653→        long f;
+   654→        bwVar.W(-565590000);
+   655→        int i2 = 0;
+   656→        if (i != 0) {
+   657→            z = true;
+   658→        } else {
+   659→            z = false;
+   660→        }
+   661→        if (bwVar.O(i & 1, z)) {
+   662→            if (!n20.D(bwVar)) {
+   663→                f = f31.f(4294967295L);
+   664→            } else {
+   665→                f = f31.f(4279374354L);
+   666→            }
+   667→            f31.b(null, jc0.C(-1376044379, new pw0(i2, f), bwVar), bwVar, 48, 1);
+   668→        } else {
+   669→            bwVar.R();
+   670→        }
+   671→        mo0 r = bwVar.r();
+   672→        if (r != null) {
+   673→            r.d = new yu0(i, 15, false);
+   674→        }
+   675→    }
+   676→
+   677→    public static final int b(ob0 ob0Var, ry ryVar) {
+   678→        long y0;
+   679→        ob0 s0 = ob0Var.s0();
+   680→        if (s0 == null) {
+   681→            q00.b("Child of " + ob0Var + " cannot be null when calculating alignment line");
+   682→        }
+   683→        if (ob0Var.w0().r().containsKey(ryVar)) {
+   684→            Integer num = (Integer) ob0Var.w0().r().get(ryVar);
+   685→            if (num != null) {
+   686→                return num.intValue();
+   687→            }
+   688→        } else {
+   689→            int r0 = s0.r0(ryVar);
+   690→            if (r0 != Integer.MIN_VALUE) {
+   691→                s0.n = true;
+   692→                ob0Var.o = true;
+   693→                ob0Var.D0();
+   694→                s0.n = false;
+   695→                ob0Var.o = false;
+   696→                if (ryVar instanceof ry) {
+   697→                    y0 = s0.y0() & 4294967295L;
+   698→                } else {
+   699→                    y0 = s0.y0() >> 32;
+   700→                }
+   701→                return r0 + ((int) y0);
+   702→            }
+   703→        }
+   704→        return Integer.MIN_VALUE;
+   705→    }
+   706→
+   707→    public static final boolean c(float f) {
+   708→        if (!Float.isNaN(f) && Math.abs(f) >= 0.5f) {
+   709→            return false;
+   710→        }
+   711→        return true;
+   712→    }
+   713→
+   714→    public static final String d(Object[] objArr, int i, int i2, y yVar) {
+   715→        StringBuilder sb = new StringBuilder((i2 * 3) + 2);
+   716→        sb.append("[");
+   717→        for (int i3 = 0; i3 < i2; i3++) {
+   718→            if (i3 > 0) {
+   719→                sb.append(", ");
+   720→            }
+   721→            Object obj = objArr[i + i3];
+   722→            if (obj == yVar) {
+   723→                sb.append("(this Collection)");
+   724→            } else {
+   725→                sb.append(obj);
+   726→            }
+   727→        }
+   728→        sb.append("]");
+   729→        return sb.toString();
+   730→    }
+   731→
+   732→    public static final void e(u41 u41Var, um0 um0Var, long j) {
+   733→        fm fmVar = (fm) u41Var.a;
+   734→        fmVar.getClass();
+   735→        x41 x41Var = fmVar.b;
+   736→        x41 x41Var2 = fmVar.a;
+   737→        boolean l = g30.l(um0Var);
+   738→        long j2 = um0Var.b;
+   739→        if (l) {
+   740→            bl[] blVarArr = x41Var2.d;
+   741→            Arrays.fill(blVarArr, 0, blVarArr.length, (Object) null);
+   742→            x41Var2.e = 0;
+   743→            bl[] blVarArr2 = x41Var.d;
+   744→            Arrays.fill(blVarArr2, 0, blVarArr2.length, (Object) null);
+   745→            x41Var.e = 0;
+   746→            fmVar.c = 0L;
+   747→        }
+   748→        if (!g30.n(um0Var)) {
+   749→            List list = um0Var.m;
+   750→            if (list == null) {
+   751→                list = er.e;
+   752→            }
+   753→            int size = list.size();
+   754→            for (int i = 0; i < size; i++) {
+   755→                ly lyVar = (ly) list.get(i);
+   756→                fmVar.a(lyVar.a, ch0.g(lyVar.e, j));
+   757→            }
+   758→            fmVar.a(j2, ch0.g(um0Var.n, j));
+   759→        }
+   760→        if (g30.n(um0Var) && j2 - fmVar.c > 40) {
+   761→            bl[] blVarArr3 = x41Var2.d;
+   762→            Arrays.fill(blVarArr3, 0, blVarArr3.length, (Object) null);
+   763→            x41Var2.e = 0;
+   764→            bl[] blVarArr4 = x41Var.d;
+   765→            Arrays.fill(blVarArr4, 0, blVarArr4.length, (Object) null);
+   766→            x41Var.e = 0;
+   767→            fmVar.c = 0L;
+   768→        }
+   769→        fmVar.c = j2;
+   770→    }
+   771→
+   772→    /* JADX WARN: Can't wrap try/catch for region: R(11:1|(2:3|(8:5|6|7|(3:(1:(1:11)(2:46|47))(1:48)|12|13)(8:49|(10:59|60|61|62|63|64|65|66|(1:68)|25)(7:51|52|53|54|15|16|(6:18|19|20|21|22|23)(2:40|41))|58|31|(1:33)|34|(1:38)|39)|14|15|16|(0)(0)))|78|6|7|(0)(0)|14|15|16|(0)(0)|(1:(0))) */
+   773→    /* JADX WARN: Code restructure failed: missing block: B:24:0x011c, code lost:
+   774→    
+   775→        if (j(r3, r5, r8) == r12) goto L132;
+   776→     */
+   777→    /* JADX WARN: Code restructure failed: missing block: B:43:0x0125, code lost:
+   778→    
+   779→        r0 = e;
+   780→     */
+   781→    /* JADX WARN: Code restructure failed: missing block: B:44:0x0126, code lost:
+   782→    
+   783→        r2 = r1;
+   784→     */
+   785→    /* JADX WARN: Multi-variable type inference failed */
+   786→    /* JADX WARN: Removed duplicated region for block: B:18:0x00ea A[Catch: CancellationException -> 0x0125, TRY_LEAVE, TryCatch #6 {CancellationException -> 0x0125, blocks: (B:16:0x00d5, B:18:0x00ea), top: B:15:0x00d5 }] */
+   787→    /* JADX WARN: Removed duplicated region for block: B:33:0x0136  */
+   788→    /* JADX WARN: Removed duplicated region for block: B:36:0x0143  */
+   789→    /* JADX WARN: Removed duplicated region for block: B:40:0x0128  */
+   790→    /* JADX WARN: Removed duplicated region for block: B:49:0x004e  */
+   791→    /* JADX WARN: Removed duplicated region for block: B:9:0x002b  */
+   792→    /* JADX WARN: Type inference failed for: r1v5, types: [ep0, java.lang.Object] */
+   793→    /* JADX WARN: Unsupported multi-entry loop pattern (BACK_EDGE: B:24:0x011c -> B:14:0x0091). Please report as a decompilation issue!!! */
+   794→    /*
+   795→        Code decompiled incorrectly, please refer to instructions dump.
+   796→        To view partially-correct add '--show-bad-code' argument
+   797→    */
+   798→    public static final java.lang.Object f(defpackage.d7 r23, defpackage.z6 r24, long r25, final defpackage.gv r27, defpackage.ij r28) {
+   799→        /*
+   800→            Method dump skipped, instructions count: 334
+   801→            To view this dump add '--comments-level debug' option
+   802→        */
+   803→        throw new UnsupportedOperationException("Method not decompiled: defpackage.d20.f(d7, z6, long, gv, ij):java.lang.Object");
+   804→    }
+   805→
+   806→    public static final Object g(d7 d7Var, Float f, ds dsVar, gv gvVar, sz0 sz0Var) {
+   807→        Object f2 = f(d7Var, new p01(dsVar, d7Var.e, d7Var.f.getValue(), f, d7Var.g), d7Var.h, gvVar, sz0Var);
+   808→        if (f2 == ik.e) {
+   809→            return f2;
+   810→        }
+   811→        return x31.a;
+   812→    }
+   813→
+   814→    public static float h(float[] fArr) {
+   815→        if (fArr.length < 6) {
+   816→            return 0.0f;
+   817→        }
+   818→        float f = fArr[0];
+   819→        float f2 = fArr[1];
+   820→        float f3 = fArr[2];
+   821→        float f4 = fArr[3];
+   822→        float f5 = fArr[4];
+   823→        float f6 = fArr[5];
+   824→        float f7 = (((((f3 * f6) + ((f2 * f5) + (f * f4))) - (f4 * f5)) - (f2 * f3)) - (f * f6)) * 0.5f;
+   825→        if (f7 < 0.0f) {
+   826→            return -f7;
+   827→        }
+   828→        return f7;
+   829→    }
+   830→
+   831→    /* JADX WARN: Removed duplicated region for block: B:13:0x0076 A[RETURN] */
+   832→    /*
+   833→        Code decompiled incorrectly, please refer to instructions dump.
+   834→        To view partially-correct add '--show-bad-code' argument
+   835→    */
+   836→    public static final boolean i(defpackage.pt r7, defpackage.oj r8) {
+   837→        /*
+   838→            ot r0 = r7.I0()
+   839→            int r0 = r0.ordinal()
+   840→            if (r0 == 0) goto L81
+   841→            r1 = 3
+   842→            r2 = 0
+   843→            r3 = 2
+   844→            r4 = 1
+   845→            if (r0 == r4) goto L35
+   846→            if (r0 == r3) goto L81
+   847→            if (r0 != r1) goto L31
+   848→            boolean r0 = B(r7, r8)
+   849→            if (r0 != 0) goto L77
+   850→            mt r0 = r7.F0()
+   851→            boolean r0 = r0.a
+   852→            if (r0 == 0) goto L2d
+   853→            java.lang.Object r7 = r8.e(r7)
+   854→            java.lang.Boolean r7 = (java.lang.Boolean) r7
+   855→            boolean r7 = r7.booleanValue()
+   856→            goto L2e
+   857→        L2d:
+   858→            r7 = r2
+   859→        L2e:
+   860→            if (r7 == 0) goto L76
+   861→            goto L77
+   862→        L31:
+   863→            defpackage.v7.k()
+   864→            return r2
+   865→        L35:
+   866→            pt r0 = defpackage.n20.v(r7)
+   867→            java.lang.String r5 = "ActiveParent must have a focusedChild"
+   868→            if (r0 == 0) goto L7d
+   869→            ot r6 = r0.I0()
+   870→            int r6 = r6.ordinal()
+   871→            if (r6 == 0) goto L78
+   872→            if (r6 == r4) goto L55
+   873→            if (r6 == r3) goto L78
+   874→            if (r6 == r1) goto L51
+   875→            defpackage.v7.k()
+   876→            return r2
+   877→        L51:
+   878→            defpackage.v7.o(r5)
+   879→            return r2
+   880→        L55:
+   881→            boolean r1 = i(r0, r8)
+   882→            if (r1 != 0) goto L77
+   883→            boolean r7 = r(r7, r0, r3, r8)
+   884→            if (r7 != 0) goto L77
+   885→            mt r7 = r0.F0()
+   886→            boolean r7 = r7.a
+   887→            if (r7 == 0) goto L76
+   888→            java.lang.Object r7 = r8.e(r0)
+   889→            java.lang.Boolean r7 = (java.lang.Boolean) r7
+   890→            boolean r7 = r7.booleanValue()
+   891→            if (r7 == 0) goto L76
+   892→            goto L77
+   893→        L76:
+   894→            return r2
+   895→        L77:
+   896→            return r4
+   897→        L78:
+   898→            boolean r7 = r(r7, r0, r3, r8)
+   899→            return r7
+   900→        L7d:
+   901→            defpackage.v7.o(r5)
+   902→            return r2
+   903→        L81:
+   904→            boolean r7 = B(r7, r8)
+   905→            return r7
+   906→        */
+   907→        throw new UnsupportedOperationException("Method not decompiled: defpackage.d20.i(pt, oj):boolean");
+   908→    }
+   909→
+   910→    public static final Object j(z6 z6Var, gv gvVar, rz0 rz0Var) {
+   911→        yj yjVar = rz0Var.f;
+   912→        if (z6Var.a()) {
+   913→            yjVar.getClass();
+   914→            if (yjVar.j(x1.K) == null) {
+   915→                yjVar.getClass();
+   916→                return o30.r(yjVar).d(gvVar, rz0Var);
+   917→            }
+   918→            v7.d();
+   919→            return null;
+   920→        }
+   921→        lw lwVar = new lw(gvVar, 2);
+   922→        yjVar.getClass();
+   923→        return o30.r(yjVar).d(lwVar, rz0Var);
+   924→    }
+   925→
+   926→    public static s51 k(Class cls) {
+   927→        try {
+   928→            Constructor declaredConstructor = cls.getDeclaredConstructor(null);
+   929→            if (Modifier.isPublic(declaredConstructor.getModifiers())) {
+   930→                try {
+   931→                    Object newInstance = declaredConstructor.newInstance(null);
+   932→                    newInstance.getClass();
+   933→                    return (s51) newInstance;
+   934→                } catch (IllegalAccessException e) {
+   935→                    v7.j("Cannot create an instance of ", cls, e);
+   936→                    return null;
+   937→                } catch (InstantiationException e2) {
+   938→                    v7.j("Cannot create an instance of ", cls, e2);
+   939→                    return null;
+   940→                }
+   941→            }
+   942→            throw new RuntimeException("Cannot create an instance of " + cls);
+   943→        } catch (NoSuchMethodException e3) {
+   944→            v7.j("Cannot create an instance of ", cls, e3);
+   945→            return null;
+   946→        }
+   947→    }
+   948→
+   949→    public static final void l(b7 b7Var, long j, float f, z6 z6Var, d7 d7Var, gv gvVar) {
+   950→        long j2;
+   951→        if (f == 0.0f) {
+   952→            j2 = z6Var.c();
+   953→        } else {
+   954→            j2 = ((float) (j - b7Var.c)) / f;
+   955→        }
+   956→        b7Var.g = j;
+   957→        b7Var.e.setValue(z6Var.b(j2));
+   958→        b7Var.f = z6Var.f(j2);
+   959→        if (z6Var.g(j2)) {
+   960→            b7Var.h = b7Var.g;
+   961→            b7Var.i.setValue(Boolean.FALSE);
+   962→        }
+   963→        P(b7Var, d7Var);
+   964→        gvVar.e(b7Var);
+   965→    }
+   966→
+   967→    public static final float m(float[] fArr, float[] fArr2) {
+   968→        int length = fArr.length;
+   969→        float f = 0.0f;
+   970→        for (int i = 0; i < length; i++) {
+   971→            f += fArr[i] * fArr2[i];
+   972→        }
+   973→        return f;
+   974→    }
+   975→
+   976→    public static final float n(float f) {
+   977→        float intBitsToFloat = Float.intBitsToFloat(((int) ((Float.floatToRawIntBits(f) & 8589934591L) / 3)) + 709952852);
+   978→        float f2 = intBitsToFloat - ((intBitsToFloat - (f / (intBitsToFloat * intBitsToFloat))) * 0.33333334f);
+   979→        return f2 - ((f2 - (f / (f2 * f2))) * 0.33333334f);
+   980→    }
+   981→
+   982→    public static final int o(int i, c70 c70Var, Object obj) {
+   983→        int c;
+   984→        if (obj != null && c70Var.c() != 0 && ((i >= c70Var.c() || !obj.equals(c70Var.d(i))) && (c = c70Var.d.c(obj)) != -1)) {
+   985→            return c;
+   986→        }
+   987→        return i;
+   988→    }
+   989→
+   990→    public static final w21 p(jm jmVar, Object obj) {
+   991→        lg0 lg0Var;
+   992→        if (!jmVar.e.r) {
+   993→            q00.b("visitAncestors called on an unattached node");
+   994→        }
+   995→        bd0 bd0Var = jmVar.e.i;
+   996→        z40 E = k81.E(jmVar);
+   997→        while (E != null) {
+   998→            if ((E.H.f.h & 262144) != 0) {
+   999→                while (bd0Var != null) {
+  1000→                    if ((bd0Var.g & 262144) != 0) {
+  1001→                        bd0 bd0Var2 = bd0Var;
+  1002→                        ef0 ef0Var = null;
+  1003→                        while (bd0Var2 != null) {
+  1004→                            if (bd0Var2 instanceof w21) {
+  1005→                                w21 w21Var = (w21) bd0Var2;
+  1006→                                if (obj.equals(w21Var.z())) {
+  1007→                                    return w21Var;
+  1008→                                }
+  1009→                            }
+  1010→                            if ((bd0Var2.g & 262144) != 0 && (bd0Var2 instanceof jm)) {
+  1011→                                int i = 0;
+  1012→                                for (bd0 bd0Var3 = ((jm) bd0Var2).t; bd0Var3 != null; bd0Var3 = bd0Var3.j) {
+  1013→                                    if ((bd0Var3.g & 262144) != 0) {
+  1014→                                        i++;
+  1015→                                        if (i == 1) {
+  1016→                                            bd0Var2 = bd0Var3;
+  1017→                                        } else {
+  1018→                                            if (ef0Var == null) {
+  1019→                                                ef0Var = new ef0(new bd0[16]);
+  1020→                                            }
+  1021→                                            if (bd0Var2 != null) {
+  1022→                                                ef0Var.b(bd0Var2);
+  1023→                                                bd0Var2 = null;
+  1024→                                            }
+  1025→                                            ef0Var.b(bd0Var3);
+  1026→                                        }
+  1027→                                    }
+  1028→                                }
+  1029→                                if (i == 1) {
+  1030→                                }
+  1031→                            }
+  1032→                            bd0Var2 = k81.h(ef0Var);
+  1033→                        }
+  1034→                    }
+  1035→                    bd0Var = bd0Var.i;
+  1036→                }
+  1037→            }
+  1038→            E = E.s();
+  1039→            if (E != null && (lg0Var = E.H) != null) {
+  1040→                bd0Var = lg0Var.e;
+  1041→            } else {
+  1042→                bd0Var = null;
+  1043→            }
+  1044→        }
+  1045→        return null;
+  1046→    }
+  1047→
+  1048→    public static final boolean q(pt ptVar, oj ojVar) {
+  1049→        int ordinal = ptVar.I0().ordinal();
+  1050→        if (ordinal != 0) {
+  1051→            if (ordinal != 1) {
+  1052→                if (ordinal != 2) {
+  1053→                    if (ordinal == 3) {
+  1054→                        if (ptVar.F0().a) {
+  1055→                            return ((Boolean) ojVar.e(ptVar)).booleanValue();
+  1056→                        }
+  1057→                        return C(ptVar, ojVar);
+  1058→                    }
+  1059→                    v7.k();
+  1060→                    return false;
+  1061→                }
+  1062→            } else {
+  1063→                pt v = n20.v(ptVar);
+  1064→                if (v != null) {
+  1065→                    if (!q(v, ojVar) && !r(ptVar, v, 1, ojVar)) {
+  1066→                        return false;
+  1067→                    }
+  1068→                    return true;
+  1069→                }
+  1070→                v7.o("ActiveParent must have a focusedChild");
+  1071→                return false;
+  1072→            }
+  1073→        }
+  1074→        return C(ptVar, ojVar);
+  1075→    }
+  1076→
+  1077→    public static final boolean r(pt ptVar, pt ptVar2, int i, oj ojVar) {
+  1078→        if (G(ptVar, ptVar2, i, ojVar)) {
+  1079→            return true;
+  1080→        }
+  1081→        Boolean bool = (Boolean) o20.B(ptVar, i, new ph0(((lt) ((b4) k81.F(ptVar)).getFocusOwner()).f(), ptVar, ptVar2, i, ojVar, 0));
+  1082→        if (bool != null) {
+  1083→            return bool.booleanValue();
+  1084→        }
+  1085→        return false;
+  1086→    }
+  1087→
+  1088→    public static final Rect s(TextPaint textPaint, CharSequence charSequence, int i, int i2) {
+  1089→        int i3 = i;
+  1090→        if (charSequence instanceof Spanned) {
+  1091→            Spanned spanned = (Spanned) charSequence;
+  1092→            if (spanned.nextSpanTransition(i3 - 1, i2, MetricAffectingSpan.class) != i2) {
+  1093→                Rect rect = new Rect();
+  1094→                Rect rect2 = new Rect();
+  1095→                TextPaint textPaint2 = new TextPaint();
+  1096→                while (i3 < i2) {
+  1097→                    int nextSpanTransition = spanned.nextSpanTransition(i3, i2, MetricAffectingSpan.class);
+  1098→                    MetricAffectingSpan[] metricAffectingSpanArr = (MetricAffectingSpan[]) spanned.getSpans(i3, nextSpanTransition, MetricAffectingSpan.class);
+  1099→                    textPaint2.set(textPaint);
+  1100→                    for (MetricAffectingSpan metricAffectingSpan : metricAffectingSpanArr) {
+  1101→                        if (spanned.getSpanStart(metricAffectingSpan) != spanned.getSpanEnd(metricAffectingSpan)) {
+  1102→                            metricAffectingSpan.updateMeasureState(textPaint2);
+  1103→                        }
+  1104→                    }
+  1105→                    if (Build.VERSION.SDK_INT >= 29) {
+  1106→                        textPaint2.getTextBounds(charSequence, i3, nextSpanTransition, rect2);
+  1107→                    } else {
+  1108→                        textPaint2.getTextBounds(charSequence.toString(), i3, nextSpanTransition, rect2);
+  1109→                    }
+  1110→                    rect.right = rect2.width() + rect.right;
+  1111→                    rect.top = Math.min(rect.top, rect2.top);
+  1112→                    rect.bottom = Math.max(rect.bottom, rect2.bottom);
+  1113→                    i3 = nextSpanTransition;
+  1114→                }
+  1115→                return rect;
+  1116→            }
+  1117→        }
+  1118→        Rect rect3 = new Rect();
+  1119→        if (Build.VERSION.SDK_INT >= 29) {
+  1120→            textPaint.getTextBounds(charSequence, i3, i2, rect3);
+  1121→            return rect3;
+  1122→        }
+  1123→        textPaint.getTextBounds(charSequence.toString(), i3, i2, rect3);
+  1124→        return rect3;
+  1125→    }
+  1126→
+  1127→    public static final float t(yj yjVar) {
+  1128→        float f;
+  1129→        id0 id0Var = (id0) yjVar.j(x1.Q);
+  1130→        if (id0Var != null) {
+  1131→            f = id0Var.t();
+  1132→        } else {
+  1133→            f = 1.0f;
+  1134→        }
+  1135→        if (f >= 0.0f) {
+  1136→            return f;
+  1137→        }
+  1138→        en0.b("negative scale factor");
+  1139→        return f;
+  1140→    }
+  1141→
+  1142→    public static final Object u(nu0 nu0Var, av0 av0Var) {
+  1143→        Object g = nu0Var.e.g(av0Var);
+  1144→        if (g == null) {
+  1145→            return null;
+  1146→        }
+  1147→        return g;
+  1148→    }
+  1149→
+  1150→    public static final long v(int i) {
+  1151→        return A(4294967296L, i);
+  1152→    }
+  1153→
+  1154→    public static int w(int i) {
+  1155→        if (i != 1) {
+  1156→            if (i == 2) {
+  1157→                return 1;
+  1158→            }
+  1159→            if (i == 4) {
+  1160→                return 2;
+  1161→            }
+  1162→            if (i != 8) {
+  1163→                if (i == 16) {
+  1164→                    return 4;
+  1165→                }
+  1166→                if (i != 32) {
+  1167→                    if (i != 64) {
+  1168→                        if (i != 128) {
+  1169→                            if (i == 256) {
+  1170→                                return 8;
+  1171→                            }
+  1172→                            if (i == 512) {
+  1173→                                return 9;
+  1174→                            }
+  1175→                            throw new IllegalArgumentException("type needs to be >= FIRST and <= LAST, type=" + i);
+  1176→                        }
+  1177→                        return 7;
+  1178→                    }
+  1179→                    return 6;
+  1180→                }
+  1181→                return 5;
+  1182→            }
+  1183→            return 3;
+  1184→        }
+  1185→        return 0;
+  1186→    }
+  1187→
+  1188→    public static final void x(np npVar, float f, float f2, boolean z, boolean z2) {
+  1189→        float[] fArr;
+  1190→        h6 r;
+  1191→        RenderEffect createRuntimeShaderEffect;
+  1192→        RenderEffect createChainEffect;
+  1193→        npVar.getClass();
+  1194→        if (y20.n()) {
+  1195→            float f3 = 0.0f;
+  1196→            if (f > 0.0f && f2 > 0.0f) {
+  1197→                float f4 = npVar.i;
+  1198→                if (f4 > 0.0f) {
+  1199→                    float f5 = f4 - f;
+  1200→                    if (f5 < 0.0f) {
+  1201→                        f5 = 0.0f;
+  1202→                    }
+  1203→                    npVar.i = f5;
+  1204→                }
+  1205→                zv0 zv0Var = (zv0) npVar.l.t.a.a();
+  1206→                if (zv0Var instanceof lr0) {
+  1207→                    kr0 a = ((lr0) zv0Var).a(npVar.g, npVar.h, npVar);
+  1208→                    fArr = new float[]{a.a, a.b, a.c, a.d};
+  1209→                } else {
+  1210→                    fArr = null;
+  1211→                }
+  1212→                if (fArr != null) {
+  1213→                    wb0 wb0Var = npVar.k;
+  1214→                    if (!z2) {
+  1215→                        r = wb0Var.r("Refraction", "\nuniform shader content;\n\nuniform float2 size;\nuniform float2 offset;\nuniform float4 cornerRadii;\nuniform float refractionHeight;\nuniform float refractionAmount;\nuniform float depthEffect;\n\n\nfloat radiusAt(float2 coord, float4 radii) {\n    if (coord.x >= 0.0) {\n        if (coord.y <= 0.0) return radii.y;\n        else return radii.z;\n    } else {\n        if (coord.y <= 0.0) return radii.x;\n        else return radii.w;\n    }\n}\n\nfloat sdRoundedRect(float2 coord, float2 halfSize, float radius) {\n    float2 cornerCoord = abs(coord) - (halfSize - float2(radius));\n    float outside = length(max(cornerCoord, 0.0)) - radius;\n    float inside = min(max(cornerCoord.x, cornerCoord.y), 0.0);\n    return outside + inside;\n}\n\nfloat2 gradSdRoundedRect(float2 coord, float2 halfSize, float radius) {\n    float2 cornerCoord = abs(coord) - (halfSize - float2(radius));\n    if (cornerCoord.x >= 0.0 || cornerCoord.y >= 0.0) {\n        return sign(coord) * normalize(max(cornerCoord, 0.0));\n    } else {\n        float gradX = step(cornerCoord.y, cornerCoord.x);\n        return sign(coord) * float2(gradX, 1.0 - gradX);\n    }\n}\n\nfloat circleMap(float x) {\n    return 1.0 - sqrt(1.0 - x * x);\n}\n\nhalf4 main(float2 coord) {\n    float2 halfSize = size * 0.5;\n    float2 centeredCoord = (coord + offset) - halfSize;\n    float radius = radiusAt(coord, cornerRadii);\n    \n    float sd = sdRoundedRect(centeredCoord, halfSize, radius);\n    if (-sd >= refractionHeight) {\n        return content.eval(coord);\n    }\n    sd = min(sd, 0.0);\n    \n    float d = circleMap(1.0 - -sd / refractionHeight) * refractionAmount;\n    float gradRadius = min(radius * 1.5, min(halfSize.x, halfSize.y));\n    float2 grad = normalize(gradSdRoundedRect(centeredCoord, halfSize, gradRadius) + depthEffect * normalize(centeredCoord));\n    \n    float2 refractedCoord = coord + d * grad;\n    return content.eval(refractedCoord);\n}");
+  1216→                    } else {
+  1217→                        r = wb0Var.r("RefractionWithDispersion", "\nuniform shader content;\n\nuniform float2 size;\nuniform float2 offset;\nuniform float4 cornerRadii;\nuniform float refractionHeight;\nuniform float refractionAmount;\nuniform float depthEffect;\nuniform float chromaticAberration;\n\n\nfloat radiusAt(float2 coord, float4 radii) {\n    if (coord.x >= 0.0) {\n        if (coord.y <= 0.0) return radii.y;\n        else return radii.z;\n    } else {\n        if (coord.y <= 0.0) return radii.x;\n        else return radii.w;\n    }\n}\n\nfloat sdRoundedRect(float2 coord, float2 halfSize, float radius) {\n    float2 cornerCoord = abs(coord) - (halfSize - float2(radius));\n    float outside = length(max(cornerCoord, 0.0)) - radius;\n    float inside = min(max(cornerCoord.x, cornerCoord.y), 0.0);\n    return outside + inside;\n}\n\nfloat2 gradSdRoundedRect(float2 coord, float2 halfSize, float radius) {\n    float2 cornerCoord = abs(coord) - (halfSize - float2(radius));\n    if (cornerCoord.x >= 0.0 || cornerCoord.y >= 0.0) {\n        return sign(coord) * normalize(max(cornerCoord, 0.0));\n    } else {\n        float gradX = step(cornerCoord.y, cornerCoord.x);\n        return sign(coord) * float2(gradX, 1.0 - gradX);\n    }\n}\n\nfloat circleMap(float x) {\n    return 1.0 - sqrt(1.0 - x * x);\n}\n\nhalf4 main(float2 coord) {\n    float2 halfSize = size * 0.5;\n    float2 centeredCoord = (coord + offset) - halfSize;\n    float radius = radiusAt(coord, cornerRadii);\n    \n    float sd = sdRoundedRect(centeredCoord, halfSize, radius);\n    if (-sd >= refractionHeight) {\n        return content.eval(coord);\n    }\n    sd = min(sd, 0.0);\n    \n    float d = circleMap(1.0 - -sd / refractionHeight) * refractionAmount;\n    float gradRadius = min(radius * 1.5, min(halfSize.x, halfSize.y));\n    float2 grad = normalize(gradSdRoundedRect(centeredCoord, halfSize, gradRadius) + depthEffect * normalize(centeredCoord));\n    \n    float2 refractedCoord = coord + d * grad;\n    float dispersionIntensity = chromaticAberration * ((centeredCoord.x * centeredCoord.y) / (halfSize.x * halfSize.y));\n    float2 dispersedCoord = d * grad * dispersionIntensity;\n    \n    half4 color = half4(0.0);\n    \n    half4 red = content.eval(refractedCoord + dispersedCoord);\n    color.r += red.r / 3.5;\n    color.a += red.a / 7.0;\n    \n    half4 orange = content.eval(refractedCoord + dispersedCoord * (2.0 / 3.0));\n    color.r += orange.r / 3.5;\n    color.g += orange.g / 7.0;\n    color.a += orange.a / 7.0;\n    \n    half4 yellow = content.eval(refractedCoord + dispersedCoord * (1.0 / 3.0));\n    color.r += yellow.r / 3.5;\n    color.g += yellow.g / 3.5;\n    color.a += yellow.a / 7.0;\n    \n    half4 green = content.eval(refractedCoord);\n    color.g += green.g / 3.5;\n    color.a += green.a / 7.0;\n    \n    half4 cyan = content.eval(refractedCoord - dispersedCoord * (1.0 / 3.0));\n    color.g += cyan.g / 3.5;\n    color.b += cyan.b / 3.0;\n    color.a += cyan.a / 7.0;\n    \n    half4 blue = content.eval(refractedCoord - dispersedCoord * (2.0 / 3.0));\n    color.b += blue.b / 3.0;\n    color.a += blue.a / 7.0;\n    \n    half4 purple = content.eval(refractedCoord - dispersedCoord);\n    color.r += purple.r / 7.0;\n    color.b += purple.b / 3.0;\n    color.a += purple.a / 7.0;\n    \n    return color;\n}");
+  1218→                    }
+  1219→                    r.a.setFloatUniform("size", Float.intBitsToFloat((int) (npVar.g >> 32)), Float.intBitsToFloat((int) (npVar.g & 4294967295L)));
+  1220→                    float f6 = -npVar.i;
+  1221→                    r.a.setFloatUniform("offset", f6, f6);
+  1222→                    r.a.setFloatUniform("cornerRadii", fArr);
+  1223→                    r.a.setFloatUniform("refractionHeight", f);
+  1224→                    r.a.setFloatUniform("refractionAmount", -f2);
+  1225→                    if (z) {
+  1226→                        f3 = 1.0f;
+  1227→                    }
+  1228→                    r.a.setFloatUniform("depthEffect", f3);
+  1229→                    if (z2) {
+  1230→                        r.a.setFloatUniform("chromaticAberration", 1.0f);
+  1231→                    }
+  1232→                    createRuntimeShaderEffect = RenderEffect.createRuntimeShaderEffect(r.a, "content");
+  1233→                    createRuntimeShaderEffect.getClass();
+  1234→                    e6 e6Var = new e6(createRuntimeShaderEffect);
+  1235→                    if (Build.VERSION.SDK_INT >= 31) {
+  1236→                        gh ghVar = npVar.j;
+  1237→                        if (ghVar != null) {
+  1238→                            createChainEffect = RenderEffect.createChainEffect(e6Var.c(), ghVar.c());
+  1239→                            createChainEffect.getClass();
+  1240→                            e6Var = new e6(createChainEffect);
+  1241→                        }
+  1242→                        npVar.j = e6Var;
+  1243→                        return;
+  1244→                    }
+  1245→                    return;
+  1246→                }
+  1247→                throw new UnsupportedOperationException("Only RoundedRectangularShape or CornerBasedShape is supported in lens effects.");
+  1248→            }
+  1249→        }
+  1250→    }
+  1251→
+  1252→    public static /* synthetic */ void y(np npVar, float f, float f2, int i) {
+  1253→        boolean z;
+  1254→        boolean z2 = true;
+  1255→        if ((i & 4) != 0) {
+  1256→            z = false;
+  1257→        } else {
+  1258→            z = true;
+  1259→        }
+  1260→        if ((i & 8) != 0) {
+  1261→            z2 = false;
+  1262→        }
+  1263→        x(npVar, f, f2, z, z2);
+  1264→    }
+  1265→
+  1266→    public static final float z(float f, float f2, float f3) {
+  1267→        return (f3 * f2) + ((1.0f - f3) * f);
+  1268→    }
+  1269→}
+  1270→

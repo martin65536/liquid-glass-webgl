@@ -75,3 +75,53 @@ Stage Summary:
   - /home/z/my-project/download/buttons-restored.png (screenshot, rest state)
   - /home/z/my-project/download/buttons-blue-pressed.png (screenshot, press state)
   - /home/z/my-project/apk_decompiled/ (jadx decompilation output)
+
+---
+Task ID: apk-decompile-faithful-restore
+Agent: main (Super Z)
+Task: Decompile Kyant's AndroidLiquidGlass APK, read the original Kotlin/AGSL implementation, and faithfully restore the missing details in the WebGL port.
+
+Work Log:
+- Downloaded androidApp-release.apk from the kmp branch (1.1 MB)
+- Installed jadx 1.5.0 to /home/z/my-project/tools/jadx/
+- Decompiled APK to /home/z/my-project/apk_decompiled/jadx_out/ (1223 classes, 19 errors but all target classes extracted)
+- Located key shader strings in decompiled jadx output (iy.java=Default, gy.java=Ambient, q2.java=SdfShader, tj.java=AlphaMask, k20.java=Pointer)
+- Cross-referenced with the original Kotlin source at /home/z/my-project/AndroidLiquidGlass/ (already cloned)
+- Read full pipeline: LiquidButton.kt, DrawBackdropModifier.kt, HighlightModifier.kt, ShadowModifier.kt, InnerShadowModifier.kt, Lens.kt, Blur.kt, ColorFilter.kt, Shaders.kt, HighlightStyle.kt, InteractiveHighlight.kt
+- Identified 5 critical fidelity gaps:
+  1. Highlight was completely missing (page.tsx set highlight: null; original always uses Highlight.Default)
+  2. Highlight had no stroke mask (original draws a 4px stroke band at the edge; my shader added highlight everywhere)
+  3. Tint used a hacky mix() instead of proper BlendMode.Hue (HSV hue replacement)
+  4. Press scale math was wrong (mixed dpr with CSS px instead of the unitless 4/48 ratio)
+  5. Outer shadow was missing (original defaults to Shadow.Default: 24dp blur, 4dp offset, 10% black)
+
+- Fixed shaders.ts:
+  - Added uHighlightStrokeWidth and uHighlightBlur uniforms
+  - Added proper rgb2hsv/hsv2rgb/blendHue functions for BlendMode.Hue
+  - Replaced tint logic with faithful 2-pass: blendHue then 0.75 alpha overlay
+  - Created new RIM_HIGHLIGHT_FRAGMENT_SHADER as a separate pass with proper Plus/SrcOver blend math
+  - Removed inline highlight from ELEMENT_FRAGMENT_SHADER (was dimmed by edge AA — wrong)
+  - Changed shadow from linear smoothstep to Gaussian falloff (sigma = radius/3) to match BlurMaskFilter.NORMAL
+
+- Fixed renderer.ts:
+  - Added rimHighlightProgram (separate shader program for the rim highlight pass)
+  - Added rim highlight render pass AFTER foreground (matches original modifier order: Highlight is post-content)
+  - Used gl.blendFunc(ONE, ONE) for Plus blend (Default/Plain) and gl.blendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA) for SrcOver (Ambient)
+  - Fixed press scale to use unitless 4/48 ratio (was incorrectly using 4*dpr/height_css which mixed units)
+  - Added strokeWidth and blur to GlassHighlight interface
+
+- Fixed page.tsx:
+  - Added DEFAULT_HIGHLIGHT config: mode=Default, color=White(1.0), angle=45deg, falloff=1.0, alpha=1.0, strokeWidth=4 CSS px, blur=0.75 CSS px
+  - Added DEFAULT_SHADOW config: radius=24dp=72 CSS px, alpha=0.1, offset=(0, 4dp=12 CSS px), color=Black
+  - Applied both to all 4 LiquidButtons (was previously null for both)
+
+- Verified with VLM: screenshot now shows (1) bright white rim light on TL/BR corners, (2) soft dark shadow below buttons, (3) Apple-style liquid glass appearance. Previously all three were missing.
+
+Stage Summary:
+- All 5 fidelity gaps fixed
+- Dev server compiles cleanly (HTTP 200, no errors)
+- Visual output verified via VLM — rim highlight and shadow now visible
+- The rim highlight is now a separate render pass with true Plus blend, matching the original HighlightModifier.kt architecture
+- Tint properly uses HSV hue replacement (BlendMode.Hue) instead of hacky mix
+- Shadow uses Gaussian falloff matching BlurMaskFilter.NORMAL
+- Press scale math is now unitless (4/48) matching the original Kotlin

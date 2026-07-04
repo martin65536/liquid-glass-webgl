@@ -1,0 +1,17 @@
+package defpackage;
+
+import android.view.ViewConfiguration;
+
+/* compiled from: r8-map-id-3b96d3c35d690309f46512ed3b40f5bf8cb92090229117673df7fcbbe5498310 */
+/* loaded from: classes.dex */
+public abstract class hq {
+    public static final float a = ViewConfiguration.getScrollFriction();
+    public static final double b;
+    public static final double c;
+
+    static {
+        double log = Math.log(0.78d) / Math.log(0.9d);
+        b = log;
+        c = log - 1.0d;
+    }
+}

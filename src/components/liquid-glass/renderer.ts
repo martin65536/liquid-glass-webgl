@@ -4,6 +4,7 @@ import {
   ELEMENT_FRAGMENT_SHADER,
   FOREGROUND_FRAGMENT_SHADER,
   HIGHLIGHT_FRAGMENT_SHADER,
+  RIM_HIGHLIGHT_FRAGMENT_SHADER,
   SHADOW_FRAGMENT_SHADER,
   TINT_FRAGMENT_SHADER,
   VERTEX_SHADER,
@@ -29,6 +30,10 @@ export interface GlassHighlight {
   angle: number
   falloff: number
   alpha: number
+  /** Full stroke width in CSS px (matches paint.strokeWidth = ceil(width.dp.toPx()) * 2). */
+  strokeWidth: number
+  /** Blur radius in CSS px (matches paint.blur(width.dp.toPx() / 2)). */
+  blur: number
 }
 
 export interface GlassButtonConfig {
@@ -141,6 +146,7 @@ export class LiquidGlassRenderer {
   private foregroundProgram: WebGLProgram
   private highlightProgram: WebGLProgram
   private tintProgram: WebGLProgram
+  private rimHighlightProgram: WebGLProgram
   private quadBuffer: WebGLBuffer
   private wallpaperTexture: WebGLTexture | null = null
   private wallpaperReady = false
@@ -165,6 +171,7 @@ export class LiquidGlassRenderer {
   private aPosLocFg: number
   private aPosLocHl: number
   private aPosLocTn: number
+  private aPosLocRm: number
 
   // Program uniform locations (cached)
   private uEl: Record<string, WebGLUniformLocation | null> = {}
@@ -173,6 +180,7 @@ export class LiquidGlassRenderer {
   private uFg: Record<string, WebGLUniformLocation | null> = {}
   private uHl: Record<string, WebGLUniformLocation | null> = {}
   private uTn: Record<string, WebGLUniformLocation | null> = {}
+  private uRm: Record<string, WebGLUniformLocation | null> = {}
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas
@@ -191,6 +199,7 @@ export class LiquidGlassRenderer {
     this.foregroundProgram = createProgram(gl, VERTEX_SHADER, FOREGROUND_FRAGMENT_SHADER)
     this.highlightProgram = createProgram(gl, VERTEX_SHADER, HIGHLIGHT_FRAGMENT_SHADER)
     this.tintProgram = createProgram(gl, VERTEX_SHADER, TINT_FRAGMENT_SHADER)
+    this.rimHighlightProgram = createProgram(gl, VERTEX_SHADER, RIM_HIGHLIGHT_FRAGMENT_SHADER)
 
     // Fullscreen quad
     this.quadBuffer = gl.createBuffer()!
@@ -207,6 +216,7 @@ export class LiquidGlassRenderer {
     this.aPosLocFg = gl.getAttribLocation(this.foregroundProgram, 'aPos')
     this.aPosLocHl = gl.getAttribLocation(this.highlightProgram, 'aPos')
     this.aPosLocTn = gl.getAttribLocation(this.tintProgram, 'aPos')
+    this.aPosLocRm = gl.getAttribLocation(this.rimHighlightProgram, 'aPos')
 
     // Offscreen 2D canvas for the foreground texture.
     this.fgCanvas = typeof document !== 'undefined' ? document.createElement('canvas') : (null as any)
@@ -225,6 +235,7 @@ export class LiquidGlassRenderer {
       'uChromaticAberration', 'uBlurRadius', 'uSaturation', 'uBrightness',
       'uContrast', 'uTintColor', 'uSurfaceColor', 'uHighlightColor',
       'uHighlightAngle', 'uHighlightFalloff', 'uHighlightAlpha', 'uHighlightMode',
+      'uHighlightStrokeWidth', 'uHighlightBlur',
       'uInnerShadowRadius', 'uInnerShadowAlpha', 'uInnerShadowOffset',
     ]
     for (const n of elNames) this.uEl[n] = gl.getUniformLocation(this.elementProgram, n)
@@ -241,6 +252,13 @@ export class LiquidGlassRenderer {
     for (const n of hlNames) this.uHl[n] = gl.getUniformLocation(this.highlightProgram, n)
     const tnNames = ['uCanvasSize', 'uOffset', 'uSize', 'uColor']
     for (const n of tnNames) this.uTn[n] = gl.getUniformLocation(this.tintProgram, n)
+    const rmNames = [
+      'uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii',
+      'uHighlightColor', 'uHighlightAngle', 'uHighlightFalloff',
+      'uHighlightAlpha', 'uHighlightMode', 'uHighlightStrokeWidth',
+      'uHighlightBlur',
+    ]
+    for (const n of rmNames) this.uRm[n] = gl.getUniformLocation(this.rimHighlightProgram, n)
   }
 
   /** Load the wallpaper image as a texture. */
@@ -564,6 +582,13 @@ export class LiquidGlassRenderer {
       // translationY = maxOffset * tanh(0.05 * dragOffsetY / maxOffset)
       // scaleX = scale + maxDragScale * |cos(angle)*dx/maxDim| * (w/h capped at 1)
       // scaleY = scale + maxDragScale * |sin(angle)*dy/maxDim| * (h/w capped at 1)
+      //
+      // 4dp / 48dp is a UNITLESS ratio (density cancels). The original Kotlin
+      // uses `4f.dp.toPx() / size.height` where both numerator and denominator
+      // are in device px — so the ratio is just 4/48 for a 48dp button.
+      // NOTE: This assumes a 48dp button height (the LiquidButton spec). For
+      // other heights, parameterize this.
+      const PRESS_SCALE_RATIO = 4 / 48
       let scale = 1
       let translationX = 0
       let translationY = 0
@@ -576,9 +601,9 @@ export class LiquidGlassRenderer {
         const minDim = Math.min(width, height)
         const maxOffset = minDim
         const initialDerivative = 0.05
-        const maxDragScale = (4 * this.dpr) / height  // 4dp / height
+        const maxDragScale = PRESS_SCALE_RATIO
 
-        scale = 1 + (4 * this.dpr / height) * p
+        scale = 1 + PRESS_SCALE_RATIO * p
 
         // drag offset relative to start
         const dx = st.dragX - st.startDragX
@@ -681,9 +706,13 @@ export class LiquidGlassRenderer {
         gl.uniform1f(this.uEl['uHighlightFalloff'], el.highlight.falloff)
         gl.uniform1f(this.uEl['uHighlightAlpha'], el.highlight.alpha)
         gl.uniform1f(this.uEl['uHighlightMode'], el.highlight.mode)
+        gl.uniform1f(this.uEl['uHighlightStrokeWidth'], el.highlight.strokeWidth * this.dpr)
+        gl.uniform1f(this.uEl['uHighlightBlur'], el.highlight.blur * this.dpr)
       } else {
         gl.uniform1f(this.uEl['uHighlightAlpha'], 0)
         gl.uniform1f(this.uEl['uHighlightMode'], 0)
+        gl.uniform1f(this.uEl['uHighlightStrokeWidth'], 0)
+        gl.uniform1f(this.uEl['uHighlightBlur'], 0)
       }
 
       gl.uniform1f(this.uEl['uInnerShadowAlpha'], 0)
@@ -754,6 +783,49 @@ export class LiquidGlassRenderer {
         gl.uniform1f(this.uFg['uAlpha'], 1.0 - 0.15 * p)
         gl.drawArrays(gl.TRIANGLES, 0, 6)
       }
+
+      // --- 6. Rim highlight pass (Default/Ambient/Plain) -------------
+      // Faithful to HighlightModifier.kt: a separate layer composited on
+      // top of the content with its own blend mode (Plus for Default/Plain,
+      // SrcOver for Ambient). Drawn AFTER the foreground (label) to match
+      // the original modifier order.
+      if (el.highlight && el.highlight.alpha > 0.001) {
+        gl.useProgram(this.rimHighlightProgram)
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+        gl.enableVertexAttribArray(this.aPosLocRm)
+        gl.vertexAttribPointer(this.aPosLocRm, 2, gl.FLOAT, false, 0, 0)
+
+        // Default and Plain use Plus blend (additive). Ambient uses SrcOver.
+        if (el.highlight.mode === 1) {
+          gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+        } else {
+          // Plus blend: result = src.rgb + dst.rgb (clamped). The shader
+          // outputs premultiplied alpha=1, so we use ONE/ONE.
+          gl.blendFunc(gl.ONE, gl.ONE)
+        }
+
+        gl.uniform2f(this.uRm['uCanvasSize'], this.canvas.width, this.canvas.height)
+        gl.uniform2f(this.uRm['uOffset'], sx * this.dpr, sy * this.dpr)
+        gl.uniform2f(this.uRm['uSize'], sw * this.dpr, sh * this.dpr)
+        gl.uniform4f(
+          this.uRm['uCornerRadii'],
+          radii[0] * this.dpr,
+          radii[1] * this.dpr,
+          radii[2] * this.dpr,
+          radii[3] * this.dpr
+        )
+        gl.uniform4f(this.uRm['uHighlightColor'], el.highlight.color[0], el.highlight.color[1], el.highlight.color[2], 1.0)
+        gl.uniform1f(this.uRm['uHighlightAngle'], el.highlight.angle)
+        gl.uniform1f(this.uRm['uHighlightFalloff'], el.highlight.falloff)
+        gl.uniform1f(this.uRm['uHighlightAlpha'], el.highlight.alpha)
+        gl.uniform1f(this.uRm['uHighlightMode'], el.highlight.mode)
+        gl.uniform1f(this.uRm['uHighlightStrokeWidth'], el.highlight.strokeWidth * this.dpr)
+        gl.uniform1f(this.uRm['uHighlightBlur'], el.highlight.blur * this.dpr)
+        gl.drawArrays(gl.TRIANGLES, 0, 6)
+
+        // Restore normal blending.
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+      }
     }
   }
 
@@ -772,6 +844,7 @@ export class LiquidGlassRenderer {
     gl.deleteProgram(this.foregroundProgram)
     gl.deleteProgram(this.highlightProgram)
     gl.deleteProgram(this.tintProgram)
+    gl.deleteProgram(this.rimHighlightProgram)
     gl.deleteBuffer(this.quadBuffer)
   }
 }
