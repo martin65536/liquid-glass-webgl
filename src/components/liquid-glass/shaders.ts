@@ -402,11 +402,17 @@ void main() {
     // SDF of the shape offset by shadow offset
     vec2 shadowCentered = centeredCoord - uShadowOffset;
     float sd = sdRoundedRect(shadowCentered, halfSize, radius);
+    // SDF of the element itself (not offset) — used to mask the shadow
+    // inside the element so it doesn't bleed through the AA edge.
+    float elementSd = sdRoundedRect(centeredCoord, halfSize, radius);
 
-    // Outside the shape, fade out over shadowRadius
+    // Shadow intensity: 1 inside the shadow shape, fading to 0 over
+    // uShadowRadius pixels outside.
     float shadow = 1.0 - smoothstep(0.0, uShadowRadius, sd);
-    // Don't draw shadow inside the shape itself (the element covers it)
-    if (sd < -1.0) shadow = 0.0;
+    // Mask out the shadow inside the element (the element covers it).
+    // Using a smoothstep over elementSd avoids a hard edge that would
+    // otherwise show through the element's own AA edge.
+    shadow *= smoothstep(-1.0, 1.0, elementSd);
 
     gl_FragColor = vec4(uShadowColor.rgb, uShadowColor.a * shadow);
 }

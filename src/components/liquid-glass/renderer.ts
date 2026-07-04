@@ -119,6 +119,12 @@ export class LiquidGlassRenderer {
   private dpr = 1
   private buttonConfig: GlassButtonConfig | null = null
 
+  // Press animation state. pressProgress interpolates toward targetPress
+  // (0 = idle, 1 = fully pressed) via a dedicated rAF loop.
+  private pressProgress = 0
+  private targetPress = 0
+  private pressRafId: number | null = null
+
   // Offscreen 2D canvas for the foreground (label + chevron).
   private fgCanvas: HTMLCanvasElement
   private fgCtx: CanvasRenderingContext2D
@@ -214,7 +220,7 @@ export class LiquidGlassRenderer {
     if (this.wallpaperTexture) gl.deleteTexture(this.wallpaperTexture)
     const tex = gl.createTexture()!
     gl.bindTexture(gl.TEXTURE_2D, tex)
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true)
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img)
     // Use power-of-two mipmaps if available; otherwise clamp.
     const w = img.naturalWidth
@@ -255,6 +261,30 @@ export class LiquidGlassRenderer {
     this.buttonConfig = config
     this.fgDirty = true
     this.requestRender()
+  }
+
+  /** Set the pressed state. Animates pressProgress toward 0/1. */
+  setPressed(pressed: boolean) {
+    this.targetPress = pressed ? 1 : 0
+    this.startPressAnimation()
+  }
+
+  private startPressAnimation() {
+    if (this.pressRafId !== null) return
+    const tick = () => {
+      const delta = this.targetPress - this.pressProgress
+      if (Math.abs(delta) < 0.001) {
+        this.pressProgress = this.targetPress
+        this.pressRafId = null
+        this.requestRender()
+        return
+      }
+      // Exponential approach — gives a natural ease-out feel.
+      this.pressProgress += delta * 0.22
+      this.requestRender()
+      this.pressRafId = requestAnimationFrame(tick)
+    }
+    this.pressRafId = requestAnimationFrame(tick)
   }
 
   private requestRender() {
@@ -340,7 +370,10 @@ export class LiquidGlassRenderer {
     if (this.fgTexture) gl.deleteTexture(this.fgTexture)
     const tex = gl.createTexture()!
     gl.bindTexture(gl.TEXTURE_2D, tex)
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true)
+    // No flip — the 2D canvas and our shader both use top-left origin,
+    // so the texture's row 0 (top of canvas) should map to v=0 (top of
+    // button rect in our top-left-origin screenCoord).
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.fgCanvas)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
@@ -381,8 +414,21 @@ export class LiquidGlassRenderer {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
     const el = this.buttonConfig
+
+    // Apply press scale — shrink the button rect around its center.
+    // The foreground texture (rasterized at original size) is sampled
+    // over the scaled rect, so the text scales along with the glass.
+    const scale = 1 - 0.05 * this.pressProgress
+    const cx = el.rect.x + el.rect.w / 2
+    const cy = el.rect.y + el.rect.h / 2
+    const sw = el.rect.w * scale
+    const sh = el.rect.h * scale
+    const sx = cx - sw / 2
+    const sy = cy - sh / 2
+    const cornerRadius = el.cornerRadius * scale
+
     const radii: [number, number, number, number] = [
-      el.cornerRadius, el.cornerRadius, el.cornerRadius, el.cornerRadius,
+      cornerRadius, cornerRadius, cornerRadius, cornerRadius,
     ]
 
     // --- 2. Shadow pass ---------------------------------------------
@@ -393,8 +439,8 @@ export class LiquidGlassRenderer {
       gl.vertexAttribPointer(this.aPosLocSh, 2, gl.FLOAT, false, 0, 0)
 
       gl.uniform2f(this.uSh['uCanvasSize'], this.canvas.width, this.canvas.height)
-      gl.uniform2f(this.uSh['uElementOffset'], el.rect.x * this.dpr, el.rect.y * this.dpr)
-      gl.uniform2f(this.uSh['uElementSize'], el.rect.w * this.dpr, el.rect.h * this.dpr)
+      gl.uniform2f(this.uSh['uElementOffset'], sx * this.dpr, sy * this.dpr)
+      gl.uniform2f(this.uSh['uElementSize'], sw * this.dpr, sh * this.dpr)
       gl.uniform4f(
         this.uSh['uCornerRadii'],
         radii[0] * this.dpr,
@@ -430,8 +476,8 @@ export class LiquidGlassRenderer {
 
     gl.uniform2f(this.uEl['uCanvasSize'], this.canvas.width, this.canvas.height)
     gl.uniform2f(this.uEl['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
-    gl.uniform2f(this.uEl['uElementOffset'], el.rect.x * this.dpr, el.rect.y * this.dpr)
-    gl.uniform2f(this.uEl['uElementSize'], el.rect.w * this.dpr, el.rect.h * this.dpr)
+    gl.uniform2f(this.uEl['uElementOffset'], sx * this.dpr, sy * this.dpr)
+    gl.uniform2f(this.uEl['uElementSize'], sw * this.dpr, sh * this.dpr)
     gl.uniform4f(
       this.uEl['uCornerRadii'],
       radii[0] * this.dpr,
@@ -468,6 +514,9 @@ export class LiquidGlassRenderer {
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 
     // --- 4. Foreground pass (label + chevron) -----------------------
+    // Uses the same scaled rect so the text scales with the glass.
+    // The foreground texture was rasterized at the ORIGINAL button size,
+    // so sampling it over the scaled rect naturally downscales the text.
     if (this.fgTexture) {
       gl.useProgram(this.foregroundProgram)
       gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
@@ -478,8 +527,8 @@ export class LiquidGlassRenderer {
       gl.bindTexture(gl.TEXTURE_2D, this.fgTexture)
       gl.uniform1i(this.uFg['uTexture'], 0)
       gl.uniform2f(this.uFg['uCanvasSize'], this.canvas.width, this.canvas.height)
-      gl.uniform2f(this.uFg['uOffset'], el.rect.x * this.dpr, el.rect.y * this.dpr)
-      gl.uniform2f(this.uFg['uSize'], el.rect.w * this.dpr, el.rect.h * this.dpr)
+      gl.uniform2f(this.uFg['uOffset'], sx * this.dpr, sy * this.dpr)
+      gl.uniform2f(this.uFg['uSize'], sw * this.dpr, sh * this.dpr)
       gl.drawArrays(gl.TRIANGLES, 0, 6)
     }
   }
@@ -487,6 +536,8 @@ export class LiquidGlassRenderer {
   dispose() {
     if (this.rafId !== null) cancelAnimationFrame(this.rafId)
     this.rafId = null
+    if (this.pressRafId !== null) cancelAnimationFrame(this.pressRafId)
+    this.pressRafId = null
     const gl = this.gl
     if (this.wallpaperTexture) gl.deleteTexture(this.wallpaperTexture)
     if (this.fgTexture) gl.deleteTexture(this.fgTexture)
