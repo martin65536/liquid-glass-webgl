@@ -44,3 +44,49 @@ Stage Summary:
 - Drag fidelity: position now SNAPS to finger during drag (no spring lag) and springs back on release — matches InteractiveHighlight.kt's snapTo during drag + animateTo on release.
 - White highlight: already clipped via SDF discard in TINT/HIGHLIGHT/FOREGROUND/RIM_HIGHLIGHT shaders (sd > 0.5 with 1px AA, or sd > 0 for rim). No outward bleed.
 - Build: ✓ Compiled successfully
+
+---
+Task ID: catalog-1
+Agent: main
+Task: Build the AndroidLiquidGlass catalog page (multiple sections + scroll + new control types: toggle, slider, dialog, bottom tabs, progressive blur) all rendered to the single WebGL canvas.
+
+Work Log:
+- Read all catalog destination Kotlin files (ButtonsContent, ToggleContent, SliderContent, DialogContent, BottomTabsContent, ProgressiveBlurContent, HomeContent, MainContent) and the LiquidButton / LiquidToggle / LiquidSlider / HighlightModifier / Highlight / Shadow Kotlin sources to understand the visual + interaction spec.
+- Added two new GLSL shaders to shaders.ts:
+  - PLAIN_RECT_FRAGMENT_SHADER: solid colored rounded rect (for toggle/slider tracks + fills, dialog buttons, dim scrim).
+  - PROGRESSIVE_BLUR_FRAGMENT_SHADER: faithful port of ProgressiveBlurContent.kt's AlphaMask shader — 9-tap poisson-disc backdrop blur, alpha-masked by a vertical smoothstep gradient, tint mixed in at tintIntensity.
+- Extended renderer.ts:
+  - New ElementKind union: 'button' | 'glass-shape' | 'plain-rect' | 'progressive-blur' | 'text'.
+  - GlassElementConfig extends GlassButtonConfig with kind + plainRect + progressiveBlur + text + innerShadow + scroll flag.
+  - ElementState extended with interactiveValue/Velocity/targetInteractiveValue (spring-animated value for knob position).
+  - Scroll state: scrollY / targetScrollY / scrollVelocity, with spring animation in the existing rAF loop. setContentHeight + setScrollY + clampScroll.
+  - Render loop split into two waves: wave 1 (plain-rect + progressive-blur) under wave 2 (glass-shape + button + text). All elements get y offset by -scrollY. Off-screen elements are culled.
+  - rasterizeText() helper: word-wrap, halo (auto/light/dark/none), align (left/center/right), paddingPx. Used for section titles, dialog title/body, tab labels, slider value labels.
+  - Wheel listener added to the canvas (in context.tsx) for scroll.
+  - setInteractiveValue() method to push toggle/slider/tabbar target values.
+- Rewrote context.tsx:
+  - Props: elements + contentHeight + interactions (id → { onTap, onDragStart, onDrag, onDragEnd }).
+  - Hit-testing: topmost first; press an element OR start a scroll drag (if no element hit).
+  - For 'button' kind, forward to renderer.setPressed/setDragPosition (existing InteractiveHighlight behavior).
+  - For other kinds, fire onDragStart / onDrag / onDragEnd / onTap callbacks (drag threshold 3px).
+  - Wheel handler calls renderer.setScrollY(cur + delta).
+- Built src/app/page.tsx as a single-page scrollable catalog with 9 sections:
+  1. Header "Backdrop Catalog" (28sp medium, black)
+  2. Subtitle "Liquid glass components" (15sp medium, blue)
+  3. Buttons (4 capsule buttons: transparent / surface / blue tint / orange tint)
+  4. Subtitle "System UIs"
+  5. Dialog card (rounded-rect glass with 48dp corner radius, 16dp blur, Plain highlight; dim scrim behind; title + lorem body + Cancel/Okay buttons)
+  6. Subtitle "Experiments"
+  7. Toggle (64×28 track + 40×24 glass knob; tap to flip, drag knob to move)
+  8. Slider (full-width 6dp track + accent fill + 40×24 glass knob; drag knob or tap track to jump)
+  9. Bottom tabs (glass capsule container + 3 tab labels + sliding glass indicator)
+  10. Progressive blur band (128dp tall, alpha-masked backdrop blur, 4dp blur radius, white tint at 0.8 intensity)
+- All elements are scroll-anchored (scroll: true). Total content height ≈ 1200 CSS px, fits in 900 viewport with wheel/drag scroll.
+- Verified: TypeScript compiles clean (npx tsc --noEmit -p .); dev server returns HTTP 200 with no runtime errors in the log.
+
+Stage Summary:
+- Catalog page now lives at src/app/page.tsx and renders 9 sections vertically on a single scrollable WebGL canvas.
+- New element kinds (plain-rect, progressive-blur, text, glass-shape) compose into toggle / slider / dialog / tabbar / progressive-blur UIs without needing renderer-side logic for each control type — the React layer just updates element positions in response to interaction callbacks.
+- Scroll: wheel + drag-on-empty-space, spring-animated, clamped to contentHeight - viewportHeight.
+- Interactive: buttons (existing press + drag glow), toggle (tap to flip, drag knob), slider (drag knob, tap track), tabbar (tap tab to switch indicator), scroll (wheel/drag).
+- All glass effects (refraction, vibrancy, tint, surface, blur, default/ambient/plain highlight, outer shadow, inner shadow) carry over to glass-shape elements (toggle knob, slider knob, dialog card, tabbar container, tab indicator).

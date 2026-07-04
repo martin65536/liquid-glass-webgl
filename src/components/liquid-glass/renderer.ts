@@ -4,6 +4,8 @@ import {
   ELEMENT_FRAGMENT_SHADER,
   FOREGROUND_FRAGMENT_SHADER,
   HIGHLIGHT_FRAGMENT_SHADER,
+  PLAIN_RECT_FRAGMENT_SHADER,
+  PROGRESSIVE_BLUR_FRAGMENT_SHADER,
   RIM_HIGHLIGHT_FRAGMENT_SHADER,
   SHADOW_FRAGMENT_SHADER,
   TINT_FRAGMENT_SHADER,
@@ -77,17 +79,81 @@ export interface GlassButtonConfig {
 }
 
 /* ------------------------------------------------------------------ *
- * Per-button interaction state — mirrors InteractiveHighlight.kt.
+ * Element kinds — extends the glass-button model to cover the catalog.
+ *
+ *   - 'button'          : existing glass button (default)
+ *   - 'glass-shape'     : glass rect with NO label and NO press effect
+ *                         (e.g. dialog card, tabbar background, toggle/slider knob)
+ *   - 'plain-rect'      : solid colored rounded rect (track, fill, card, scrim)
+ *   - 'progressive-blur': alpha-masked backdrop blur band
+ *   - 'text'            : unclipped text label (section titles, dialog body)
+ *
+ * The renderer treats each element uniformly through GlassElementConfig.
  * ------------------------------------------------------------------ */
 
-interface ButtonState {
-  // pressProgress interpolates 0..1 with an underdamped spring
-  // (matches Compose spring(dampingRatio=0.5, stiffness=300)).
+export type ElementKind =
+  | 'button'
+  | 'glass-shape'
+  | 'plain-rect'
+  | 'progressive-blur'
+  | 'text'
+
+export interface PlainRectSpec {
+  color: [number, number, number, number] // rgba
+}
+
+export interface ProgressiveBlurSpec {
+  blurRadius: number // px (canvas space)
+  tintColor: [number, number, number, number] // rgba
+  tintIntensity: number // 0..1
+}
+
+export interface TextSpec {
+  content: string
+  color: [number, number, number, number]
+  fontSizePx: number
+  fontWeight: number // 400, 500, 600...
+  align: 'left' | 'center' | 'right'
+  /** Wrap into multiple lineshares if too long (default false = single line). */
+  wrap?: boolean
+  /** For 'left' / 'right' alignment: horizontal padding from rect edge (px). */
+  paddingPx?: number
+  /** Halo for legibility (default = auto from color brightness). */
+  halo?: 'auto' | 'light' | 'dark' | 'none'
+}
+
+export interface GlassElementConfig extends GlassButtonConfig {
+  kind: ElementKind
+  plainRect?: PlainRectSpec
+  progressiveBlur?: ProgressiveBlurSpec
+  text?: TextSpec
+  /** Inner shadow (optional, for toggle/slider knobs). */
+  innerShadow?: {
+    radius: number
+    alpha: number
+    offsetX: number
+    offsetY: number
+  } | null
+  /**
+   * Scroll-anchor: if set, the element's rect.y is interpreted as relative
+   * to the section top, and the renderer adds `scrollY` to its screen y.
+   * The renderer keeps a single scrollY for the whole canvas; elements
+   * without this flag are static (drawn at their rect.y as-is).
+   */
+  scroll?: boolean
+}
+
+/* ------------------------------------------------------------------ *
+ * Per-element interaction state — mirrors InteractiveHighlight.kt for
+ * buttons, and adds toggle/slider/tabbar state for the catalog.
+ * ------------------------------------------------------------------ */
+
+interface ElementState {
+  // InteractiveHighlight state (button press + drag) — used by 'button'
+  // kind. Other kinds ignore these.
   pressProgress: number
   pressVelocity: number
   targetPress: number
-  // Drag position (element-local, top-left origin) follows the finger
-  // while pressed, springs back to start on release. Same spring spec.
   dragX: number
   dragY: number
   dragVx: number
@@ -96,6 +162,14 @@ interface ButtonState {
   targetDragY: number
   startDragX: number
   startDragY: number
+
+  // Toggle / Slider / Tabbar state — managed by the React layer and
+  // pushed in via setInteractiveValue(). The renderer just reads them
+  // to position knobs / fill bars / tab indicators. We keep a spring-
+  // animated `displayValue` so changes animate smoothly.
+  interactiveValue: number // current animated value (0..1 for toggle/slider; integer index for tabbar)
+  interactiveVelocity: number
+  targetInteractiveValue: number
 }
 
 /* ------------------------------------------------------------------ *
@@ -180,6 +254,28 @@ function compileShader(gl: WebGLRenderingContext, type: number, src: string): We
   return sh
 }
 
+/* ------------------------------------------------------------------ *
+ * Word-wrap helper — splits `text` into lines that fit within `maxW`
+ * using the current 2D-context font. Used by the text rasterizer.
+ * ------------------------------------------------------------------ */
+function wrapText(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
+  // Simple greedy wrap on word boundaries. Soft-hyphenate long words.
+  const words = text.split(/\s+/)
+  const lines: string[] = []
+  let cur = ''
+  for (const word of words) {
+    const test = cur ? cur + ' ' + word : word
+    if (ctx.measureText(test).width <= maxW || !cur) {
+      cur = test
+    } else {
+      lines.push(cur)
+      cur = word
+    }
+  }
+  if (cur) lines.push(cur)
+  return lines
+}
+
 function createProgram(gl: WebGLRenderingContext, vsSrc: string, fsSrc: string): WebGLProgram {
   const vs = compileShader(gl, gl.VERTEX_SHADER, vsSrc)
   const fs = compileShader(gl, gl.FRAGMENT_SHADER, fsSrc)
@@ -219,14 +315,27 @@ export class LiquidGlassRenderer {
   private highlightProgram: WebGLProgram
   private tintProgram: WebGLProgram
   private rimHighlightProgram: WebGLProgram
+  private plainRectProgram: WebGLProgram
+  private progressiveBlurProgram: WebGLProgram
   private quadBuffer: WebGLBuffer
   private wallpaperTexture: WebGLTexture | null = null
   private wallpaperReady = false
   private wallpaperSize: [number, number] = [1, 1]
   private canvas: HTMLCanvasElement
   private dpr = 1
-  private buttonConfigs: GlassButtonConfig[] = []
-  private buttonStates = new Map<string, ButtonState>()
+  private buttonConfigs: GlassElementConfig[] = []
+  private buttonStates = new Map<string, ElementState>()
+  /** Scroll offset in CSS px (positive = scrolled down). */
+  private scrollY = 0
+  private targetScrollY = 0
+  private scrollVelocity = 0
+  /** Total scrollable content height in CSS px. */
+  private contentHeight = 0
+  /** CSS-pixel canvas size (separate from the device-pixel backing store). */
+  private cssWidth = 0
+  private cssHeight = 0
+  /** Wheel listener target — set in attachWheelListener(). */
+  private wheelTarget: HTMLElement | null = null
 
   // Offscreen 2D canvas for the foreground (label + chevron). Reused
   // across buttons — we re-rasterize + re-upload per button per frame.
@@ -244,6 +353,8 @@ export class LiquidGlassRenderer {
   private aPosLocHl: number
   private aPosLocTn: number
   private aPosLocRm: number
+  private aPosLocPr: number
+  private aPosLocPb: number
 
   // Program uniform locations (cached)
   private uEl: Record<string, WebGLUniformLocation | null> = {}
@@ -253,6 +364,8 @@ export class LiquidGlassRenderer {
   private uHl: Record<string, WebGLUniformLocation | null> = {}
   private uTn: Record<string, WebGLUniformLocation | null> = {}
   private uRm: Record<string, WebGLUniformLocation | null> = {}
+  private uPr: Record<string, WebGLUniformLocation | null> = {}
+  private uPb: Record<string, WebGLUniformLocation | null> = {}
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas
@@ -272,6 +385,8 @@ export class LiquidGlassRenderer {
     this.highlightProgram = createProgram(gl, VERTEX_SHADER, HIGHLIGHT_FRAGMENT_SHADER)
     this.tintProgram = createProgram(gl, VERTEX_SHADER, TINT_FRAGMENT_SHADER)
     this.rimHighlightProgram = createProgram(gl, VERTEX_SHADER, RIM_HIGHLIGHT_FRAGMENT_SHADER)
+    this.plainRectProgram = createProgram(gl, VERTEX_SHADER, PLAIN_RECT_FRAGMENT_SHADER)
+    this.progressiveBlurProgram = createProgram(gl, VERTEX_SHADER, PROGRESSIVE_BLUR_FRAGMENT_SHADER)
 
     // Fullscreen quad
     this.quadBuffer = gl.createBuffer()!
@@ -289,6 +404,8 @@ export class LiquidGlassRenderer {
     this.aPosLocHl = gl.getAttribLocation(this.highlightProgram, 'aPos')
     this.aPosLocTn = gl.getAttribLocation(this.tintProgram, 'aPos')
     this.aPosLocRm = gl.getAttribLocation(this.rimHighlightProgram, 'aPos')
+    this.aPosLocPr = gl.getAttribLocation(this.plainRectProgram, 'aPos')
+    this.aPosLocPb = gl.getAttribLocation(this.progressiveBlurProgram, 'aPos')
 
     // Offscreen 2D canvas for the foreground texture.
     this.fgCanvas = typeof document !== 'undefined' ? document.createElement('canvas') : (null as any)
@@ -331,6 +448,13 @@ export class LiquidGlassRenderer {
       'uHighlightBlur',
     ]
     for (const n of rmNames) this.uRm[n] = gl.getUniformLocation(this.rimHighlightProgram, n)
+    const prNames = ['uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uColor']
+    for (const n of prNames) this.uPr[n] = gl.getUniformLocation(this.plainRectProgram, n)
+    const pbNames = [
+      'uBackdrop', 'uCanvasSize', 'uWallpaperSize', 'uOffset', 'uSize',
+      'uBlurRadius', 'uTintColor', 'uTintIntensity',
+    ]
+    for (const n of pbNames) this.uPb[n] = gl.getUniformLocation(this.progressiveBlurProgram, n)
   }
 
   /** Load the wallpaper image as a texture. */
@@ -378,11 +502,44 @@ export class LiquidGlassRenderer {
     }
     // All foregrounds need re-rasterization when DPR changes.
     for (const b of this.buttonConfigs) this.fgDirtyIds.add(b.id)
+    this.cssWidth = cssW
+    this.cssHeight = cssH
     this.requestRender()
   }
 
-  /** Set the button list. Triggers foreground re-raster for changed buttons. */
-  setButtons(configs: GlassButtonConfig[]) {
+  /** Total scrollable content height in CSS px (set by the React layer). */
+  setContentHeight(h: number) {
+    this.contentHeight = h
+    this.clampScroll()
+    this.requestRender()
+  }
+
+  /** Set the scroll offset (CSS px, positive = scrolled down). */
+  setScrollY(y: number) {
+    this.targetScrollY = y
+    this.clampScroll()
+    this.startAnimation()
+    this.requestRender()
+  }
+
+  /** Get current scroll offset (CSS px). */
+  getScrollY() {
+    return this.scrollY
+  }
+
+  private clampScroll() {
+    const max = Math.max(0, this.contentHeight - this.cssHeight)
+    if (this.targetScrollY < 0) this.targetScrollY = 0
+    if (this.targetScrollY > max) this.targetScrollY = max
+  }
+
+  /** Set the element list. Triggers foreground re-raster for changed elements. */
+  setElements(configs: GlassElementConfig[]) {
+    this.setButtons(configs)
+  }
+
+  /** Set the element list (legacy name; same as setElements). */
+  setButtons(configs: GlassElementConfig[]) {
     const prevIds = new Set(this.buttonConfigs.map((b) => b.id))
     const nextIds = new Set(configs.map((b) => b.id))
     // Mark new buttons as needing rasterization.
@@ -396,7 +553,10 @@ export class LiquidGlassRenderer {
         prev.labelColor !== next.labelColor ||
         prev.showChevron !== next.showChevron ||
         prev.rect.w !== next.rect.w ||
-        prev.rect.h !== next.rect.h
+        prev.rect.h !== next.rect.h ||
+        (next.text && prev.text && prev.text.content !== next.text.content) ||
+        (next.text && !prev.text) ||
+        (!next.text && prev.text)
       ) {
         this.fgDirtyIds.add(next.id)
       }
@@ -416,6 +576,10 @@ export class LiquidGlassRenderer {
     // Ensure state exists for new buttons.
     for (const c of configs) {
       if (!this.buttonStates.has(c.id)) {
+        // interactiveValue is initialized to 0; the React layer should
+        // call setInteractiveValue() right after setElements() to push
+        // the real value (toggle fraction, slider value, tab index).
+        const initValue = 0
         this.buttonStates.set(c.id, {
           pressProgress: 0,
           pressVelocity: 0,
@@ -428,11 +592,29 @@ export class LiquidGlassRenderer {
           targetDragY: 0,
           startDragX: 0,
           startDragY: 0,
+          interactiveValue: initValue,
+          interactiveVelocity: 0,
+          targetInteractiveValue: initValue,
         })
       }
     }
     this.buttonConfigs = configs
     this.requestRender()
+  }
+
+  /**
+   * Set the interactive value (0..1 for toggle/slider; integer index for
+   * tabbar) for an element. The renderer springs `interactiveValue` toward
+   * this target so motion looks animated, not snapped.
+   */
+  setInteractiveValue(id: string, value: number) {
+    const st = this.buttonStates.get(id)
+    if (!st) return
+    if (st.targetInteractiveValue !== value) {
+      st.targetInteractiveValue = value
+      this.startAnimation()
+      this.requestRender()
+    }
   }
 
   /**
@@ -575,7 +757,47 @@ export class LiquidGlassRenderer {
           st.dragY = st.targetDragY
           st.dragVy = 0
         }
+
+        // --- Interactive value spring (toggle / slider / tabbar) ---
+        // Same spring spec (ζ=0.5, k=300) so toggles/tabbar overshoot a hair
+        // — matches the original bouncy feel.
+        const iDelta = Math.abs(st.targetInteractiveValue - st.interactiveValue)
+        if (
+          iDelta > SPRING_THRESHOLD ||
+          Math.abs(st.interactiveVelocity) > SPRING_THRESHOLD
+        ) {
+          const r = springStep1D(
+            st.interactiveValue,
+            st.interactiveVelocity,
+            st.targetInteractiveValue,
+            dt
+          )
+          st.interactiveValue = r.current
+          st.interactiveVelocity = r.velocity
+          stillAnimating = true
+        } else {
+          st.interactiveValue = st.targetInteractiveValue
+          st.interactiveVelocity = 0
+        }
       }
+
+      // --- Scroll spring (critically damped, smoother than press spring) ---
+      // Wheel scrolls set targetScrollY directly; we spring scrollY toward
+      // it with a fast critical spec so it glides instead of snapping.
+      const sDelta = Math.abs(this.targetScrollY - this.scrollY)
+      if (sDelta > 0.5 || Math.abs(this.scrollVelocity) > 0.5) {
+        const r = springStep1D(this.scrollY, this.scrollVelocity, this.targetScrollY, dt)
+        this.scrollY = r.current
+        this.scrollVelocity = r.velocity
+        // For scroll we use the same ζ=0.5 spring, which gives a tiny
+        // overshoot — feels responsive. If that's too bouncy, switch to
+        // a critically damped spec here.
+        stillAnimating = true
+      } else {
+        this.scrollY = this.targetScrollY
+        this.scrollVelocity = 0
+      }
+
       this.requestRender()
       if (stillAnimating) {
         this.animRafId = requestAnimationFrame(tick)
@@ -599,7 +821,17 @@ export class LiquidGlassRenderer {
    * chevron) to an offscreen 2D canvas at device-pixel resolution,
    * then uploads it as a WebGL texture.
    * ---------------------------------------------------------------- */
-  private rasterizeForeground(cfg: GlassButtonConfig) {
+  private rasterizeForeground(cfg: GlassElementConfig) {
+    // For 'text' kind, use the dedicated text rasterizer.
+    if (cfg.kind === 'text' && cfg.text) {
+      this.rasterizeText(cfg)
+      return
+    }
+    // For non-button kinds without a label, skip (no foreground content).
+    if (cfg.kind !== 'button' && !cfg.label) {
+      this.fgDirtyIds.delete(cfg.id)
+      return
+    }
     const dpr = this.dpr
     const w = Math.max(1, Math.round(cfg.rect.w * dpr))
     const h = Math.max(1, Math.round(cfg.rect.h * dpr))
@@ -663,6 +895,95 @@ export class LiquidGlassRenderer {
     this.fgDirtyIds.delete(cfg.id)
   }
 
+  /* ---------------------------------------------------------------- *
+   * Text-element rasterizer — draws an arbitrary text label (with
+   * optional word wrap) to the foreground texture. Used for section
+   * titles, dialog body text, slider value labels, etc.
+   * ---------------------------------------------------------------- */
+  private rasterizeText(cfg: GlassElementConfig) {
+    if (!cfg.text) return
+    const dpr = this.dpr
+    const w = Math.max(1, Math.round(cfg.rect.w * dpr))
+    const h = Math.max(1, Math.round(cfg.rect.h * dpr))
+    if (this.fgCanvas.width !== w) this.fgCanvas.width = w
+    if (this.fgCanvas.height !== h) this.fgCanvas.height = h
+
+    const ctx = this.fgCtx
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.clearRect(0, 0, w, h)
+    ctx.scale(dpr, dpr)
+
+    const t = cfg.text
+    const cssW = cfg.rect.w
+    const cssH = cfg.rect.h
+    const fontFamily =
+      '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+    ctx.font = `${t.fontWeight} ${t.fontSizePx}px ${fontFamily}`
+    ctx.textBaseline = 'middle'
+    const pad = t.paddingPx ?? 0
+
+    // Determine halo mode.
+    let halo: 'light' | 'dark' | 'none' = 'none'
+    if (t.halo === 'light') halo = 'light'
+    else if (t.halo === 'dark') halo = 'dark'
+    else if (t.halo === 'auto' || t.halo === undefined) {
+      const bright = t.color[0] + t.color[1] + t.color[2]
+      halo = bright < 1.5 ? 'light' : 'dark'
+    }
+    if (halo === 'light') {
+      ctx.shadowColor = 'rgba(255,255,255,0.55)'
+      ctx.shadowBlur = t.fontSizePx * 0.16
+    } else if (halo === 'dark') {
+      ctx.shadowColor = 'rgba(0,0,0,0.28)'
+      ctx.shadowBlur = t.fontSizePx * 0.1
+    } else {
+      ctx.shadowColor = 'transparent'
+      ctx.shadowBlur = 0
+    }
+
+    const colorStr = `rgba(${Math.round(t.color[0] * 255)}, ${Math.round(
+      t.color[1] * 255
+    )}, ${Math.round(t.color[2] * 255)}, ${t.color[3]})`
+    ctx.fillStyle = colorStr
+
+    if (t.align === 'center') {
+      ctx.textAlign = 'center'
+      if (t.wrap) {
+        const lines = wrapText(ctx, t.content, cssW - pad * 2)
+        const lineH = t.fontSizePx * 1.35
+        const totalH = lineH * lines.length
+        let y = cssH / 2 - totalH / 2 + lineH / 2
+        for (const line of lines) {
+          ctx.fillText(line, cssW / 2, y)
+          y += lineH
+        }
+      } else {
+        ctx.fillText(t.content, cssW / 2, cssH / 2 + 0.5)
+      }
+    } else if (t.align === 'left') {
+      ctx.textAlign = 'left'
+      if (t.wrap) {
+        const lines = wrapText(ctx, t.content, cssW - pad * 2)
+        const lineH = t.fontSizePx * 1.35
+        const totalH = lineH * lines.length
+        let y = cssH / 2 - totalH / 2 + lineH / 2
+        for (const line of lines) {
+          ctx.fillText(line, pad, y)
+          y += lineH
+        }
+      } else {
+        ctx.fillText(t.content, pad, cssH / 2 + 0.5)
+      }
+    } else {
+      // right
+      ctx.textAlign = 'right'
+      ctx.fillText(t.content, cssW - pad, cssH / 2 + 0.5)
+    }
+
+    this.uploadForegroundTexture(cfg.id)
+    this.fgDirtyIds.delete(cfg.id)
+  }
+
   private uploadForegroundTexture(id: string) {
     const gl = this.gl
     let tex = this.fgTextures.get(id)
@@ -713,34 +1034,140 @@ export class LiquidGlassRenderer {
     gl.enable(gl.BLEND)
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
-    for (const el of this.buttonConfigs) {
-      const st = this.buttonStates.get(el.id)!
-      const p = st.pressProgress
+    // Cull + sort: render in two waves.
+    //   Wave 1: 'plain-rect' (backgrounds, scrims, tracks, fills) and
+    //           'progressive-blur' — these are opaque-ish backgrounds
+    //           that should sit UNDER glass elements.
+    //   Wave 2: 'glass-shape' and 'button' (glass elements with shadow
+    //           and highlight) and 'text' — these render on top.
+    // Within each wave we preserve input order (which is the React layer's
+    // declared order — typically top-to-bottom of the page).
+    //
+    // All elements are offset by -scrollY (CSS px). Off-screen elements
+    // (y + h < scrollY OR y > scrollY + cssHeight) are skipped.
+    const scrollY = this.scrollY
+    const viewTop = scrollY - 16
+    const viewBottom = scrollY + this.cssHeight + 16
 
-      // --- Compute press transform (faithful to LiquidButton.kt) ---
-      // scale = lerp(1, 1 + 4dp/height, progress)  -> grows on press
-      // translationX = maxOffset * tanh(0.05 * dragOffsetX / maxOffset)
-      // translationY = maxOffset * tanh(0.05 * dragOffsetY / maxOffset)
-      // scaleX = scale + maxDragScale * |cos(angle)*dx/maxDim| * (w/h capped at 1)
-      // scaleY = scale + maxDragScale * |sin(angle)*dy/maxDim| * (h/w capped at 1)
-      //
-      // 4dp / 48dp is a UNITLESS ratio (density cancels). The original Kotlin
-      // uses `4f.dp.toPx() / size.height` where both numerator and denominator
-      // are in device px — so the ratio is just 4/48 for a 48dp button.
-      //
-      // IMPORTANT: We do NOT clamp `p` to >= 0 here. The underdamped spring
-      // (dampingRatio=0.5, stiffness=300) overshoots on release, sending
-      // `p` briefly NEGATIVE — which makes scale drop below 1 (button
-      // shrinks a hair below rest). That undershoot is the "Q-bounce" you
-      // see in the original app. Skipping the transform when p <= 0.001
-      // would clip off the undershoot and kill the bounce.
+    const wave1: GlassElementConfig[] = []
+    const wave2: GlassElementConfig[] = []
+    for (const el of this.buttonConfigs) {
+      // Compute the element's effective y (after scroll).
+      const y = el.scroll ? el.rect.y - scrollY : el.rect.y
+      if (y + el.rect.h < viewTop || y > viewBottom) continue
+      if (el.kind === 'plain-rect' || el.kind === 'progressive-blur') {
+        wave1.push(el)
+      } else {
+        wave2.push(el)
+      }
+    }
+
+    // Helper to compute the element's effective rect (with scroll offset).
+    const effRect = (el: GlassElementConfig) => {
+      const y = el.scroll ? el.rect.y - scrollY : el.rect.y
+      return { x: el.rect.x, y, w: el.rect.w, h: el.rect.h }
+    }
+
+    // Helper to set SDF uniforms (canvasSize + offset + size + cornerRadii)
+    // for any of the SDF-using programs.
+    const gl_ctx = this
+    const setSdfUniforms = (
+      u: Record<string, WebGLUniformLocation | null>,
+      aPosLoc: number,
+      r: { x: number; y: number; w: number; h: number },
+      cornerRadius: number
+    ) => {
+      gl.bindBuffer(gl.ARRAY_BUFFER, gl_ctx.quadBuffer)
+      gl.enableVertexAttribArray(aPosLoc)
+      gl.vertexAttribPointer(aPosLoc, 2, gl.FLOAT, false, 0, 0)
+      gl.uniform2f(u['uCanvasSize'], gl_ctx.canvas.width, gl_ctx.canvas.height)
+      gl.uniform2f(u['uOffset'], r.x * gl_ctx.dpr, r.y * gl_ctx.dpr)
+      gl.uniform2f(u['uSize'], r.w * gl_ctx.dpr, r.h * gl_ctx.dpr)
+      gl.uniform4f(
+        u['uCornerRadii'],
+        cornerRadius * gl_ctx.dpr,
+        cornerRadius * gl_ctx.dpr,
+        cornerRadius * gl_ctx.dpr,
+        cornerRadius * gl_ctx.dpr
+      )
+    }
+
+    // --- Wave 1: plain-rects + progressive-blur -------------------------
+    for (const el of wave1) {
+      const r = effRect(el)
+      if (el.kind === 'plain-rect' && el.plainRect) {
+        gl.useProgram(this.plainRectProgram)
+        setSdfUniforms(this.uPr, this.aPosLocPr, r, el.cornerRadius)
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+        const c = el.plainRect.color
+        gl.uniform4f(this.uPr['uColor'], c[0], c[1], c[2], c[3])
+        gl.drawArrays(gl.TRIANGLES, 0, 6)
+      } else if (el.kind === 'progressive-blur' && el.progressiveBlur) {
+        gl.useProgram(this.progressiveBlurProgram)
+        setSdfUniforms(this.uPb, this.aPosLocPb, r, el.cornerRadius)
+        // Backdrop blur is opaque-ish — use SrcOver (the band has its own
+        // alpha mask built in via the smoothstep gradient).
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+        gl.activeTexture(gl.TEXTURE0)
+        gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture!)
+        gl.uniform1i(this.uPb['uBackdrop'], 0)
+        gl.uniform2f(this.uPb['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
+        gl.uniform1f(this.uPb['uBlurRadius'], el.progressiveBlur.blurRadius * this.dpr)
+        const tc = el.progressiveBlur.tintColor
+        gl.uniform4f(this.uPb['uTintColor'], tc[0], tc[1], tc[2], tc[3])
+        gl.uniform1f(this.uPb['uTintIntensity'], el.progressiveBlur.tintIntensity)
+        gl.drawArrays(gl.TRIANGLES, 0, 6)
+      }
+    }
+
+    // --- Wave 2: glass-shapes + buttons + text --------------------------
+    for (const el of wave2) {
+      const st = this.buttonStates.get(el.id)
+      // 'text' kind: just composite the foreground texture (no glass).
+      if (el.kind === 'text') {
+        const r = effRect(el)
+        const fgTex = this.fgTextures.get(el.id)
+        if (fgTex) {
+          gl.useProgram(this.foregroundProgram)
+          gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+          gl.enableVertexAttribArray(this.aPosLocFg)
+          gl.vertexAttribPointer(this.aPosLocFg, 2, gl.FLOAT, false, 0, 0)
+          gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+          gl.activeTexture(gl.TEXTURE0)
+          gl.bindTexture(gl.TEXTURE_2D, fgTex)
+          gl.uniform1i(this.uFg['uTexture'], 0)
+          // For 'text' elements we don't want the capsule clip — pass a
+          // huge corner radius so the SDF never discards. We use the
+          // element's own cornerRadius (usually 0 for text blocks).
+          gl.uniform2f(this.uFg['uCanvasSize'], this.canvas.width, this.canvas.height)
+          gl.uniform2f(this.uFg['uOffset'], r.x * this.dpr, r.y * this.dpr)
+          gl.uniform2f(this.uFg['uSize'], r.w * this.dpr, r.h * this.dpr)
+          gl.uniform4f(
+            this.uFg['uCornerRadii'],
+            el.cornerRadius * this.dpr,
+            el.cornerRadius * this.dpr,
+            el.cornerRadius * this.dpr,
+            el.cornerRadius * this.dpr
+          )
+          gl.uniform1f(this.uFg['uAlpha'], 1.0)
+          gl.drawArrays(gl.TRIANGLES, 0, 6)
+        }
+        continue
+      }
+
+      // 'glass-shape' and 'button' share the glass pipeline. The only
+      // differences: 'glass-shape' has no press glow and no label.
+      const isButton = el.kind === 'button'
+      const p = st?.pressProgress ?? 0
+
+      // --- Compute press transform (button only) ---
       const PRESS_SCALE_RATIO = 4 / 48
       let scale = 1
       let translationX = 0
       let translationY = 0
       let scaleX = 1
       let scaleY = 1
-      if (el.isInteractive && Math.abs(p) > 0.0001) {
+      if (isButton && el.isInteractive && st && Math.abs(p) > 0.0001) {
         const width = el.rect.w
         const height = el.rect.h
         const maxDim = Math.max(width, height)
@@ -749,10 +1176,7 @@ export class LiquidGlassRenderer {
         const initialDerivative = 0.05
         const maxDragScale = PRESS_SCALE_RATIO
 
-        // p can be negative on release overshoot — that's the Q-bounce.
         scale = 1 + PRESS_SCALE_RATIO * p
-
-        // drag offset relative to start
         const dx = st.dragX - st.startDragX
         const dy = st.dragY - st.startDragY
         translationX = maxOffset * Math.tanh(initialDerivative * dx / maxOffset)
@@ -768,10 +1192,11 @@ export class LiquidGlassRenderer {
         scaleY = scale
       }
 
-      const cx = el.rect.x + el.rect.w / 2 + translationX
-      const cy = el.rect.y + el.rect.h / 2 + translationY
-      const sw = el.rect.w * scaleX
-      const sh = el.rect.h * scaleY
+      const baseR = effRect(el)
+      const cx = baseR.x + baseR.w / 2 + translationX
+      const cy = baseR.y + baseR.h / 2 + translationY
+      const sw = baseR.w * scaleX
+      const sh = baseR.h * scaleY
       const sx = cx - sw / 2
       const sy = cy - sh / 2
       const cornerRadius = el.cornerRadius * Math.min(scaleX, scaleY)
@@ -780,7 +1205,7 @@ export class LiquidGlassRenderer {
         cornerRadius, cornerRadius, cornerRadius, cornerRadius,
       ]
 
-      // --- 2. Shadow pass --------------------------------------------
+      // --- Shadow pass ---
       if (el.outerShadow && el.outerShadow.alpha > 0.001 && el.outerShadow.radius > 0.5) {
         gl.useProgram(this.shadowProgram)
         gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
@@ -814,7 +1239,7 @@ export class LiquidGlassRenderer {
         gl.drawArrays(gl.TRIANGLES, 0, 6)
       }
 
-      // --- 3. Element pass (refraction + vibrancy + tint) ------------
+      // --- Element pass (refraction + vibrancy + tint) ---
       gl.useProgram(this.elementProgram)
       gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
       gl.enableVertexAttribArray(this.aPosLocEl)
@@ -853,8 +1278,6 @@ export class LiquidGlassRenderer {
         gl.uniform1f(this.uEl['uHighlightFalloff'], el.highlight.falloff)
         gl.uniform1f(this.uEl['uHighlightAlpha'], el.highlight.alpha)
         gl.uniform1f(this.uEl['uHighlightMode'], el.highlight.mode)
-        // These uniforms are set but not used by the element shader (the
-        // rim highlight is a separate pass). Computed here for consistency.
         const elWidthPx = el.highlight.widthDp * this.dpr
         gl.uniform1f(this.uEl['uHighlightStrokeWidth'], Math.ceil(elWidthPx) * 2)
         gl.uniform1f(this.uEl['uHighlightBlur'], elWidthPx * 0.5)
@@ -865,26 +1288,30 @@ export class LiquidGlassRenderer {
         gl.uniform1f(this.uEl['uHighlightBlur'], 0)
       }
 
-      gl.uniform1f(this.uEl['uInnerShadowAlpha'], 0)
-      gl.uniform2f(this.uEl['uInnerShadowOffset'], 0, 0)
+      // Inner shadow (used by toggle/slider knobs).
+      if (el.innerShadow && el.innerShadow.alpha > 0.001) {
+        gl.uniform1f(this.uEl['uInnerShadowRadius'], el.innerShadow.radius * this.dpr)
+        gl.uniform1f(this.uEl['uInnerShadowAlpha'], el.innerShadow.alpha)
+        gl.uniform2f(
+          this.uEl['uInnerShadowOffset'],
+          el.innerShadow.offsetX * this.dpr,
+          el.innerShadow.offsetY * this.dpr
+        )
+      } else {
+        gl.uniform1f(this.uEl['uInnerShadowRadius'], 0)
+        gl.uniform1f(this.uEl['uInnerShadowAlpha'], 0)
+        gl.uniform2f(this.uEl['uInnerShadowOffset'], 0, 0)
+      }
 
       gl.drawArrays(gl.TRIANGLES, 0, 6)
 
-      // --- 4. InteractiveHighlight (press glow) ----------------------
-      // Two sub-passes:
-      //   a. White overlay at 8% * progress (Plus blend = additive)
-      //   b. Radial gradient at finger position, 15% * progress (Plus blend)
-      //
-      // Both are clipped to the capsule shape via SDF discard in the
-      // fragment shader (matches the outermost graphicsLayer clip in
-      // Compose that wraps the whole button).
-      if (el.isInteractive && p > 0.001) {
+      // --- Press glow (button only) ---
+      if (isButton && el.isInteractive && st && p > 0.001) {
         // a. Flat white overlay
         gl.useProgram(this.tintProgram)
         gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
         gl.enableVertexAttribArray(this.aPosLocTn)
         gl.vertexAttribPointer(this.aPosLocTn, 2, gl.FLOAT, false, 0, 0)
-        // Plus blend ≈ additive for low-alpha white
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE)
         gl.uniform2f(this.uTn['uCanvasSize'], this.canvas.width, this.canvas.height)
         gl.uniform2f(this.uTn['uOffset'], sx * this.dpr, sy * this.dpr)
@@ -900,11 +1327,6 @@ export class LiquidGlassRenderer {
         gl.drawArrays(gl.TRIANGLES, 0, 6)
 
         // b. Radial highlight at finger position
-        // Plus blend in Skia: result = S + D (premultiplied). The shader
-        // outputs the premultiplied contribution (color.rgb * color.a *
-        // intensity), so we use pure additive (ONE, ONE) here. Using
-        // (SRC_ALPHA, ONE) would re-multiply by src.a, squaring the alpha
-        // and making the glow ~50x dimmer (0.15² = 0.0225 — invisible).
         gl.useProgram(this.highlightProgram)
         gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
         gl.enableVertexAttribArray(this.aPosLocHl)
@@ -920,78 +1342,55 @@ export class LiquidGlassRenderer {
           radii[2] * this.dpr,
           radii[3] * this.dpr
         )
-        // Faithful to InteractiveHighlight.kt:
-        //   color = White(1.0).copy(alpha = 0.15f * progress)
-        // Plus blend (premultiplied): result.rgb = (1·0.15·p·intensity) + dst.rgb
-        // Now that the blend bug is fixed (alpha is only multiplied once
-        // inside the shader, with ONE/ONE additive blend), 0.15 is the
-        // exact original value — no doubling needed.
         gl.uniform4f(this.uHl['uColor'], 1, 1, 1, 0.15 * p)
         const minDim = Math.min(sw, sh) * this.dpr
         gl.uniform1f(this.uHl['uRadius'], minDim * 1.5)
-        // Position: faithful to InteractiveHighlight.kt's
-        //   position.x.fastCoerceIn(0f, size.width)
-        //   position.y.fastCoerceIn(0f, size.height)
-        // The Kotlin code CLAMPS the finger position to the element bounds
-        // before passing it to the shader — so the glow stays anchored at
-        // the edge when the finger drags off the button (instead of
-        // following the finger off-button).
-        //
-        // fingerCanvasCssX = dragX + el.rect.x  (finger in canvas CSS px)
-        // fingerScaledLocalCssX = fingerCanvasCssX - sx  (in scaled rect local)
-        // CLAMP to [0, sw] then * dpr → element-local device px for shader.
         const px = Math.max(0, Math.min(sw, st.dragX + el.rect.x - sx)) * this.dpr
         const py = Math.max(0, Math.min(sh, st.dragY + el.rect.y - sy)) * this.dpr
         gl.uniform2f(this.uHl['uPosition'], px, py)
         gl.drawArrays(gl.TRIANGLES, 0, 6)
-        // Restore normal blending.
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
       }
 
-      // --- 5. Foreground pass (label + chevron) ----------------------
-      const fgTex = this.fgTextures.get(el.id)
-      if (fgTex) {
-        gl.useProgram(this.foregroundProgram)
-        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
-        gl.enableVertexAttribArray(this.aPosLocFg)
-        gl.vertexAttribPointer(this.aPosLocFg, 2, gl.FLOAT, false, 0, 0)
-        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+      // --- Foreground (label) pass (button only) ---
+      if (isButton && el.label) {
+        const fgTex = this.fgTextures.get(el.id)
+        if (fgTex) {
+          gl.useProgram(this.foregroundProgram)
+          gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+          gl.enableVertexAttribArray(this.aPosLocFg)
+          gl.vertexAttribPointer(this.aPosLocFg, 2, gl.FLOAT, false, 0, 0)
+          gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
-        gl.activeTexture(gl.TEXTURE0)
-        gl.bindTexture(gl.TEXTURE_2D, fgTex)
-        gl.uniform1i(this.uFg['uTexture'], 0)
-        gl.uniform2f(this.uFg['uCanvasSize'], this.canvas.width, this.canvas.height)
-        gl.uniform2f(this.uFg['uOffset'], sx * this.dpr, sy * this.dpr)
-        gl.uniform2f(this.uFg['uSize'], sw * this.dpr, sh * this.dpr)
-        gl.uniform4f(
-          this.uFg['uCornerRadii'],
-          radii[0] * this.dpr,
-          radii[1] * this.dpr,
-          radii[2] * this.dpr,
-          radii[3] * this.dpr
-        )
-        // Label fades slightly on press (matches the "swallow" feel).
-        gl.uniform1f(this.uFg['uAlpha'], 1.0 - 0.15 * p)
-        gl.drawArrays(gl.TRIANGLES, 0, 6)
+          gl.activeTexture(gl.TEXTURE0)
+          gl.bindTexture(gl.TEXTURE_2D, fgTex)
+          gl.uniform1i(this.uFg['uTexture'], 0)
+          gl.uniform2f(this.uFg['uCanvasSize'], this.canvas.width, this.canvas.height)
+          gl.uniform2f(this.uFg['uOffset'], sx * this.dpr, sy * this.dpr)
+          gl.uniform2f(this.uFg['uSize'], sw * this.dpr, sh * this.dpr)
+          gl.uniform4f(
+            this.uFg['uCornerRadii'],
+            radii[0] * this.dpr,
+            radii[1] * this.dpr,
+            radii[2] * this.dpr,
+            radii[3] * this.dpr
+          )
+          // Label fades slightly on press (matches the "swallow" feel).
+          gl.uniform1f(this.uFg['uAlpha'], 1.0 - 0.15 * p)
+          gl.drawArrays(gl.TRIANGLES, 0, 6)
+        }
       }
 
-      // --- 6. Rim highlight pass (Default/Ambient/Plain) -------------
-      // Faithful to HighlightModifier.kt: a separate layer composited on
-      // top of the content with its own blend mode (Plus for Default/Plain,
-      // SrcOver for Ambient). Drawn AFTER the foreground (label) to match
-      // the original modifier order.
+      // --- Rim highlight pass (Default/Ambient/Plain) ---
       if (el.highlight && el.highlight.alpha > 0.001) {
         gl.useProgram(this.rimHighlightProgram)
         gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
         gl.enableVertexAttribArray(this.aPosLocRm)
         gl.vertexAttribPointer(this.aPosLocRm, 2, gl.FLOAT, false, 0, 0)
 
-        // Default and Plain use Plus blend (additive). Ambient uses SrcOver.
         if (el.highlight.mode === 1) {
           gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
         } else {
-          // Plus blend: result = src.rgb + dst.rgb (clamped). The shader
-          // outputs premultiplied alpha=1, so we use ONE/ONE.
           gl.blendFunc(gl.ONE, gl.ONE)
         }
 
@@ -1010,18 +1409,6 @@ export class LiquidGlassRenderer {
         gl.uniform1f(this.uRm['uHighlightFalloff'], el.highlight.falloff)
         gl.uniform1f(this.uRm['uHighlightAlpha'], el.highlight.alpha)
         gl.uniform1f(this.uRm['uHighlightMode'], el.highlight.mode)
-        // FAITHFUL to HighlightModifier.kt:
-        //   paint.strokeWidth = ceil(highlight.width.toPx()) * 2f
-        //   paint.blur(highlight.blurRadius.toPx())
-        //   where blurRadius = width / 2 (from Highlight.kt default)
-        //   and toPx() = dp * density.
-        // So in device pixels:
-        //   strokeWidth = ceil(widthDp * dpr) * 2
-        //   blur = (widthDp / 2) * dpr
-        // BUGFIX: the previous code passed strokeWidth (a CSS-px value) * dpr,
-        // which at dpr=2 gave 4 device px instead of the correct 2 device px
-        // (ceil(0.5*2)*2 = 2). This made the rim highlight 2× too wide and
-        // therefore appeared brighter than the original.
         const widthPx = el.highlight.widthDp * this.dpr
         const strokeWidthDevice = Math.ceil(widthPx) * 2
         const blurDevice = widthPx * 0.5
@@ -1029,7 +1416,6 @@ export class LiquidGlassRenderer {
         gl.uniform1f(this.uRm['uHighlightBlur'], blurDevice)
         gl.drawArrays(gl.TRIANGLES, 0, 6)
 
-        // Restore normal blending.
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
       }
     }
@@ -1051,6 +1437,8 @@ export class LiquidGlassRenderer {
     gl.deleteProgram(this.highlightProgram)
     gl.deleteProgram(this.tintProgram)
     gl.deleteProgram(this.rimHighlightProgram)
+    gl.deleteProgram(this.plainRectProgram)
+    gl.deleteProgram(this.progressiveBlurProgram)
     gl.deleteBuffer(this.quadBuffer)
   }
 }

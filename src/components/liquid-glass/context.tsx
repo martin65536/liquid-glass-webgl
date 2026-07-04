@@ -1,43 +1,74 @@
 'use client'
 
 import * as React from 'react'
-import { LiquidGlassRenderer, type GlassButtonConfig } from './renderer'
+import { LiquidGlassRenderer, type GlassElementConfig } from './renderer'
 
 /* ------------------------------------------------------------------ *
  * LiquidGlassCanvas
  *
  * A self-contained WebGL canvas that renders a wallpaper + a list of
- * liquid-glass buttons. No DOM children — the canvas owns the entire
+ * liquid-glass elements. No DOM children — the canvas owns the entire
  * visual surface (wallpaper, glass, labels, chevrons, press glow).
  *
- * Pointer events on the canvas are hit-tested against each button rect.
- * Press/drag is tracked per button and forwarded to the renderer, which
- * runs the InteractiveHighlight animation (scale-up, drag-follow
- * translation, axis stretch, radial glow at finger position).
+ * Elements may be of several kinds (button / glass-shape / plain-rect /
+ * progressive-blur / text). Pointer events are hit-tested against each
+ * element rect:
+ *   - 'button' kind → triggers InteractiveHighlight press + drag
+ *   - any kind with onTap → fires the callback on pointerup if the
+ *     pointer is still inside the element
+ *   - any kind with onDrag → fires live during pointermove
+ *   - empty space → starts a scroll drag (touch-style scrolling)
+ *
+ * Wheel events scroll the canvas (the renderer holds a scroll offset
+ * that shifts scroll-anchored elements).
  * ------------------------------------------------------------------ */
 
 export interface LiquidGlassCanvasProps {
   wallpaperSrc: string
-  buttons: GlassButtonConfig[]
+  elements: GlassElementConfig[]
+  /** Total scrollable content height in CSS px. */
+  contentHeight?: number
+  /** Optional callbacks map: id → { onTap, onDragStart, onDrag, onDragEnd }. */
+  interactions?: Record<string, ElementInteraction>
   className?: string
+}
+
+export interface ElementInteraction {
+  onTap?: (pos: { x: number; y: number }) => void
+  /** Fires on first pointermove after press. */
+  onDragStart?: (pos: { x: number; y: number }) => void
+  /** Fires on each pointermove while pressed. */
+  onDrag?: (pos: { x: number; y: number }, delta: { x: number; y: number }) => void
+  /** Fires on pointerup. */
+  onDragEnd?: (pos: { x: number; y: number }) => void
 }
 
 export function LiquidGlassCanvas({
   wallpaperSrc,
-  buttons,
+  elements,
+  contentHeight,
+  interactions,
   className,
 }: LiquidGlassCanvasProps) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
   const containerRef = React.useRef<HTMLDivElement>(null)
   const rendererRef = React.useRef<LiquidGlassRenderer | null>(null)
-  // Keep a ref to the latest button list so pointer handlers can
-  // hit-test without being re-created on every config change.
-  const buttonsRef = React.useRef(buttons)
-  buttonsRef.current = buttons
-  // Track which button is currently pressed (by id) so pointermove
-  // can update its drag position.
+  // Keep refs to the latest state so pointer handlers can read them
+  // without being re-created on every change.
+  const elementsRef = React.useRef(elements)
+  elementsRef.current = elements
+  const interactionsRef = React.useRef(interactions)
+  interactionsRef.current = interactions
+  // Track the currently-pressed element (by id) and the press start pos.
   const pressedIdRef = React.useRef<string | null>(null)
+  const pressedStartRef = React.useRef<{ x: number; y: number }>({ x: 0, y: 0 })
+  const pressedDragStartedRef = React.useRef(false)
+  // Scroll drag state — when the press started on empty space (no element
+  // was hit), the press becomes a scroll drag instead.
+  const scrollDragRef = React.useRef(false)
+  const scrollStartRef = React.useRef<{ y: number; scrollY: number }>({ y: 0, scrollY: 0 })
 
+  // --- Init renderer + wallpaper + resize observer ---
   React.useEffect(() => {
     if (!canvasRef.current || !containerRef.current) return
     const renderer = new LiquidGlassRenderer(canvasRef.current)
@@ -55,49 +86,94 @@ export function LiquidGlassCanvas({
     const ro = new ResizeObserver(resize)
     ro.observe(containerRef.current)
 
+    // --- Wheel scroll ---
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      // deltaY > 0 = scroll down; trackpad horizontal two-finger swipe → deltaX
+      const delta = e.deltaY !== 0 ? e.deltaY : e.deltaX
+      const cur = renderer.getScrollY()
+      renderer.setScrollY(cur + delta)
+    }
+    const canvas = canvasRef.current
+    canvas.addEventListener('wheel', onWheel, { passive: false })
+
     return () => {
       ro.disconnect()
+      canvas.removeEventListener('wheel', onWheel)
       renderer.dispose()
       rendererRef.current = null
     }
   }, [wallpaperSrc])
 
-  // Push the latest button list to the renderer.
+  // Push the latest element list to the renderer.
   React.useEffect(() => {
-    rendererRef.current?.setButtons(buttons)
-  }, [buttons])
+    rendererRef.current?.setElements(elements)
+  }, [elements])
+
+  // Push content height (for scroll clamping).
+  React.useEffect(() => {
+    if (contentHeight !== undefined) {
+      rendererRef.current?.setContentHeight(contentHeight)
+    }
+  }, [contentHeight])
 
   // --- Pointer handlers ---------------------------------------------
-  // Hit-test against each button rect; if inside an interactive button,
-  // start the press animation and track drag. Pointer capture ensures
-  // we get pointerup/pointermove even if the pointer leaves the canvas.
+  const localPos = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current!
+    const rect = canvas.getBoundingClientRect()
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top }
+  }
+
   const handlePointerDown = React.useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
-      const btns = buttonsRef.current
+      const els = elementsRef.current
       const canvas = canvasRef.current
       const renderer = rendererRef.current
       if (!canvas || !renderer) return
-      const rect = canvas.getBoundingClientRect()
-      const x = e.clientX - rect.left
-      const y = e.clientY - rect.top
+      const { x, y } = localPos(e)
+      const scrollY = renderer.getScrollY()
+
       // Hit-test topmost first (last in array = topmost in z-order).
-      for (let i = btns.length - 1; i >= 0; i--) {
-        const b = btns[i]
+      // For scroll-anchored elements, the visible y is rect.y - scrollY.
+      let hit: GlassElementConfig | null = null
+      for (let i = els.length - 1; i >= 0; i--) {
+        const el = els[i]
+        const visibleY = el.scroll ? el.rect.y - scrollY : el.rect.y
         if (
-          b.isInteractive &&
-          x >= b.rect.x &&
-          x <= b.rect.x + b.rect.w &&
-          y >= b.rect.y &&
-          y <= b.rect.y + b.rect.h
+          x >= el.rect.x &&
+          x <= el.rect.x + el.rect.w &&
+          y >= visibleY &&
+          y <= visibleY + el.rect.h
         ) {
-          renderer.setPressed(b.id, true, { x, y })
-          pressedIdRef.current = b.id
-          try {
-            canvas.setPointerCapture(e.pointerId)
-          } catch {
-            // ignore
-          }
-          return
+          hit = el
+          break
+        }
+      }
+
+      if (hit) {
+        // Press an element.
+        // For 'button' kind, trigger InteractiveHighlight press.
+        if (hit.kind === 'button' && hit.isInteractive) {
+          renderer.setPressed(hit.id, true, { x, y })
+        }
+        pressedIdRef.current = hit.id
+        pressedStartRef.current = { x, y }
+        pressedDragStartedRef.current = false
+        scrollDragRef.current = false
+        // Fire onDragStart lazily on first pointermove.
+        try {
+          canvas.setPointerCapture(e.pointerId)
+        } catch {
+          // ignore
+        }
+      } else {
+        // Empty space — start a scroll drag.
+        scrollDragRef.current = true
+        scrollStartRef.current = { y: e.clientY, scrollY: renderer.getScrollY() }
+        try {
+          canvas.setPointerCapture(e.pointerId)
+        } catch {
+          // ignore
         }
       }
     },
@@ -109,11 +185,36 @@ export function LiquidGlassCanvas({
       const id = pressedIdRef.current
       const canvas = canvasRef.current
       const renderer = rendererRef.current
-      if (!id || !canvas || !renderer) return
-      const rect = canvas.getBoundingClientRect()
-      const x = e.clientX - rect.left
-      const y = e.clientY - rect.top
-      renderer.setDragPosition(id, { x, y })
+      if (!canvas || !renderer) return
+      const { x, y } = localPos(e)
+
+      // --- Scroll drag ---
+      if (scrollDragRef.current) {
+        const dy = e.clientY - scrollStartRef.current.y
+        renderer.setScrollY(scrollStartRef.current.scrollY - dy)
+        return
+      }
+
+      if (!id) return
+      const els = elementsRef.current
+      const el = els.find((b) => b.id === id)
+      if (!el) return
+
+      // For 'button' kind, forward to renderer for InteractiveHighlight.
+      if (el.kind === 'button' && el.isInteractive) {
+        renderer.setDragPosition(id, { x, y })
+      }
+
+      // Fire onDragStart (lazily) once movement exceeds a threshold.
+      const dx = x - pressedStartRef.current.x
+      const dy = y - pressedStartRef.current.y
+      if (!pressedDragStartedRef.current && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+        pressedDragStartedRef.current = true
+        interactionsRef.current?.[id]?.onDragStart?.({ x, y })
+      }
+      if (pressedDragStartedRef.current) {
+        interactionsRef.current?.[id]?.onDrag?.({ x, y }, { x: dx, y: dy })
+      }
     },
     []
   )
@@ -123,10 +224,29 @@ export function LiquidGlassCanvas({
       const id = pressedIdRef.current
       const canvas = canvasRef.current
       const renderer = rendererRef.current
-      if (id && renderer) {
-        renderer.setPressed(id, false)
+      if (canvas && renderer) {
+        // Release button press.
+        if (id) {
+          const els = elementsRef.current
+          const el = els.find((b) => b.id === id)
+          if (el?.kind === 'button' && el.isInteractive) {
+            renderer.setPressed(id, false)
+          }
+        }
+        // Fire onDragEnd / onTap.
+        if (id) {
+          const { x, y } = localPos(e)
+          if (pressedDragStartedRef.current) {
+            interactionsRef.current?.[id]?.onDragEnd?.({ x, y })
+          } else {
+            // Treat as a tap (no significant drag).
+            interactionsRef.current?.[id]?.onTap?.({ x, y })
+          }
+        }
       }
       pressedIdRef.current = null
+      pressedDragStartedRef.current = false
+      scrollDragRef.current = false
       if (canvas && canvas.hasPointerCapture(e.pointerId)) {
         canvas.releasePointerCapture(e.pointerId)
       }

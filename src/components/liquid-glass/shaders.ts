@@ -554,6 +554,121 @@ void main() {
 `
 
 /* ------------------------------------------------------------------ *
+ * Plain-rect pass — a solid colored rounded rectangle, alpha-blended.
+ *
+ * Used for non-glass UI surfaces:
+ *   - Toggle / slider tracks (solid color, full alpha)
+ *   - Slider progress fills (accent color)
+ *   - Background cards (white rounded rect behind on-card toggles)
+ *   - Dim overlays (e.g. dialog scrim behind the glass card)
+ *
+ * No glass effect, no blur, no sampling. Just a tinted SDF clip.
+ * ------------------------------------------------------------------ */
+export const PLAIN_RECT_FRAGMENT_SHADER = /* glsl */ `
+precision highp float;
+
+uniform vec2  uCanvasSize;
+uniform vec2  uOffset;
+uniform vec2  uSize;
+uniform vec4  uCornerRadii;
+uniform vec4  uColor;       // rgba (premultiplied not required; alpha used as-is)
+
+${SDF_GLSL}
+
+void main() {
+    vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
+    vec2 localCoord = screenCoord - uOffset;
+    vec2 halfSize = uSize * 0.5;
+    vec2 centeredCoord = localCoord - halfSize;
+
+    float radius = radiusAt(centeredCoord, uCornerRadii);
+    float sd = sdRoundedRect(centeredCoord, halfSize, radius);
+    if (sd > 0.5) discard;
+    float alpha = 1.0 - smoothstep(-0.5, 0.5, sd);
+    gl_FragColor = vec4(uColor.rgb, uColor.a * alpha);
+}
+`
+
+/* ------------------------------------------------------------------ *
+ * Progressive-blur pass — alpha-masked backdrop blur, faithful to
+ * ProgressiveBlurContent.kt's AlphaMask shader:
+ *
+ *   half4 main(float2 coord) {
+ *       float blurAlpha = smoothstep(size.y, size.y * 0.5, coord.y);
+ *       float tintAlpha = smoothstep(size.y, size.y * 0.5, coord.y);
+ *       return mix(content.eval(coord) * blurAlpha, tint * tintAlpha, tintIntensity);
+ *   }
+ *
+ * The original samples the *backdrop* (which is the wallpaper here),
+ * applies a Gaussian blur, then alpha-masks the result with a vertical
+ * gradient (opaque at top, transparent at bottom). A tint color is
+ * mixed in at `tintIntensity` (0.8 in the catalog).
+ *
+ * We approximate the blur with a 9-tap poisson-disc sample at
+ * `blurRadius` px in canvas space (converted to UV space).
+ * ------------------------------------------------------------------ */
+export const PROGRESSIVE_BLUR_FRAGMENT_SHADER = /* glsl */ `
+precision highp float;
+
+uniform sampler2D uBackdrop;
+uniform vec2  uCanvasSize;
+uniform vec2  uWallpaperSize;
+uniform vec2  uOffset;          // band top-left in canvas px (top-left origin)
+uniform vec2  uSize;            // band size in canvas px
+uniform float uBlurRadius;      // px in canvas space
+uniform vec4  uTintColor;       // rgba
+uniform float uTintIntensity;   // 0..1
+
+${COVER_GLSL}
+
+// 9-tap poisson disc — offsets in canvas px.
+const vec2 POISSON_9[9] = vec2[9](
+    vec2( 0.0000,  0.0000),
+    vec2( 0.5000,  0.0000),
+    vec2(-0.5000,  0.0000),
+    vec2( 0.0000,  0.5000),
+    vec2( 0.0000, -0.5000),
+    vec2( 0.3536,  0.3536),
+    vec2(-0.3536,  0.3536),
+    vec2( 0.3536, -0.3536),
+    vec2(-0.3536, -0.3536)
+);
+
+vec4 sampleBackdrop(vec2 canvasPx, float radius) {
+    vec2 uvScale = canvasPxToUvScale();
+    vec2 uv = coverUv(canvasPx);
+    vec2 step = radius * uvScale;
+    vec4 sum = vec4(0.0);
+    for (int i = 0; i < 9; i++) {
+        sum += texture2D(uBackdrop, uv + POISSON_9[i] * step);
+    }
+    return sum / 9.0;
+}
+
+void main() {
+    vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
+    vec2 localCoord = screenCoord - uOffset;
+    // Outside the band — nothing to draw.
+    if (localCoord.x < 0.0 || localCoord.x > uSize.x ||
+        localCoord.y < 0.0 || localCoord.y > uSize.y) {
+        discard;
+    }
+
+    // Alpha mask: opaque at top (coord.y = size.y, i.e. BOTTOM in top-left
+    // origin = size.y in AGSL coord), transparent at bottom. Matches the
+    // Kotlin smoothstep(size.y, size.y * 0.5, coord.y).
+    float a = smoothstep(uSize.y, uSize.y * 0.5, localCoord.y);
+
+    // Sample the (cover-fit) backdrop at the canvas pixel, blurred.
+    vec4 blurred = sampleBackdrop(screenCoord, uBlurRadius);
+
+    // Mix: blur * alpha  ->  tint * alpha * tintIntensity
+    vec3 rgb = mix(blurred.rgb * a, uTintColor.rgb * a, uTintIntensity);
+    gl_FragColor = vec4(rgb, a);
+}
+`
+
+/* ------------------------------------------------------------------ *
  * Vertex shader — draws a fullscreen quad. Per-element scissor is
  * done in the fragment shader via discard.
  * ------------------------------------------------------------------ */
