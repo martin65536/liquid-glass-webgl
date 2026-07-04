@@ -1,22 +1,77 @@
 ---
-Task ID: fix-3-regressions
+Task ID: faithful-apk-reproduction
 Agent: main
-Task: Fix three reported regressions in WebGL liquid-glass port: (1) reversed text, (2) no dynamic click/press effect, (3) misaligned shadow.
+Task: Decompile the AndroidLiquidGlass APK, read the source code, understand the catalog app, and faithfully reproduce the "Buttons" destination in WebGL.
 
 Work Log:
-- Read shaders.ts, renderer.ts, context.tsx, page.tsx to understand current state.
-- Confirmed text-reversal fix already in place: UNPACK_FLIP_Y_WEBGL=false for foreground texture + correct Y-flip in FOREGROUND_FRAGMENT_SHADER (screenCoord.y = uCanvasSize.y - gl_FragCoord.y). Cleaned up the stale comment that incorrectly said "UNPACK_FLIP_Y_WEBGL is true".
-- Added uAlpha uniform to FOREGROUND_FRAGMENT_SHADER so the foreground can fade on press.
-- Fixed radiusAt bug in ELEMENT_FRAGMENT_SHADER: was passing localCoord (top-left origin), should be centeredCoord (center origin) so the per-corner radius lookup actually works for non-uniform radii. (For the capsule case with uniform radii this was a no-op, but the bug is now fixed for any future non-uniform use.)
-- Made press effect MUCH more visible: scale 1 - 0.05*p → 1 - 0.08*p (5%→8% shrink); animation speed delta*0.22 → delta*0.35 (≈1.6x faster so quick clicks still register); added saturation boost (×1+0.25p) and brightness boost (+0.04p) on press; foreground label fades 25% on press so the glass "swallows" the label.
-- Added clarifying comments to SHADOW_FRAGMENT_SHADER explaining the +Y = downward convention so the offset math is unambiguous; verified shadow math is correct (positive CSS offsetY → positive shader Y → shadow center moves DOWN, as expected).
-- Cached new uAlpha foreground uniform location in renderer's cacheUniforms().
-- Updated render() to pass pressSat, pressBright, fgAlpha to the appropriate uniforms.
+- Decompiled the release APK with jadx → /home/z/my-project/apk_decompiled/
+- Read the full Kotlin source from AndroidLiquidGlass/backdrop/ and AndroidLiquidGlass/app/
+- Key files studied:
+  - LiquidButton.kt: the actual button component (height 48dp, capsule, vibrancy+blur(2dp)+lens(12dp,24dp), InteractiveHighlight, NO outer shadow, NO default highlight)
+  - InteractiveHighlight.kt: the press effect (drag-follow, scale-UP, radial glow shader, white 8% overlay, spring animation)
+  - ButtonsContent.kt: the "Buttons" destination (4 buttons: transparent / surface white 30% / blue #0088FF / orange #FF8D28)
+  - Shaders.kt: the AGSL source for sdRoundedRect, gradSdRoundedRect, RoundedRectRefraction(WithDispersion)ShaderString, DefaultHighlight, AmbientHighlight
+  - Lens.kt, Blur.kt, ColorFilter.kt: the effect chain (lens sets refractionAmount = -refractionAmount, blur with TileMode.Clamp, vibrancy = saturation 1.5)
+  - Shadow.kt: the Shadow data class (default radius 24dp, offset (0, radius/6), alpha 0.1) — but LiquidButton.kt does NOT use it
 
 Stage Summary:
-- Three regressions addressed:
-  1. Text orientation: confirmed correct via UNPACK_FLIP_Y_WEBGL=false + shader Y-flip; cleaned up misleading stale comment.
-  2. Press effect: was already implemented but too subtle (5% scale, slow animation). Now 8% scale + saturation/brightness boost + label fade + 1.6x faster animation. Clearly visible.
-  3. Shadow alignment: math was already correct (positive CSS Y = downward shader Y after the screenCoord flip); added comments to make this explicit so it isn't accidentally "fixed" into a regression later.
-- Dev server compiled cleanly with all changes (verified via tail dev.log: only ✓ Compiled entries, no errors).
-- Produced artifacts: src/components/liquid-glass/shaders.ts, src/components/liquid-glass/renderer.ts (both updated in place).
+- Identified that my previous port was UNFAITHFUL in several ways:
+  1. Single button → should be 4 stacked buttons (matching ButtonsContent.kt)
+  2. Added outer shadow + default highlight → catalog has NEITHER
+  3. Press effect was "shrink 8%" → catalog uses "scale UP 4dp/height + drag-follow + radial glow"
+  4. Had a chevron → catalog has none
+  5. Press triggered by click → catalog uses DRAG (pointer down + move)
+
+- Faithful fixes applied:
+  a. shaders.ts:
+     - Reverted radiusAt() to use localCoord (raw coord) matching AGSL exactly (was using centeredCoord)
+     - Fixed refraction grad computation to match AGSL's `normalize(grad + depthEffect * normalize(centeredCoord))` pattern
+     - Added HIGHLIGHT_FRAGMENT_SHADER — faithful port of InteractiveHighlight.kt's radial gradient shader (smoothstep(radius, radius*0.5, dist) * color)
+     - Added TINT_FRAGMENT_SHADER — flat color fill for the white-overlay press pass
+     - Cleaned up stale comments in FOREGROUND_FRAGMENT_SHADER and SHADOW_FRAGMENT_SHADER explaining the Y-axis conventions
+
+  b. renderer.ts (full rewrite):
+    - Multi-button support: setButtons(configs[]) replaces setButton(config)
+    - Per-button press state: buttonStates Map with pressProgress, dragX/Y, targetDragX/Y, startDragX/Y
+    - Per-button foreground textures: fgTextures Map (one GL texture per button label)
+    - Spring-based animation loop approximating Kotlin's spring(0.5f, 300f) spec
+    - Faithful press transform from LiquidButton.kt:
+        scale = lerp(1, 1 + 4dp/height, progress)  // grows, not shrinks
+        translationX = maxOffset * tanh(0.05 * dragOffsetX / maxOffset)
+        translationY = maxOffset * tanh(0.05 * dragOffsetY / maxOffset)
+        scaleX = scale + maxDragScale * |cos(angle)*dx/maxDim| * min(w/h, 1)
+        scaleY = scale + maxDragScale * |sin(angle)*dy/maxDim| * min(h/w, 1)
+    - New render pipeline per button: shadow (if configured) → element (refraction+vibrancy+tint) → white overlay (8% * progress, additive) → radial highlight (15% * progress, additive, at finger position) → foreground (label, 15% alpha fade on press)
+    - setPressed(id, pressed, position) and setDragPosition(id, position) API
+
+  c. context.tsx (rewrite):
+    - Multi-button props: buttons: GlassButtonConfig[]
+    - Pointer down → hit-test (topmost first) → setPressed(id, true, pos) + pointer capture
+    - Pointer move → setDragPosition(id, pos) for the pressed button
+    - Pointer up/leave/cancel → setPressed(id, false) + release capture
+
+  d. page.tsx (rewrite):
+    - 4 buttons matching ButtonsContent.kt:
+      1. "Transparent Liquid Button" — black text, no tint, no surface
+      2. "Surface Liquid Button" — black text, surfaceColor = white 30%
+      3. "Tinted Liquid Button" — white text, tint = #0088FF (blue)
+      4. "Tinted Liquid Button" — white text, tint = #FF8D28 (orange)
+    - Common glass params: capsule shape, refractionHeight=12dp, refractionAmount=-24dp, blur=2dp, saturation=1.5
+    - NO outer shadow, NO default highlight (matching LiquidButton.kt)
+    - 16dp spacing between buttons, centered vertically
+
+- Verified via headless browser screenshots + VLM:
+  - 4 capsule buttons render correctly with proper tints and text
+  - Wallpaper cover-fit renders correctly
+  - Press glow (white overlay + radial highlight at finger) is visible — VLM confirmed "bright, luminous appearance" on pressed button
+  - Drag-follow translation and scale-up are present (subtle by design, matching catalog)
+  - No console errors, no shader compile errors
+
+- Produced artifacts:
+  - /home/z/my-project/src/components/liquid-glass/shaders.ts (updated)
+  - /home/z/my-project/src/components/liquid-glass/renderer.ts (rewritten)
+  - /home/z/my-project/src/components/liquid-glass/context.tsx (rewritten)
+  - /home/z/my-project/src/app/page.tsx (rewritten)
+  - /home/z/my-project/download/buttons-restored.png (screenshot, rest state)
+  - /home/z/my-project/download/buttons-blue-pressed.png (screenshot, press state)
+  - /home/z/my-project/apk_decompiled/ (jadx decompilation output)

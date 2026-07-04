@@ -6,37 +6,37 @@ import { LiquidGlassRenderer, type GlassButtonConfig } from './renderer'
 /* ------------------------------------------------------------------ *
  * LiquidGlassCanvas
  *
- * A self-contained WebGL canvas that renders a wallpaper + a single
- * liquid-glass button. No DOM children — the canvas owns the entire
- * visual surface (wallpaper, glass, label, chevron).
+ * A self-contained WebGL canvas that renders a wallpaper + a list of
+ * liquid-glass buttons. No DOM children — the canvas owns the entire
+ * visual surface (wallpaper, glass, labels, chevrons, press glow).
  *
- * Pass a `button` prop to control the button's position, size, and
- * glass parameters. The label and chevron are rasterized on an
- * offscreen 2D canvas and composited as a foreground texture pass.
- *
- * Pointer events on the canvas are hit-tested against the button rect;
- * pressing inside the button triggers a scale-down animation handled
- * entirely in the renderer.
+ * Pointer events on the canvas are hit-tested against each button rect.
+ * Press/drag is tracked per button and forwarded to the renderer, which
+ * runs the InteractiveHighlight animation (scale-up, drag-follow
+ * translation, axis stretch, radial glow at finger position).
  * ------------------------------------------------------------------ */
 
 export interface LiquidGlassCanvasProps {
   wallpaperSrc: string
-  button: GlassButtonConfig | null
+  buttons: GlassButtonConfig[]
   className?: string
 }
 
 export function LiquidGlassCanvas({
   wallpaperSrc,
-  button,
+  buttons,
   className,
 }: LiquidGlassCanvasProps) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
   const containerRef = React.useRef<HTMLDivElement>(null)
   const rendererRef = React.useRef<LiquidGlassRenderer | null>(null)
-  // Keep a ref to the latest button config so pointer handlers can
+  // Keep a ref to the latest button list so pointer handlers can
   // hit-test without being re-created on every config change.
-  const buttonRef = React.useRef(button)
-  buttonRef.current = button
+  const buttonsRef = React.useRef(buttons)
+  buttonsRef.current = buttons
+  // Track which button is currently pressed (by id) so pointermove
+  // can update its drag position.
+  const pressedIdRef = React.useRef<string | null>(null)
 
   React.useEffect(() => {
     if (!canvasRef.current || !containerRef.current) return
@@ -62,48 +62,71 @@ export function LiquidGlassCanvas({
     }
   }, [wallpaperSrc])
 
-  // Push the latest button config to the renderer.
+  // Push the latest button list to the renderer.
   React.useEffect(() => {
-    rendererRef.current?.setButton(button)
-  }, [button])
+    rendererRef.current?.setButtons(buttons)
+  }, [buttons])
 
   // --- Pointer handlers ---------------------------------------------
-  // Hit-test against the button rect; if inside, tell the renderer to
-  // start the press animation. Pointer capture ensures we get the
-  // pointerup even if the pointer leaves the canvas.
+  // Hit-test against each button rect; if inside an interactive button,
+  // start the press animation and track drag. Pointer capture ensures
+  // we get pointerup/pointermove even if the pointer leaves the canvas.
   const handlePointerDown = React.useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
-      const btn = buttonRef.current
+      const btns = buttonsRef.current
       const canvas = canvasRef.current
       const renderer = rendererRef.current
-      if (!btn || !canvas || !renderer) return
+      if (!canvas || !renderer) return
       const rect = canvas.getBoundingClientRect()
       const x = e.clientX - rect.left
       const y = e.clientY - rect.top
-      if (
-        x >= btn.rect.x &&
-        x <= btn.rect.x + btn.rect.w &&
-        y >= btn.rect.y &&
-        y <= btn.rect.y + btn.rect.h
-      ) {
-        renderer.setPressed(true)
-        try {
-          canvas.setPointerCapture(e.pointerId)
-        } catch {
-          // setPointerCapture can throw if the pointerId is invalid;
-          // ignore — the animation still works, just without capture.
+      // Hit-test topmost first (last in array = topmost in z-order).
+      for (let i = btns.length - 1; i >= 0; i--) {
+        const b = btns[i]
+        if (
+          b.isInteractive &&
+          x >= b.rect.x &&
+          x <= b.rect.x + b.rect.w &&
+          y >= b.rect.y &&
+          y <= b.rect.y + b.rect.h
+        ) {
+          renderer.setPressed(b.id, true, { x, y })
+          pressedIdRef.current = b.id
+          try {
+            canvas.setPointerCapture(e.pointerId)
+          } catch {
+            // ignore
+          }
+          return
         }
       }
     },
     []
   )
 
-  const handlePointerUp = React.useCallback(
+  const handlePointerMove = React.useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
+      const id = pressedIdRef.current
       const canvas = canvasRef.current
       const renderer = rendererRef.current
-      if (!renderer) return
-      renderer.setPressed(false)
+      if (!id || !canvas || !renderer) return
+      const rect = canvas.getBoundingClientRect()
+      const x = e.clientX - rect.left
+      const y = e.clientY - rect.top
+      renderer.setDragPosition(id, { x, y })
+    },
+    []
+  )
+
+  const handlePointerUp = React.useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      const id = pressedIdRef.current
+      const canvas = canvasRef.current
+      const renderer = rendererRef.current
+      if (id && renderer) {
+        renderer.setPressed(id, false)
+      }
+      pressedIdRef.current = null
       if (canvas && canvas.hasPointerCapture(e.pointerId)) {
         canvas.releasePointerCapture(e.pointerId)
       }
@@ -116,6 +139,7 @@ export function LiquidGlassCanvas({
       <canvas
         ref={canvasRef}
         onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerUp}
         onPointerCancel={handlePointerUp}

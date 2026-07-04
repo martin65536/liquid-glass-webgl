@@ -226,9 +226,16 @@ void main() {
     vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
     vec2 localCoord = screenCoord - uElementOffset;
     vec2 halfSize = uElementSize * 0.5;
+    // Faithful to AGSL: centeredCoord = (coord + offset) - halfSize.
+    // offset is the lens-center shift (0,0 for the catalog buttons since
+    // blur with TileMode.Clamp doesn't add padding). We bake offset = 0
+    // in directly to keep the uniform set small.
     vec2 centeredCoord = localCoord - halfSize;
 
-    float radius = radiusAt(centeredCoord, uCornerRadii);
+    // Faithful to AGSL: radiusAt is called with the raw local coord, NOT
+    // the centered coord. (For uniform radii this is moot, but we match
+    // the original to avoid surprises with non-uniform radii later.)
+    float radius = radiusAt(localCoord, uCornerRadii);
     float sd = sdRoundedRect(centeredCoord, halfSize, radius);
 
     // Outside the shape — fully transparent (clip).
@@ -242,25 +249,24 @@ void main() {
     float alpha = backdrop.a;
 
     // --- 2. Lens refraction (SDF + circleMap) ---------------------
-    // Ported from RoundedRectRefractionWithDispersionShaderString.
+    // Faithful port of RoundedRectRefractionWithDispersionShaderString.
+    // Early-out: if we're deeper than refractionHeight from the edge,
+    // skip refraction entirely (the lens doesn't reach here).
     if (uRefractionHeight > 0.5 && (-sd) < uRefractionHeight) {
         float sdClamped = min(sd, 0.0);
         float d = circleMap(1.0 - (-sdClamped) / uRefractionHeight) * uRefractionAmount;
 
         float gradRadius = min(radius * 1.5, min(halfSize.x, halfSize.y));
         vec2 grad = gradSdRoundedRect(centeredCoord, halfSize, gradRadius);
+        // AGSL: normalize(grad + depthEffect * normalize(centeredCoord))
+        vec2 depthVec = vec2(0.0);
         if (uDepthEffect > 0.5) {
-            vec2 dir = centeredCoord;
-            float dirLen = length(dir);
-            if (dirLen > 1e-6) {
-                grad = normalize(grad + uDepthEffect * (dir / dirLen));
-            } else {
-                grad = normalize(grad + 0.0);
-            }
-        } else {
-            float len = length(grad);
-            if (len > 1e-6) grad = grad / len;
+            float dirLen = length(centeredCoord);
+            if (dirLen > 1e-6) depthVec = centeredCoord / dirLen;
         }
+        vec2 gradSum = grad + uDepthEffect * depthVec;
+        float gradLen = length(gradSum);
+        if (gradLen > 1e-6) grad = gradSum / gradLen;
 
         vec2 refractedLocal = localCoord + d * grad;
         vec2 refractedScreen = uElementOffset + refractedLocal;
@@ -491,5 +497,79 @@ export const VERTEX_SHADER = /* glsl */ `
 attribute vec2 aPos;
 void main() {
     gl_Position = vec4(aPos, 0.0, 1.0);
+}
+`
+
+/* ------------------------------------------------------------------ *
+ * Interactive highlight pass — faithful port of the AGSL shader from
+ * InteractiveHighlight.kt:
+ *
+ *   uniform float2 size;
+ *   layout(color) uniform half4 color;
+ *   uniform float radius;
+ *   uniform float2 position;
+ *   half4 main(float2 coord) {
+ *       float dist = distance(coord, position);
+ *       float intensity = smoothstep(radius, radius * 0.5, dist);
+ *       return color * intensity;
+ *   }
+ *
+ * Combined with the white-overlay pass (drawRect white 8% Plus blend)
+ * this reproduces the catalog's drag-follow press glow. Drawn ABOVE the
+ * element pass and BELOW the foreground (label) pass, all clipped to the
+ * element rect.
+ * ------------------------------------------------------------------ */
+export const HIGHLIGHT_FRAGMENT_SHADER = /* glsl */ `
+precision highp float;
+
+uniform vec2  uCanvasSize;
+uniform vec2  uOffset;       // element top-left in canvas px (top-left origin)
+uniform vec2  uSize;         // element size in canvas px
+uniform vec4  uColor;        // rgba; usually white * (0.15 * progress)
+uniform float uRadius;       // glow radius in canvas px (= minDim * 1.5)
+uniform vec2  uPosition;     // finger position in element-local px (top-left origin)
+
+${SDF_GLSL}
+
+void main() {
+    vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
+    vec2 localCoord = screenCoord - uOffset;
+    // Scissor to the element rect.
+    if (localCoord.x < 0.0 || localCoord.x > uSize.x ||
+        localCoord.y < 0.0 || localCoord.y > uSize.y) {
+        discard;
+    }
+    // Faithful AGSL port: smoothstep(radius, radius*0.5, dist) means
+    // intensity = 1 at dist <= radius*0.5, fading to 0 at dist >= radius.
+    float dist = distance(localCoord, uPosition);
+    float intensity = smoothstep(uRadius, uRadius * 0.5, dist);
+    gl_FragColor = vec4(uColor.rgb, 1.0) * intensity * uColor.a;
+}
+`
+
+/* ------------------------------------------------------------------ *
+ * White-overlay pass — a flat white fill at low alpha, used for the
+ * first half of the InteractiveHighlight effect (drawRect white 8%
+ * Plus blend in the Kotlin source). Plus blend is approximated by
+ * additive blending in the renderer.
+ * ------------------------------------------------------------------ */
+export const TINT_FRAGMENT_SHADER = /* glsl */ `
+precision highp float;
+
+uniform vec2  uCanvasSize;
+uniform vec2  uOffset;
+uniform vec2  uSize;
+uniform vec4  uColor;        // rgba
+
+${SDF_GLSL}
+
+void main() {
+    vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
+    vec2 localCoord = screenCoord - uOffset;
+    if (localCoord.x < 0.0 || localCoord.x > uSize.x ||
+        localCoord.y < 0.0 || localCoord.y > uSize.y) {
+        discard;
+    }
+    gl_FragColor = uColor;
 }
 `

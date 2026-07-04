@@ -1,0 +1,13 @@
+package defpackage;
+
+/* compiled from: r8-map-id-3b96d3c35d690309f46512ed3b40f5bf8cb92090229117673df7fcbbe5498310 */
+/* loaded from: classes.dex */
+public final class i0 {
+    public static final i0 c = new Object();
+    public volatile Thread a;
+    public volatile i0 b;
+
+    public i0() {
+        j0.j.V(this, Thread.currentThread());
+    }
+}

@@ -5,36 +5,51 @@ import { LiquidGlassCanvas } from '@/components/liquid-glass/context'
 import type { GlassButtonConfig } from '@/components/liquid-glass/renderer'
 
 /* ------------------------------------------------------------------ *
- * A single, pixel-perfect liquid-glass button rendered entirely on a
- * WebGL canvas (wallpaper + glass + label + chevron — no DOM children
- * for the button UI).
+ * Faithful WebGL reproduction of Kyant's AndroidLiquidGlass catalog
+ * "Buttons" destination (app/src/commonMain/.../destinations/ButtonsContent.kt).
  *
- * Variant mirrors the Kotlin LiquidButton defaults:
- *   vibrancy (sat 1.5) + blur(2dp) + lens(12dp, 24dp), Default highlight.
+ * Four capsule buttons stacked vertically with 16.dp spacing:
+ *   1. "Transparent Liquid Button" — black text, no tint, no surface
+ *   2. "Surface Liquid Button"    — black text, surfaceColor = white 30%
+ *   3. "Tinted Liquid Button"     — white text, tint = #0088FF (blue)
+ *   4. "Tinted Liquid Button"     — white text, tint = #FF8D28 (orange)
+ *
+ * Each LiquidButton has (matching LiquidButton.kt):
+ *   - height 48.dp, horizontal padding 16.dp
+ *   - shape = Capsule
+ *   - effects = vibrancy() + blur(2.dp) + lens(12.dp, 24.dp)
+ *   - InteractiveHighlight (drag-follow press glow, no click shrink)
+ *   - NO outer shadow, NO default highlight
+ *
+ * Wallpaper = wallpaper_light.webp (cover-fit, centered).
  * ------------------------------------------------------------------ */
 
 const DP = 3
 
-const DEFAULT_HIGHLIGHT = {
-  mode: 0 as const,
-  color: [1, 1, 1] as [number, number, number],
-  angle: (45 * Math.PI) / 180,
-  falloff: 1,
-  alpha: 0.5,
-}
+// 1 dp = DP css px. The catalog uses 48.dp height and 16.dp padding.
+const BUTTON_HEIGHT = 48 * DP
+const BUTTON_HORIZONTAL_PADDING = 16 * DP
+const BUTTON_SPACING = 16 * DP
+// 4.dp / size.height — used by LiquidButton.kt for the press scale-up.
+// We pass it through to the renderer; here it's just for reference.
+const PRESS_SCALE_DP = 4 * DP
 
-const DEFAULT_SHADOW: GlassButtonConfig['outerShadow'] = {
-  radius: 24 * DP,
-  alpha: 0.1,
-  offsetX: 0,
-  offsetY: (24 * DP) / 6,
-  color: [0, 0, 0],
+// Common glass params (matching LiquidButton.kt's effects block).
+const GLASS_PARAMS = {
+  cornerRadius: BUTTON_HEIGHT / 2, // capsule
+  refractionHeight: 12 * DP,
+  // Kotlin's lens(12.dp, 24.dp) sets refractionAmount = 24.dp, then the
+  // shader negates it. We pass -24.dp directly to match the AGSL behavior.
+  refractionAmount: -24 * DP,
+  depthEffect: false,
+  chromaticAberration: false,
+  blurRadius: 2 * DP,
+  saturation: 1.5,
+  brightness: 0,
+  contrast: 1,
 }
 
 export default function Home() {
-  // Center a 320×52 capsule inside the phone frame. The frame is sized
-  // min(420, 100vw) × min(900, 100vh); we use percentages so it works
-  // at any size.
   const [frameSize, setFrameSize] = React.useState({ w: 420, h: 900 })
   const frameRef = React.useRef<HTMLDivElement>(null)
 
@@ -49,32 +64,55 @@ export default function Home() {
     return () => ro.disconnect()
   }, [])
 
-  const buttonW = Math.min(320, frameSize.w - 48)
-  const buttonH = 52
+  // Compute button rects: each button is content-width-capped at 320px,
+  // centered horizontally, stacked vertically with 16.dp spacing, the
+  // whole block centered vertically.
+  const buttonW = Math.min(320, frameSize.w - 32)
+  const totalBlockH = 4 * BUTTON_HEIGHT + 3 * BUTTON_SPACING
+  const startY = Math.max(40, (frameSize.h - totalBlockH) / 2)
   const buttonX = (frameSize.w - buttonW) / 2
-  const buttonY = (frameSize.h - buttonH) / 2
 
-  const button = React.useMemo<GlassButtonConfig>(
-    () => ({
-      rect: { x: buttonX, y: buttonY, w: buttonW, h: buttonH },
-      cornerRadius: buttonH / 2, // capsule
-      refractionHeight: 12 * DP,
-      refractionAmount: -24 * DP,
-      depthEffect: false,
-      chromaticAberration: false,
-      blurRadius: 2 * DP,
-      saturation: 1.5,
-      brightness: 0,
-      contrast: 1,
+  const buttons = React.useMemo<GlassButtonConfig[]>(() => {
+    const base = (id: string, label: string, idx: number): GlassButtonConfig => ({
+      id,
+      rect: {
+        x: buttonX,
+        y: startY + idx * (BUTTON_HEIGHT + BUTTON_SPACING),
+        w: buttonW,
+        h: BUTTON_HEIGHT,
+      },
+      ...GLASS_PARAMS,
       tintColor: [0, 0, 0, 0],
       surfaceColor: [0, 0, 0, 0],
-      highlight: DEFAULT_HIGHLIGHT,
-      outerShadow: DEFAULT_SHADOW,
-      label: 'Button',
-      showChevron: true,
-    }),
-    [buttonX, buttonY, buttonW, buttonH]
-  )
+      highlight: null,
+      outerShadow: null,
+      label,
+      labelColor: [0, 0, 0, 1],
+      showChevron: false,
+      isInteractive: true,
+    })
+
+    const buttons: GlassButtonConfig[] = [
+      base('transparent', 'Transparent Liquid Button', 0),
+      base('surface', 'Surface Liquid Button', 1),
+      base('tinted-blue', 'Tinted Liquid Button', 2),
+      base('tinted-orange', 'Tinted Liquid Button', 3),
+    ]
+
+    // Surface button: white 30% surface fill, black text.
+    buttons[1].surfaceColor = [1, 1, 1, 0.3]
+    buttons[1].labelColor = [0, 0, 0, 1]
+
+    // Blue tinted button: tint #0088FF, white text.
+    buttons[2].tintColor = [0x00 / 255, 0x88 / 255, 0xff / 255, 1]
+    buttons[2].labelColor = [1, 1, 1, 1]
+
+    // Orange tinted button: tint #FF8D28, white text.
+    buttons[3].tintColor = [0xff / 255, 0x8d / 255, 0x28 / 255, 1]
+    buttons[3].labelColor = [1, 1, 1, 1]
+
+    return buttons
+  }, [buttonX, buttonW, startY])
 
   return (
     <div
@@ -94,7 +132,7 @@ export default function Home() {
       >
         <LiquidGlassCanvas
           wallpaperSrc="/wallpaper/wallpaper_light.webp"
-          button={button}
+          buttons={buttons}
           className="w-full h-full"
         />
       </div>
