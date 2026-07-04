@@ -120,6 +120,14 @@ export interface TextSpec {
   paddingPx?: number
   /** Halo for legibility (default = auto from color brightness). */
   halo?: 'auto' | 'light' | 'dark' | 'none'
+  /** Optional vector icon drawn above the text (for tab items / control
+   *  center tiles). The path is SVG path data in a 24×24 viewport,
+   *  scaled to `iconSize` px and centered horizontally. */
+  icon?: {
+    path: string
+    size: number // px
+    color: [number, number, number, number]
+  }
 }
 
 export interface GlassElementConfig extends GlassButtonConfig {
@@ -548,6 +556,13 @@ export class LiquidGlassRenderer {
     for (const next of configs) {
       const prev = this.buttonConfigs.find((b) => b.id === next.id)
       if (!prev) continue
+      const prevIcon = prev.text?.icon
+      const nextIcon = next.text?.icon
+      const iconChanged = !!prevIcon !== !!nextIcon ||
+        (prevIcon && nextIcon &&
+          (prevIcon.path !== nextIcon.path ||
+           prevIcon.size !== nextIcon.size ||
+           prevIcon.color !== nextIcon.color))
       if (
         prev.label !== next.label ||
         prev.labelColor !== next.labelColor ||
@@ -556,7 +571,8 @@ export class LiquidGlassRenderer {
         prev.rect.h !== next.rect.h ||
         (next.text && prev.text && prev.text.content !== next.text.content) ||
         (next.text && !prev.text) ||
-        (!next.text && prev.text)
+        (!next.text && prev.text) ||
+        iconChanged
       ) {
         this.fgDirtyIds.add(next.id)
       }
@@ -946,19 +962,44 @@ export class LiquidGlassRenderer {
     )}, ${Math.round(t.color[2] * 255)}, ${t.color[3]})`
     ctx.fillStyle = colorStr
 
+    // --- Optional icon (drawn above the text, centered horizontally) --
+    let textYOffset = 0
+    if (t.icon) {
+      const iconSize = t.icon.size
+      // Icon sits in the upper portion; text shifts down by iconSize + gap.
+      const gap = iconSize * 0.15
+      const totalBlockH = iconSize + gap + (t.content ? t.fontSizePx : 0)
+      const blockTop = cssH / 2 - totalBlockH / 2
+      const iconCx = cssW / 2
+      const iconCy = blockTop + iconSize / 2
+      // Draw the icon path scaled from a 24×24 viewport to iconSize×iconSize,
+      // centered at (iconCx, iconCy).
+      ctx.save()
+      ctx.translate(iconCx - iconSize / 2, iconCy - iconSize / 2)
+      ctx.scale(iconSize / 24, iconSize / 24)
+      const p = new Path2D(t.icon.path)
+      const ic = t.icon.color
+      ctx.fillStyle = `rgba(${Math.round(ic[0] * 255)}, ${Math.round(
+        ic[1] * 255
+      )}, ${Math.round(ic[2] * 255)}, ${ic[3]})`
+      ctx.fill(p)
+      ctx.restore()
+      textYOffset = (iconSize + gap) / 2
+    }
+
     if (t.align === 'center') {
       ctx.textAlign = 'center'
       if (t.wrap) {
         const lines = wrapText(ctx, t.content, cssW - pad * 2)
         const lineH = t.fontSizePx * 1.35
         const totalH = lineH * lines.length
-        let y = cssH / 2 - totalH / 2 + lineH / 2
+        let y = cssH / 2 - totalH / 2 + lineH / 2 + textYOffset
         for (const line of lines) {
           ctx.fillText(line, cssW / 2, y)
           y += lineH
         }
       } else {
-        ctx.fillText(t.content, cssW / 2, cssH / 2 + 0.5)
+        ctx.fillText(t.content, cssW / 2, cssH / 2 + 0.5 + textYOffset)
       }
     } else if (t.align === 'left') {
       ctx.textAlign = 'left'
@@ -966,18 +1007,18 @@ export class LiquidGlassRenderer {
         const lines = wrapText(ctx, t.content, cssW - pad * 2)
         const lineH = t.fontSizePx * 1.35
         const totalH = lineH * lines.length
-        let y = cssH / 2 - totalH / 2 + lineH / 2
+        let y = cssH / 2 - totalH / 2 + lineH / 2 + textYOffset
         for (const line of lines) {
           ctx.fillText(line, pad, y)
           y += lineH
         }
       } else {
-        ctx.fillText(t.content, pad, cssH / 2 + 0.5)
+        ctx.fillText(t.content, pad, cssH / 2 + 0.5 + textYOffset)
       }
     } else {
       // right
       ctx.textAlign = 'right'
-      ctx.fillText(t.content, cssW - pad, cssH / 2 + 0.5)
+      ctx.fillText(t.content, cssW - pad, cssH / 2 + 0.5 + textYOffset)
     }
 
     this.uploadForegroundTexture(cfg.id)

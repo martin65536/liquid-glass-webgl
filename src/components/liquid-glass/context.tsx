@@ -30,6 +30,9 @@ export interface LiquidGlassCanvasProps {
   contentHeight?: number
   /** Optional callbacks map: id → { onTap, onDragStart, onDrag, onDragEnd }. */
   interactions?: Record<string, ElementInteraction>
+  /** When this number changes, the canvas resets scrollY to 0 (used for
+   *  destination switches in the catalog). */
+  scrollResetToken?: number
   className?: string
 }
 
@@ -48,6 +51,7 @@ export function LiquidGlassCanvas({
   elements,
   contentHeight,
   interactions,
+  scrollResetToken,
   className,
 }: LiquidGlassCanvasProps) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
@@ -116,6 +120,11 @@ export function LiquidGlassCanvas({
       rendererRef.current?.setContentHeight(contentHeight)
     }
   }, [contentHeight])
+
+  // Reset scroll when scrollResetToken changes (destination switch).
+  React.useEffect(() => {
+    rendererRef.current?.setScrollY(0)
+  }, [scrollResetToken])
 
   // --- Pointer handlers ---------------------------------------------
   const localPos = (e: React.PointerEvent<HTMLCanvasElement>) => {
