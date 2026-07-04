@@ -366,12 +366,13 @@ function makeBackButton(
   onBack: () => void,
   scroll = false
 ): { element: GlassElementConfig; interaction: ElementInteraction } {
-  // Circular button: 40dp diameter, centered arrow_back icon (24dp).
+  // Circular button: 56dp diameter, centered arrow_back icon (32dp).
   // Per user request: "玻璃退出按钮不要有边缘高光" — no edge highlight
   // on the glass back button. We pass `highlight: null` so the rim
   // highlight pass is skipped entirely.
-  const size = 40 * DP
-  const iconSize = 24 * DP
+  // Per user request: "把退出按钮改大一点" — increased from 40dp to 56dp.
+  const size = 56 * DP
+  const iconSize = 32 * DP
   const element: GlassElementConfig = {
     id: '__back__',
     kind: 'button',
@@ -397,6 +398,32 @@ function makeBackButton(
     element,
     interaction: { onTap: () => onBack() },
   }
+}
+
+/* ------------------------------------------------------------------ *
+ * applyVerticalCenter — offsets all element y positions (except the
+ * back button, which stays top-left) so the content is vertically
+ * centered within the viewport. Mirrors BackdropDemoScaffold's
+ * `Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center)`.
+ *
+ * Returns the new contentHeight (= H if centering applied, since the
+ * content now spans the full viewport visually).
+ * ------------------------------------------------------------------ */
+function applyVerticalCenter(
+  elements: GlassElementConfig[],
+  contentTop: number,
+  contentHeight: number,
+  H: number
+): number {
+  const contentSize = contentHeight - contentTop
+  if (contentSize >= H) return contentHeight
+  const yOffset = Math.max(0, (H - contentSize) / 2 - contentTop)
+  if (yOffset <= 0) return contentHeight
+  for (const el of elements) {
+    if (el.id === '__back__') continue // back button stays at top-left
+    el.rect = { ...el.rect, y: el.rect.y + yOffset }
+  }
+  return contentHeight + yOffset
 }
 
 /* ------------------------------------------------------------------ *
@@ -496,7 +523,7 @@ function buildHome(W: number, onNavigate: (d: CatalogDestination) => void): Cata
  *   3. Tinted blue (#0088FF)
  *   4. Tinted orange (#FF8D28)
  * ------------------------------------------------------------------ */
-function buildButtons(W: number, onBack: () => void): CatalogResult {
+function buildButtons(W: number, H: number, onBack: () => void): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
@@ -536,7 +563,8 @@ function buildButtons(W: number, onBack: () => void): CatalogResult {
   ]
 
   const spacing = 16 * DP
-  let cursorY = 80
+  // Start at y=0 — applyVerticalCenter will shift everything to center.
+  let cursorY = 0
   for (const spec of specs) {
     const textW = measureTextWidth(spec.label, TEXT_FONT_SIZE_PX)
     const w = Math.ceil(textW + 2 * BUTTON_HORIZONTAL_PADDING)
@@ -544,8 +572,9 @@ function buildButtons(W: number, onBack: () => void): CatalogResult {
     elements.push(makeButton(spec.id, { x, y: cursorY, w, h: BUTTON_HEIGHT }, spec))
     cursorY += BUTTON_HEIGHT + spacing
   }
-
-  return { elements, interactions, contentHeight: cursorY }
+  const contentHeight = cursorY - spacing
+  const finalHeight = applyVerticalCenter(elements, 0, contentHeight, H)
+  return { elements, interactions, contentHeight: finalHeight }
 }
 
 /* ------------------------------------------------------------------ *
@@ -604,6 +633,7 @@ function buildButtons(W: number, onBack: () => void): CatalogResult {
  * ------------------------------------------------------------------ */
 function buildToggle(
   W: number,
+  H: number,
   onBack: () => void,
   state: CatalogState,
   setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void,
@@ -662,22 +692,18 @@ function buildToggle(
     offsetY: 4 * DP, // default offset = radius; renderer modulates by progress
   }
 
-  // Page title
-  elements.push(
-    makeText(
-      'toggle-title',
-      { x: 16, y: 80, w: W - 32, h: 32 },
-      'Toggle',
-      { color: [0, 0, 0, 1], fontSizePx: 24, fontWeight: 500, align: 'left', paddingPx: 16, halo: 'dark' }
-    )
-  )
+  // NOTE: No page title — original ToggleContent.kt has no title.
+  // Content is vertically centered via applyVerticalCenter at the end
+  // (mirrors BackdropDemoScaffold's Box(contentAlignment = Center)).
 
   // --- Toggle 1: on wallpaper ---
   // Column(horizontalAlignment = CenterHorizontally) → toggle is centered.
-  // LiquidToggle(modifier = padding(horizontal = 32dp)) → 32dp horizontal padding.
+  // LiquidToggle(modifier = padding(horizontal = 32dp)) → 32dp horizontal padding
+  //   around the 64dp toggle, but the toggle track itself is centered
+  //   horizontally in the screen.
   const t1CenterX = W / 2
   const t1TrackX = t1CenterX - TOGGLE_W / 2
-  const t1TrackY = 140
+  const t1TrackY = 0 // applyVerticalCenter shifts this
   const t1KnobX = t1TrackX + TOGGLE_PADDING // fraction=0 position
   const t1KnobY = t1TrackY + (TOGGLE_H - TOGGLE_KNOB_H) / 2
 
@@ -716,22 +742,36 @@ function buildToggle(
   elements.push(t1KnobEl)
 
   // --- White card with toggle 2 (faithful to ToggleContent.kt) ---
-  // Box(padding(24dp).clip(RoundedRect(32dp)).background(white).padding(24dp))
-  // Column spacedBy(16dp) → 16dp between toggle1 and the Box.
-  // The Box's outer padding(24dp) is spacing around the visible card.
-  // So card top = t1TrackY + TOGGLE_H + 16 + 24 = t1TrackY + TOGGLE_H + 40.
-  // Visible card height = inner padding(24) + toggle(28) + inner padding(24) = 76dp.
-  const cardX = 24 * DP
-  const cardY = t1TrackY + TOGGLE_H + 40 // 16dp spacing + 24dp outer padding
-  const cardW = W - 2 * cardX
-  const cardH = 76 * DP // 24dp inner pad + 28dp toggle + 24dp inner pad
+  // Box(Modifier.padding(24dp).clip(RoundedRectangle(32dp)).background(white).padding(24dp))
+  // The Box is wrap_content — its size is determined by its content:
+  //   Content = LiquidToggle (64×28) + horizontal padding 32×2 = 128×28
+  //   Visible card (after clip+bg, before outer pad) = 128+48 × 28+48 = 176×76
+  //   Total Box (with outer pad) = 176+48 × 76+48 = 224×124
+  // The Box is centered horizontally in the Column (CenterHorizontally).
+  // The Column has spacedBy(16dp), so 16dp between toggle1 and the Box.
+  // The outer padding(24dp) provides 24dp space above the visible card.
+  const VISIBLE_CARD_W = 176 * DP // 128 (content+slider pad) + 48 (inner pad)
+  const VISIBLE_CARD_H = 76 * DP  // 28 (toggle) + 48 (inner pad)
+  const cardX = (W - VISIBLE_CARD_W) / 2
+  const cardY = t1TrackY + TOGGLE_H + 16 + 24 // toggle1 bottom + Column spacing + outer pad
+  const cardW = VISIBLE_CARD_W
+  const cardH = VISIBLE_CARD_H
   const cardRadius = 32 * DP
   const cardBg: [number, number, number, number] = [1, 1, 1, 1] // white
   elements.push(makePlainRect('toggle-card', { x: cardX, y: cardY, w: cardW, h: cardH }, cardBg, cardRadius))
 
-  const t2CenterX = cardX + cardW / 2
-  const t2TrackX = t2CenterX - TOGGLE_W / 2
-  const t2TrackY = cardY + cardH / 2 - TOGGLE_H / 2
+  // Toggle 2 inside the card:
+  //   Box default content alignment = TopStart.
+  //   LiquidToggle(modifier = padding(horizontal = 32dp)) — the LiquidToggle
+  //   composable is 128×28 (64 toggle + 32×2 padding).
+  //   The toggle (64×28) is at horizontal padding 32 inside the composable,
+  //   so toggle left = card_inner_left + 32 = cardX + 24 + 32 = cardX + 56.
+  //   Toggle top = card_inner_top = cardY + 24 (24dp inner padding).
+  //   Toggle is vertically centered in the card content area
+  //   (cardY + 24 to cardY + 24 + 28 = cardY + 52; card height = 76, so
+  //    toggle vertical center = cardY + 38; toggle top = cardY + 24).
+  const t2TrackX = cardX + 24 + 32 // inner pad + slider pad
+  const t2TrackY = cardY + 24 // inner pad
   const t2KnobX = t2TrackX + TOGGLE_PADDING
   const t2KnobY = t2TrackY + (TOGGLE_H - TOGGLE_KNOB_H) / 2
   const t2TrackEl = makePlainRect(
@@ -803,8 +843,10 @@ function buildToggle(
   interactions['toggle2-track'] = makeToggleInteractions('toggle2', TOGGLE_DRAG)
   interactions['toggle2-knob'] = makeToggleInteractions('toggle2', TOGGLE_DRAG)
 
-  const contentHeight = cardY + cardH + 40
-  return { elements, interactions, contentHeight }
+  // Content height = card bottom (including outer padding 24dp below the card)
+  const contentHeight = cardY + cardH + 24
+  const finalHeight = applyVerticalCenter(elements, 0, contentHeight, H)
+  return { elements, interactions, contentHeight: finalHeight }
 }
 
 /* ------------------------------------------------------------------ *
@@ -839,6 +881,7 @@ function buildToggle(
  * ------------------------------------------------------------------ */
 function buildSlider(
   W: number,
+  H: number,
   onBack: () => void,
   state: CatalogState,
   setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void,
@@ -856,19 +899,15 @@ function buildSlider(
   const SLIDER_KNOB_W = 40 * DP
   const SLIDER_KNOB_H = 24 * DP
 
-  // Page title
-  elements.push(
-    makeText(
-      'slider-title',
-      { x: 16, y: 80, w: W - 32, h: 32 },
-      'Slider',
-      { color: [0, 0, 0, 1], fontSizePx: 24, fontWeight: 500, align: 'left', paddingPx: 16, halo: 'dark' }
-    )
-  )
+  // NOTE: No page title — original SliderContent.kt has no title.
+  // Content is vertically centered via applyVerticalCenter at the end
+  // (mirrors BackdropDemoScaffold's Box(contentAlignment = Center)).
 
   // --- Slider 1: on wallpaper ---
+  // LiquidSlider(modifier = padding(horizontal = 32dp))
+  //   → slider track fillMaxWidth = W - 64
   const s1TrackX = SLIDER_PAD
-  const s1TrackY = 140
+  const s1TrackY = 0 // applyVerticalCenter shifts this
   const s1TrackW = W - 2 * SLIDER_PAD
   // Knob base position (fraction=0): faithful to LiquidSlider.kt's
   //   translationX = (-knobW/2 + trackW * progress)
@@ -903,28 +942,50 @@ function buildSlider(
       refractionHeight: 10 * DP, // lens height when pressed (bigger than toggle)
       refractionAmount: -14 * DP, // lens amount when pressed
       blurRadius: 8 * DP, // frosted blur at rest (renderer modulates)
-      saturation: 1.5,
+      saturation: 1.0, // NO saturation boost — slider effects block only has blur+lens
       surfaceColor: [0, 0, 0, 0],
       highlight: { mode: 1, color: [1, 1, 1], angle: 45 * Math.PI / 180, falloff: 1.0, alpha: 1.0, widthDp: 0.5 / 1.5 },
-      outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: 0, color: [0, 0, 0] },
-      innerShadow: { radius: 4 * DP, alpha: 1, offsetX: 0, offsetY: 0 },
+      outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: (4 / 6) * DP, color: [0, 0, 0] },
+      innerShadow: { radius: 4 * DP, alpha: 0.15, offsetX: 0, offsetY: 4 * DP },
       chromaticAberration: true,
     }
   )
   s1KnobEl.isToggleKnob = { groupId: 'slider1', dragWidth: s1TrackW - SLIDER_KNOB_W / 2 }
   elements.push(s1KnobEl)
 
-  // --- White card with slider 2 ---
+  // --- White card with slider 2 (faithful to SliderContent.kt) ---
+  // Box(Modifier.padding(24dp).clip(RoundedRectangle(32dp)).background(white).padding(24dp))
+  // The Box is wrap_content, but its child (LiquidSlider with fillMaxWidth)
+  // makes the Box take the full available width.
+  //   Slider1 layout height = 24dp (max of track 6 and knob 24)
+  //   Visible card height = 24 (slider) + 48 (inner pad 24*2) = 72dp
+  //   Visible card width = W - 48 (outer pad 24*2)
+  //   Total Box height = 72 + 48 (outer pad) = 120dp
+  // The Column has spacedBy(16dp) between slider1 and the Box.
+  // The outer padding(24dp) provides 24dp space above the visible card.
+  // Slider1 layout bottom = s1TrackY + 24 (slider1 Box height)
+  //   = s1TrackY + SLIDER_KNOB_H (since knob is the tallest child)
+  //   But the slider1 layout bottom is actually s1TrackY + max(track, knob) = s1TrackY + 24
+  //   However, the slider1 layout extends from s1KnobY to s1KnobY + 24
+  //   = s1TrackY - 9 to s1TrackY + 15. So layout bottom = s1TrackY + 15.
+  //   For simplicity, use s1TrackY + SLIDER_KNOB_H as the layout height.
+  const VISIBLE_CARD_H = 24 + 48 // 72dp = slider (knob height) + inner pad
   const cardX = 24 * DP
-  const cardY = s1TrackY + 60
   const cardW = W - 2 * cardX
-  const cardH = 120 * DP
+  const cardH = VISIBLE_CARD_H
+  const cardY = s1TrackY + SLIDER_KNOB_H + 16 + 24 // slider1 bottom + Column spacing + outer pad
   const cardRadius = 32 * DP
   elements.push(makePlainRect('slider-card', { x: cardX, y: cardY, w: cardW, h: cardH }, [1, 1, 1, 1], cardRadius))
 
-  const s2TrackX = cardX + SLIDER_PAD
-  const s2TrackW = cardW - 2 * SLIDER_PAD
-  const s2TrackY = cardY + cardH / 2 - SLIDER_TRACK_H / 2
+  // Slider 2 inside the card:
+  //   Box inner padding 24 + LiquidSlider padding(horizontal=32)
+  //   → track X = cardX + 24 + 32 = cardX + 56
+  //   → track W = cardW - 2*24 - 2*32 = cardW - 112
+  //   Track Y = cardY + 24 (inner pad) + (24-6)/2 = cardY + 24 + 9
+  //   (track is vertically centered in the 24dp-tall slider layout)
+  const s2TrackX = cardX + 24 + SLIDER_PAD
+  const s2TrackW = cardW - 2 * 24 - 2 * SLIDER_PAD
+  const s2TrackY = cardY + 24 + (SLIDER_KNOB_H - SLIDER_TRACK_H) / 2
   const s2KnobBaseX = s2TrackX - SLIDER_KNOB_W / 4
   const s2KnobY = s2TrackY + (SLIDER_TRACK_H - SLIDER_KNOB_H) / 2
   const s2FillW = s2TrackW * s1Fraction
@@ -942,11 +1003,11 @@ function buildSlider(
       refractionHeight: 10 * DP,
       refractionAmount: -14 * DP,
       blurRadius: 8 * DP,
-      saturation: 1.5,
+      saturation: 1.0, // NO saturation boost — slider effects block only has blur+lens
       surfaceColor: [0, 0, 0, 0],
       highlight: { mode: 1, color: [1, 1, 1], angle: 45 * Math.PI / 180, falloff: 1.0, alpha: 1.0, widthDp: 0.5 / 1.5 },
-      outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: 0, color: [0, 0, 0] },
-      innerShadow: { radius: 4 * DP, alpha: 1, offsetX: 0, offsetY: 0 },
+      outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: (4 / 6) * DP, color: [0, 0, 0] },
+      innerShadow: { radius: 4 * DP, alpha: 0.15, offsetX: 0, offsetY: 4 * DP },
       chromaticAberration: true,
     }
   )
@@ -993,8 +1054,10 @@ function buildSlider(
   interactions['slider2-track'] = makeSliderTrackInteractions('slider2', s2TrackX, s2TrackW)
   interactions['slider2-knob'] = makeSliderKnobInteractions('slider2', s2TrackX, s2TrackW)
 
-  const contentHeight = cardY + cardH + 40
-  return { elements, interactions, contentHeight }
+  // Content height = card bottom (including outer padding 24dp below the card)
+  const contentHeight = cardY + cardH + 24
+  const finalHeight = applyVerticalCenter(elements, 0, contentHeight, H)
+  return { elements, interactions, contentHeight: finalHeight }
 }
 
 /* ------------------------------------------------------------------ *
@@ -1005,7 +1068,7 @@ function buildSlider(
  *   2. 4-tab bar
  * Each tab shows a flight icon + "Tab N" label.
  * ------------------------------------------------------------------ */
-function buildBottomTabs(W: number, onBack: () => void, state: CatalogState, setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void): CatalogResult {
+function buildBottomTabs(W: number, H: number, onBack: () => void, state: CatalogState, setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
@@ -1082,10 +1145,13 @@ function buildBottomTabs(W: number, onBack: () => void, state: CatalogState, set
     }
   }
 
-  buildTabBar('tabs3', 3, state.selectedTab, (i) => setState({ selectedTab: i }), 100)
-  buildTabBar('tabs4', 4, state.selectedTab2, (i) => setState({ selectedTab2: i }), 200)
-
-  return { elements, interactions, contentHeight: 300 }
+  // 2 tab bars with 32dp Column spacing (faithful to BottomTabsContent.kt)
+  const TABS_H = 64 * DP
+  buildTabBar('tabs3', 3, state.selectedTab, (i) => setState({ selectedTab: i }), 0)
+  buildTabBar('tabs4', 4, state.selectedTab2, (i) => setState({ selectedTab2: i }), TABS_H + 32)
+  const contentHeight = 2 * TABS_H + 32
+  const finalHeight = applyVerticalCenter(elements, 0, contentHeight, H)
+  return { elements, interactions, contentHeight: finalHeight }
 }
 
 /* ------------------------------------------------------------------ *
@@ -1194,7 +1260,7 @@ function buildDialog(W: number, H: number, onBack: () => void): CatalogResult {
  * Layout: centered Column with a full-width 128dp-tall alpha-masked
  * progressive blur band containing the text "alpha-masked progressive blur".
  * ------------------------------------------------------------------ */
-function buildProgressiveBlur(W: number, onBack: () => void): CatalogResult {
+function buildProgressiveBlur(W: number, H: number, onBack: () => void): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
@@ -1202,7 +1268,7 @@ function buildProgressiveBlur(W: number, onBack: () => void): CatalogResult {
   elements.push(back.element)
   interactions[back.element.id] = back.interaction
 
-  const PB_Y = 120
+  const PB_Y = 0 // applyVerticalCenter shifts this
   const PB_H = 128 * DP
   elements.push({
     id: 'pb-band',
@@ -1241,7 +1307,9 @@ function buildProgressiveBlur(W: number, onBack: () => void): CatalogResult {
     )
   )
 
-  return { elements, interactions, contentHeight: PB_Y + PB_H + 40 }
+  const contentHeight = PB_H
+  const finalHeight = applyVerticalCenter(elements, 0, contentHeight, H)
+  return { elements, interactions, contentHeight: finalHeight }
 }
 
 /* ------------------------------------------------------------------ *
@@ -1251,7 +1319,7 @@ function buildProgressiveBlur(W: number, onBack: () => void): CatalogResult {
  * like the iOS control center. Each tile is a glass rounded-rect
  * with Default highlight. Some tiles contain flight icons.
  * ------------------------------------------------------------------ */
-function buildControlCenter(W: number, onBack: () => void): CatalogResult {
+function buildControlCenter(W: number, H: number, onBack: () => void): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
@@ -1264,7 +1332,7 @@ function buildControlCenter(W: number, onBack: () => void): CatalogResult {
   const twoSpan = itemSize * 2 + itemSpacing
   const iconColor: [number, number, number, number] = [1, 1, 1, 1]
 
-  const startY = 90
+  const startY = 0 // applyVerticalCenter shifts this
   // Row 1: [2-span with 3 inner items] [2-span empty]
   let cursorY = startY
   // Tile A (2×2 with 3 inner icons)
@@ -1377,7 +1445,9 @@ function buildControlCenter(W: number, onBack: () => void): CatalogResult {
 
   cursorY += twoSpan + itemSpacing
 
-  return { elements, interactions, contentHeight: cursorY + 20 }
+  const contentHeight = cursorY
+  const finalHeight = applyVerticalCenter(elements, 0, contentHeight, H)
+  return { elements, interactions, contentHeight: finalHeight }
 }
 
 /* ------------------------------------------------------------------ *
@@ -1397,7 +1467,7 @@ function buildMagnifier(W: number, H: number, onBack: () => void, state: Catalog
 
   // White card with text
   const cardX = 24 * DP
-  const cardY = 90
+  const cardY = 0 // applyVerticalCenter shifts this
   const cardW = W - 2 * cardX
   const cardH = 280 * DP
   const cardRadius = 32 * DP
@@ -1453,7 +1523,9 @@ function buildMagnifier(W: number, H: number, onBack: () => void, state: Catalog
     onDragEnd: () => {},
   }
 
-  return { elements, interactions, contentHeight: cardY + cardH + 40 }
+  const contentHeight = cardH
+  const finalHeight = applyVerticalCenter(elements, 0, contentHeight, H)
+  return { elements, interactions, contentHeight: finalHeight }
 }
 
 /* ------------------------------------------------------------------ *
@@ -1463,7 +1535,7 @@ function buildMagnifier(W: number, H: number, onBack: () => void, state: Catalog
  * with 5 sliders (corner radius, blur, refraction height, refraction
  * amount, chromatic aberration) + a Reset button.
  * ------------------------------------------------------------------ */
-function buildGlassPlayground(W: number, onBack: () => void, state: CatalogState, setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void): CatalogResult {
+function buildGlassPlayground(W: number, H: number, onBack: () => void, state: CatalogState, setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
@@ -1474,7 +1546,7 @@ function buildGlassPlayground(W: number, onBack: () => void, state: CatalogState
   // Glass square (256dp, corner radius from slider)
   const squareSize = 256 * DP
   const squareX = (W - squareSize) / 2
-  const squareY = 90
+  const squareY = 0 // applyVerticalCenter shifts this if content fits
   const cornerRadius = (squareSize / 2) * state.cornerRadiusFrac
   const minDim = squareSize
   elements.push(
@@ -1576,7 +1648,7 @@ function buildGlassPlayground(W: number, onBack: () => void, state: CatalogState
           refractionHeight: 10 * DP,
           refractionAmount: -14 * DP,
           blurRadius: 8 * DP,
-          saturation: 1.5,
+          saturation: 1.0, // NO saturation boost — LiquidSlider effects block only has blur+lens
           // Solid white surface — approximates the frosted white pebble
           // look of the main sliders (which use a separate white overlay
           // pass driven by isToggleKnob). Without isToggleKnob we can't
@@ -1584,8 +1656,8 @@ function buildGlassPlayground(W: number, onBack: () => void, state: CatalogState
           // appearance matches.
           surfaceColor: [1, 1, 1, 1],
           highlight: { mode: 1, color: [1, 1, 1], angle: 45 * Math.PI / 180, falloff: 1.0, alpha: 1.0, widthDp: 0.5 / 1.5 },
-          outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: 0, color: [0, 0, 0] },
-          innerShadow: { radius: 4 * DP, alpha: 1, offsetX: 0, offsetY: 0 },
+          outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: (4 / 6) * DP, color: [0, 0, 0] },
+          innerShadow: { radius: 4 * DP, alpha: 0.15, offsetX: 0, offsetY: 4 * DP },
           chromaticAberration: true,
         }
       )
@@ -1640,7 +1712,9 @@ function buildGlassPlayground(W: number, onBack: () => void, state: CatalogState
     }),
   }
 
-  return { elements, interactions, contentHeight: resetY + BUTTON_HEIGHT + 40 }
+  const contentHeight = resetY + BUTTON_HEIGHT
+  const finalHeight = applyVerticalCenter(elements, 0, contentHeight, H)
+  return { elements, interactions, contentHeight: finalHeight }
 }
 
 /* ------------------------------------------------------------------ *
@@ -1650,7 +1724,7 @@ function buildGlassPlayground(W: number, onBack: () => void, state: CatalogState
  * (Full luminance sensing is not feasible in WebGL — we show a static
  * glass with the label.)
  * ------------------------------------------------------------------ */
-function buildAdaptiveLuminanceGlass(W: number, onBack: () => void): CatalogResult {
+function buildAdaptiveLuminanceGlass(W: number, H: number, onBack: () => void): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
@@ -1660,7 +1734,7 @@ function buildAdaptiveLuminanceGlass(W: number, onBack: () => void): CatalogResu
 
   const size = 160 * DP
   const x = (W - size) / 2
-  const y = 120
+  const y = 0 // applyVerticalCenter shifts this
   elements.push(
     makeGlassShape(
       'alg-square',
@@ -1703,7 +1777,9 @@ function buildAdaptiveLuminanceGlass(W: number, onBack: () => void): CatalogResu
     )
   )
 
-  return { elements, interactions, contentHeight: y + size + 120 }
+  const contentHeight = size + 32 + 60
+  const finalHeight = applyVerticalCenter(elements, 0, contentHeight, H)
+  return { elements, interactions, contentHeight: finalHeight }
 }
 
 /* ------------------------------------------------------------------ *
@@ -1730,7 +1806,7 @@ function buildLockScreen(W: number, H: number, onBack: () => void, state: Catalo
   const glassW = maxW
   const glassH = glassW * (3 / 4) // approx aspect ratio
   const baseX = (W - glassW) / 2
-  const baseY = 120
+  const baseY = 0 // applyVerticalCenter shifts this
   const glassX = baseX + state.lockScreenOffsetX
   const glassY = baseY + state.lockScreenOffsetY
   elements.push(
@@ -1771,7 +1847,9 @@ function buildLockScreen(W: number, H: number, onBack: () => void, state: Catalo
     )
   )
 
-  return { elements, interactions, contentHeight: baseY + glassH + 80 }
+  const contentHeight = glassH + 32 + 40
+  const finalHeight = applyVerticalCenter(elements, 0, contentHeight, H)
+  return { elements, interactions, contentHeight: finalHeight }
 }
 
 /* ------------------------------------------------------------------ *
@@ -1833,27 +1911,27 @@ export function buildCatalog(
     case CatalogDestination.Home:
       return buildHome(W, onNavigate)
     case CatalogDestination.Buttons:
-      return buildButtons(W, onBack)
+      return buildButtons(W, H, onBack)
     case CatalogDestination.Toggle:
-      return buildToggle(W, onBack, state, setState, rendererRef)
+      return buildToggle(W, H, onBack, state, setState, rendererRef)
     case CatalogDestination.Slider:
-      return buildSlider(W, onBack, state, setState, rendererRef)
+      return buildSlider(W, H, onBack, state, setState, rendererRef)
     case CatalogDestination.BottomTabs:
-      return buildBottomTabs(W, onBack, state, setState)
+      return buildBottomTabs(W, H, onBack, state, setState)
     case CatalogDestination.Dialog:
       return buildDialog(W, H, onBack)
     case CatalogDestination.LockScreen:
       return buildLockScreen(W, H, onBack, state, setState)
     case CatalogDestination.ControlCenter:
-      return buildControlCenter(W, onBack)
+      return buildControlCenter(W, H, onBack)
     case CatalogDestination.Magnifier:
       return buildMagnifier(W, H, onBack, state, setState)
     case CatalogDestination.GlassPlayground:
-      return buildGlassPlayground(W, onBack, state, setState)
+      return buildGlassPlayground(W, H, onBack, state, setState)
     case CatalogDestination.AdaptiveLuminanceGlass:
-      return buildAdaptiveLuminanceGlass(W, onBack)
+      return buildAdaptiveLuminanceGlass(W, H, onBack)
     case CatalogDestination.ProgressiveBlur:
-      return buildProgressiveBlur(W, onBack)
+      return buildProgressiveBlur(W, H, onBack)
     case CatalogDestination.ScrollContainer:
       return buildScrollContainer(W, onBack, 20)
     case CatalogDestination.LazyScrollContainer:

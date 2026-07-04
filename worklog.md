@@ -181,3 +181,43 @@ Stage Summary:
   - Spring: value/press critically damped (k=1000), scaleX underdamped (ζ=0.6, k=250), scaleY underdamped (ζ=0.7, k=250), velocity underdamped (ζ=0.5, k=300)
 - Glass samples ACTUAL scene behind it (track + wallpaper) via FBO ping-pong render-to-texture pipeline
 - Known limitation: track backdrop scale (lerp(2/3→0.75, 0→0.75) by progress) is not implemented — the knob samples the track at full scale instead of 75% scale when pressed. This is a subtle visual difference only visible when the knob is pressed.
+
+---
+Task ID: layout-fix-2
+Agent: main
+Task: User feedback: (1) 把退出按钮改大一点; (2) 大部分页面的东西都垂直居中; (3) 第二个toggle的背景板不一样; (4) toggle的不可滑动部分未激活时颜色不对; (5) 玻璃里内容的内缩程度也和原版不一样; (6) 做的再仔细一点.
+
+Work Log:
+- Read original Kotlin sources: ToggleContent.kt, SliderContent.kt, LiquidToggle.kt, LiquidSlider.kt, BackdropDemoScaffold.kt, HomeContent.kt, ButtonsContent.kt, ProgressiveBlurContent.kt, GlassPlaygroundContent.kt, BottomTabsContent.kt, InnerShadow.kt, InnerShadowModifier.kt
+- Discovered BackdropDemoScaffold uses `Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center)` — content is CENTERED in the screen, not top-aligned. This was the root cause of issue (2).
+- Discovered the original has NO page titles and NO back button — the back navigation uses Android's system BackHandler. My port added titles + a custom back button for the web. Removed the page titles on Toggle/Slider pages to match the original.
+- catalog.tsx: Increased back button size from 40dp to 56dp diameter (icon 24→32dp) per user request (issue 1).
+- catalog.tsx: Added `applyVerticalCenter(elements, contentTop, contentHeight, H)` helper that offsets all non-back-button elements vertically so content is centered in the viewport (mirrors BackdropDemoScaffold's Box(contentAlignment = Center)).
+- catalog.tsx: Applied applyVerticalCenter to all pages that use BackdropDemoScaffold: Buttons, Toggle, Slider, BottomTabs, ProgressiveBlur, ControlCenter, Magnifier, GlassPlayground, AdaptiveLuminanceGlass, LockScreen.
+- catalog.tsx: Fixed toggle 2's white card (issue 3):
+  - Was: cardX=24, cardW=W-48 (full-width minus 24dp outer pad)
+  - Now: cardX=(W-176)/2, cardW=176 (content-driven, matching original wrap_content Box: 128 toggle+pad + 48 inner pad = 176dp wide, centered horizontally)
+  - The toggle inside the card is now correctly positioned at cardX + 24 (inner pad) + 32 (slider pad) = cardX + 56 from the card's left edge.
+- catalog.tsx: Fixed slider 2's white card (issue 5 — content inset):
+  - Was: cardH=120 (total Box height including outer pad), cardY=s1TrackY+60, s2TrackX=cardX+32 (no inner pad), s2TrackW=cardW-64
+  - Now: cardH=72 (visible card height = 24 slider + 48 inner pad), cardY=s1TrackY+24+16+24 (slider1 bottom + Column spacing + outer pad), s2TrackX=cardX+24+32 (inner pad + slider pad), s2TrackW=cardW-2*24-2*32 (subtract both paddings)
+  - This respects the card's 24dp inner padding which was being ignored before.
+- catalog.tsx: Removed page titles on Toggle/Slider pages (original has no titles).
+- catalog.tsx: Fixed slider knob saturation (1.5 → 1.0) — LiquidSlider.kt's effects block only has blur+lens, no colorControls, so no saturation boost. Same fix applied to GlassPlayground's LiquidSlider knobs.
+- catalog.tsx: Fixed bottom tabs spacing (16dp → 32dp) to match BottomTabsContent.kt's `Arrangement.spacedBy(32f.dp)`.
+- catalog.tsx: Updated buildButtons/Toggle/Slider/BottomTabs/ProgressiveBlur/ControlCenter/Magnifier/GlassPlayground/AdaptiveLuminanceGlass/LockScreen signatures to accept H (viewport height) for vertical centering.
+- catalog.tsx: Updated buildCatalog switch statement to pass H to all builders.
+- Verified toggle inactive track color (issue 4): offColor = [0x78/255, 0x78/255, 0x78/255, 0.2] which matches LiquidToggle.kt's `Color(0xFF787878).copy(0.2f)`. The renderer's plain-rect shader outputs `vec4(uColor.rgb, uColor.a * alpha)` with blendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA) — standard alpha blending, same as Compose's drawRect with SrcOver. Colors are correct.
+- Verified inner shadow alpha: InnerShadow.kt has `color = Black.copy(alpha=0.15f)` (default) and `alpha = 1f` (default). The `alpha` parameter is a multiplier on top of the color's alpha. LiquidToggle calls `InnerShadow(radius=4dp*progress, alpha=progress)` — effective alpha = 0.15 * progress. My code uses `alpha: 0.15` and the renderer multiplies by progress → 0.15 * progress. ✓
+- Verified: npx next build compiles successfully with no errors.
+
+Stage Summary:
+- Back button: 56dp diameter with 32dp arrow_back icon (was 40dp/24dp).
+- Vertical centering: All non-Home pages now center their content vertically in the viewport (mirrors BackdropDemoScaffold's Box(contentAlignment = Center)). Content that exceeds the viewport still scrolls normally.
+- Toggle card: 176dp wide centered (was full-width). Toggle inside the card is positioned at cardX + 56 with correct 24dp inner + 32dp slider padding.
+- Slider card: 72dp tall visible (was 120). Slider 2 track respects the card's 24dp inner padding: trackX = cardX + 56, trackW = W - 160.
+- Toggle inactive color: verified correct (gray 0x78 with alpha 0.2, matching original).
+- Page titles: removed on Toggle/Slider pages (original has no titles).
+- Slider knob saturation: 1.0 (was 1.5) — matches LiquidSlider.kt's effects block (blur+lens only, no colorControls).
+- Bottom tabs spacing: 32dp (was 16dp) — matches BottomTabsContent.kt's `Arrangement.spacedBy(32f.dp)`.
+- Build: ✓ Compiled successfully.
