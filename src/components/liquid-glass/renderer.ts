@@ -30,10 +30,12 @@ export interface GlassHighlight {
   angle: number
   falloff: number
   alpha: number
-  /** Full stroke width in CSS px (matches paint.strokeWidth = ceil(width.dp.toPx()) * 2). */
-  strokeWidth: number
-  /** Blur radius in CSS px (matches paint.blur(width.dp.toPx() / 2)). */
-  blur: number
+  /** Stroke width in dp. The renderer computes the device-pixel strokeWidth
+   *  using the original Kotlin formula: ceil(widthDp * dpr) * 2.
+   *  This matches HighlightModifier.kt:
+   *    paint.strokeWidth = ceil(highlight.width.toPx()) * 2f
+   *  where toPx() = dp * density. */
+  widthDp: number
 }
 
 export interface GlassButtonConfig {
@@ -851,8 +853,11 @@ export class LiquidGlassRenderer {
         gl.uniform1f(this.uEl['uHighlightFalloff'], el.highlight.falloff)
         gl.uniform1f(this.uEl['uHighlightAlpha'], el.highlight.alpha)
         gl.uniform1f(this.uEl['uHighlightMode'], el.highlight.mode)
-        gl.uniform1f(this.uEl['uHighlightStrokeWidth'], el.highlight.strokeWidth * this.dpr)
-        gl.uniform1f(this.uEl['uHighlightBlur'], el.highlight.blur * this.dpr)
+        // These uniforms are set but not used by the element shader (the
+        // rim highlight is a separate pass). Computed here for consistency.
+        const elWidthPx = el.highlight.widthDp * this.dpr
+        gl.uniform1f(this.uEl['uHighlightStrokeWidth'], Math.ceil(elWidthPx) * 2)
+        gl.uniform1f(this.uEl['uHighlightBlur'], elWidthPx * 0.5)
       } else {
         gl.uniform1f(this.uEl['uHighlightAlpha'], 0)
         gl.uniform1f(this.uEl['uHighlightMode'], 0)
@@ -1001,8 +1006,23 @@ export class LiquidGlassRenderer {
         gl.uniform1f(this.uRm['uHighlightFalloff'], el.highlight.falloff)
         gl.uniform1f(this.uRm['uHighlightAlpha'], el.highlight.alpha)
         gl.uniform1f(this.uRm['uHighlightMode'], el.highlight.mode)
-        gl.uniform1f(this.uRm['uHighlightStrokeWidth'], el.highlight.strokeWidth * this.dpr)
-        gl.uniform1f(this.uRm['uHighlightBlur'], el.highlight.blur * this.dpr)
+        // FAITHFUL to HighlightModifier.kt:
+        //   paint.strokeWidth = ceil(highlight.width.toPx()) * 2f
+        //   paint.blur(highlight.blurRadius.toPx())
+        //   where blurRadius = width / 2 (from Highlight.kt default)
+        //   and toPx() = dp * density.
+        // So in device pixels:
+        //   strokeWidth = ceil(widthDp * dpr) * 2
+        //   blur = (widthDp / 2) * dpr
+        // BUGFIX: the previous code passed strokeWidth (a CSS-px value) * dpr,
+        // which at dpr=2 gave 4 device px instead of the correct 2 device px
+        // (ceil(0.5*2)*2 = 2). This made the rim highlight 2× too wide and
+        // therefore appeared brighter than the original.
+        const widthPx = el.highlight.widthDp * this.dpr
+        const strokeWidthDevice = Math.ceil(widthPx) * 2
+        const blurDevice = widthPx * 0.5
+        gl.uniform1f(this.uRm['uHighlightStrokeWidth'], strokeWidthDevice)
+        gl.uniform1f(this.uRm['uHighlightBlur'], blurDevice)
         gl.drawArrays(gl.TRIANGLES, 0, 6)
 
         // Restore normal blending.

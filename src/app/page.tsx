@@ -60,12 +60,10 @@ function measureTextWidth(text: string, fontPx: number): number {
 
 // Default highlight (faithful to Highlight.Default + HighlightStyle.Default):
 //   width = 0.5.dp, blurRadius = width/2 = 0.25.dp
-//   paint.strokeWidth = ceil(width.toPx()) * 2 = ceil(0.5*DP) * 2
-//   paint.blur(blurRadius.toPx()) = 0.25*DP
+//   paint.strokeWidth = ceil(width.toPx()) * 2 (computed in renderer from widthDp)
+//   paint.blur(blurRadius.toPx()) = width/2 (computed in renderer from widthDp)
 //   color = White(1.0), angle = 45deg, falloff = 1.0, blendMode = Plus
 const HIGHLIGHT_WIDTH_DP = 0.5
-const HIGHLIGHT_STROKE_WIDTH_PX = 2 * Math.ceil(HIGHLIGHT_WIDTH_DP * DP)
-const HIGHLIGHT_BLUR_PX = (HIGHLIGHT_WIDTH_DP / 2) * DP
 
 // Default outer shadow (faithful to Shadow.Default):
 //   radius = 24.dp, offset = (0, radius/6 = 4.dp), color = Black.copy(alpha=0.1), layerAlpha = 1.0
@@ -79,14 +77,17 @@ const DEFAULT_SHADOW = {
 }
 
 // Default highlight config (faithful to Highlight.Default + HighlightStyle.Default).
+// NOTE: HighlightStyle.Default.color = White.copy(alpha = 0.5f), BUT the shader
+// receives color.copy(alpha = 1f) (see HighlightStyle.kt createShader). The 0.5
+// alpha is NOT used — the effective alpha is highlight.alpha (1.0) applied via
+// the graphics layer. So we pass color = White(1,1,1) and alpha = 1.0.
 const DEFAULT_HIGHLIGHT = {
   mode: 0 as const, // Default
-  color: [1, 1, 1] as [number, number, number], // White(1.0)
+  color: [1, 1, 1] as [number, number, number], // White(1.0) — shader forces alpha=1
   angle: 45 * Math.PI / 180, // 45deg in radians
   falloff: 1.0,
   alpha: 1.0,
-  strokeWidth: HIGHLIGHT_STROKE_WIDTH_PX,
-  blur: HIGHLIGHT_BLUR_PX,
+  widthDp: HIGHLIGHT_WIDTH_DP,
 }
 
 // Common glass params (matching LiquidButton.kt's effects block).

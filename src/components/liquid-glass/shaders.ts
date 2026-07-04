@@ -452,11 +452,23 @@ void main() {
     // inside the element so it doesn't bleed through the AA edge.
     float elementSd = sdRoundedRect(centeredCoord, halfSize, radius);
 
-    // Shadow intensity: Gaussian falloff from the shadow shape's edge.
-    // BlurMaskFilter.NORMAL approximates a Gaussian with sigma ≈ radius/3.
-    // We use sigma = radius/3 for a similar visual concentration.
-    float sigma = max(uShadowRadius * 0.33, 1.0);
-    float shadow = exp(-sd * sd / (2.0 * sigma * sigma));
+    // Shadow intensity: falloff from the shadow shape's edge.
+    //
+    // FAITHFUL TO BlurMaskFilter(radius, Blur.NORMAL):
+    //   The original Android shadow uses BlurMaskFilter with Blur.NORMAL,
+    //   which convolves a solid mask with a Gaussian-like kernel. For a
+    //   step mask (alpha 1 inside, 0 outside), the result is an erfc-like
+    //   profile: peak alpha ≈ 0.5 at the edge, fading to 0 over ~radius
+    //   pixels. The inside stays ≈ 1 but is cut out by Clear blend.
+    //
+    //   Our Gaussian approximation exp(-sd²/2σ²) has peak 1.0 — TWICE
+    //   the correct 0.5. Without the 0.5 factor the shadow is 2× too
+    //   dark at the edge, which looks "heavy" compared to the original.
+    //
+    // sigma = radius/3 matches the BlurMaskFilter spread (the blur
+    // extends to ~3σ ≈ radius pixels from the edge).
+    float sigma = max(uShadowRadius / 3.0, 1.0);
+    float shadow = 0.5 * exp(-sd * sd / (2.0 * sigma * sigma));
     // Mask out the shadow inside the element (the element covers it).
     // Using a smoothstep over elementSd avoids a hard edge that would
     // otherwise show through the element's own AA edge.
@@ -708,13 +720,31 @@ void main() {
         discard;
     }
 
-    // Stroke mask: 1 inside the stroke band (sd in [-strokeWidth/2, 0]),
-    // fading to 0 over uHighlightBlur pixels further inward.
+    // Stroke mask: FAITHFUL to the original paint behavior.
+    //
+    // The original draws a STROKE centered on the edge with strokeWidth,
+    // then clips to inside the shape (clipOutline). The visible stroke
+    // band is sd ∈ [-strokeWidth/2, 0]. The blur (BlurMaskFilter on the
+    // paint) softens the inner edge; the outer edge is hard-clipped by
+    // the shape clip.
+    //
+    // Correct mask shape:
+    //   sd <= -strokeWidth/2 - blur: 0   (outside the blur)
+    //   sd ∈ [-strokeWidth/2 - blur, -strokeWidth/2]: smooth fade-in (blur)
+    //   sd ∈ [-strokeWidth/2, 0]: 1.0   (FLAT — full stroke, not a triangle)
+    //   sd > 0: 0                       (hard-clipped by shape, 1px AA)
+    //
+    // BUGFIX: the previous code used edgeAlpha = 1 - smoothstep(-1, 0, sd),
+    // which fades the mask from 1 to 0 across the ENTIRE stroke band
+    // [-strokeWidth/2, 0]. That produced a triangular mask (peak at the
+    // inner edge, zero at the outer edge) instead of a flat band — making
+    // the stroke look like a thin line rather than an even-width ring.
     float strokeInner = -uHighlightStrokeWidth * 0.5;
     float strokeMask = smoothstep(strokeInner - uHighlightBlur, strokeInner, sd);
-    // Edge AA: 1px fade from sd=-1 to sd=0 (INSIDE the shape, no outward bleed).
-    float edgeAlpha = 1.0 - smoothstep(-1.0, 0.0, sd);
-    strokeMask *= edgeAlpha;
+    // 1px AA at the shape edge (sd = 0), matching clipOutline's AA.
+    // This does NOT fade across the stroke band — only at the very edge.
+    float edgeAA = 1.0 - smoothstep(-0.5, 0.5, sd);
+    strokeMask *= edgeAA;
 
     if (uHighlightMode < 0.5) {
         // Default — shader returns color * intensity, Plus blend.
