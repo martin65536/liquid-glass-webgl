@@ -1243,11 +1243,15 @@ export class LiquidGlassRenderer {
       cfg.labelColor[1] * 255
     )}, ${Math.round(cfg.labelColor[2] * 255)}, ${cfg.labelColor[3]})`
 
-    // Subtle halo for legibility over busy wallpaper.
+    // Subtle halo for legibility over busy wallpaper. The halo color is
+    // chosen to contrast with the label color (light halo for dark text,
+    // dark halo for light text). We keep the blur radius small and the
+    // alpha low to avoid visible dark fringes around light text on
+    // tinted buttons (per user feedback: "按钮文字在滑动时…有黑边").
     const haloIsLight = cfg.labelColor[0] + cfg.labelColor[1] + cfg.labelColor[2] < 1.5
     ctx.save()
-    ctx.shadowColor = haloIsLight ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.25)'
-    ctx.shadowBlur = haloIsLight ? fontPx * 0.13 : fontPx * 0.07
+    ctx.shadowColor = haloIsLight ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.15)'
+    ctx.shadowBlur = haloIsLight ? fontPx * 0.12 : fontPx * 0.05
     ctx.fillStyle = colorStr
     ctx.fillText(cfg.label, cssW / 2, cssH / 2 + 0.5)
     ctx.restore()
@@ -1398,12 +1402,20 @@ export class LiquidGlassRenderer {
       this.fgTextures.set(id, tex)
     }
     gl.bindTexture(gl.TEXTURE_2D, tex)
+    // The 2D canvas backing store is premultiplied alpha. Upload it as
+    // premultiplied so the GPU doesn't un-premultiply (which loses
+    // precision in low-alpha halo pixels and produces dark fringes
+    // when the texture is then re-premultiplied during blending).
+    // Paired with blendFunc(ONE, ONE_MINUS_SRC_ALPHA) at the draw site.
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true)
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.fgCanvas)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    // Restore the default for other texture uploads (wallpaper etc.).
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false)
   }
 
   private render() {
@@ -1459,10 +1471,14 @@ export class LiquidGlassRenderer {
     // declared order — typically top-to-bottom of the page).
     //
     // All elements are offset by -scrollY (CSS px). Off-screen elements
-    // (y + h < scrollY OR y > scrollY + cssHeight) are skipped.
+    // are skipped. We use a generous cull margin (~96px) to account for
+    // outer shadows (up to ~24dp), press/toggle scale (up to 1.5x), and
+    // foreground halo blur — so elements don't visibly pop out before
+    // crossing the viewport edge.
     const scrollY = this.scrollY
-    const viewTop = scrollY - 16
-    const viewBottom = scrollY + this.cssHeight + 16
+    const CULL_MARGIN = 96
+    const viewTop = scrollY - CULL_MARGIN
+    const viewBottom = scrollY + this.cssHeight + CULL_MARGIN
 
     const wave1: GlassElementConfig[] = []
     const wave2: GlassElementConfig[] = []
@@ -1558,13 +1574,35 @@ export class LiquidGlassRenderer {
       // 'text' kind: just composite the foreground texture (no glass).
       if (el.kind === 'text') {
         const r = effRect(el)
+        // Press tint overlay for interactive text items (e.g. home list
+        // items). Draws a subtle white rect with Plus blend so the row
+        // visibly brightens on tap — matches the Material ripple feel
+        // of the original clickable modifier.
+        const pText = st?.pressProgress ?? 0
+        if (el.isInteractive && pText > 0.001) {
+          gl.useProgram(this.tintProgram)
+          gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+          gl.enableVertexAttribArray(this.aPosLocTn)
+          gl.vertexAttribPointer(this.aPosLocTn, 2, gl.FLOAT, false, 0, 0)
+          gl.blendFunc(gl.SRC_ALPHA, gl.ONE)
+          gl.uniform2f(this.uTn['uCanvasSize'], this.canvas.width, this.canvas.height)
+          gl.uniform2f(this.uTn['uOffset'], r.x * this.dpr, r.y * this.dpr)
+          gl.uniform2f(this.uTn['uSize'], r.w * this.dpr, r.h * this.dpr)
+          // No corner clip — full-width row tint.
+          gl.uniform4f(this.uTn['uCornerRadii'], 0, 0, 0, 0)
+          gl.uniform4f(this.uTn['uColor'], 1, 1, 1, 0.10 * pText)
+          gl.drawArrays(gl.TRIANGLES, 0, 6)
+          gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+        }
         const fgTex = this.fgTextures.get(el.id)
         if (fgTex) {
           gl.useProgram(this.foregroundProgram)
           gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
           gl.enableVertexAttribArray(this.aPosLocFg)
           gl.vertexAttribPointer(this.aPosLocFg, 2, gl.FLOAT, false, 0, 0)
-          gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+          // Premultiplied alpha blend — the foreground texture is uploaded
+          // with UNPACK_PREMULTIPLY_ALPHA_WEBGL=true below.
+          gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
           gl.activeTexture(gl.TEXTURE0)
           gl.bindTexture(gl.TEXTURE_2D, fgTex)
           gl.uniform1i(this.uFg['uTexture'], 0)
@@ -1583,6 +1621,7 @@ export class LiquidGlassRenderer {
           )
           gl.uniform1f(this.uFg['uAlpha'], 1.0)
           gl.drawArrays(gl.TRIANGLES, 0, 6)
+          gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
         }
         continue
       }
@@ -1712,22 +1751,51 @@ export class LiquidGlassRenderer {
         radii[2] * this.dpr,
         radii[3] * this.dpr
       )
-      gl.uniform1f(this.uEl['uRefractionHeight'], el.refractionHeight * this.dpr)
-      gl.uniform1f(this.uEl['uRefractionAmount'], el.refractionAmount * this.dpr)
+      // Toggle knobs: animate refraction/blur/highlight/inner-shadow with
+      // pressProgress to faithfully match LiquidToggle.kt's `effects` block:
+      //   blur(8.dp * (1 - progress))
+      //   lens(5.dp * progress, 10.dp * progress)
+      //   highlight.alpha = progress
+      //   innerShadow(radius = 4.dp * progress, alpha = progress)
+      // When not pressed the knob shows the frosted blur (8dp) and no
+      // refraction; when pressed the blur clears and the glass lens grows.
+      let elRefractionHeight = el.refractionHeight
+      let elRefractionAmount = el.refractionAmount
+      let elBlurRadius = el.blurRadius
+      let elHighlightAlpha = el.highlight ? el.highlight.alpha : 0
+      let elInnerShadowAlpha = el.innerShadow ? el.innerShadow.alpha : 0
+      let elInnerShadowRadius = el.innerShadow ? el.innerShadow.radius : 0
+      let elSurfaceAlpha = el.surfaceColor[3]
+      if (el.isToggleKnob) {
+        const progress = togglePressProgress
+        // Lens grows from 0 → full as user presses.
+        elRefractionHeight = el.refractionHeight * progress
+        elRefractionAmount = el.refractionAmount * progress
+        // Blur fades from 8dp → 0 as user presses (frosted → clear).
+        elBlurRadius = 8 * (1 - progress)  // 8dp frosted blur when not pressed
+        // Highlight + inner shadow grow with press.
+        elHighlightAlpha = (el.highlight?.alpha ?? 0) * progress
+        elInnerShadowAlpha = (el.innerShadow?.alpha ?? 0) * progress
+        elInnerShadowRadius = (el.innerShadow?.radius ?? 0) * progress
+        // Surface color fades slightly so the glass is always somewhat visible.
+        elSurfaceAlpha = el.surfaceColor[3] * (0.45 + 0.55 * (1 - progress))
+      }
+      gl.uniform1f(this.uEl['uRefractionHeight'], elRefractionHeight * this.dpr)
+      gl.uniform1f(this.uEl['uRefractionAmount'], elRefractionAmount * this.dpr)
       gl.uniform1f(this.uEl['uDepthEffect'], el.depthEffect ? 1 : 0)
       gl.uniform1f(this.uEl['uChromaticAberration'], el.chromaticAberration ? 1 : 0)
-      gl.uniform1f(this.uEl['uBlurRadius'], el.blurRadius * this.dpr)
+      gl.uniform1f(this.uEl['uBlurRadius'], elBlurRadius * this.dpr)
       gl.uniform1f(this.uEl['uSaturation'], el.saturation)
       gl.uniform1f(this.uEl['uBrightness'], el.brightness)
       gl.uniform1f(this.uEl['uContrast'], el.contrast)
       gl.uniform4f(this.uEl['uTintColor'], el.tintColor[0], el.tintColor[1], el.tintColor[2], el.tintColor[3])
-      gl.uniform4f(this.uEl['uSurfaceColor'], el.surfaceColor[0], el.surfaceColor[1], el.surfaceColor[2], el.surfaceColor[3])
+      gl.uniform4f(this.uEl['uSurfaceColor'], el.surfaceColor[0], el.surfaceColor[1], el.surfaceColor[2], elSurfaceAlpha)
 
       if (el.highlight) {
         gl.uniform3f(this.uEl['uHighlightColor'], el.highlight.color[0], el.highlight.color[1], el.highlight.color[2])
         gl.uniform1f(this.uEl['uHighlightAngle'], el.highlight.angle)
         gl.uniform1f(this.uEl['uHighlightFalloff'], el.highlight.falloff)
-        gl.uniform1f(this.uEl['uHighlightAlpha'], el.highlight.alpha)
+        gl.uniform1f(this.uEl['uHighlightAlpha'], elHighlightAlpha)
         gl.uniform1f(this.uEl['uHighlightMode'], el.highlight.mode)
         const elWidthPx = el.highlight.widthDp * this.dpr
         gl.uniform1f(this.uEl['uHighlightStrokeWidth'], Math.ceil(elWidthPx) * 2)
@@ -1740,13 +1808,13 @@ export class LiquidGlassRenderer {
       }
 
       // Inner shadow (used by toggle/slider knobs).
-      if (el.innerShadow && el.innerShadow.alpha > 0.001) {
-        gl.uniform1f(this.uEl['uInnerShadowRadius'], el.innerShadow.radius * this.dpr)
-        gl.uniform1f(this.uEl['uInnerShadowAlpha'], el.innerShadow.alpha)
+      if (elInnerShadowAlpha > 0.001 && elInnerShadowRadius > 0.5) {
+        gl.uniform1f(this.uEl['uInnerShadowRadius'], elInnerShadowRadius * this.dpr)
+        gl.uniform1f(this.uEl['uInnerShadowAlpha'], elInnerShadowAlpha)
         gl.uniform2f(
           this.uEl['uInnerShadowOffset'],
-          el.innerShadow.offsetX * this.dpr,
-          el.innerShadow.offsetY * this.dpr
+          (el.innerShadow?.offsetX ?? 0) * this.dpr,
+          (el.innerShadow?.offsetY ?? 0) * this.dpr
         )
       } else {
         gl.uniform1f(this.uEl['uInnerShadowRadius'], 0)
@@ -1808,8 +1876,14 @@ export class LiquidGlassRenderer {
       // the knob via `onDrawSurface`. As the user presses (progress → 1),
       // the white overlay fades out, revealing the glass refraction.
       // We draw it AFTER the glass pass so it composites on top.
+      //
+      // We cap the overlay alpha at 0.55 (instead of 1.0) so the liquid
+      // glass refraction is always partially visible — the knob reads as
+      // a glass capsule rather than a flat white disc. This deviates from
+      // the original (which is fully white at rest) per user request:
+      // "开关没有液态玻璃效果".
       if (el.isToggleKnob && togglePressProgress < 0.999) {
-        const whiteAlpha = 1 - togglePressProgress
+        const whiteAlpha = 0.55 * (1 - togglePressProgress)
         gl.useProgram(this.tintProgram)
         gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
         gl.enableVertexAttribArray(this.aPosLocTn)
@@ -1837,7 +1911,9 @@ export class LiquidGlassRenderer {
           gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
           gl.enableVertexAttribArray(this.aPosLocFg)
           gl.vertexAttribPointer(this.aPosLocFg, 2, gl.FLOAT, false, 0, 0)
-          gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+          // Premultiplied alpha blend — the foreground texture is uploaded
+          // with UNPACK_PREMULTIPLY_ALPHA_WEBGL=true (see uploadForegroundTexture).
+          gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
 
           gl.activeTexture(gl.TEXTURE0)
           gl.bindTexture(gl.TEXTURE_2D, fgTex)
@@ -1855,6 +1931,7 @@ export class LiquidGlassRenderer {
           // Label fades slightly on press (matches the "swallow" feel).
           gl.uniform1f(this.uFg['uAlpha'], 1.0 - 0.15 * p)
           gl.drawArrays(gl.TRIANGLES, 0, 6)
+          gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
         }
       }
 

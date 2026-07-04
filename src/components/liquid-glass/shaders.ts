@@ -547,9 +547,15 @@ void main() {
     // with the Y flip above, uv.y=0 corresponds to the top of the button rect
     // (which is what we want — text drawn at the middle of the source canvas
     // appears at the middle of the button).
+    //
+    // The texture is uploaded with UNPACK_PREMULTIPLY_ALPHA_WEBGL=true, so
+    // c is already in premultiplied form (c.rgb <= c.a). We scale both
+    // rgb and a by uAlpha * clipAlpha and output premultiplied rgba, paired
+    // with blendFunc(ONE, ONE_MINUS_SRC_ALPHA) at the draw site.
     vec2 uv = localCoord / uSize;
     vec4 c = texture2D(uTexture, uv);
-    gl_FragColor = vec4(c.rgb, c.a * uAlpha * clipAlpha);
+    float a = c.a * uAlpha * clipAlpha;
+    gl_FragColor = vec4(c.rgb * uAlpha * clipAlpha, a);
 }
 `
 

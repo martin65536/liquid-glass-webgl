@@ -432,26 +432,29 @@ function buildHome(W: number, onNavigate: (d: CatalogDestination) => void): Cata
     )
     cursorY += 40
     // List items — faithful to HomeContent.kt: just BasicText with
-    // clickable(onClick). No glass, no chevron, no press glow — just
-    // plain 17sp text on a full-width tappable row. White on black.
+    // clickable(onClick). On the black background we render these as
+    // 'text' kind elements with isInteractive=true so the renderer
+    // applies a subtle white tint overlay on press (matches the
+    // Material ripple indication of the original clickable modifier).
+    // White on black.
     for (const item of section.items) {
       const id = `item-${item.dest}`
       const h = 48
-      elements.push(
-        makeText(
-          id,
-          { x: 0, y: cursorY, w: W, h },
-          item.label,
-          {
-            color: [1, 1, 1, 1],
-            fontSizePx: 17,
-            fontWeight: 400,
-            align: 'left',
-            paddingPx: 16,
-            halo: 'dark',
-          }
-        )
+      const itemEl = makeText(
+        id,
+        { x: 0, y: cursorY, w: W, h },
+        item.label,
+        {
+          color: [1, 1, 1, 1],
+          fontSizePx: 17,
+          fontWeight: 400,
+          align: 'left',
+          paddingPx: 16,
+          halo: 'dark',
+        }
       )
+      itemEl.isInteractive = true
+      elements.push(itemEl)
       interactions[id] = { onTap: () => onNavigate(item.dest) }
       cursorY += h
     }
@@ -750,10 +753,16 @@ function buildSlider(W: number, onBack: () => void, state: CatalogState, setStat
         refractionAmount: -14 * DP,
         blurRadius: 0,
         saturation: 1.5,
-        surfaceColor: [1, 1, 1, 1],
+        // Translucent white so the glass refraction is always visible
+        // (matches the visual feel of the original, which only goes
+        // fully opaque white while pressed).
+        surfaceColor: [1, 1, 1, 0.5],
         highlight: { mode: 1, color: [1, 1, 1], angle: 45 * Math.PI / 180, falloff: 1.0, alpha: 1.0, widthDp: 0.5 / 1.5 },
         outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: 0, color: [0, 0, 0] },
-        innerShadow: { radius: 4 * DP, alpha: 1, offsetX: 0, offsetY: 0 },
+        // Softer inner shadow — alpha=1 creates a harsh dark band at the
+        // knob edge (user-reported "黑边"). 0.35 keeps the depth cue
+        // without the visible dark fringe.
+        innerShadow: { radius: 4 * DP, alpha: 0.35, offsetX: 0, offsetY: 0 },
         chromaticAberration: true,
       }
     )
@@ -789,10 +798,10 @@ function buildSlider(W: number, onBack: () => void, state: CatalogState, setStat
         refractionAmount: -14 * DP,
         blurRadius: 0,
         saturation: 1.5,
-        surfaceColor: [1, 1, 1, 1],
+        surfaceColor: [1, 1, 1, 0.5],
         highlight: { mode: 1, color: [1, 1, 1], angle: 45 * Math.PI / 180, falloff: 1.0, alpha: 1.0, widthDp: 0.5 / 1.5 },
         outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: 0, color: [0, 0, 0] },
-        innerShadow: { radius: 4 * DP, alpha: 1, offsetX: 0, offsetY: 0 },
+        innerShadow: { radius: 4 * DP, alpha: 0.35, offsetX: 0, offsetY: 0 },
         chromaticAberration: true,
       }
     )
@@ -1403,10 +1412,10 @@ function buildGlassPlayground(W: number, onBack: () => void, state: CatalogState
           refractionAmount: -14 * DP,
           blurRadius: 0,
           saturation: 1.5,
-          surfaceColor: [1, 1, 1, 1],
+          surfaceColor: [1, 1, 1, 0.5],
           highlight: { mode: 1, color: [1, 1, 1], angle: 45 * Math.PI / 180, falloff: 1.0, alpha: 1.0, widthDp: 0.5 / 1.5 },
           outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: 0, color: [0, 0, 0] },
-          innerShadow: { radius: 4 * DP, alpha: 1, offsetX: 0, offsetY: 0 },
+          innerShadow: { radius: 4 * DP, alpha: 0.35, offsetX: 0, offsetY: 0 },
           chromaticAberration: true,
         }
       )

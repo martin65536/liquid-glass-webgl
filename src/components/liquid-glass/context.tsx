@@ -253,7 +253,9 @@ export function LiquidGlassCanvas({
 
       // For 'button' kind with isInteractive, trigger press highlight
       // immediately. If the gesture later becomes a scroll, we'll cancel.
-      if (hit && hit.kind === 'button' && hit.isInteractive) {
+      // Also support 'text' kind with isInteractive — used by the home page
+      // list items, which get a subtle white tint on press.
+      if (hit && hit.isInteractive && (hit.kind === 'button' || hit.kind === 'text')) {
         renderer.setPressed(hit.id, true, { x, y })
       }
 
@@ -288,21 +290,39 @@ export function LiquidGlassCanvas({
 
       // --- Pending → commit to drag or scroll ---
       if (mode === 'pending') {
+        // Small wiggle threshold — keep press highlight alive for tiny
+        // movements (finger jitter on tap). Press highlight position
+        // follows the finger during this phase.
         const MOVE_THRESHOLD = 4
+
+        // While pending, update press highlight position so the glow
+        // tracks the finger even before we commit to drag or scroll.
+        const id0 = pressedIdRef.current
+        if (id0) {
+          const els0 = elementsRef.current
+          const el0 = els0.find((b) => b.id === id0)
+          if (el0?.kind === 'button' && el0.isInteractive) {
+            renderer.setDragPosition(id0, { x, y })
+          }
+        }
+
         if (absDx < MOVE_THRESHOLD && absDy < MOVE_THRESHOLD) return
 
         // Decide: vertical-dominant movement → scroll, even if hit an element.
         // Horizontal-dominant + element has onDrag → drag.
         // Otherwise → scroll (e.g. plain text rows should scroll).
-        const verticalDominant = absDy > absDx + 2
+        // Use a larger threshold for scroll takeover so the press highlight
+        // has a chance to track small finger movements before scrolling.
+        const SCROLL_TAKEOVER_THRESHOLD = 14
+        const verticalDominant = absDy > absDx + 2 && absDy >= SCROLL_TAKEOVER_THRESHOLD
 
         if (verticalDominant) {
-          // Convert to scroll. Cancel any pending button press.
+          // Convert to scroll. Cancel any pending button/text press.
           const id = pressedIdRef.current
           if (id) {
             const els = elementsRef.current
             const el = els.find((b) => b.id === id)
-            if (el?.kind === 'button' && el.isInteractive) {
+            if (el?.isInteractive && (el.kind === 'button' || el.kind === 'text')) {
               renderer.setPressed(id, false)
             }
           }
@@ -313,22 +333,18 @@ export function LiquidGlassCanvas({
           return
         }
 
-        // Horizontal-dominant movement.
-        if (pressedHasDragRef.current) {
+        // Horizontal-dominant movement (or small vertical movement that
+        // hasn't crossed the scroll-takeover threshold).
+        if (pressedHasDragRef.current && absDx >= MOVE_THRESHOLD) {
           // Commit to element drag.
           modeRef.current = 'drag'
           dragStartedRef.current = true
           const id = pressedIdRef.current!
           interactionsRef.current?.[id]?.onDragStart?.({ x, y })
-        } else {
-          // No onDrag handler and horizontal movement — treat as scroll
-          // (e.g. swiping a list item sideways still scrolls). This is
-          // simpler than tracking a "rejected" drag.
-          modeRef.current = 'scroll'
-          const scrollDelta = e.clientY - pressStartClientYRef.current
-          renderer.setScrollY(pressStartScrollYRef.current - scrollDelta)
-          return
         }
+        // else: still pending — press highlight keeps tracking the finger.
+        // This makes the button feel responsive even when the user's finger
+        // drifts slightly without crossing the scroll threshold.
       }
 
       // --- Committed modes ---
@@ -365,11 +381,11 @@ export function LiquidGlassCanvas({
       const id = pressedIdRef.current
 
       if (renderer) {
-        // Release button press.
+        // Release button/text press.
         if (id) {
           const els = elementsRef.current
           const el = els.find((b) => b.id === id)
-          if (el?.kind === 'button' && el.isInteractive) {
+          if (el?.isInteractive && (el.kind === 'button' || el.kind === 'text')) {
             renderer.setPressed(id, false)
           }
         }
