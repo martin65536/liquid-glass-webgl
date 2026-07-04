@@ -228,7 +228,7 @@ void main() {
     vec2 halfSize = uElementSize * 0.5;
     vec2 centeredCoord = localCoord - halfSize;
 
-    float radius = radiusAt(localCoord, uCornerRadii);
+    float radius = radiusAt(centeredCoord, uCornerRadii);
     float sd = sdRoundedRect(centeredCoord, halfSize, radius);
 
     // Outside the shape — fully transparent (clip).
@@ -387,19 +387,24 @@ uniform vec2  uElementOffset;
 uniform vec2  uElementSize;
 uniform vec4  uCornerRadii;
 uniform float uShadowRadius;
-uniform vec2  uShadowOffset;
-uniform vec4  uShadowColor; // rgba
+uniform vec2  uShadowOffset;  // CSS-space (offsetX, offsetY); +Y = downward
+uniform vec4  uShadowColor;   // rgba
 
 ${SDF_GLSL}
 
 void main() {
+    // Flip gl_FragCoord (bottom-left origin) to top-left origin, so +Y
+    // points downward — matching CSS convention. Therefore uShadowOffset
+    // can be passed through verbatim: positive offsetY (downward in CSS)
+    // moves the shadow center DOWNWARD on screen.
     vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
     vec2 localCoord = screenCoord - uElementOffset;
     vec2 halfSize = uElementSize * 0.5;
     vec2 centeredCoord = localCoord - halfSize;
 
-    float radius = radiusAt(localCoord, uCornerRadii);
-    // SDF of the shape offset by shadow offset
+    float radius = radiusAt(centeredCoord, uCornerRadii);
+    // SDF of the shape offset by shadow offset. Evaluating the SDF at
+    // (P - offset) gives the distance from P to a shape centered at offset.
     vec2 shadowCentered = centeredCoord - uShadowOffset;
     float sd = sdRoundedRect(shadowCentered, halfSize, radius);
     // SDF of the element itself (not offset) — used to mask the shadow
@@ -455,8 +460,11 @@ uniform sampler2D uTexture;
 uniform vec2 uCanvasSize;
 uniform vec2 uOffset;   // foreground texture top-left in canvas px (top-left origin)
 uniform vec2 uSize;     // foreground texture size in canvas px
+uniform float uAlpha;   // global alpha multiplier (used for press fade)
 
 void main() {
+    // gl_FragCoord is bottom-left origin in WebGL framebuffer space.
+    // Flip Y to get top-left origin (matching CSS / 2D canvas convention).
     vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
     vec2 localCoord = screenCoord - uOffset;
     // Scissor to the foreground rectangle.
@@ -464,10 +472,14 @@ void main() {
         localCoord.y < 0.0 || localCoord.y > uSize.y) {
         discard;
     }
-    // UNPACK_FLIP_Y_WEBGL is true, so the texture is already top-left
-    // oriented — no Y flip needed here.
+    // The texture is uploaded from a 2D canvas with UNPACK_FLIP_Y_WEBGL=false,
+    // so texture row 0 (= v=0) is the TOP row of the source canvas. Combined
+    // with the Y flip above, uv.y=0 corresponds to the top of the button rect
+    // (which is what we want — text drawn at the middle of the source canvas
+    // appears at the middle of the button).
     vec2 uv = localCoord / uSize;
-    gl_FragColor = texture2D(uTexture, uv);
+    vec4 c = texture2D(uTexture, uv);
+    gl_FragColor = vec4(c.rgb, c.a * uAlpha);
 }
 `
 

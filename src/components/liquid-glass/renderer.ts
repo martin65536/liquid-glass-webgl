@@ -203,7 +203,7 @@ export class LiquidGlassRenderer {
     for (const n of shNames) this.uSh[n] = gl.getUniformLocation(this.shadowProgram, n)
     const wpNames = ['uBackdrop', 'uCanvasSize', 'uWallpaperSize']
     for (const n of wpNames) this.uWp[n] = gl.getUniformLocation(this.wallpaperProgram, n)
-    const fgNames = ['uTexture', 'uCanvasSize', 'uOffset', 'uSize']
+    const fgNames = ['uTexture', 'uCanvasSize', 'uOffset', 'uSize', 'uAlpha']
     for (const n of fgNames) this.uFg[n] = gl.getUniformLocation(this.foregroundProgram, n)
   }
 
@@ -280,7 +280,8 @@ export class LiquidGlassRenderer {
         return
       }
       // Exponential approach — gives a natural ease-out feel.
-      this.pressProgress += delta * 0.22
+      // 0.35 per frame = ~6 frames to reach 95% (≈100ms at 60fps).
+      this.pressProgress += delta * 0.35
       this.requestRender()
       this.pressRafId = requestAnimationFrame(tick)
     }
@@ -418,7 +419,8 @@ export class LiquidGlassRenderer {
     // Apply press scale — shrink the button rect around its center.
     // The foreground texture (rasterized at original size) is sampled
     // over the scaled rect, so the text scales along with the glass.
-    const scale = 1 - 0.05 * this.pressProgress
+    // 8% shrink is clearly visible without feeling cartoonish.
+    const scale = 1 - 0.08 * this.pressProgress
     const cx = el.rect.x + el.rect.w / 2
     const cy = el.rect.y + el.rect.h / 2
     const sw = el.rect.w * scale
@@ -426,6 +428,13 @@ export class LiquidGlassRenderer {
     const sx = cx - sw / 2
     const sy = cy - sh / 2
     const cornerRadius = el.cornerRadius * scale
+
+    // Press-driven color boost: when pressed, the glass looks slightly
+    // more saturated and brighter, mimicking the iOS "liquid" feel.
+    const pressSat = el.saturation * (1.0 + 0.25 * this.pressProgress)
+    const pressBright = el.brightness + 0.04 * this.pressProgress
+    // Foreground fades slightly on press so the glass "swallows" the label.
+    const fgAlpha = 1.0 - 0.25 * this.pressProgress
 
     const radii: [number, number, number, number] = [
       cornerRadius, cornerRadius, cornerRadius, cornerRadius,
@@ -490,8 +499,8 @@ export class LiquidGlassRenderer {
     gl.uniform1f(this.uEl['uDepthEffect'], el.depthEffect ? 1 : 0)
     gl.uniform1f(this.uEl['uChromaticAberration'], el.chromaticAberration ? 1 : 0)
     gl.uniform1f(this.uEl['uBlurRadius'], el.blurRadius * this.dpr)
-    gl.uniform1f(this.uEl['uSaturation'], el.saturation)
-    gl.uniform1f(this.uEl['uBrightness'], el.brightness)
+    gl.uniform1f(this.uEl['uSaturation'], pressSat)
+    gl.uniform1f(this.uEl['uBrightness'], pressBright)
     gl.uniform1f(this.uEl['uContrast'], el.contrast)
     gl.uniform4f(this.uEl['uTintColor'], el.tintColor[0], el.tintColor[1], el.tintColor[2], el.tintColor[3])
     gl.uniform4f(this.uEl['uSurfaceColor'], el.surfaceColor[0], el.surfaceColor[1], el.surfaceColor[2], el.surfaceColor[3])
@@ -529,6 +538,7 @@ export class LiquidGlassRenderer {
       gl.uniform2f(this.uFg['uCanvasSize'], this.canvas.width, this.canvas.height)
       gl.uniform2f(this.uFg['uOffset'], sx * this.dpr, sy * this.dpr)
       gl.uniform2f(this.uFg['uSize'], sw * this.dpr, sh * this.dpr)
+      gl.uniform1f(this.uFg['uAlpha'], fgAlpha)
       gl.drawArrays(gl.TRIANGLES, 0, 6)
     }
   }
