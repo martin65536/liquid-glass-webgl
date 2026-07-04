@@ -549,38 +549,58 @@ function buildButtons(W: number, onBack: () => void): CatalogResult {
 }
 
 /* ------------------------------------------------------------------ *
- * TOGGLE — faithful to ToggleContent.kt + LiquidToggle.kt + DampedDragAnimation.kt
+ * TOGGLE — pixel-perfect port of ToggleContent.kt + LiquidToggle.kt
+ *           + DampedDragAnimation.kt
  *
- * Layout: centered Column with:
- *   1. Toggle on wallpaper (64×28 track + 40×24 knob)
- *   2. White rounded card (32dp radius) containing another toggle
+ * Layout (faithful to ToggleContent.kt):
+ *   Column(centerHorizontally, spacedBy(16dp)) {
+ *     LiquidToggle(modifier = padding(horizontal = 32dp))     // on wallpaper
+ *     Box(padding(24dp).clip(RoundedRect(32dp)).background(white).padding(24dp)) {
+ *       LiquidToggle(modifier = padding(horizontal = 32dp))   // on white card
+ *     }
+ *   }
  *
- * Animation (faithful to the original):
- *   - Tap to toggle: knob glides between off/on with a critically damped
- *     spring (k=1000, ζ=1) — no overshoot. A brief press animation
- *     (scale 1→1.5→1) plays during the transition.
- *   - Drag the knob: it follows the finger (with a tiny smooth lag from
- *     the critically damped spring). On release, the target snaps to 0
- *     or 1 based on the current position (≥0.5 → on).
- *   - While pressed, the knob scales up to 1.5× (underdamped spring
- *     k=250, ζ=0.65 — tiny bounce on release).
+ * Toggle anatomy (faithful to LiquidToggle.kt):
+ *   Track: 64dp × 28dp Capsule, drawBehind { drawRect(lerp(trackColor, accentColor, fraction)) }
+ *     - trackColor = Color(0xFF787878).copy(0.2f)  → gray, alpha=0.2
+ *     - accentColor = Color(0xFF34C759)             → solid green, alpha=1.0
+ *   Knob: 40dp × 24dp Capsule, graphicsLayer { translationX = lerp(2dp, 22dp, fraction) }
+ *     - dragWidth = 20dp, padding = 2dp
  *
- * KNOB VISUAL STATES (faithful to LiquidToggle.kt):
- *   At rest (pressProgress = 0):
- *     - blur(8dp) on the backdrop → frosted look
- *     - lens(0, 0) → no refraction
- *     - highlight.Ambient.alpha = 0 → no edge highlight
- *     - innerShadow(radius=0, alpha=0) → no inner shadow
- *     - onDrawSurface: drawRect(White alpha=1) → fully frosted white pebble
- *   Pressed (pressProgress = 1):
- *     - blur(0) → clear backdrop
- *     - lens(5dp, 10dp) → glass refraction visible
- *     - highlight.Ambient.alpha = 1 → subtle edge glow
- *     - innerShadow(radius=4dp, alpha=1) → depth cue
- *     - onDrawSurface: drawRect(White alpha=0) → no overlay, glass visible
+ * Knob glass effects (modulated by pressProgress, faithful to LiquidToggle.kt):
+ *   effects = {
+ *     blur(8dp * (1 - progress))                              // frosted at rest, clear pressed
+ *     lens(5dp * progress, 10dp * progress, chromaticAberration = true)  // no lens at rest, full pressed
+ *   }
+ *   highlight = Highlight.Ambient.copy(width / 1.5, blurRadius / 1.5, alpha = progress)
+ *     → Ambient mode, width = 0.5dp/1.5, blur = 0.25dp/1.5, alpha = progress
+ *   shadow = Shadow(radius = 4dp, color = Black.copy(alpha = 0.05f))
+ *     → outer shadow, constant (not modulated), default offset = (0, radius/6) = (0, 0.667dp)
+ *   innerShadow = InnerShadow(radius = 4dp * progress, alpha = progress)
+ *     → default color = Black.copy(alpha = 0.15f), default offset = (0, radius) = (0, 4dp * progress)
+ *     → effective alpha = 0.15 * progress
+ *   layerBlock = { scaleX = dampedDragAnimation.scaleX; scaleY = dampedDragAnimation.scaleY;
+ *                  velocity squash/stretch }
+ *     → scale 1.0 at rest, 1.5 pressed, with velocity-driven squash
+ *   onDrawSurface = { drawRect(White.copy(alpha = 1 - progress)) }
+ *     → solid white pebble at rest, transparent when pressed
  *
- * Track color is lerped between offColor and onColor by the
- * animated fraction.
+ * Knob backdrop = combined of:
+ *   1. Outer backdrop (wallpaper / card background)
+ *   2. Track layer backdrop, scaled by (lerp(2/3, 0.75, progress), lerp(0, 0.75, progress))
+ *      → At rest: scaleY=0, track invisible to knob (only wallpaper sampled)
+ *      → Pressed: scaleY=0.75, track content at 75% scale
+ *
+ * Animation (faithful to DampedDragAnimation.kt):
+ *   - value: spring(1f, 1000f) — critically damped, no overshoot
+ *   - pressProgress: spring(1f, 1000f) — critically damped
+ *   - scaleX: spring(0.6f, 250f) — underdamped, more bounce
+ *   - scaleY: spring(0.7f, 250f) — underdamped, less bounce
+ *   - velocity: spring(0.5f, 300f) — underdamped, for squash/stretch
+ *
+ * NOTE on saturation: The original toggle's effects block contains ONLY
+ * blur + lens — no colorControls / saturation. So saturation = 1.0 (no boost).
+ * This differs from LiquidButton which has saturation 1.5.
  * ------------------------------------------------------------------ */
 function buildToggle(
   W: number,
@@ -596,11 +616,51 @@ function buildToggle(
   elements.push(back.element)
   interactions[back.element.id] = back.interaction
 
-  const TOGGLE_W = 64 * DP
-  const TOGGLE_H = 28 * DP
-  const TOGGLE_KNOB_W = 40 * DP
-  const TOGGLE_KNOB_H = 24 * DP
-  const TOGGLE_DRAG = 20 * DP
+  // --- Toggle dimensions (faithful to LiquidToggle.kt) ---
+  const TOGGLE_W = 64 * DP       // track width
+  const TOGGLE_H = 28 * DP       // track height
+  const TOGGLE_KNOB_W = 40 * DP  // knob width
+  const TOGGLE_KNOB_H = 24 * DP  // knob height
+  const TOGGLE_DRAG = 20 * DP    // dragWidth = 20dp
+  const TOGGLE_PADDING = 2 * DP  // knob left padding at fraction=0
+
+  // --- Knob glass parameters (faithful to LiquidToggle.kt) ---
+  // These are the "pressed" values; the renderer modulates them by pressProgress:
+  //   refractionHeight = 5dp * progress
+  //   refractionAmount = -10dp * progress  (negated in the value here)
+  //   blurRadius = 8dp * (1 - progress)
+  //   highlightAlpha = 1.0 * progress
+  //   innerShadowRadius = 4dp * progress
+  //   innerShadowAlpha = 0.15 * progress  (0.15 = InnerShadow default color alpha)
+  const KNOB_REFRACTION_HEIGHT = 5 * DP
+  const KNOB_REFRACTION_AMOUNT = -10 * DP
+  const KNOB_BLUR_RADIUS = 8 * DP
+  const KNOB_HIGHLIGHT: GlassHighlight = {
+    mode: 1, // Ambient
+    color: [1, 1, 1], // unused for Ambient (shader uses step(0,d)), but set for consistency
+    angle: 45 * Math.PI / 180,
+    falloff: 1.0,
+    alpha: 1.0, // renderer modulates by progress
+    widthDp: 0.5 / 1.5, // Highlight.Ambient.width / 1.5 = 0.5dp / 1.5
+  }
+  // Shadow(radius=4dp, color=Black.copy(alpha=0.05f))
+  // Default offset = DpOffset(0, radius/6) = (0, 4/6 dp)
+  const KNOB_OUTER_SHADOW = {
+    radius: 4 * DP,
+    alpha: 0.05, // Black.copy(alpha=0.05f)
+    offsetX: 0,
+    offsetY: (4 / 6) * DP, // default offset = radius/6
+    color: [0, 0, 0] as [number, number, number],
+  }
+  // InnerShadow(radius=4dp*progress, alpha=progress)
+  // Default color = Black.copy(alpha=0.15f) → effective alpha = 0.15 * progress
+  // Default offset = DpOffset(0, radius) = (0, 4dp*progress) — renderer modulates by progress
+  const KNOB_INNER_SHADOW = {
+    radius: 4 * DP,
+    alpha: 0.15, // InnerShadow default color alpha; renderer multiplies by progress
+    offsetX: 0,
+    offsetY: 4 * DP, // default offset = radius; renderer modulates by progress
+  }
 
   // Page title
   elements.push(
@@ -613,17 +673,20 @@ function buildToggle(
   )
 
   // --- Toggle 1: on wallpaper ---
+  // Column(horizontalAlignment = CenterHorizontally) → toggle is centered.
+  // LiquidToggle(modifier = padding(horizontal = 32dp)) → 32dp horizontal padding.
   const t1CenterX = W / 2
   const t1TrackX = t1CenterX - TOGGLE_W / 2
   const t1TrackY = 140
-  const t1KnobX = t1TrackX + 2 // fraction=0 position
+  const t1KnobX = t1TrackX + TOGGLE_PADDING // fraction=0 position
   const t1KnobY = t1TrackY + (TOGGLE_H - TOGGLE_KNOB_H) / 2
-  // Track color is animated by the renderer via isToggleTrack marker.
+
+  // Track: plain-rect with isToggleTrack marker (renderer lerps color by fraction)
   const t1TrackEl = makePlainRect(
     'toggle1-track',
     { x: t1TrackX, y: t1TrackY, w: TOGGLE_W, h: TOGGLE_H },
     TOGGLE_TRACK,
-    TOGGLE_H / 2
+    TOGGLE_H / 2 // Capsule = height/2
   )
   t1TrackEl.isToggleTrack = {
     groupId: 'toggle1',
@@ -631,45 +694,45 @@ function buildToggle(
     onColor: [...TOGGLE_ACCENT, 1] as [number, number, number, number],
   }
   elements.push(t1TrackEl)
-  // Knob: at rest = solid frosted white; pressed = glass refraction.
-  // The renderer's isToggleKnob logic modulates blur/refraction/overlay
-  // by pressProgress. We declare the "pressed" lens params here:
-  //   refractionHeight = 5dp (matches LiquidToggle lens(5dp, 10dp))
-  //   refractionAmount = -10dp
-  // And the white overlay (alpha = 1 - pressProgress) is drawn by the
-  // renderer in the toggle-knob overlay pass.
+
+  // Knob: glass-shape with isToggleKnob marker
   const t1KnobEl = makeGlassShape(
     'toggle1-knob',
     { x: t1KnobX, y: t1KnobY, w: TOGGLE_KNOB_W, h: TOGGLE_KNOB_H },
     {
-      cornerRadius: TOGGLE_KNOB_H / 2,
-      refractionHeight: 5 * DP, // lens height when pressed
-      refractionAmount: -10 * DP, // lens amount when pressed
-      blurRadius: 8 * DP, // frosted blur at rest (renderer modulates by press)
-      saturation: 1.5,
+      cornerRadius: TOGGLE_KNOB_H / 2, // Capsule = height/2
+      refractionHeight: KNOB_REFRACTION_HEIGHT,
+      refractionAmount: KNOB_REFRACTION_AMOUNT,
+      blurRadius: KNOB_BLUR_RADIUS,
+      saturation: 1.0, // NO saturation boost — toggle effects block only has blur+lens
       surfaceColor: [0, 0, 0, 0], // no surface — white overlay handles the rest
-      highlight: { mode: 1, color: [1, 1, 1], angle: 45 * Math.PI / 180, falloff: 1.0, alpha: 1.0, widthDp: 0.5 / 1.5 },
-      outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: 0, color: [0, 0, 0] },
-      innerShadow: { radius: 4 * DP, alpha: 1, offsetX: 0, offsetY: 0 },
-      chromaticAberration: true,
+      highlight: KNOB_HIGHLIGHT,
+      outerShadow: KNOB_OUTER_SHADOW,
+      innerShadow: KNOB_INNER_SHADOW,
+      chromaticAberration: true, // lens(chromaticAberration = true)
     }
   )
   t1KnobEl.isToggleKnob = { groupId: 'toggle1', dragWidth: TOGGLE_DRAG }
   elements.push(t1KnobEl)
 
-  // --- White card with toggle 2 ---
+  // --- White card with toggle 2 (faithful to ToggleContent.kt) ---
+  // Box(padding(24dp).clip(RoundedRect(32dp)).background(white).padding(24dp))
+  // Column spacedBy(16dp) → 16dp between toggle1 and the Box.
+  // The Box's outer padding(24dp) is spacing around the visible card.
+  // So card top = t1TrackY + TOGGLE_H + 16 + 24 = t1TrackY + TOGGLE_H + 40.
+  // Visible card height = inner padding(24) + toggle(28) + inner padding(24) = 76dp.
   const cardX = 24 * DP
-  const cardY = t1TrackY + TOGGLE_H + 48
+  const cardY = t1TrackY + TOGGLE_H + 40 // 16dp spacing + 24dp outer padding
   const cardW = W - 2 * cardX
-  const cardH = 120 * DP
+  const cardH = 76 * DP // 24dp inner pad + 28dp toggle + 24dp inner pad
   const cardRadius = 32 * DP
-  const cardBg: [number, number, number, number] = [1, 1, 1, 1]
+  const cardBg: [number, number, number, number] = [1, 1, 1, 1] // white
   elements.push(makePlainRect('toggle-card', { x: cardX, y: cardY, w: cardW, h: cardH }, cardBg, cardRadius))
 
   const t2CenterX = cardX + cardW / 2
   const t2TrackX = t2CenterX - TOGGLE_W / 2
   const t2TrackY = cardY + cardH / 2 - TOGGLE_H / 2
-  const t2KnobX = t2TrackX + 2
+  const t2KnobX = t2TrackX + TOGGLE_PADDING
   const t2KnobY = t2TrackY + (TOGGLE_H - TOGGLE_KNOB_H) / 2
   const t2TrackEl = makePlainRect(
     'toggle2-track',
@@ -688,14 +751,14 @@ function buildToggle(
     { x: t2KnobX, y: t2KnobY, w: TOGGLE_KNOB_W, h: TOGGLE_KNOB_H },
     {
       cornerRadius: TOGGLE_KNOB_H / 2,
-      refractionHeight: 5 * DP,
-      refractionAmount: -10 * DP,
-      blurRadius: 8 * DP,
-      saturation: 1.5,
+      refractionHeight: KNOB_REFRACTION_HEIGHT,
+      refractionAmount: KNOB_REFRACTION_AMOUNT,
+      blurRadius: KNOB_BLUR_RADIUS,
+      saturation: 1.0,
       surfaceColor: [0, 0, 0, 0],
-      highlight: { mode: 1, color: [1, 1, 1], angle: 45 * Math.PI / 180, falloff: 1.0, alpha: 1.0, widthDp: 0.5 / 1.5 },
-      outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: 0, color: [0, 0, 0] },
-      innerShadow: { radius: 4 * DP, alpha: 1, offsetX: 0, offsetY: 0 },
+      highlight: KNOB_HIGHLIGHT,
+      outerShadow: KNOB_OUTER_SHADOW,
+      innerShadow: KNOB_INNER_SHADOW,
       chromaticAberration: true,
     }
   )

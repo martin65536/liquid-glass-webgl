@@ -2095,6 +2095,8 @@ export class LiquidGlassRenderer {
       let elHighlightAlpha = el.highlight ? el.highlight.alpha : 0
       let elInnerShadowAlpha = el.innerShadow ? el.innerShadow.alpha : 0
       let elInnerShadowRadius = el.innerShadow ? el.innerShadow.radius : 0
+      let elInnerShadowOffsetX = el.innerShadow ? el.innerShadow.offsetX : 0
+      let elInnerShadowOffsetY = el.innerShadow ? el.innerShadow.offsetY : 0
       let elSurfaceAlpha = el.surfaceColor[3]
       if (el.isToggleKnob) {
         const progress = togglePressProgress
@@ -2104,6 +2106,12 @@ export class LiquidGlassRenderer {
         elHighlightAlpha = (el.highlight?.alpha ?? 0) * progress
         elInnerShadowAlpha = (el.innerShadow?.alpha ?? 0) * progress
         elInnerShadowRadius = (el.innerShadow?.radius ?? 0) * progress
+        // InnerShadow default offset = (0, radius). Since radius = 4dp*progress,
+        // the offset also scales with progress. Faithful to LiquidToggle.kt:
+        //   InnerShadow(radius = 4dp * progress, alpha = progress)
+        //   → default offset = DpOffset(0, radius) = (0, 4dp * progress)
+        elInnerShadowOffsetX = (el.innerShadow?.offsetX ?? 0) * progress
+        elInnerShadowOffsetY = (el.innerShadow?.offsetY ?? 0) * progress
         elSurfaceAlpha = 0
       }
       gl.uniform1f(this.uEl['uRefractionHeight'], elRefractionHeight * this.dpr)
@@ -2138,8 +2146,8 @@ export class LiquidGlassRenderer {
         gl.uniform1f(this.uEl['uInnerShadowAlpha'], elInnerShadowAlpha)
         gl.uniform2f(
           this.uEl['uInnerShadowOffset'],
-          (el.innerShadow?.offsetX ?? 0) * this.dpr,
-          (el.innerShadow?.offsetY ?? 0) * this.dpr
+          elInnerShadowOffsetX * this.dpr,
+          elInnerShadowOffsetY * this.dpr
         )
       } else {
         gl.uniform1f(this.uEl['uInnerShadowRadius'], 0)
@@ -2249,6 +2257,12 @@ export class LiquidGlassRenderer {
       }
 
       // --- Step 2f: Rim highlight pass (Default/Ambient/Plain) ---
+      // For toggle knobs, the highlight alpha is modulated by pressProgress
+      // (elHighlightAlpha = highlight.alpha * progress). At rest (progress=0),
+      // alpha=0 → no highlight. Pressed (progress=1), alpha=full → edge glow.
+      // This is the ONLY pass that draws the highlight — the element shader
+      // sets the uniforms but does NOT use them (the highlight is composited
+      // as a separate layer with its own blend mode, matching HighlightModifier.kt).
       if (el.highlight && el.highlight.alpha > 0.001) {
         gl.useProgram(this.rimHighlightProgram)
         gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
@@ -2256,8 +2270,10 @@ export class LiquidGlassRenderer {
         gl.vertexAttribPointer(this.aPosLocRm, 2, gl.FLOAT, false, 0, 0)
 
         if (el.highlight.mode === 1) {
+          // Ambient — SrcOver blend (matches HighlightModifier.kt)
           gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
         } else {
+          // Default / Plain — Plus blend (matches HighlightModifier.kt)
           gl.blendFunc(gl.ONE, gl.ONE)
         }
 
@@ -2274,12 +2290,9 @@ export class LiquidGlassRenderer {
         gl.uniform4f(this.uRm['uHighlightColor'], el.highlight.color[0], el.highlight.color[1], el.highlight.color[2], 1.0)
         gl.uniform1f(this.uRm['uHighlightAngle'], el.highlight.angle)
         gl.uniform1f(this.uRm['uHighlightFalloff'], el.highlight.falloff)
-        // For toggle knobs, the rim highlight alpha is modulated by
-        // pressProgress (handled in the element pass via elHighlightAlpha).
-        // The standalone rim highlight pass uses the original alpha for
-        // non-toggle elements, and 0 for toggle knobs (since the inline
-        // highlight in the element pass already draws it).
-        const rimAlpha = el.isToggleKnob ? 0 : el.highlight.alpha
+        // For toggle knobs, use the pressProgress-modulated alpha.
+        // For non-toggle elements, use the original alpha.
+        const rimAlpha = el.isToggleKnob ? elHighlightAlpha : el.highlight.alpha
         gl.uniform1f(this.uRm['uHighlightAlpha'], rimAlpha)
         gl.uniform1f(this.uRm['uHighlightMode'], el.highlight.mode)
         const widthPx = el.highlight.widthDp * this.dpr
