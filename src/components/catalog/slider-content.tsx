@@ -7,10 +7,8 @@ import { LiquidGlass } from '@/components/liquid-glass/liquid-glass'
 
 /**
  * LiquidSlider — port of `LiquidSlider.kt`.
- *
- * Track: full width, 6dp capsule. Grey track + blue fill (0xFF0088FF),
- * progress = (value - start) / (end - start).
- * Thumb: 40x24 capsule glass knob positioned at the progress point.
+ * Track: full width, 6dp capsule. Grey track + blue fill (0xFF0088FF).
+ * Thumb: 40x24 capsule glass knob (thumb variant).
  */
 interface LiquidSliderProps {
   value: number
@@ -34,7 +32,6 @@ function LiquidSlider({ value, onChange, min = 0, max = 100 }: LiquidSliderProps
 
   return (
     <div className="relative w-full" style={{ height: 40 }}>
-      {/* Pointer target spans the full row so the thumb is easy to grab */}
       <div
         ref={trackRef}
         onPointerDown={(e) => {
@@ -63,18 +60,19 @@ function LiquidSlider({ value, onChange, min = 0, max = 100 }: LiquidSliderProps
           }}
         />
       </div>
-      {/* Thumb — positioned with left:% so it tracks progress cleanly.
-          The thumb overhangs by THUMB_W/2 on each end; clamp via padding. */}
+      {/* Thumb — real glass */}
       <LiquidGlass
         variant="thumb"
-        radius={999}
-        className="absolute top-1/2 pointer-events-none"
+        radius={12}
+        noShadow
+        className="absolute top-1/2"
         style={{
           width: THUMB_W,
           height: 24,
           left: `calc(${progress * 100}% - ${THUMB_W / 2}px)`,
           transform: 'translateY(-50%)',
           transition: dragging ? 'none' : 'left 0.2s ease',
+          pointerEvents: 'none',
         }}
       >
         <span />
@@ -83,10 +81,6 @@ function LiquidSlider({ value, onChange, min = 0, max = 100 }: LiquidSliderProps
   )
 }
 
-/**
- * SliderContent — port of `SliderContent.kt`.
- * Two sliders: one over wallpaper, one in a white card.
- */
 export interface SliderContentProps {
   onBack: () => void
 }
@@ -101,7 +95,10 @@ export function SliderContent({ onBack }: SliderContentProps) {
       <div className="min-h-full flex flex-col items-center justify-center gap-10 px-8 py-16">
         <div className="w-full">
           <LiquidSlider value={value} onChange={setValue} />
-          <p className="text-center text-[13px] text-black/50 mt-3">
+          <p
+            className="text-center text-[13px] text-black/60 mt-3"
+            style={{ textShadow: '0 1px 2px rgba(255,255,255,0.5)' }}
+          >
             Value: {Math.round(value)}
           </p>
         </div>

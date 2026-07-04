@@ -7,13 +7,8 @@ import { LiquidGlass } from '@/components/liquid-glass/liquid-glass'
 
 /**
  * LiquidBottomTabs — port of `LiquidBottomTabs.kt`.
- *
- * Outer bar: full-width capsule, containerColor FAFAFA(0.4), height 64dp,
- * effects = { vibrancy(); blur(8dp); lens(24dp, 24dp) }.
- * Selected indicator: a capsule that slides between tabs (the "selected"
- * glass panel with lens + shadow + inner shadow).
- *
- * Original uses airplane icons; we use a simple plane glyph for parity.
+ * Outer bar: container variant (FAFAFA 0.4, vibrancy, blur 8dp, lens 24dp×24dp).
+ * Selected indicator: a glass capsule that slides between tabs.
  */
 interface LiquidBottomTabsProps {
   count: number
@@ -41,33 +36,38 @@ function LiquidBottomTabs({ count, selected, onSelect }: LiquidBottomTabsProps) 
   return (
     <LiquidGlass
       variant="container"
-      radius={999}
+      radius={32}
       className="w-full relative"
-      style={{ height: 64, padding: 4 }}
+      style={{ height: 64, padding: 4, display: 'block' }}
     >
-      {/* Sliding selected indicator */}
-      <div
-        className="absolute liquid-glass"
+      {/* Sliding selected indicator — real glass */}
+      <LiquidGlass
+        variant="default"
+        radius={28}
+        refractionHeight={10}
+        refractionAmount={-14}
+        chromaticAberration
+        noShadow
+        className="absolute"
         style={{
           top: 4,
           bottom: 4,
           left: `calc(4px + ${selected} * ((100% - 8px) / ${count}))`,
           width: `calc((100% - 8px) / ${count})`,
-          borderRadius: 999,
           transition: 'left 0.36s cubic-bezier(0.34, 1.56, 0.64, 1)',
-          backgroundColor: 'rgba(255,255,255,0.18)',
+          pointerEvents: 'none',
         }}
       >
         <span />
-      </div>
+      </LiquidGlass>
 
       {/* Tabs */}
-      <div className="relative z-[2] flex items-center h-full w-full">
+      <div className="relative flex items-center h-full w-full" style={{ zIndex: 2 }}>
         {Array.from({ length: count }).map((_, i) => (
           <button
             key={i}
             onClick={() => onSelect(i)}
-            className="flex-1 flex items-center justify-center gap-1.5 h-full cursor-pointer"
+            className="flex-1 flex items-center justify-center gap-1.5 h-full cursor-pointer bg-transparent border-0"
             aria-label={`Tab ${i + 1}`}
           >
             <PlaneIcon
@@ -77,6 +77,7 @@ function LiquidBottomTabs({ count, selected, onSelect }: LiquidBottomTabsProps) 
               className={`text-[12px] ${
                 i === selected ? 'text-[#0088FF] font-medium' : 'text-black/70'
               }`}
+              style={{ textShadow: '0 1px 2px rgba(255,255,255,0.4)' }}
             >
               Tab {i + 1}
             </span>
@@ -87,10 +88,6 @@ function LiquidBottomTabs({ count, selected, onSelect }: LiquidBottomTabsProps) 
   )
 }
 
-/**
- * BottomTabsContent — port of `BottomTabsContent.kt`.
- * Two tab bars (3 tabs and 4 tabs), each inside a Block.
- */
 export interface BottomTabsContentProps {
   onBack: () => void
 }

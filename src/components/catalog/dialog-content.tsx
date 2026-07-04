@@ -7,14 +7,9 @@ import { LiquidGlass } from '@/components/liquid-glass/liquid-glass'
 
 /**
  * DialogContent — port of `DialogContent.kt`.
- *
- * The screen is dimmed (dimColor 0x29293A 0.23). A dialog card with
- * RoundedRectangle(48dp), effects = { colorControls(brightness 0.2,
- * saturation 1.5); blur(16dp); lens(24dp, 48dp, depthEffect) }, fill
- * containerColor FAFAFA(0.6).
- *
- * Inside: title, lorem-ipsum body, and two buttons (Cancel = container 0.2,
- * Okay = accent blue) side-by-side.
+ * Dialog card: dialog variant (colorControls bright+0.2 sat 1.5, blur 16dp,
+ * lens 24dp×48dp depth, FAFAFA 0.6, Plain highlight, RoundedRectangle 48dp).
+ * Cancel button: container(0.2) capsule. Okay button: accent blue capsule.
  */
 const LOREM_IPSUM =
   'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.'
@@ -32,10 +27,10 @@ export function DialogContent({ onBack }: DialogContentProps) {
         <LiquidGlass
           variant="dialog"
           radius={48}
-          className="w-full max-w-[340px] overflow-hidden"
+          className="w-full"
+          style={{ maxWidth: 340, display: 'block' }}
         >
           <div className="flex flex-col w-full">
-            {/* Title — 24sp FontWeight.Medium */}
             <h2
               className="px-7 pt-6 pb-3 text-[24px] text-black/90"
               style={{ fontWeight: 500 }}
@@ -43,33 +38,41 @@ export function DialogContent({ onBack }: DialogContentProps) {
               Dialog Title
             </h2>
 
-            {/* Body — 15sp, contentColor 0.68 alpha, max 5 lines */}
             <p className="px-6 py-3 text-[15px] leading-relaxed text-black/68">
               {LOREM_IPSUM}
             </p>
 
-            {/* Buttons row */}
             <div className="flex items-center gap-4 px-6 pt-3 pb-6 w-full">
-              <button
-                className="liquid-glass liquid-glass-pressable flex-1"
+              <LiquidGlass
+                as="button"
+                pressable
+                variant="plain"
+                radius={24}
+                noShadow
                 style={{
                   height: 48,
-                  borderRadius: 999,
+                  flex: 1,
                   backgroundColor: 'rgba(250,250,250,0.22)',
+                  display: 'flex',
                 }}
               >
                 <span className="text-[16px] text-black/90">Cancel</span>
-              </button>
-              <button
-                className="liquid-glass liquid-glass-pressable flex-1"
+              </LiquidGlass>
+              <LiquidGlass
+                as="button"
+                pressable
+                variant="plain"
+                radius={24}
+                noShadow
                 style={{
                   height: 48,
-                  borderRadius: 999,
+                  flex: 1,
                   backgroundColor: '#0088FF',
+                  display: 'flex',
                 }}
               >
                 <span className="text-[16px] text-white">Okay</span>
-              </button>
+              </LiquidGlass>
             </div>
           </div>
         </LiquidGlass>

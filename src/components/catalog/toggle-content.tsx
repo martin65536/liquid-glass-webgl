@@ -7,12 +7,9 @@ import { LiquidGlass } from '@/components/liquid-glass/liquid-glass'
 
 /**
  * LiquidToggle — port of `LiquidToggle.kt`.
- *
  * Track: 64x28 capsule, color lerps grey(0.2) -> green(0xFF34C759).
- * Thumb: 40x24 capsule glass knob that translates 20dp on toggle.
- *
- * The original supports drag gestures; this web version supports tap
- * and pointer-drag along the track for the same feel.
+ * Thumb: 40x24 capsule glass knob (thumb variant: lens 10dp×14dp with
+ * dispersion, ambient highlight, White(0.92) surface).
  */
 interface LiquidToggleProps {
   checked: boolean
@@ -58,10 +55,11 @@ function LiquidToggle({ checked, onChange }: LiquidToggleProps) {
           transition: 'background-color 0.3s ease',
         }}
       />
-      {/* Thumb */}
+      {/* Thumb — real glass */}
       <LiquidGlass
         variant="thumb"
-        radius={999}
+        radius={12}
+        noShadow
         className="absolute top-1/2"
         style={{
           width: 40,
@@ -69,6 +67,7 @@ function LiquidToggle({ checked, onChange }: LiquidToggleProps) {
           left: 2,
           transform: `translateY(-50%) translateX(${checked ? 20 : 0}px)`,
           transition: 'transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
+          pointerEvents: 'none',
         }}
       >
         <span />
@@ -77,10 +76,6 @@ function LiquidToggle({ checked, onChange }: LiquidToggleProps) {
   )
 }
 
-/**
- * ToggleContent — port of `ToggleContent.kt`.
- * Two toggles: one over the wallpaper, one inside a white rounded card.
- */
 export interface ToggleContentProps {
   onBack: () => void
 }
@@ -95,8 +90,8 @@ export function ToggleContent({ onBack }: ToggleContentProps) {
       <div className="min-h-full flex flex-col items-center justify-center gap-8 px-6 py-16">
         <LiquidToggle checked={selected} onChange={setSelected} />
 
-        {/* White card with rounded corners — the second toggle in Kotlin uses
-            a CanvasBackdrop of solid white inside a 32dp-rounded white box. */}
+        {/* White card with rounded corners — the second toggle in Kotlin
+            uses a CanvasBackdrop of solid white inside a 32dp-rounded box. */}
         <div
           className="p-6"
           style={{

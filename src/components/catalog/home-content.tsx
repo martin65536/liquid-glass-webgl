@@ -6,11 +6,8 @@ import { CATALOG_SECTIONS, type CatalogDestination } from './catalog-destination
 
 /**
  * HomeContent — port of `HomeContent.kt`.
- *
- * The original Kotlin version renders plain text list items over the
- * wallpaper. To better showcase the liquid-glass effect on the web we
- * keep the exact same structure (title, blue subtitles, list items) but
- * render each row as a subtle glass capsule that intensifies on hover.
+ * Title + blue subtitles + list items rendered as real glass capsules
+ * (WebGL refraction shader) over the wallpaper.
  */
 export interface HomeContentProps {
   onNavigate: (destination: CatalogDestination) => void
@@ -19,20 +16,18 @@ export interface HomeContentProps {
 export function HomeContent({ onNavigate }: HomeContentProps) {
   return (
     <div className="w-full h-full overflow-y-auto lg-scroll pt-10 pb-12">
-      {/* Title — "Backdrop Catalog", 28sp FontWeight.Medium, contentColor black */}
       <h1
         className="px-4 pt-10 pb-4 text-[28px] font-medium leading-tight text-black"
-        style={{ fontWeight: 500 }}
+        style={{ fontWeight: 500, textShadow: '0 1px 3px rgba(255,255,255,0.5)' }}
       >
         Backdrop Catalog
       </h1>
 
       {CATALOG_SECTIONS.map((section) => (
         <section key={section.subtitle} className="mb-2">
-          {/* Subtitle — Color(0xFF0088FF), 15sp, FontWeight.Medium */}
           <h2
             className="px-4 pt-6 pb-2 w-full text-[15px] font-medium"
-            style={{ color: '#0088FF', fontWeight: 500 }}
+            style={{ color: '#0088FF', fontWeight: 500, textShadow: '0 1px 2px rgba(255,255,255,0.6)' }}
           >
             {section.subtitle}
           </h2>
@@ -46,23 +41,31 @@ export function HomeContent({ onNavigate }: HomeContentProps) {
               <LiquidGlass
                 as="button"
                 pressable
-                radius={999}
+                radius={26}
                 variant="default"
+                refractionHeight={12}
+                refractionAmount={-18}
+                blurRadius={2}
                 onClick={() => onNavigate(item.destination)}
                 className="w-full text-left"
-                style={{ height: 52 }}
+                style={{ height: 52, display: 'flex' }}
               >
-                <span className="flex items-center justify-between w-full px-4">
-                  <span className="text-[17px] text-black/90 font-normal tracking-[-0.01em]">
+                <span
+                  className="flex items-center justify-between w-full"
+                  style={{ padding: '0 16px' }}
+                >
+                  <span
+                    className="text-[17px] text-black/90 font-normal tracking-[-0.01em]"
+                    style={{ textShadow: '0 1px 2px rgba(255,255,255,0.4)' }}
+                  >
                     {item.label}
                   </span>
-                  {/* Chevron — subtle indicator that this navigates */}
                   <svg
                     width="18"
                     height="18"
                     viewBox="0 0 18 18"
                     fill="none"
-                    className="text-black/40 shrink-0"
+                    className="text-black/50 shrink-0"
                     aria-hidden
                   >
                     <path
@@ -80,9 +83,11 @@ export function HomeContent({ onNavigate }: HomeContentProps) {
         </section>
       ))}
 
-      {/* Footer credit */}
-      <p className="text-center text-[12px] text-black/40 mt-8 px-6">
-        Web recreation of Kyant&apos;s Liquid Glass (Backdrop) catalog.
+      <p
+        className="text-center text-[12px] text-black/50 mt-8 px-6"
+        style={{ textShadow: '0 1px 2px rgba(255,255,255,0.5)' }}
+      >
+        WebGL shader port of Kyant&apos;s Liquid Glass (Backdrop) catalog.
       </p>
     </div>
   )

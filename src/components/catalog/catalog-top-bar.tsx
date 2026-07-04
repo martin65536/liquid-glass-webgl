@@ -1,11 +1,11 @@
 'use client'
 
 import * as React from 'react'
+import { LiquidGlass } from '@/components/liquid-glass/liquid-glass'
 
 /**
- * CatalogTopBar — a glass back-navigation bar shown on every destination
- * page. Mirrors the BackHandler behaviour in MainContent.kt which pops
- * back to Home.
+ * CatalogTopBar — glass back-navigation bar shown on every destination
+ * page. The back button is a real glass capsule (refraction shader).
  */
 export interface CatalogTopBarProps {
   title: string
@@ -14,19 +14,17 @@ export interface CatalogTopBarProps {
 
 export function CatalogTopBar({ title, onBack }: CatalogTopBarProps) {
   return (
-    <div className="absolute top-0 left-0 right-0 z-20 px-3 pt-3 pb-2">
-      <div className="flex items-center gap-2">
-        <button
-          onClick={onBack}
-          className="liquid-glass liquid-glass-pressable flex items-center justify-center"
-          style={{
-            borderRadius: 999,
-            width: 40,
-            height: 40,
-            backgroundColor: 'rgba(255,255,255,0.18)',
-          }}
-          aria-label="Back"
-        >
+    <div className="absolute top-0 left-0 right-0 z-20 px-3 pt-4 pb-2 flex items-center gap-3">
+      <LiquidGlass
+        as="button"
+        pressable
+        variant="default"
+        radius={20}
+        onClick={onBack}
+        style={{ width: 40, height: 40, flexShrink: 0 }}
+        aria-label="Back"
+      >
+        <span className="flex items-center justify-center w-full h-full">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
             <path
               d="M12.5 5L7.5 10L12.5 15"
@@ -36,14 +34,14 @@ export function CatalogTopBar({ title, onBack }: CatalogTopBarProps) {
               strokeLinejoin="round"
             />
           </svg>
-        </button>
-        <h1
-          className="text-[22px] font-medium text-black/90 px-1"
-          style={{ fontWeight: 500 }}
-        >
-          {title}
-        </h1>
-      </div>
+        </span>
+      </LiquidGlass>
+      <h1
+        className="text-[22px] font-medium text-black/90 px-1"
+        style={{ fontWeight: 500, textShadow: '0 1px 2px rgba(255,255,255,0.4)' }}
+      >
+        {title}
+      </h1>
     </div>
   )
 }
