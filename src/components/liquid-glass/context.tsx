@@ -104,7 +104,11 @@ export function LiquidGlassProvider({
   return (
     <LiquidGlassContext.Provider value={value}>
       <div ref={containerRef} className={className} style={{ position: 'relative' }}>
-        {/* WebGL canvas — glass elements are drawn here. */}
+        {/*
+          WebGL canvas — renders the wallpaper (cover-fit) AND the glass
+          elements. The canvas is opaque, so there's no need for a CSS
+          wallpaper layer behind it. Children (text/icons) render above.
+        */}
         <canvas
           ref={canvasRef}
           style={{
@@ -113,18 +117,6 @@ export function LiquidGlassProvider({
             width: '100%',
             height: '100%',
             pointerEvents: 'none',
-            zIndex: 5,
-          }}
-        />
-        {/* Wallpaper behind the canvas (CSS bg) */}
-        <div
-          aria-hidden
-          style={{
-            position: 'absolute',
-            inset: 0,
-            backgroundImage: `url(${wallpaperSrc})`,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
             zIndex: 0,
           }}
         />

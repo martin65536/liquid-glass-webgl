@@ -4,6 +4,7 @@ import {
   ELEMENT_FRAGMENT_SHADER,
   SHADOW_FRAGMENT_SHADER,
   VERTEX_SHADER,
+  WALLPAPER_FRAGMENT_SHADER,
 } from './shaders'
 
 /* ------------------------------------------------------------------ *
@@ -86,39 +87,45 @@ function createProgram(gl: WebGLRenderingContext, vsSrc: string, fsSrc: string):
  * LiquidGlassRenderer
  *
  * One WebGL canvas. Holds the wallpaper texture. On each render:
- *   1. Clear to transparent.
+ *   1. Draw the wallpaper cover-fit (opaque background pass).
  *   2. For each element (sorted by z, ascending), if it has an outer
  *      shadow, draw the shadow pass first.
  *   3. Draw the element pass (refraction + vibrancy + tint + highlight
  *      + inner shadow).
  *
- * The wallpaper is drawn underneath by the DOM (an <img> behind the
- * canvas), so the canvas itself only composites glass elements with
- * alpha. This keeps the wallpaper crisp and lets CSS handle scaling.
+ * The canvas is opaque and owns the wallpaper; DOM children (text,
+ * icons) render above the canvas via normal DOM stacking.
  * ------------------------------------------------------------------ */
 export class LiquidGlassRenderer {
   private gl: WebGLRenderingContext
   private elementProgram: WebGLProgram
   private shadowProgram: WebGLProgram
+  private wallpaperProgram: WebGLProgram
   private quadBuffer: WebGLBuffer
   private wallpaperTexture: WebGLTexture | null = null
   private wallpaperReady = false
+  private wallpaperSize: [number, number] = [1, 1]
   private canvas: HTMLCanvasElement
   private dpr = 1
   private elements = new Map<string, GlassElement>()
   private rafId: number | null = null
   private aPosLocEl: number
   private aPosLocSh: number
+  private aPosLocWp: number
 
-  // Element program uniform locations (cached)
+  // Program uniform locations (cached)
   private uEl: Record<string, WebGLUniformLocation | null> = {}
   private uSh: Record<string, WebGLUniformLocation | null> = {}
+  private uWp: Record<string, WebGLUniformLocation | null> = {}
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas
+    // alpha: false -> the canvas is opaque, which lets the WebGL
+    // framebuffer composite the wallpaper directly without an extra
+    // DOM <img> layer behind it.
     const gl = canvas.getContext('webgl', {
       premultipliedAlpha: false,
-      alpha: true,
+      alpha: false,
       antialias: true,
       preserveDrawingBuffer: false,
     })
@@ -127,6 +134,7 @@ export class LiquidGlassRenderer {
 
     this.elementProgram = createProgram(gl, VERTEX_SHADER, ELEMENT_FRAGMENT_SHADER)
     this.shadowProgram = createProgram(gl, VERTEX_SHADER, SHADOW_FRAGMENT_SHADER)
+    this.wallpaperProgram = createProgram(gl, VERTEX_SHADER, WALLPAPER_FRAGMENT_SHADER)
 
     // Fullscreen quad
     this.quadBuffer = gl.createBuffer()!
@@ -139,6 +147,7 @@ export class LiquidGlassRenderer {
 
     this.aPosLocEl = gl.getAttribLocation(this.elementProgram, 'aPos')
     this.aPosLocSh = gl.getAttribLocation(this.shadowProgram, 'aPos')
+    this.aPosLocWp = gl.getAttribLocation(this.wallpaperProgram, 'aPos')
 
     this.cacheUniforms()
   }
@@ -146,7 +155,7 @@ export class LiquidGlassRenderer {
   private cacheUniforms() {
     const gl = this.gl
     const elNames = [
-      'uBackdrop', 'uCanvasSize', 'uElementOffset', 'uElementSize',
+      'uBackdrop', 'uCanvasSize', 'uWallpaperSize', 'uElementOffset', 'uElementSize',
       'uCornerRadii', 'uRefractionHeight', 'uRefractionAmount', 'uDepthEffect',
       'uChromaticAberration', 'uBlurRadius', 'uSaturation', 'uBrightness',
       'uContrast', 'uTintColor', 'uSurfaceColor', 'uHighlightColor',
@@ -159,6 +168,8 @@ export class LiquidGlassRenderer {
       'uShadowRadius', 'uShadowOffset', 'uShadowColor',
     ]
     for (const n of shNames) this.uSh[n] = gl.getUniformLocation(this.shadowProgram, n)
+    const wpNames = ['uBackdrop', 'uCanvasSize', 'uWallpaperSize']
+    for (const n of wpNames) this.uWp[n] = gl.getUniformLocation(this.wallpaperProgram, n)
   }
 
   /** Load the wallpaper image as a texture. */
@@ -190,6 +201,7 @@ export class LiquidGlassRenderer {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
     this.wallpaperTexture = tex
+    this.wallpaperSize = [w || 1, h || 1]
     this.wallpaperReady = true
     this.requestRender()
   }
@@ -234,8 +246,24 @@ export class LiquidGlassRenderer {
     const gl = this.gl
     if (!this.wallpaperReady) return
 
-    gl.clearColor(0, 0, 0, 0)
+    // Opaque clear (alpha:false context ignores alpha anyway).
+    gl.clearColor(0, 0, 0, 1)
     gl.clear(gl.COLOR_BUFFER_BIT)
+    gl.disable(gl.BLEND)
+
+    // --- 1. Wallpaper background pass (opaque) ----------------------
+    gl.useProgram(this.wallpaperProgram)
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+    gl.enableVertexAttribArray(this.aPosLocWp)
+    gl.vertexAttribPointer(this.aPosLocWp, 2, gl.FLOAT, false, 0, 0)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture!)
+    gl.uniform1i(this.uWp['uBackdrop'], 0)
+    gl.uniform2f(this.uWp['uCanvasSize'], this.canvas.width, this.canvas.height)
+    gl.uniform2f(this.uWp['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
+    gl.drawArrays(gl.TRIANGLES, 0, 6)
+
+    // --- 2. Glass elements (with blending) --------------------------
     gl.enable(gl.BLEND)
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
@@ -287,6 +315,7 @@ export class LiquidGlassRenderer {
       gl.uniform1i(this.uEl['uBackdrop'], 0)
 
       gl.uniform2f(this.uEl['uCanvasSize'], this.canvas.width, this.canvas.height)
+      gl.uniform2f(this.uEl['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
       gl.uniform2f(this.uEl['uElementOffset'], el.rect.x * this.dpr, el.rect.y * this.dpr)
       gl.uniform2f(this.uEl['uElementSize'], el.rect.w * this.dpr, el.rect.h * this.dpr)
       gl.uniform4f(
@@ -338,6 +367,7 @@ export class LiquidGlassRenderer {
     if (this.wallpaperTexture) gl.deleteTexture(this.wallpaperTexture)
     gl.deleteProgram(this.elementProgram)
     gl.deleteProgram(this.shadowProgram)
+    gl.deleteProgram(this.wallpaperProgram)
     gl.deleteBuffer(this.quadBuffer)
     this.elements.clear()
   }

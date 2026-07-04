@@ -15,10 +15,13 @@
  *   - `coord` ranges from (0,0) to (size.x, size.y)
  *   - `centeredCoord = coord - halfSize` (centered at element center)
  *
- * The only WebGL adaptation: `content.eval(coord)` becomes
- * `texture2D(uBackdrop, backdropUv)` where backdropUv maps the
- * element-local coord to the wallpaper texture's UV space using
- * uElementOffset (element top-left in canvas px) and uCanvasSize.
+ * WebGL adaptation:
+ *   - `content.eval(coord)` becomes `texture2D(uBackdrop, coverUv(canvasPx))`
+ *   - The wallpaper is rendered into the canvas as the first pass (cover-fit),
+ *     and the same cover-fit UV transform is applied when the element shader
+ *     samples the wallpaper texture. This guarantees visual parity between
+ *     the backdrop visible behind the glass and the backdrop sampled by
+ *     the refraction shader.
  */
 
 /* ------------------------------------------------------------------ *
@@ -66,6 +69,48 @@ vec2 gradSdRoundedRect(vec2 coord, vec2 halfSize, float radius) {
 `
 
 /* ------------------------------------------------------------------ *
+ * Cover-fit UV helper.
+ *
+ * Maps canvas pixel coordinates to wallpaper texture UV using the same
+ * "cover" fit as CSS `background-size: cover; background-position:
+ * center` — i.e. the wallpaper is scaled to fully cover the canvas,
+ * centered, and any overflow is cropped. This MUST match the wallpaper
+ * background pass exactly, so the glass shader samples the same texel
+ * that is visually displayed at a given canvas pixel.
+ * ------------------------------------------------------------------ */
+export const COVER_GLSL = /* glsl */ `
+// Returns wallpaper UV for a canvas pixel coordinate (top-left origin).
+vec2 coverUv(vec2 canvasPx) {
+    float canvasAspect = uCanvasSize.x / uCanvasSize.y;
+    float wpAspect = uWallpaperSize.x / uWallpaperSize.y;
+    vec2 uv = canvasPx / uCanvasSize;
+    if (wpAspect > canvasAspect) {
+        // Wallpaper is wider than canvas — crop horizontally.
+        float s = canvasAspect / wpAspect;
+        uv.x = (uv.x - 0.5) * s + 0.5;
+    } else {
+        // Wallpaper is taller than canvas — crop vertically.
+        float s = wpAspect / canvasAspect;
+        uv.y = (uv.y - 0.5) * s + 0.5;
+    }
+    return uv;
+}
+
+// Per-axis scale: 1 canvas pixel in wallpaper UV units.
+// Used to convert a blur radius (in canvas px) into UV-space offsets
+// for poisson-disc sampling.
+vec2 canvasPxToUvScale() {
+    float canvasAspect = uCanvasSize.x / uCanvasSize.y;
+    float wpAspect = uWallpaperSize.x / uWallpaperSize.y;
+    if (wpAspect > canvasAspect) {
+        return vec2(canvasAspect / wpAspect, 1.0) / uCanvasSize;
+    } else {
+        return vec2(1.0, wpAspect / canvasAspect) / uCanvasSize;
+    }
+}
+`
+
+/* ------------------------------------------------------------------ *
  * Full per-element fragment shader.
  *
  * Order of operations (mirrors DrawBackdropNode.draw + effects chain):
@@ -89,6 +134,7 @@ precision highp float;
 
 uniform sampler2D uBackdrop;
 uniform vec2  uCanvasSize;        // canvas size in px
+uniform vec2  uWallpaperSize;     // wallpaper texture natural size in px
 uniform vec2  uElementOffset;     // element top-left in canvas px
 uniform vec2  uElementSize;       // element size in px
 uniform vec4  uCornerRadii;       // (topLeft, topRight, bottomRight, bottomLeft) in px
@@ -113,39 +159,62 @@ uniform vec2  uInnerShadowOffset;
 
 ${SDF_GLSL}
 
+${COVER_GLSL}
+
 float circleMap(float x) {
     return 1.0 - sqrt(1.0 - x * x);
 }
 
-// Sample the backdrop at a canvas-pixel coordinate, with a Gaussian
-// blur approximated by a 9-tap poisson disc. radius=0 -> single tap.
+// 17-tap poisson disc for a smoother Gaussian-ish blur.
+// Tap positions are normalized (radius 1) - scaled by radius and the
+// canvas-to-UV factor at the call site.
+const int POISSON_TAPS = 17;
+const vec2 POISSON[17] = vec2[17](
+    vec2( 0.000000,  0.000000),
+    vec2( 0.536355,  0.000000),
+    vec2(-0.536355,  0.000000),
+    vec2( 0.166048,  0.510274),
+    vec2( 0.166048, -0.510274),
+    vec2(-0.166048,  0.510274),
+    vec2(-0.166048, -0.510274),
+    vec2( 0.654479,  0.364250),
+    vec2( 0.654479, -0.364250),
+    vec2(-0.654479,  0.364250),
+    vec2(-0.654479, -0.364250),
+    vec2( 0.873489,  0.117558),
+    vec2( 0.873489, -0.117558),
+    vec2(-0.873489,  0.117558),
+    vec2(-0.873489, -0.117558),
+    vec2( 0.348733,  0.835549),
+    vec2( 0.348733, -0.835549)
+);
+const float POISSON_W[17] = float[17](
+    1.0,
+    0.85, 0.85,
+    0.75, 0.75, 0.75, 0.75,
+    0.65, 0.65, 0.65, 0.65,
+    0.55, 0.55, 0.55, 0.55,
+    0.45, 0.45
+);
+
+// Sample the backdrop (wallpaper) at a canvas-pixel coordinate, with a
+// Gaussian-ish blur approximated by a 17-tap poisson disc. radius=0
+// falls back to a single tap.
 vec4 sampleBackdrop(vec2 canvasPx, float radius) {
-    vec2 uv = canvasPx / uCanvasSize;
+    vec2 uv = coverUv(canvasPx);
     if (radius < 0.5) {
         return texture2D(uBackdrop, uv);
     }
-    // 9-tap poisson disc, normalized then scaled by radius/canvasSize.
-    // Weights approximate a Gaussian.
-    vec2 taps[9];
-    taps[0] = vec2( 0.0,  0.0);
-    taps[1] = vec2( 1.0,  0.0);
-    taps[2] = vec2(-1.0,  0.0);
-    taps[3] = vec2( 0.0,  1.0);
-    taps[4] = vec2( 0.0, -1.0);
-    taps[5] = vec2( 0.7071,  0.7071);
-    taps[6] = vec2(-0.7071,  0.7071);
-    taps[7] = vec2( 0.7071, -0.7071);
-    taps[8] = vec2(-0.7071, -0.7071);
-    float w[9];
-    w[0] = 1.0;
-    w[1] = w[2] = w[3] = w[4] = 0.8;
-    w[5] = w[6] = w[7] = w[8] = 0.6;
+    vec2 pxToUv = canvasPxToUvScale() * radius;
     vec4 sum = vec4(0.0);
     float total = 0.0;
-    vec2 scale = vec2(radius) / uCanvasSize;
-    for (int i = 0; i < 9; i++) {
-        sum += texture2D(uBackdrop, uv + taps[i] * scale) * w[i];
-        total += w[i];
+    for (int i = 0; i < POISSON_TAPS; i++) {
+        vec2 off = POISSON[i] * pxToUv;
+        // Flip Y because UNPACK_FLIP_Y_WEBGL=true flips the texture on
+        // upload, but our poisson offsets are in canvas-pixel space
+        // (top-left origin) — so the Y mapping is consistent.
+        sum += texture2D(uBackdrop, uv + off) * POISSON_W[i];
+        total += POISSON_W[i];
     }
     return sum / total;
 }
@@ -357,6 +426,29 @@ void main() {
     if (sd < -1.0) shadow = 0.0;
 
     gl_FragColor = vec4(uShadowColor.rgb, uShadowColor.a * shadow);
+}
+`
+
+/* ------------------------------------------------------------------ *
+ * Wallpaper background pass — draws the wallpaper texture to the
+ * canvas with CSS `cover` fit. Drawn first in the render pipeline so
+ * the canvas owns the wallpaper (no DOM <img> behind it). This makes
+ * the glass shader's backdrop sampling visually consistent with what
+ * is displayed behind the glass.
+ * ------------------------------------------------------------------ */
+export const WALLPAPER_FRAGMENT_SHADER = /* glsl */ `
+precision highp float;
+
+uniform sampler2D uBackdrop;
+uniform vec2 uCanvasSize;
+uniform vec2 uWallpaperSize;
+
+${COVER_GLSL}
+
+void main() {
+    vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
+    vec2 uv = coverUv(screenCoord);
+    gl_FragColor = texture2D(uBackdrop, uv);
 }
 `
 
