@@ -79,17 +79,59 @@ export interface GlassButtonConfig {
  * ------------------------------------------------------------------ */
 
 interface ButtonState {
-  // pressProgress interpolates 0..1 with spring-like ease.
+  // pressProgress interpolates 0..1 with an underdamped spring
+  // (matches Compose spring(dampingRatio=0.5, stiffness=300)).
   pressProgress: number
+  pressVelocity: number
   targetPress: number
   // Drag position (element-local, top-left origin) follows the finger
-  // while pressed, springs back to start on release.
+  // while pressed, springs back to start on release. Same spring spec.
   dragX: number
   dragY: number
+  dragVx: number
+  dragVy: number
   targetDragX: number
   targetDragY: number
   startDragX: number
   startDragY: number
+}
+
+/* ------------------------------------------------------------------ *
+ * Underdamped spring physics — faithful port of Compose's
+ * spring(dampingRatio = 0.5f, stiffness = 300f) used by
+ * InteractiveHighlight.kt for both pressProgress and drag offset.
+ *
+ * With mass = 1:
+ *   k = stiffness             = 300
+ *   c = 2 * dampingRatio * sqrt(k * m) = sqrt(k) = sqrt(300) ≈ 17.32
+ *   a = -k * (x - target) - c * v
+ *   v += a * dt
+ *   x += v * dt
+ *
+ * The natural frequency omega_n = sqrt(k/m) ≈ 17.32 rad/s.
+ * For numerical stability we sub-step so that dt * omega_n < 0.1.
+ * ------------------------------------------------------------------ */
+const SPRING_K = 300
+const SPRING_C = 17.3205 // 2 * 0.5 * sqrt(300)
+const SPRING_MAX_SUBSTEP = 0.1 / SPRING_K ** 0.5 // ~5.77 ms
+const SPRING_THRESHOLD = 0.0005
+
+function springStep1D(
+  current: number,
+  velocity: number,
+  target: number,
+  dt: number
+): { current: number; velocity: number } {
+  let cur = current
+  let vel = velocity
+  const steps = Math.max(1, Math.ceil(dt / SPRING_MAX_SUBSTEP))
+  const subDt = dt / steps
+  for (let i = 0; i < steps; i++) {
+    const a = -SPRING_K * (cur - target) - SPRING_C * vel
+    vel += a * subDt
+    cur += vel * subDt
+  }
+  return { current: cur, velocity: vel }
 }
 
 /* ------------------------------------------------------------------ *
@@ -246,11 +288,11 @@ export class LiquidGlassRenderer {
     for (const n of shNames) this.uSh[n] = gl.getUniformLocation(this.shadowProgram, n)
     const wpNames = ['uBackdrop', 'uCanvasSize', 'uWallpaperSize']
     for (const n of wpNames) this.uWp[n] = gl.getUniformLocation(this.wallpaperProgram, n)
-    const fgNames = ['uTexture', 'uCanvasSize', 'uOffset', 'uSize', 'uAlpha']
+    const fgNames = ['uTexture', 'uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uAlpha']
     for (const n of fgNames) this.uFg[n] = gl.getUniformLocation(this.foregroundProgram, n)
-    const hlNames = ['uCanvasSize', 'uOffset', 'uSize', 'uColor', 'uRadius', 'uPosition']
+    const hlNames = ['uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uColor', 'uRadius', 'uPosition']
     for (const n of hlNames) this.uHl[n] = gl.getUniformLocation(this.highlightProgram, n)
-    const tnNames = ['uCanvasSize', 'uOffset', 'uSize', 'uColor']
+    const tnNames = ['uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uColor']
     for (const n of tnNames) this.uTn[n] = gl.getUniformLocation(this.tintProgram, n)
     const rmNames = [
       'uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii',
@@ -346,9 +388,12 @@ export class LiquidGlassRenderer {
       if (!this.buttonStates.has(c.id)) {
         this.buttonStates.set(c.id, {
           pressProgress: 0,
+          pressVelocity: 0,
           targetPress: 0,
           dragX: 0,
           dragY: 0,
+          dragVx: 0,
+          dragVy: 0,
           targetDragX: 0,
           targetDragY: 0,
           startDragX: 0,
@@ -412,32 +457,66 @@ export class LiquidGlassRenderer {
 
   /**
    * Spring-based animation loop. Matches InteractiveHighlight.kt's
-   * spring(0.5f, 300f) spec — we approximate with a critically-damped
-   * exponential approach that gives a similar feel.
+   * spring(0.5f, 300f) spec — underdamped, with a small overshoot on
+   * release. Uses real wall-clock dt for frame-rate-independent timing.
    */
   private startAnimation() {
     if (this.animRafId !== null) return
+    let lastTime = performance.now()
     const tick = () => {
+      const now = performance.now()
+      // Cap dt at 50 ms to avoid huge jumps after tab switches.
+      const dt = Math.min((now - lastTime) / 1000, 0.05)
+      lastTime = now
+
       let stillAnimating = false
       for (const st of this.buttonStates.values()) {
-        // Press spring (faster — snappy press feel).
-        const pDelta = st.targetPress - st.pressProgress
-        if (Math.abs(pDelta) > 0.001) {
-          st.pressProgress += pDelta * 0.30
+        // --- Press spring (underdamped, bouncy on release) ---
+        const pDelta = Math.abs(st.targetPress - st.pressProgress)
+        if (
+          pDelta > SPRING_THRESHOLD ||
+          Math.abs(st.pressVelocity) > SPRING_THRESHOLD
+        ) {
+          const r = springStep1D(
+            st.pressProgress,
+            st.pressVelocity,
+            st.targetPress,
+            dt
+          )
+          st.pressProgress = r.current
+          st.pressVelocity = r.velocity
           stillAnimating = true
         } else {
           st.pressProgress = st.targetPress
+          st.pressVelocity = 0
         }
-        // Drag spring (slower — feels like a dragged liquid).
-        const dxDelta = st.targetDragX - st.dragX
-        const dyDelta = st.targetDragY - st.dragY
-        if (Math.abs(dxDelta) > 0.1 || Math.abs(dyDelta) > 0.1) {
-          st.dragX += dxDelta * 0.35
-          st.dragY += dyDelta * 0.35
+
+        // --- Drag X spring ---
+        if (
+          Math.abs(st.targetDragX - st.dragX) > SPRING_THRESHOLD ||
+          Math.abs(st.dragVx) > SPRING_THRESHOLD
+        ) {
+          const r = springStep1D(st.dragX, st.dragVx, st.targetDragX, dt)
+          st.dragX = r.current
+          st.dragVx = r.velocity
           stillAnimating = true
         } else {
           st.dragX = st.targetDragX
+          st.dragVx = 0
+        }
+
+        // --- Drag Y spring ---
+        if (
+          Math.abs(st.targetDragY - st.dragY) > SPRING_THRESHOLD ||
+          Math.abs(st.dragVy) > SPRING_THRESHOLD
+        ) {
+          const r = springStep1D(st.dragY, st.dragVy, st.targetDragY, dt)
+          st.dragY = r.current
+          st.dragVy = r.velocity
+          stillAnimating = true
+        } else {
           st.dragY = st.targetDragY
+          st.dragVy = 0
         }
       }
       this.requestRender()
@@ -479,9 +558,14 @@ export class LiquidGlassRenderer {
     const cssH = cfg.rect.h
 
     // --- Label -------------------------------------------------------
+    // Text size scales with the button rect height (rect.h = 48 * DP in
+    // page.tsx, and the original Kotlin spec uses 15.sp). So
+    // fontPx = rect.h * (15/48). This keeps measurement (in page.tsx)
+    // and rasterization (here) consistent at any DP factor.
+    const fontPx = cssH * (15 / 48)
     const fontFamily =
       '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
-    ctx.font = `400 15px ${fontFamily}`
+    ctx.font = `400 ${fontPx}px ${fontFamily}`
     ctx.textBaseline = 'middle'
     ctx.textAlign = 'center'
 
@@ -493,27 +577,27 @@ export class LiquidGlassRenderer {
     const haloIsLight = cfg.labelColor[0] + cfg.labelColor[1] + cfg.labelColor[2] < 1.5
     ctx.save()
     ctx.shadowColor = haloIsLight ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.25)'
-    ctx.shadowBlur = haloIsLight ? 2 : 1
+    ctx.shadowBlur = haloIsLight ? fontPx * 0.13 : fontPx * 0.07
     ctx.fillStyle = colorStr
     ctx.fillText(cfg.label, cssW / 2, cssH / 2 + 0.5)
     ctx.restore()
 
     // --- Chevron -----------------------------------------------------
     if (cfg.showChevron) {
-      const chevronSize = 14
+      const chevronSize = fontPx * 0.93
       const labelWidth = ctx.measureText(cfg.label).width
-      const cx = cssW / 2 + labelWidth / 2 + 8 + chevronSize / 2
+      const cx = cssW / 2 + labelWidth / 2 + fontPx * 0.53 + chevronSize / 2
       const cy = cssH / 2
       ctx.save()
       ctx.strokeStyle = colorStr
       ctx.globalAlpha = 0.6
-      ctx.lineWidth = 1.6
+      ctx.lineWidth = fontPx * 0.107
       ctx.lineCap = 'round'
       ctx.lineJoin = 'round'
       ctx.beginPath()
-      ctx.moveTo(cx - 3, cy - 4)
-      ctx.lineTo(cx + 2, cy)
-      ctx.lineTo(cx - 3, cy + 4)
+      ctx.moveTo(cx - chevronSize * 0.3, cy - chevronSize * 0.4)
+      ctx.lineTo(cx + chevronSize * 0.2, cy)
+      ctx.lineTo(cx - chevronSize * 0.3, cy + chevronSize * 0.4)
       ctx.stroke()
       ctx.restore()
     }
@@ -724,6 +808,10 @@ export class LiquidGlassRenderer {
       // Two sub-passes:
       //   a. White overlay at 8% * progress (Plus blend = additive)
       //   b. Radial gradient at finger position, 15% * progress (Plus blend)
+      //
+      // Both are clipped to the capsule shape via SDF discard in the
+      // fragment shader (matches the outermost graphicsLayer clip in
+      // Compose that wraps the whole button).
       if (el.isInteractive && p > 0.001) {
         // a. Flat white overlay
         gl.useProgram(this.tintProgram)
@@ -735,6 +823,13 @@ export class LiquidGlassRenderer {
         gl.uniform2f(this.uTn['uCanvasSize'], this.canvas.width, this.canvas.height)
         gl.uniform2f(this.uTn['uOffset'], sx * this.dpr, sy * this.dpr)
         gl.uniform2f(this.uTn['uSize'], sw * this.dpr, sh * this.dpr)
+        gl.uniform4f(
+          this.uTn['uCornerRadii'],
+          radii[0] * this.dpr,
+          radii[1] * this.dpr,
+          radii[2] * this.dpr,
+          radii[3] * this.dpr
+        )
         gl.uniform4f(this.uTn['uColor'], 1, 1, 1, 0.08 * p)
         gl.drawArrays(gl.TRIANGLES, 0, 6)
 
@@ -747,6 +842,13 @@ export class LiquidGlassRenderer {
         gl.uniform2f(this.uHl['uCanvasSize'], this.canvas.width, this.canvas.height)
         gl.uniform2f(this.uHl['uOffset'], sx * this.dpr, sy * this.dpr)
         gl.uniform2f(this.uHl['uSize'], sw * this.dpr, sh * this.dpr)
+        gl.uniform4f(
+          this.uHl['uCornerRadii'],
+          radii[0] * this.dpr,
+          radii[1] * this.dpr,
+          radii[2] * this.dpr,
+          radii[3] * this.dpr
+        )
         gl.uniform4f(this.uHl['uColor'], 1, 1, 1, 0.15 * p)
         const minDim = Math.min(sw, sh) * this.dpr
         gl.uniform1f(this.uHl['uRadius'], minDim * 1.5)
@@ -779,6 +881,13 @@ export class LiquidGlassRenderer {
         gl.uniform2f(this.uFg['uCanvasSize'], this.canvas.width, this.canvas.height)
         gl.uniform2f(this.uFg['uOffset'], sx * this.dpr, sy * this.dpr)
         gl.uniform2f(this.uFg['uSize'], sw * this.dpr, sh * this.dpr)
+        gl.uniform4f(
+          this.uFg['uCornerRadii'],
+          radii[0] * this.dpr,
+          radii[1] * this.dpr,
+          radii[2] * this.dpr,
+          radii[3] * this.dpr
+        )
         // Label fades slightly on press (matches the "swallow" feel).
         gl.uniform1f(this.uFg['uAlpha'], 1.0 - 0.15 * p)
         gl.drawArrays(gl.TRIANGLES, 0, 6)

@@ -24,12 +24,38 @@ import type { GlassButtonConfig } from '@/components/liquid-glass/renderer'
  * Wallpaper = wallpaper_light.webp (cover-fit, centered).
  * ------------------------------------------------------------------ */
 
-const DP = 3
+// Density factor: 1 dp = DP css px. We use 2 (a typical Android phone
+// density) instead of 3 — at DP=3 the buttons were too chunky on a
+// 420px-wide frame.
+const DP = 2
 
 // 1 dp = DP css px. The catalog uses 48.dp height and 16.dp padding.
 const BUTTON_HEIGHT = 48 * DP
 const BUTTON_HORIZONTAL_PADDING = 16 * DP
 const BUTTON_SPACING = 16 * DP
+const TEXT_FONT_SIZE_PX = 15 * DP // matches 15f.sp
+
+const FONT_FAMILY =
+  '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+
+// Hidden 2D canvas used to measure label widths so each button can be
+// content-sized (matching the original Row layout where width = content
+// + 16.dp horizontal padding on each side).
+let _measureCtx: CanvasRenderingContext2D | null = null
+function measureTextWidth(text: string, fontPx: number): number {
+  if (typeof document !== 'undefined') {
+    if (!_measureCtx) {
+      const c = document.createElement('canvas')
+      _measureCtx = c.getContext('2d')
+    }
+    if (_measureCtx) {
+      _measureCtx.font = `400 ${fontPx}px ${FONT_FAMILY}`
+      return _measureCtx.measureText(text).width
+    }
+  }
+  // Fallback: rough average char width
+  return text.length * fontPx * 0.55
+}
 
 // Default highlight (faithful to Highlight.Default + HighlightStyle.Default):
 //   width = 0.5.dp, blurRadius = width/2 = 0.25.dp
@@ -37,8 +63,8 @@ const BUTTON_SPACING = 16 * DP
 //   paint.blur(blurRadius.toPx()) = 0.25*DP
 //   color = White(1.0), angle = 45deg, falloff = 1.0, blendMode = Plus
 const HIGHLIGHT_WIDTH_DP = 0.5
-const HIGHLIGHT_STROKE_WIDTH_PX = 2 * Math.ceil(HIGHLIGHT_WIDTH_DP * DP) // 4 CSS px
-const HIGHLIGHT_BLUR_PX = (HIGHLIGHT_WIDTH_DP / 2) * DP                 // 0.75 CSS px
+const HIGHLIGHT_STROKE_WIDTH_PX = 2 * Math.ceil(HIGHLIGHT_WIDTH_DP * DP)
+const HIGHLIGHT_BLUR_PX = (HIGHLIGHT_WIDTH_DP / 2) * DP
 
 // Default outer shadow (faithful to Shadow.Default):
 //   radius = 24.dp, offset = (0, radius/6 = 4.dp), color = Black.copy(alpha=0.1), layerAlpha = 1.0
@@ -77,6 +103,45 @@ const GLASS_PARAMS = {
   contrast: 1,
 }
 
+interface ButtonSpec {
+  id: string
+  label: string
+  tintColor: [number, number, number, number]
+  surfaceColor: [number, number, number, number]
+  labelColor: [number, number, number, number]
+}
+
+const BUTTON_SPECS: ButtonSpec[] = [
+  {
+    id: 'transparent',
+    label: 'Transparent Liquid Button',
+    tintColor: [0, 0, 0, 0],
+    surfaceColor: [0, 0, 0, 0],
+    labelColor: [0, 0, 0, 1],
+  },
+  {
+    id: 'surface',
+    label: 'Surface Liquid Button',
+    tintColor: [0, 0, 0, 0],
+    surfaceColor: [1, 1, 1, 0.3],
+    labelColor: [0, 0, 0, 1],
+  },
+  {
+    id: 'tinted-blue',
+    label: 'Tinted Liquid Button',
+    tintColor: [0x00 / 255, 0x88 / 255, 0xff / 255, 1],
+    surfaceColor: [0, 0, 0, 0],
+    labelColor: [1, 1, 1, 1],
+  },
+  {
+    id: 'tinted-orange',
+    label: 'Tinted Liquid Button',
+    tintColor: [0xff / 255, 0x8d / 255, 0x28 / 255, 1],
+    surfaceColor: [0, 0, 0, 0],
+    labelColor: [1, 1, 1, 1],
+  },
+]
+
 export default function Home() {
   const [frameSize, setFrameSize] = React.useState({ w: 420, h: 900 })
   const frameRef = React.useRef<HTMLDivElement>(null)
@@ -92,57 +157,42 @@ export default function Home() {
     return () => ro.disconnect()
   }, [])
 
-  // Compute button rects: each button is content-width-capped at 320px,
-  // centered horizontally, stacked vertically with 16.dp spacing, the
-  // whole block centered vertically.
-  const buttonW = Math.min(320, frameSize.w - 32)
+  // Compute button widths (content-sized: labelWidth + 16dp padding each side).
+  // Each button is centered horizontally (matches Column's
+  // horizontalAlignment = Alignment.CenterHorizontally).
+  const buttonSpecsPx = React.useMemo(() => {
+    return BUTTON_SPECS.map((spec) => {
+      const textW = measureTextWidth(spec.label, TEXT_FONT_SIZE_PX)
+      const w = Math.ceil(textW + 2 * BUTTON_HORIZONTAL_PADDING)
+      return { ...spec, w }
+    })
+  }, [])
+
   const totalBlockH = 4 * BUTTON_HEIGHT + 3 * BUTTON_SPACING
   const startY = Math.max(40, (frameSize.h - totalBlockH) / 2)
-  const buttonX = (frameSize.w - buttonW) / 2
 
   const buttons = React.useMemo<GlassButtonConfig[]>(() => {
-    const base = (id: string, label: string, idx: number): GlassButtonConfig => ({
-      id,
+    return buttonSpecsPx.map((spec, idx) => ({
+      id: spec.id,
       rect: {
-        x: buttonX,
+        x: (frameSize.w - spec.w) / 2,
         y: startY + idx * (BUTTON_HEIGHT + BUTTON_SPACING),
-        w: buttonW,
+        w: spec.w,
         h: BUTTON_HEIGHT,
       },
       ...GLASS_PARAMS,
-      tintColor: [0, 0, 0, 0],
-      surfaceColor: [0, 0, 0, 0],
+      tintColor: spec.tintColor,
+      surfaceColor: spec.surfaceColor,
       // Faithful to LiquidButton.kt: drawBackdrop() uses default highlight
       // (Highlight.Default) and default shadow (Shadow.Default).
       highlight: { ...DEFAULT_HIGHLIGHT },
       outerShadow: { ...DEFAULT_SHADOW },
-      label,
-      labelColor: [0, 0, 0, 1],
+      label: spec.label,
+      labelColor: spec.labelColor,
       showChevron: false,
       isInteractive: true,
-    })
-
-    const buttons: GlassButtonConfig[] = [
-      base('transparent', 'Transparent Liquid Button', 0),
-      base('surface', 'Surface Liquid Button', 1),
-      base('tinted-blue', 'Tinted Liquid Button', 2),
-      base('tinted-orange', 'Tinted Liquid Button', 3),
-    ]
-
-    // Surface button: white 30% surface fill, black text.
-    buttons[1].surfaceColor = [1, 1, 1, 0.3]
-    buttons[1].labelColor = [0, 0, 0, 1]
-
-    // Blue tinted button: tint #0088FF, white text.
-    buttons[2].tintColor = [0x00 / 255, 0x88 / 255, 0xff / 255, 1]
-    buttons[2].labelColor = [1, 1, 1, 1]
-
-    // Orange tinted button: tint #FF8D28, white text.
-    buttons[3].tintColor = [0xff / 255, 0x8d / 255, 0x28 / 255, 1]
-    buttons[3].labelColor = [1, 1, 1, 1]
-
-    return buttons
-  }, [buttonX, buttonW, startY])
+    }))
+  }, [buttonSpecsPx, frameSize.w, startY])
 
   return (
     <div

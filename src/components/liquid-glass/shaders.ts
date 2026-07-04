@@ -503,7 +503,10 @@ uniform sampler2D uTexture;
 uniform vec2 uCanvasSize;
 uniform vec2 uOffset;   // foreground texture top-left in canvas px (top-left origin)
 uniform vec2 uSize;     // foreground texture size in canvas px
+uniform vec4 uCornerRadii;  // capsule radii (topLeft, topRight, bottomRight, bottomLeft) in px
 uniform float uAlpha;   // global alpha multiplier (used for press fade)
+
+${SDF_GLSL}
 
 void main() {
     // gl_FragCoord is bottom-left origin in WebGL framebuffer space.
@@ -515,6 +518,18 @@ void main() {
         localCoord.y < 0.0 || localCoord.y > uSize.y) {
         discard;
     }
+
+    // --- Capsule clip (matches outermost graphicsLayer { clip = true; shape = Capsule })
+    // The original Compose modifier chain wraps EVERYTHING (text included) in
+    // a graphicsLayer clipped to the capsule shape. Without this, text halos
+    // and shadow blur bleed into the AABB corners outside the capsule.
+    vec2 halfSize = uSize * 0.5;
+    vec2 centeredCoord = localCoord - halfSize;
+    float radius = radiusAt(localCoord, uCornerRadii);
+    float sd = sdRoundedRect(centeredCoord, halfSize, radius);
+    if (sd > 0.5) discard;
+    float clipAlpha = 1.0 - smoothstep(-0.5, 0.5, sd);
+
     // The texture is uploaded from a 2D canvas with UNPACK_FLIP_Y_WEBGL=false,
     // so texture row 0 (= v=0) is the TOP row of the source canvas. Combined
     // with the Y flip above, uv.y=0 corresponds to the top of the button rect
@@ -522,7 +537,7 @@ void main() {
     // appears at the middle of the button).
     vec2 uv = localCoord / uSize;
     vec4 c = texture2D(uTexture, uv);
-    gl_FragColor = vec4(c.rgb, c.a * uAlpha);
+    gl_FragColor = vec4(c.rgb, c.a * uAlpha * clipAlpha);
 }
 `
 
@@ -562,6 +577,7 @@ precision highp float;
 uniform vec2  uCanvasSize;
 uniform vec2  uOffset;       // element top-left in canvas px (top-left origin)
 uniform vec2  uSize;         // element size in canvas px
+uniform vec4  uCornerRadii;  // capsule radii (topLeft, topRight, bottomRight, bottomLeft) in px
 uniform vec4  uColor;        // rgba; usually white * (0.15 * progress)
 uniform float uRadius;       // glow radius in canvas px (= minDim * 1.5)
 uniform vec2  uPosition;     // finger position in element-local px (top-left origin)
@@ -571,16 +587,20 @@ ${SDF_GLSL}
 void main() {
     vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
     vec2 localCoord = screenCoord - uOffset;
-    // Scissor to the element rect.
-    if (localCoord.x < 0.0 || localCoord.x > uSize.x ||
-        localCoord.y < 0.0 || localCoord.y > uSize.y) {
-        discard;
-    }
+
+    // --- Capsule clip (matches outermost graphicsLayer { clip = true; shape = Capsule })
+    vec2 halfSize = uSize * 0.5;
+    vec2 centeredCoord = localCoord - halfSize;
+    float radius = radiusAt(localCoord, uCornerRadii);
+    float sd = sdRoundedRect(centeredCoord, halfSize, radius);
+    if (sd > 0.5) discard;
+    float clipAlpha = 1.0 - smoothstep(-0.5, 0.5, sd);
+
     // Faithful AGSL port: smoothstep(radius, radius*0.5, dist) means
     // intensity = 1 at dist <= radius*0.5, fading to 0 at dist >= radius.
     float dist = distance(localCoord, uPosition);
     float intensity = smoothstep(uRadius, uRadius * 0.5, dist);
-    gl_FragColor = vec4(uColor.rgb, 1.0) * intensity * uColor.a;
+    gl_FragColor = vec4(uColor.rgb, 1.0) * intensity * uColor.a * clipAlpha;
 }
 `
 
@@ -589,6 +609,11 @@ void main() {
  * first half of the InteractiveHighlight effect (drawRect white 8%
  * Plus blend in the Kotlin source). Plus blend is approximated by
  * additive blending in the renderer.
+ *
+ * IMPORTANT: the original Compose chain wraps everything (this drawRect
+ * included) in a graphicsLayer with clip=true and the capsule shape.
+ * Without SDF clipping here, the white fill would flood the AABB
+ * corners OUTSIDE the capsule. We discard sd > 0.5 with 1px AA.
  * ------------------------------------------------------------------ */
 export const TINT_FRAGMENT_SHADER = /* glsl */ `
 precision highp float;
@@ -596,18 +621,23 @@ precision highp float;
 uniform vec2  uCanvasSize;
 uniform vec2  uOffset;
 uniform vec2  uSize;
-uniform vec4  uColor;        // rgba
+uniform vec4  uCornerRadii;
+uniform vec4  uColor;
 
 ${SDF_GLSL}
 
 void main() {
     vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
     vec2 localCoord = screenCoord - uOffset;
-    if (localCoord.x < 0.0 || localCoord.x > uSize.x ||
-        localCoord.y < 0.0 || localCoord.y > uSize.y) {
-        discard;
-    }
-    gl_FragColor = uColor;
+    vec2 halfSize = uSize * 0.5;
+    vec2 centeredCoord = localCoord - halfSize;
+
+    float radius = radiusAt(localCoord, uCornerRadii);
+    float sd = sdRoundedRect(centeredCoord, halfSize, radius);
+    if (sd > 0.5) discard;
+    float clipAlpha = 1.0 - smoothstep(-0.5, 0.5, sd);
+
+    gl_FragColor = vec4(uColor.rgb, uColor.a * clipAlpha);
 }
 `
 
@@ -657,7 +687,10 @@ void main() {
     float sd = sdRoundedRect(centeredCoord, halfSize, radius);
 
     // Outside the shape — nothing to add (the stroke's outward half is clipped).
-    if (sd > 0.5) {
+    // Strict discard at sd > 0 (no outward bleed) — the original HighlightModifier
+    // calls canvas.clipOutline(outline) before drawing the stroke, which removes
+    // the outward half of the stroke entirely.
+    if (sd > 0.0) {
         discard;
     }
 
@@ -665,8 +698,8 @@ void main() {
     // fading to 0 over uHighlightBlur pixels further inward.
     float strokeInner = -uHighlightStrokeWidth * 0.5;
     float strokeMask = smoothstep(strokeInner - uHighlightBlur, strokeInner, sd);
-    // Edge AA: fade out as we approach the shape edge from inside.
-    float edgeAlpha = 1.0 - smoothstep(-0.5, 0.5, sd);
+    // Edge AA: 1px fade from sd=-1 to sd=0 (INSIDE the shape, no outward bleed).
+    float edgeAlpha = 1.0 - smoothstep(-1.0, 0.0, sd);
     strokeMask *= edgeAlpha;
 
     if (uHighlightMode < 0.5) {
