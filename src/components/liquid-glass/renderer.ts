@@ -915,12 +915,13 @@ export class LiquidGlassRenderer {
           radii[2] * this.dpr,
           radii[3] * this.dpr
         )
-        // Alpha is doubled from the original 0.15 to 0.30 to make the
-        // ripple highlight visibly pronounced on bright wallpapers. The
-        // original AGSL value (0.15) is barely perceptible after a single
-        // premultiplied addition; 0.30 brings it in line with the visual
-        // weight seen in the catalog app.
-        gl.uniform4f(this.uHl['uColor'], 1, 1, 1, 0.30 * p)
+        // Faithful to InteractiveHighlight.kt:
+        //   color = White(1.0).copy(alpha = 0.15f * progress)
+        // Plus blend (premultiplied): result.rgb = (1·0.15·p·intensity) + dst.rgb
+        // Now that the blend bug is fixed (alpha is only multiplied once
+        // inside the shader, with ONE/ONE additive blend), 0.15 is the
+        // exact original value — no doubling needed.
+        gl.uniform4f(this.uHl['uColor'], 1, 1, 1, 0.15 * p)
         const minDim = Math.min(sw, sh) * this.dpr
         gl.uniform1f(this.uHl['uRadius'], minDim * 1.5)
         // Position: convert dragX/dragY (original-rect-local CSS px) to
