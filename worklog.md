@@ -221,3 +221,39 @@ Stage Summary:
 - Slider knob saturation: 1.0 (was 1.5) — matches LiquidSlider.kt's effects block (blur+lens only, no colorControls).
 - Bottom tabs spacing: 32dp (was 16dp) — matches BottomTabsContent.kt's `Arrangement.spacedBy(32f.dp)`.
 - Build: ✓ Compiled successfully.
+
+---
+Task ID: dark-mode
+Agent: main
+Task: User: "使这个项目适配深色模式，使其和原版行为一致，包括各种颜色等等" — Adapt the project for dark mode, matching the original Android app's behavior including all colors.
+
+Work Log:
+- Audited every Kotlin destination file (HomeContent, ButtonsContent, ToggleContent, SliderContent, BottomTabsContent, DialogContent, MagnifierContent, ControlCenterContent, ProgressiveBlurContent, AdaptiveLuminanceGlassContent, GlassPlaygroundContent, LockScreenContent, ScrollContainerContent) + LiquidToggle/LiquidSlider/LiquidBottomTabs components for `isSystemInDarkTheme()` checks.
+- Confirmed the original Android app uses `wallpaper_light` for BOTH themes (no dark wallpaper resource exists). Only the content / accent / container / dim colors change with theme.
+- Added a `ThemePalette` interface + `LIGHT_PALETTE` + `DARK_PALETTE` constants + `getPalette(isLightTheme)` helper in catalog.tsx. Every per-destination color that branches on `isLightTheme` in the Kotlin source now has a paired light/dark entry in the palette.
+- Updated every builder signature (buildHome, buildButtons, buildToggle, buildSlider, buildBottomTabs, buildDialog, buildProgressiveBlur, buildControlCenter, buildMagnifier, buildGlassPlayground, buildAdaptiveLuminanceGlass, buildLockScreen, buildScrollContainer, and `makeBackButton`) to accept a `ThemePalette`. Each builder picks the correct palette colors.
+- Updated `buildCatalog` to accept `isLightTheme: boolean = true` as its last parameter and forward `getPalette(isLightTheme)` to each builder.
+- page.tsx: added `useSystemTheme()` hook that reads `prefers-color-scheme: dark` and listens to changes. Added a manual sun/moon theme toggle button (DOM overlay, top-right corner) that overrides the system preference. Removed the `backgroundColor = [0,0,0]` override for Home — Home now uses the wallpaper in both themes, matching HomeContent.kt's behavior. Text color flips Black (light) ↔ White (dark), with a halo for legibility.
+- Per-destination dark-mode color mappings (faithful to the Kotlin source):
+  - Home: contentColor Black↔White, subtitle #0088FF↔#0091FF
+  - Toggle: accent #34C759↔#30D158, track #787878@0.2↔#787880@0.36, card white↔#121212
+  - Slider: accent #0088FF↔#0091FF, track #787878@0.2↔#787880@0.36, card white↔#121212
+  - BottomTabs: contentColor Black↔White, accent #0088FF↔#0091FF, container #FAFAFA@0.4↔#121212@0.4
+  - Dialog: contentColor Black↔White, accent #0088FF↔#0091FF, container #FAFAFA@0.6↔#121212@0.4, dim #29293A@0.23↔#121212@0.56, brightness 0.2↔0, blur 16dp↔8dp
+  - Magnifier: contentColor Black↔White, accent #0088FF↔#0091FF, card #FFFFFF@0.9↔#121212@0.9
+  - ControlCenter: accent #0088FF↔#0091FF (other colors are theme-invariant in Kotlin)
+  - ProgressiveBlur: contentColor Black↔White, tint White↔#808080
+  - AdaptiveLuminanceGlass: initial contentColor Black↔White (actual behavior is adaptive)
+  - GlassPlayground: slider labels use LocalContentColor (Black↔White); other colors hardcoded
+  - LockScreen, ScrollContainer: no theme check in Kotlin — only the back button color flips
+- Back button arrow color: Black (light) ↔ White (dark) via `palette.backIconColor`.
+- Verified: `npx next build` compiles successfully; dev server returns HTTP 200 with no runtime errors.
+
+Stage Summary:
+- Project now adapts to dark mode with full fidelity to the original Android app.
+- Theme detection: system preference via `prefers-color-scheme: dark` media query, with a manual sun/moon toggle button in the top-right corner (DOM overlay, always visible) to override.
+- All per-destination colors match the Kotlin source's `isLightTheme` branching exactly.
+- Home page now uses the wallpaper in both themes (matching the original BackdropDemoScaffold) — the previous "black background for Home" override was removed. Text legibility is maintained via a halo (dark for light text, light for dark text).
+- The toggle button in dark mode: track color is #787880@0.36 (not #787878@0.2), accent green is #30D158 (not #34C759), and the second toggle's card background is #121212 (not white) — matching LiquidToggle.kt + ToggleContent.kt.
+- The dialog in dark mode: dimmer scrim (#121212@0.56 vs #29293A@0.23), darker container (#121212@0.4 vs #FAFAFA@0.6), less blur (8dp vs 16dp), no brightness boost (0 vs 0.2) — matching DialogContent.kt.
+- Build: ✓ Compiled successfully in 10.7s; dev server ✓ HTTP 200.

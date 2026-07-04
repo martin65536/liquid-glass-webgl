@@ -67,16 +67,162 @@ const DEFAULT_SHADOW = {
   color: [0, 0, 0] as [number, number, number],
 }
 
-// Toggle / slider colors (faithful to LiquidToggle.kt + LiquidSlider.kt, light theme).
-const TOGGLE_ACCENT: [number, number, number] = [0x34 / 255, 0xc7 / 255, 0x59 / 255]
-const TOGGLE_TRACK: [number, number, number, number] = [0x78 / 255, 0x78 / 255, 0x78 / 255, 0.2]
-const SLIDER_ACCENT: [number, number, number] = [0x00 / 255, 0x88 / 255, 0xff / 255]
-const SLIDER_TRACK: [number, number, number, number] = [0x78 / 255, 0x78 / 255, 0x78 / 255, 0.2]
+/* ------------------------------------------------------------------ *
+ * Theme-aware color palettes — faithful to the Kotlin source's
+ * `isLightTheme = !isSystemInDarkTheme()` pattern.
+ *
+ * Each destination's Kotlin file declares its own per-theme colors.
+ * We mirror them here as a single palette object so each builder
+ * picks the right colors via `palette = getPalette(isLightTheme)`.
+ * ------------------------------------------------------------------ */
+
+export interface ThemePalette {
+  // HomeContent.kt
+  homeContentColor: [number, number, number, number]
+  homeSubtitleColor: [number, number, number, number]
+  homeTextHalo: 'light' | 'dark' | 'none'
+
+  // ToggleContent.kt + LiquidToggle.kt
+  toggleAccent: [number, number, number]
+  toggleTrackOff: [number, number, number, number]
+  toggleCardBg: [number, number, number, number]
+
+  // SliderContent.kt + LiquidSlider.kt
+  sliderAccent: [number, number, number]
+  sliderTrackOff: [number, number, number, number]
+  sliderCardBg: [number, number, number, number]
+
+  // BottomTabsContent.kt + LiquidBottomTabs.kt
+  tabsContentColor: [number, number, number, number]
+  tabsAccent: [number, number, number]
+  tabsContainer: [number, number, number, number]
+  tabsTextHalo: 'light' | 'dark' | 'none'
+
+  // DialogContent.kt
+  dialogContentColor: [number, number, number, number]
+  dialogAccent: [number, number, number, number]
+  dialogContainer: [number, number, number, number]
+  dialogDim: [number, number, number, number]
+  dialogBlurRadius: number
+  dialogBrightness: number
+
+  // MagnifierContent.kt
+  magnifierContentColor: [number, number, number, number]
+  magnifierAccent: [number, number, number, number]
+  magnifierCardBg: [number, number, number, number]
+
+  // ControlCenterContent.kt
+  controlCenterAccent: [number, number, number, number]
+
+  // ProgressiveBlurContent.kt
+  progressiveContentColor: [number, number, number, number]
+  progressiveTint: [number, number, number, number]
+  progressiveTextHalo: 'light' | 'dark' | 'none'
+
+  // AdaptiveLuminanceGlassContent.kt (initial contentColor; the actual
+  // behavior is adaptive but we need a starting color)
+  adaptiveContentColor: [number, number, number, number]
+
+  // Back button icon color — black on light, white on dark.
+  backIconColor: [number, number, number, number]
+}
+
+const LIGHT_PALETTE: ThemePalette = {
+  homeContentColor: [0, 0, 0, 1],
+  homeSubtitleColor: [0x00 / 255, 0x88 / 255, 0xff / 255, 1],
+  homeTextHalo: 'dark',
+
+  toggleAccent: [0x34 / 255, 0xc7 / 255, 0x59 / 255],
+  toggleTrackOff: [0x78 / 255, 0x78 / 255, 0x78 / 255, 0.2],
+  toggleCardBg: [1, 1, 1, 1],
+
+  sliderAccent: [0x00 / 255, 0x88 / 255, 0xff / 255],
+  sliderTrackOff: [0x78 / 255, 0x78 / 255, 0x78 / 255, 0.2],
+  sliderCardBg: [1, 1, 1, 1],
+
+  tabsContentColor: [0, 0, 0, 1],
+  tabsAccent: [0x00 / 255, 0x88 / 255, 0xff / 255],
+  tabsContainer: [0xfa / 255, 0xfa / 255, 0xfa / 255, 0.4],
+  tabsTextHalo: 'dark',
+
+  dialogContentColor: [0, 0, 0, 1],
+  dialogAccent: [0x00 / 255, 0x88 / 255, 0xff / 255, 1],
+  dialogContainer: [0xfa / 255, 0xfa / 255, 0xfa / 255, 0.6],
+  dialogDim: [0x29 / 255, 0x29 / 255, 0x3a / 255, 0.23],
+  dialogBlurRadius: 16 * DP,
+  dialogBrightness: 0.2,
+
+  magnifierContentColor: [0, 0, 0, 1],
+  magnifierAccent: [0x00 / 255, 0x88 / 255, 0xff / 255, 1],
+  magnifierCardBg: [1, 1, 1, 0.9],
+
+  controlCenterAccent: [0x00 / 255, 0x88 / 255, 0xff / 255, 1],
+
+  progressiveContentColor: [0, 0, 0, 1],
+  progressiveTint: [1, 1, 1, 1],
+  progressiveTextHalo: 'dark',
+
+  adaptiveContentColor: [0, 0, 0, 1],
+
+  backIconColor: [0, 0, 0, 1],
+}
+
+const DARK_PALETTE: ThemePalette = {
+  homeContentColor: [1, 1, 1, 1],
+  homeSubtitleColor: [0x00 / 255, 0x91 / 255, 0xff / 255, 1],
+  homeTextHalo: 'light',
+
+  toggleAccent: [0x30 / 255, 0xd1 / 255, 0x58 / 255],
+  toggleTrackOff: [0x78 / 255, 0x78 / 255, 0x80 / 255, 0.36],
+  toggleCardBg: [0x12 / 255, 0x12 / 255, 0x12 / 255, 1],
+
+  sliderAccent: [0x00 / 255, 0x91 / 255, 0xff / 255],
+  sliderTrackOff: [0x78 / 255, 0x78 / 255, 0x80 / 255, 0.36],
+  sliderCardBg: [0x12 / 255, 0x12 / 255, 0x12 / 255, 1],
+
+  tabsContentColor: [1, 1, 1, 1],
+  tabsAccent: [0x00 / 255, 0x91 / 255, 0xff / 255],
+  tabsContainer: [0x12 / 255, 0x12 / 255, 0x12 / 255, 0.4],
+  tabsTextHalo: 'light',
+
+  dialogContentColor: [1, 1, 1, 1],
+  dialogAccent: [0x00 / 255, 0x91 / 255, 0xff / 255, 1],
+  dialogContainer: [0x12 / 255, 0x12 / 255, 0x12 / 255, 0.4],
+  dialogDim: [0x12 / 255, 0x12 / 255, 0x12 / 255, 0.56],
+  dialogBlurRadius: 8 * DP,
+  dialogBrightness: 0,
+
+  magnifierContentColor: [1, 1, 1, 1],
+  magnifierAccent: [0x00 / 255, 0x91 / 255, 0xff / 255, 1],
+  magnifierCardBg: [0x12 / 255, 0x12 / 255, 0x12 / 255, 0.9],
+
+  controlCenterAccent: [0x00 / 255, 0x91 / 255, 0xff / 255, 1],
+
+  progressiveContentColor: [1, 1, 1, 1],
+  progressiveTint: [0x80 / 255, 0x80 / 255, 0x80 / 255, 1],
+  progressiveTextHalo: 'light',
+
+  adaptiveContentColor: [1, 1, 1, 1],
+
+  backIconColor: [1, 1, 1, 1],
+}
+
+function getPalette(isLightTheme: boolean): ThemePalette {
+  return isLightTheme ? LIGHT_PALETTE : DARK_PALETTE
+}
+
+// Legacy aliases — kept for backward compat with any code that still
+// references the single-theme constants. They equal the LIGHT palette
+// values. New code should use getPalette(isLightTheme) instead.
+const TOGGLE_ACCENT: [number, number, number] = LIGHT_PALETTE.toggleAccent
+const TOGGLE_TRACK: [number, number, number, number] = LIGHT_PALETTE.toggleTrackOff
+const SLIDER_ACCENT: [number, number, number] = LIGHT_PALETTE.sliderAccent
+const SLIDER_TRACK: [number, number, number, number] = LIGHT_PALETTE.sliderTrackOff
 
 // Dialog colors (faithful to DialogContent.kt, light theme).
-const DIALOG_CONTAINER: [number, number, number, number] = [0xfa / 255, 0xfa / 255, 0xfa / 255, 0.6]
-const DIALOG_ACCENT: [number, number, number, number] = [0x00 / 255, 0x88 / 255, 0xff / 255, 1]
-const DIALOG_DIM: [number, number, number, number] = [0x29 / 255, 0x29 / 255, 0x3a / 255, 0.23]
+const DIALOG_CONTAINER: [number, number, number, number] = LIGHT_PALETTE.dialogContainer
+const DIALOG_ACCENT: [number, number, number, number] = LIGHT_PALETTE.dialogAccent
+const DIALOG_DIM: [number, number, number, number] = LIGHT_PALETTE.dialogDim
 
 const LOREM_IPSUM =
   'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.'
@@ -364,6 +510,7 @@ const ARROW_BACK_ICON_PATH =
 
 function makeBackButton(
   onBack: () => void,
+  palette: ThemePalette,
   scroll = false
 ): { element: GlassElementConfig; interaction: ElementInteraction } {
   // Circular button: 56dp diameter, centered arrow_back icon (32dp).
@@ -371,6 +518,8 @@ function makeBackButton(
   // on the glass back button. We pass `highlight: null` so the rim
   // highlight pass is skipped entirely.
   // Per user request: "把退出按钮改大一点" — increased from 40dp to 56dp.
+  // Arrow color flips with theme (black on light, white on dark) to
+  // match the original catalog's `contentColor` behavior.
   const size = 56 * DP
   const iconSize = 32 * DP
   const element: GlassElementConfig = {
@@ -384,14 +533,14 @@ function makeBackButton(
     highlight: null, // no edge highlight on the back button
     outerShadow: { ...DEFAULT_SHADOW, radius: 12 * DP, alpha: 0.08 },
     label: '', // no text label — icon replaces it
-    labelColor: [0, 0, 0, 1],
+    labelColor: palette.backIconColor,
     showChevron: false,
     isInteractive: true,
     scroll,
     icon: {
       path: ARROW_BACK_ICON_PATH,
       size: iconSize,
-      color: [0, 0, 0, 1],
+      color: palette.backIconColor,
     },
   }
   return {
@@ -433,28 +582,44 @@ function applyVerticalCenter(
  *   - Title "Backdrop Catalog" at top padding 40dp, 28sp Medium
  *   - 16dp bottom padding for the title
  *   - Each section:
- *       * Subtitle (15sp Medium, blue #0088FF) with padding (16,24,16,8)
+ *       * Subtitle (15sp Medium, blue #0088FF light / #0091FF dark) with
+ *         padding (16,24,16,8)
  *       * List items (17sp Regular) — 48dp tall for proper touch target,
  *         text vertically centered, left-padded 16dp
  *   - 16dp gap between sections (verticalArrangement.spacedBy(16))
  *
- * The user requested a black background for the home page (otherwise the
- * black text is unreadable over a busy wallpaper). The page.tsx layer
- * passes backgroundColor=[0,0,0] for Home, so we use white text here.
+ * Theme behavior (faithful to HomeContent.kt):
+ *   - Background: always the wallpaper (no override). The original
+ *     BackdropDemoScaffold renders the wallpaper for both themes.
+ *   - Text color: Black (light) ↔ White (dark), driven by
+ *     `val contentColor = if (isLightTheme) Color.Black else Color.White`.
+ *   - A halo is added behind each text element to maintain legibility
+ *     regardless of which part of the wallpaper sits behind it.
  * ------------------------------------------------------------------ */
-function buildHome(W: number, onNavigate: (d: CatalogDestination) => void): CatalogResult {
+function buildHome(W: number, onNavigate: (d: CatalogDestination) => void, palette: ThemePalette): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
-  // Title — 28sp Medium on black background, white text.
-  // Padding (16, 40, 16, 16) matches the original.
+  // Title — 28sp Medium. Faithful to HomeContent.kt:
+  //   val contentColor = if (isLightTheme) Color.Black else Color.White
+  // So text color flips with theme; the wallpaper remains in both modes.
+  // We add a halo (dark for light text, light for dark text) so the
+  // text remains legible regardless of which part of the wallpaper
+  // ends up behind it.
   let cursorY = 40
   elements.push(
     makeText(
       'home-title',
       { x: 16, y: cursorY, w: W - 32, h: 44 },
       'Backdrop Catalog',
-      { color: [1, 1, 1, 1], fontSizePx: TITLE_FONT_SIZE_PX, fontWeight: 500, align: 'left', paddingPx: 16, halo: 'dark' }
+      {
+        color: palette.homeContentColor,
+        fontSizePx: TITLE_FONT_SIZE_PX,
+        fontWeight: 500,
+        align: 'left',
+        paddingPx: 16,
+        halo: palette.homeTextHalo,
+      }
     )
   )
   // 16dp bottom padding for title + 16dp top padding before first subtitle
@@ -465,6 +630,8 @@ function buildHome(W: number, onNavigate: (d: CatalogDestination) => void): Cata
     const section = HOME_SECTIONS[sIdx]
     // Subtitle padding (16, 24, 16, 8) → top 24dp, bottom 8dp.
     // We render the text in a 32dp-tall row (15sp text + vertical centering).
+    // Subtitle color is always blue (#0088FF in light, #0091FF in dark)
+    // — matches HomeContent.kt's Subtitle composable using the palette.
     if (sIdx > 0) cursorY += 16 // verticalArrangement.spacedBy(16)
     cursorY += 24 // top padding of subtitle
     elements.push(
@@ -473,18 +640,19 @@ function buildHome(W: number, onNavigate: (d: CatalogDestination) => void): Cata
         { x: 16, y: cursorY, w: W - 32, h: 24 },
         section.title,
         {
-          color: [0x40 / 255, 0xae / 255, 0xff / 255, 1],
+          color: palette.homeSubtitleColor,
           fontSizePx: SUBTITLE_FONT_SIZE_PX,
           fontWeight: 500,
           align: 'left',
           paddingPx: 16,
-          halo: 'dark',
+          halo: palette.homeTextHalo,
         }
       )
     )
     cursorY += 24 + 8 // text height + bottom padding
     // List items — 48dp tall touch target, 17sp text, left-padded 16dp.
-    // White on black.
+    // Faithful to HomeContent.kt's ListItem composable:
+    //   val contentColor = if (isLightTheme) Color.Black else Color.White
     for (const item of section.items) {
       const id = `item-${item.dest}`
       const h = 48
@@ -493,12 +661,12 @@ function buildHome(W: number, onNavigate: (d: CatalogDestination) => void): Cata
         { x: 0, y: cursorY, w: W, h },
         item.label,
         {
-          color: [1, 1, 1, 1],
+          color: palette.homeContentColor,
           fontSizePx: 17,
           fontWeight: 400,
           align: 'left',
           paddingPx: 16,
-          halo: 'dark',
+          halo: palette.homeTextHalo,
         }
       )
       itemEl.isInteractive = true
@@ -523,14 +691,17 @@ function buildHome(W: number, onNavigate: (d: CatalogDestination) => void): Cata
  *   3. Tinted blue (#0088FF)
  *   4. Tinted orange (#FF8D28)
  * ------------------------------------------------------------------ */
-function buildButtons(W: number, H: number, onBack: () => void): CatalogResult {
+function buildButtons(W: number, H: number, onBack: () => void, palette: ThemePalette): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
-  const back = makeBackButton(onBack)
+  const back = makeBackButton(onBack, palette)
   elements.push(back.element)
   interactions[back.element.id] = back.interaction
 
+  // ButtonsContent.kt does NOT use isLightTheme — all button colors are
+  // hardcoded (Black text for transparent + surface, White text for tinted).
+  // So we keep the same colors in both themes.
   const specs = [
     {
       id: 'btn-transparent',
@@ -637,14 +808,24 @@ function buildToggle(
   onBack: () => void,
   state: CatalogState,
   setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void,
-  rendererRef?: React.MutableRefObject<LiquidGlassRenderer | null>
+  rendererRef?: React.MutableRefObject<LiquidGlassRenderer | null>,
+  palette: ThemePalette = LIGHT_PALETTE
 ): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
-  const back = makeBackButton(onBack)
+  const back = makeBackButton(onBack, palette)
   elements.push(back.element)
   interactions[back.element.id] = back.interaction
+
+  // Theme-aware toggle colors (faithful to LiquidToggle.kt):
+  //   accentColor: Color(0xFF34C759) (light) ↔ Color(0xFF30D158) (dark)
+  //   trackColor:   Color(0xFF787878).copy(0.2f) (light) ↔ Color(0xFF787880).copy(0.36f) (dark)
+  //   cardBg:       Color(0xFFFFFFFF) (light) ↔ Color(0xFF121212) (dark)
+  //   [from ToggleContent.kt's `backgroundColor`]
+  const TOGGLE_ACCENT_T = palette.toggleAccent
+  const TOGGLE_TRACK_T = palette.toggleTrackOff
+  const CARD_BG_T = palette.toggleCardBg
 
   // --- Toggle dimensions (faithful to LiquidToggle.kt) ---
   const TOGGLE_W = 64 * DP       // track width
@@ -711,13 +892,13 @@ function buildToggle(
   const t1TrackEl = makePlainRect(
     'toggle1-track',
     { x: t1TrackX, y: t1TrackY, w: TOGGLE_W, h: TOGGLE_H },
-    TOGGLE_TRACK,
+    TOGGLE_TRACK_T,
     TOGGLE_H / 2 // Capsule = height/2
   )
   t1TrackEl.isToggleTrack = {
     groupId: 'toggle1',
-    offColor: TOGGLE_TRACK,
-    onColor: [...TOGGLE_ACCENT, 1] as [number, number, number, number],
+    offColor: TOGGLE_TRACK_T,
+    onColor: [...TOGGLE_ACCENT_T, 1] as [number, number, number, number],
   }
   elements.push(t1TrackEl)
 
@@ -757,7 +938,9 @@ function buildToggle(
   const cardW = VISIBLE_CARD_W
   const cardH = VISIBLE_CARD_H
   const cardRadius = 32 * DP
-  const cardBg: [number, number, number, number] = [1, 1, 1, 1] // white
+  // Card background color flips with theme (white ↔ #121212), matching
+  // ToggleContent.kt's `backgroundColor`.
+  const cardBg: [number, number, number, number] = CARD_BG_T
   elements.push(makePlainRect('toggle-card', { x: cardX, y: cardY, w: cardW, h: cardH }, cardBg, cardRadius))
 
   // Toggle 2 inside the card:
@@ -777,13 +960,13 @@ function buildToggle(
   const t2TrackEl = makePlainRect(
     'toggle2-track',
     { x: t2TrackX, y: t2TrackY, w: TOGGLE_W, h: TOGGLE_H },
-    TOGGLE_TRACK,
+    TOGGLE_TRACK_T,
     TOGGLE_H / 2
   )
   t2TrackEl.isToggleTrack = {
     groupId: 'toggle2',
-    offColor: TOGGLE_TRACK,
-    onColor: [...TOGGLE_ACCENT, 1] as [number, number, number, number],
+    offColor: TOGGLE_TRACK_T,
+    onColor: [...TOGGLE_ACCENT_T, 1] as [number, number, number, number],
   }
   elements.push(t2TrackEl)
   const t2KnobEl = makeGlassShape(
@@ -885,14 +1068,24 @@ function buildSlider(
   onBack: () => void,
   state: CatalogState,
   setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void,
-  rendererRef?: React.MutableRefObject<LiquidGlassRenderer | null>
+  rendererRef?: React.MutableRefObject<LiquidGlassRenderer | null>,
+  palette: ThemePalette = LIGHT_PALETTE
 ): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
-  const back = makeBackButton(onBack)
+  const back = makeBackButton(onBack, palette)
   elements.push(back.element)
   interactions[back.element.id] = back.interaction
+
+  // Theme-aware slider colors (faithful to LiquidSlider.kt):
+  //   accentColor: Color(0xFF0088FF) (light) ↔ Color(0xFF0091FF) (dark)
+  //   trackColor:   Color(0xFF787878).copy(0.2f) (light) ↔ Color(0xFF787880).copy(0.36f) (dark)
+  //   cardBg:       Color(0xFFFFFFFF) (light) ↔ Color(0xFF121212) (dark)
+  //   [from SliderContent.kt's `backgroundColor`]
+  const SLIDER_ACCENT_T = palette.sliderAccent
+  const SLIDER_TRACK_T = palette.sliderTrackOff
+  const CARD_BG_T = palette.sliderCardBg
 
   const SLIDER_PAD = 32 * DP
   const SLIDER_TRACK_H = 6 * DP
@@ -922,7 +1115,7 @@ function buildSlider(
   const s1KnobY = s1TrackY + (SLIDER_TRACK_H - SLIDER_KNOB_H) / 2
   // Track (background, off color)
   elements.push(
-    makePlainRect('slider1-track', { x: s1TrackX, y: s1TrackY, w: s1TrackW, h: SLIDER_TRACK_H }, SLIDER_TRACK, SLIDER_TRACK_H / 2)
+    makePlainRect('slider1-track', { x: s1TrackX, y: s1TrackY, w: s1TrackW, h: SLIDER_TRACK_H }, SLIDER_TRACK_T, SLIDER_TRACK_H / 2)
   )
   // Fill (accent color) — width lerps with the state fraction.
   // The fill is drawn from trackX to trackX + trackW * fraction. At the
@@ -931,7 +1124,7 @@ function buildSlider(
   const s1Fraction = state.sliderValue / 100
   const s1FillW = s1TrackW * s1Fraction
   elements.push(
-    makePlainRect('slider1-fill', { x: s1TrackX, y: s1TrackY, w: Math.max(SLIDER_TRACK_H, s1FillW), h: SLIDER_TRACK_H }, [...SLIDER_ACCENT, 1], SLIDER_TRACK_H / 2)
+    makePlainRect('slider1-fill', { x: s1TrackX, y: s1TrackY, w: Math.max(SLIDER_TRACK_H, s1FillW), h: SLIDER_TRACK_H }, [...SLIDER_ACCENT_T, 1], SLIDER_TRACK_H / 2)
   )
   // Knob — solid frosted white at rest, glass when pressed (renderer handles modulation).
   const s1KnobEl = makeGlassShape(
@@ -975,7 +1168,7 @@ function buildSlider(
   const cardH = VISIBLE_CARD_H
   const cardY = s1TrackY + SLIDER_KNOB_H + 16 + 24 // slider1 bottom + Column spacing + outer pad
   const cardRadius = 32 * DP
-  elements.push(makePlainRect('slider-card', { x: cardX, y: cardY, w: cardW, h: cardH }, [1, 1, 1, 1], cardRadius))
+  elements.push(makePlainRect('slider-card', { x: cardX, y: cardY, w: cardW, h: cardH }, CARD_BG_T, cardRadius))
 
   // Slider 2 inside the card:
   //   Box inner padding 24 + LiquidSlider padding(horizontal=32)
@@ -990,10 +1183,10 @@ function buildSlider(
   const s2KnobY = s2TrackY + (SLIDER_TRACK_H - SLIDER_KNOB_H) / 2
   const s2FillW = s2TrackW * s1Fraction
   elements.push(
-    makePlainRect('slider2-track', { x: s2TrackX, y: s2TrackY, w: s2TrackW, h: SLIDER_TRACK_H }, SLIDER_TRACK, SLIDER_TRACK_H / 2)
+    makePlainRect('slider2-track', { x: s2TrackX, y: s2TrackY, w: s2TrackW, h: SLIDER_TRACK_H }, SLIDER_TRACK_T, SLIDER_TRACK_H / 2)
   )
   elements.push(
-    makePlainRect('slider2-fill', { x: s2TrackX, y: s2TrackY, w: Math.max(SLIDER_TRACK_H, s2FillW), h: SLIDER_TRACK_H }, [...SLIDER_ACCENT, 1], SLIDER_TRACK_H / 2)
+    makePlainRect('slider2-fill', { x: s2TrackX, y: s2TrackY, w: Math.max(SLIDER_TRACK_H, s2FillW), h: SLIDER_TRACK_H }, [...SLIDER_ACCENT_T, 1], SLIDER_TRACK_H / 2)
   )
   const s2KnobEl = makeGlassShape(
     'slider2-knob',
@@ -1068,17 +1261,22 @@ function buildSlider(
  *   2. 4-tab bar
  * Each tab shows a flight icon + "Tab N" label.
  * ------------------------------------------------------------------ */
-function buildBottomTabs(W: number, H: number, onBack: () => void, state: CatalogState, setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void): CatalogResult {
+function buildBottomTabs(W: number, H: number, onBack: () => void, state: CatalogState, setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void, palette: ThemePalette = LIGHT_PALETTE): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
-  const back = makeBackButton(onBack)
+  const back = makeBackButton(onBack, palette)
   elements.push(back.element)
   interactions[back.element.id] = back.interaction
 
+  // Theme-aware tab colors (faithful to BottomTabsContent.kt + LiquidBottomTabs.kt):
+  //   contentColor:  Color.Black (light) ↔ Color.White (dark)
+  //   accentColor:   Color(0xFF0088FF) (light) ↔ Color(0xFF0091FF) (dark)
+  //   containerColor: Color(0xFFFAFAFA).copy(0.4f) (light) ↔ Color(0xFF121212).copy(0.4f) (dark)
   const TABS_PAD = 36 * DP
   const TABS_W = W - 2 * TABS_PAD
-  const iconColor: [number, number, number, number] = [0, 0, 0, 1]
+  const iconColor: [number, number, number, number] = palette.tabsContentColor
+  const containerColor = palette.tabsContainer
 
   function buildTabBar(idPrefix: string, tabsCount: number, selectedTab: number, onSelect: (i: number) => void, y: number) {
     const TAB_W = TABS_W / tabsCount
@@ -1095,7 +1293,7 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
           refractionAmount: -24 * DP,
           blurRadius: 8 * DP,
           saturation: 1.5,
-          surfaceColor: [0xfa / 255, 0xfa / 255, 0xfa / 255, 0.4],
+          surfaceColor: containerColor,
           highlight: { ...DEFAULT_HIGHLIGHT },
           outerShadow: null,
         }
@@ -1131,12 +1329,12 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
           { x: tabsX + TAB_W * i, y, w: TAB_W, h: TABS_H },
           `Tab ${i + 1}`,
           {
-            color: [0, 0, 0, 1],
+            color: palette.tabsContentColor,
             fontSizePx: 12,
             fontWeight: 400,
             align: 'center',
             paddingPx: 0,
-            halo: 'dark',
+            halo: palette.tabsTextHalo,
             icon: { path: FLIGHT_ICON_PATH, size: 24, color: iconColor },
           }
         )
@@ -1160,20 +1358,26 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
  * Layout: full-screen dim scrim + centered glass card (48dp radius)
  * with title + lorem body + Cancel/Okay buttons.
  * ------------------------------------------------------------------ */
-function buildDialog(W: number, H: number, onBack: () => void): CatalogResult {
+function buildDialog(W: number, H: number, onBack: () => void, palette: ThemePalette = LIGHT_PALETTE): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
-  const back = makeBackButton(onBack, true) // scroll-anchored so it stays
+  const back = makeBackButton(onBack, palette, true) // scroll-anchored so it stays
   elements.push(back.element)
   interactions[back.element.id] = back.interaction
 
   // Dim scrim covers the whole content area.
+  // Faithful to DialogContent.kt:
+  //   dimColor = if (isLightTheme) Color(0xFF29293A).copy(0.23f) else Color(0xFF121212).copy(0.56f)
   const scrimY = 80
   const scrimH = Math.max(H - scrimY - 40, 400)
-  elements.push(makePlainRect('dialog-scrim', { x: 0, y: scrimY, w: W, h: scrimH }, DIALOG_DIM, 0))
+  elements.push(makePlainRect('dialog-scrim', { x: 0, y: scrimY, w: W, h: scrimH }, palette.dialogDim, 0))
 
   // Dialog card.
+  // Faithful to DialogContent.kt:
+  //   containerColor = if (isLightTheme) Color(0xFFFAFAFA).copy(0.6f) else Color(0xFF121212).copy(0.4f)
+  //   blur(if (isLightTheme) 16f.dp else 8f.dp)
+  //   colorControls(brightness = if (isLightTheme) 0.2f else 0f, saturation = 1.5f)
   const DIALOG_PAD = 40 * DP
   const DIALOG_W = W - 2 * DIALOG_PAD
   const DIALOG_H = 320 * DP
@@ -1187,34 +1391,53 @@ function buildDialog(W: number, H: number, onBack: () => void): CatalogResult {
         cornerRadius: 48 * DP,
         refractionHeight: 24 * DP,
         refractionAmount: -48 * DP,
-        blurRadius: 16 * DP,
+        blurRadius: palette.dialogBlurRadius,
         saturation: 1.5,
-        surfaceColor: DIALOG_CONTAINER,
+        brightness: palette.dialogBrightness,
+        surfaceColor: palette.dialogContainer,
         highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, color: [1, 1, 1], alpha: 0.38, widthDp: 0.5 },
         outerShadow: null,
         depthEffect: true,
       }
     )
   )
-  // Title
+  // Title — contentColor flips with theme.
   elements.push(
     makeText(
       'dialog-title',
       { x: DIALOG_X + 28, y: DIALOG_Y + 24, w: DIALOG_W - 56, h: 36 },
       'Dialog Title',
-      { color: [0, 0, 0, 1], fontSizePx: 24, fontWeight: 500, align: 'left', paddingPx: 0 }
+      { color: palette.dialogContentColor, fontSizePx: 24, fontWeight: 500, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
     )
   )
-  // Body
+  // Body — contentColor.copy(0.68f). In dark mode the original uses
+  // BlendMode.Plus (lightens); we approximate with the same color swap.
+  // The halo maintains legibility on the dialog card background.
   elements.push(
     makeText(
       'dialog-body',
       { x: DIALOG_X + 24, y: DIALOG_Y + 72, w: DIALOG_W - 48, h: 120 },
       LOREM_IPSUM,
-      { color: [0, 0, 0, 0.68], fontSizePx: 15, fontWeight: 400, align: 'left', wrap: true, paddingPx: 0 }
+      {
+        color: [
+          palette.dialogContentColor[0],
+          palette.dialogContentColor[1],
+          palette.dialogContentColor[2],
+          0.68,
+        ],
+        fontSizePx: 15,
+        fontWeight: 400,
+        align: 'left',
+        wrap: true,
+        paddingPx: 0,
+        halo: palette.homeTextHalo,
+      }
     )
   )
   // Buttons (Cancel + Okay)
+  // Cancel: containerColor.copy(0.2f) — 0.2 alpha on top of the dialog
+  // container color, theme-aware.
+  // Okay: accentColor (#0088FF light / #0091FF dark).
   const DIALOG_BTN_H = 48
   const DIALOG_BTN_W = (DIALOG_W - 24 - 16 - 24 - 16) / 2
   const DIALOG_BTN_Y = DIALOG_Y + DIALOG_H - 24 - DIALOG_BTN_H
@@ -1222,7 +1445,7 @@ function buildDialog(W: number, H: number, onBack: () => void): CatalogResult {
     makePlainRect(
       'dialog-cancel',
       { x: DIALOG_X + 24, y: DIALOG_BTN_Y, w: DIALOG_BTN_W, h: DIALOG_BTN_H },
-      [DIALOG_CONTAINER[0], DIALOG_CONTAINER[1], DIALOG_CONTAINER[2], 0.2],
+      [palette.dialogContainer[0], palette.dialogContainer[1], palette.dialogContainer[2], 0.2],
       DIALOG_BTN_H / 2
     )
   )
@@ -1231,17 +1454,18 @@ function buildDialog(W: number, H: number, onBack: () => void): CatalogResult {
       'dialog-cancel-label',
       { x: DIALOG_X + 24, y: DIALOG_BTN_Y, w: DIALOG_BTN_W, h: DIALOG_BTN_H },
       'Cancel',
-      { color: [0, 0, 0, 1], fontSizePx: 16, fontWeight: 400, align: 'center', paddingPx: 0 }
+      { color: palette.dialogContentColor, fontSizePx: 16, fontWeight: 400, align: 'center', paddingPx: 0, halo: palette.homeTextHalo }
     )
   )
   elements.push(
     makePlainRect(
       'dialog-okay',
       { x: DIALOG_X + 24 + DIALOG_BTN_W + 16, y: DIALOG_BTN_Y, w: DIALOG_BTN_W, h: DIALOG_BTN_H },
-      DIALOG_ACCENT,
+      palette.dialogAccent,
       DIALOG_BTN_H / 2
     )
   )
+  // "Okay" label is always Color.White (DialogContent.kt line 133).
   elements.push(
     makeText(
       'dialog-okay-label',
@@ -1260,14 +1484,18 @@ function buildDialog(W: number, H: number, onBack: () => void): CatalogResult {
  * Layout: centered Column with a full-width 128dp-tall alpha-masked
  * progressive blur band containing the text "alpha-masked progressive blur".
  * ------------------------------------------------------------------ */
-function buildProgressiveBlur(W: number, H: number, onBack: () => void): CatalogResult {
+function buildProgressiveBlur(W: number, H: number, onBack: () => void, palette: ThemePalette = LIGHT_PALETTE): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
-  const back = makeBackButton(onBack)
+  const back = makeBackButton(onBack, palette)
   elements.push(back.element)
   interactions[back.element.id] = back.interaction
 
+  // Faithful to ProgressiveBlurContent.kt:
+  //   contentColor = if (isLightTheme) Color.Black else Color.White
+  //   tintColor = if (isLightTheme) Color.White else Color(0xFF808080)
+  //   tintIntensity = 0.8f
   const PB_Y = 0 // applyVerticalCenter shifts this
   const PB_H = 128 * DP
   elements.push({
@@ -1288,13 +1516,13 @@ function buildProgressiveBlur(W: number, H: number, onBack: () => void): Catalog
     highlight: null,
     outerShadow: null,
     label: '',
-    labelColor: [0, 0, 0, 1],
+    labelColor: palette.progressiveContentColor,
     showChevron: false,
     isInteractive: false,
     scroll: true,
     progressiveBlur: {
       blurRadius: 4 * DP,
-      tintColor: [1, 1, 1, 1],
+      tintColor: palette.progressiveTint,
       tintIntensity: 0.8,
     },
   })
@@ -1303,7 +1531,14 @@ function buildProgressiveBlur(W: number, H: number, onBack: () => void): Catalog
       'pb-label',
       { x: 0, y: PB_Y, w: W, h: PB_H },
       'alpha-masked progressive blur',
-      { color: [0, 0, 0, 1], fontSizePx: 16, fontWeight: 400, align: 'center', paddingPx: 0, halo: 'dark' }
+      {
+        color: palette.progressiveContentColor,
+        fontSizePx: 16,
+        fontWeight: 400,
+        align: 'center',
+        paddingPx: 0,
+        halo: palette.progressiveTextHalo,
+      }
     )
   )
 
@@ -1319,14 +1554,20 @@ function buildProgressiveBlur(W: number, H: number, onBack: () => void): Catalog
  * like the iOS control center. Each tile is a glass rounded-rect
  * with Default highlight. Some tiles contain flight icons.
  * ------------------------------------------------------------------ */
-function buildControlCenter(W: number, H: number, onBack: () => void): CatalogResult {
+function buildControlCenter(W: number, H: number, onBack: () => void, palette: ThemePalette = LIGHT_PALETTE): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
-  const back = makeBackButton(onBack)
+  const back = makeBackButton(onBack, palette)
   elements.push(back.element)
   interactions[back.element.id] = back.interaction
 
+  // Faithful to ControlCenterContent.kt:
+  //   accentColor = if (isLightTheme) Color(0xFF0088FF) else Color(0xFF0091FF)
+  //   containerColor = Color.Black.copy(0.05f)  (same in both themes)
+  //   inactiveItemColor = Color.White.copy(0.2f)  (same in both themes)
+  //   iconColorFilter = ColorFilter.tint(Color.White)  (same in both themes)
+  const ACCENT_T = palette.controlCenterAccent
   const itemSpacing = 16 * DP
   const itemSize = 68 * DP
   const twoSpan = itemSize * 2 + itemSpacing
@@ -1357,9 +1598,9 @@ function buildControlCenter(W: number, H: number, onBack: () => void): CatalogRe
   const innerSize = 56 * DP
   elements.push(makePlainRect('cc-a-icon1', { x: itemSpacing + itemSpacing, y: cursorY + itemSpacing, w: innerSize, h: innerSize }, [1, 1, 1, 0.2], innerSize / 2))
   elements.push(makeText('cc-a-icon1-label', { x: itemSpacing + itemSpacing, y: cursorY + itemSpacing, w: innerSize, h: innerSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor } }))
-  elements.push(makePlainRect('cc-a-icon2', { x: itemSpacing + twoSpan - itemSpacing - innerSize, y: cursorY + itemSpacing, w: innerSize, h: innerSize }, [...SLIDER_ACCENT, 1], innerSize / 2))
+  elements.push(makePlainRect('cc-a-icon2', { x: itemSpacing + twoSpan - itemSpacing - innerSize, y: cursorY + itemSpacing, w: innerSize, h: innerSize }, ACCENT_T, innerSize / 2))
   elements.push(makeText('cc-a-icon2-label', { x: itemSpacing + twoSpan - itemSpacing - innerSize, y: cursorY + itemSpacing, w: innerSize, h: innerSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor } }))
-  elements.push(makePlainRect('cc-a-icon3', { x: itemSpacing + itemSpacing, y: cursorY + twoSpan - itemSpacing - innerSize, w: innerSize, h: innerSize }, [...SLIDER_ACCENT, 1], innerSize / 2))
+  elements.push(makePlainRect('cc-a-icon3', { x: itemSpacing + itemSpacing, y: cursorY + twoSpan - itemSpacing - innerSize, w: innerSize, h: innerSize }, ACCENT_T, innerSize / 2))
   elements.push(makeText('cc-a-icon3-label', { x: itemSpacing + itemSpacing, y: cursorY + twoSpan - itemSpacing - innerSize, w: innerSize, h: innerSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor } }))
 
   // Tile B (2×2 empty)
@@ -1457,36 +1698,50 @@ function buildControlCenter(W: number, H: number, onBack: () => void): CatalogRe
  * magnifier glass (128×96 capsule) that refracts the content below.
  * The magnifier follows a drag offset.
  * ------------------------------------------------------------------ */
-function buildMagnifier(W: number, H: number, onBack: () => void, state: CatalogState, setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void): CatalogResult {
+function buildMagnifier(W: number, H: number, onBack: () => void, state: CatalogState, setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void, palette: ThemePalette = LIGHT_PALETTE): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
-  const back = makeBackButton(onBack)
+  const back = makeBackButton(onBack, palette)
   elements.push(back.element)
   interactions[back.element.id] = back.interaction
 
-  // White card with text
+  // Faithful to MagnifierContent.kt:
+  //   contentColor = if (isLightTheme) Color.Black else Color.White
+  //   accentColor  = if (isLightTheme) Color(0xFF0088FF) else Color(0xFF0091FF)
+  //   backgroundColor = if (isLightTheme) Color(0xFFFFFFFF) else Color(0xFF121212)
+  //   Card uses backgroundColor.copy(alpha = 0.9f).
+
+  // Card with text — theme-aware background.
   const cardX = 24 * DP
   const cardY = 0 // applyVerticalCenter shifts this
   const cardW = W - 2 * cardX
   const cardH = 280 * DP
   const cardRadius = 32 * DP
-  elements.push(makePlainRect('mag-card', { x: cardX, y: cardY, w: cardW, h: cardH }, [1, 1, 1, 0.9], cardRadius))
+  elements.push(makePlainRect('mag-card', { x: cardX, y: cardY, w: cardW, h: cardH }, palette.magnifierCardBg, cardRadius))
   elements.push(
     makeText(
       'mag-text',
       { x: cardX + 24, y: cardY + 24, w: cardW - 48, h: cardH - 48 },
       LOREM_IPSUM,
-      { color: [0, 0, 0, 1], fontSizePx: 16, fontWeight: 400, align: 'left', wrap: true, paddingPx: 0, halo: 'none' }
+      {
+        color: palette.magnifierContentColor,
+        fontSizePx: 16,
+        fontWeight: 400,
+        align: 'left',
+        wrap: true,
+        paddingPx: 0,
+        halo: 'none', // card is solid; no halo needed
+      }
     )
   )
 
-  // Cursor (small accent capsule)
+  // Cursor (small accent capsule) — accent color flips with theme.
   const cursorBaseX = W / 2 - 2
   const cursorBaseY = cardY + cardH / 2 - 12
   const cursorX = cursorBaseX + state.magnifierX
   const cursorY = cursorBaseY + state.magnifierY
-  elements.push(makePlainRect('mag-cursor', { x: cursorX, y: cursorY, w: 4 * DP, h: 24 * DP }, [...SLIDER_ACCENT, 1], 2 * DP))
+  elements.push(makePlainRect('mag-cursor', { x: cursorX, y: cursorY, w: 4 * DP, h: 24 * DP }, palette.magnifierAccent, 2 * DP))
 
   // Magnifier glass (128×96 capsule, sits 80dp above the cursor)
   const magW = 128 * DP
@@ -1535,13 +1790,19 @@ function buildMagnifier(W: number, H: number, onBack: () => void, state: Catalog
  * with 5 sliders (corner radius, blur, refraction height, refraction
  * amount, chromatic aberration) + a Reset button.
  * ------------------------------------------------------------------ */
-function buildGlassPlayground(W: number, H: number, onBack: () => void, state: CatalogState, setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void): CatalogResult {
+function buildGlassPlayground(W: number, H: number, onBack: () => void, state: CatalogState, setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void, palette: ThemePalette = LIGHT_PALETTE): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
-  const back = makeBackButton(onBack)
+  const back = makeBackButton(onBack, palette)
   elements.push(back.element)
   interactions[back.element.id] = back.interaction
+
+  // GlassPlaygroundContent.kt does NOT explicitly branch on isLightTheme.
+  // However, the slider labels use `BasicText` with no explicit style,
+  // which inherits `LocalContentColor` — Black in light theme, White in
+  // dark theme (Material3 default). We mirror that here.
+  const labelColor = palette.backIconColor
 
   // Glass square (256dp, corner radius from slider)
   const squareSize = 256 * DP
@@ -1614,7 +1875,14 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
         `gp-label-${s.key}`,
         { x: sheetX + 24, y: labelY, w: sheetW - 48, h: 20 },
         s.label,
-        { color: [0, 0, 0, 1], fontSizePx: 14, fontWeight: 400, align: 'left', paddingPx: 0, halo: 'dark' }
+        {
+          color: labelColor,
+          fontSizePx: 14,
+          fontWeight: 400,
+          align: 'left',
+          paddingPx: 0,
+          halo: palette.homeTextHalo,
+        }
       )
     )
     labelY += 24
@@ -1724,13 +1992,21 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
  * (Full luminance sensing is not feasible in WebGL — we show a static
  * glass with the label.)
  * ------------------------------------------------------------------ */
-function buildAdaptiveLuminanceGlass(W: number, H: number, onBack: () => void): CatalogResult {
+function buildAdaptiveLuminanceGlass(W: number, H: number, onBack: () => void, palette: ThemePalette = LIGHT_PALETTE): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
-  const back = makeBackButton(onBack)
+  const back = makeBackButton(onBack, palette)
   elements.push(back.element)
   interactions[back.element.id] = back.interaction
+
+  // Faithful to AdaptiveLuminanceGlassContent.kt:
+  //   contentColorAnimation initial = if (isLightTheme) Color.Black else Color.White
+  // The actual behavior is adaptive (driven by GPU readback of average
+  // luminance), but since we can't do GPU readback in this port we use
+  // the theme's initial content color as a static approximation.
+  const contentColor = palette.adaptiveContentColor
+  const halo = palette.homeTextHalo
 
   const size = 160 * DP
   const x = (W - size) / 2
@@ -1758,12 +2034,12 @@ function buildAdaptiveLuminanceGlass(W: number, H: number, onBack: () => void): 
       { x, y, w: size, h: size },
       'luminance:\n0.50',
       {
-        color: [0, 0, 0, 1],
+        color: contentColor,
         fontSizePx: 16,
         fontWeight: 400,
         align: 'center',
         paddingPx: 0,
-        halo: 'dark',
+        halo,
       }
     )
   )
@@ -1773,7 +2049,15 @@ function buildAdaptiveLuminanceGlass(W: number, H: number, onBack: () => void): 
       'alg-desc',
       { x: 24, y: y + size + 32, w: W - 48, h: 60 },
       'Adaptive luminance sensing adjusts glass brightness/contrast based on backdrop luminance. (Static demo — full sensing requires GPU readback.)',
-      { color: [0, 0, 0, 0.68], fontSizePx: 14, fontWeight: 400, align: 'center', wrap: true, paddingPx: 0, halo: 'dark' }
+      {
+        color: [contentColor[0], contentColor[1], contentColor[2], 0.68],
+        fontSizePx: 14,
+        fontWeight: 400,
+        align: 'center',
+        wrap: true,
+        paddingPx: 0,
+        halo,
+      }
     )
   )
 
@@ -1790,11 +2074,11 @@ function buildAdaptiveLuminanceGlass(W: number, H: number, onBack: () => void): 
  * The original uses an SDF texture for the clock; we approximate with
  * a plain glass rect (no SDF texture available in WebGL port).
  * ------------------------------------------------------------------ */
-function buildLockScreen(W: number, H: number, onBack: () => void, state: CatalogState, setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void): CatalogResult {
+function buildLockScreen(W: number, H: number, onBack: () => void, state: CatalogState, setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void, palette: ThemePalette = LIGHT_PALETTE): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
-  const back = makeBackButton(onBack)
+  const back = makeBackButton(onBack, palette)
   elements.push(back.element)
   interactions[back.element.id] = back.interaction
 
@@ -1858,11 +2142,11 @@ function buildLockScreen(W: number, H: number, onBack: () => void, state: Catalo
  * Layout: 20 glass cards (160dp tall, 32dp radius) in a vertical
  * scroll, each with vibrancy + lens effects.
  * ------------------------------------------------------------------ */
-function buildScrollContainer(W: number, onBack: () => void, count: number): CatalogResult {
+function buildScrollContainer(W: number, onBack: () => void, count: number, palette: ThemePalette = LIGHT_PALETTE): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
-  const back = makeBackButton(onBack)
+  const back = makeBackButton(onBack, palette)
   elements.push(back.element)
   interactions[back.element.id] = back.interaction
 
@@ -1896,6 +2180,10 @@ function buildScrollContainer(W: number, onBack: () => void, count: number): Cat
 
 /* ------------------------------------------------------------------ *
  * Main entry — dispatches to the right builder.
+ *
+ * `isLightTheme` is forwarded as a `ThemePalette` to each builder so
+ * they can pick the correct per-destination colors (faithful to each
+ * *Content.kt file's `isLightTheme = !isSystemInDarkTheme()` check).
  * ------------------------------------------------------------------ */
 export function buildCatalog(
   dest: CatalogDestination,
@@ -1905,38 +2193,40 @@ export function buildCatalog(
   setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void,
   onNavigate: (d: CatalogDestination) => void,
   onBack: () => void,
-  rendererRef?: React.MutableRefObject<LiquidGlassRenderer | null>
+  rendererRef?: React.MutableRefObject<LiquidGlassRenderer | null>,
+  isLightTheme: boolean = true
 ): CatalogResult {
+  const palette = getPalette(isLightTheme)
   switch (dest) {
     case CatalogDestination.Home:
-      return buildHome(W, onNavigate)
+      return buildHome(W, onNavigate, palette)
     case CatalogDestination.Buttons:
-      return buildButtons(W, H, onBack)
+      return buildButtons(W, H, onBack, palette)
     case CatalogDestination.Toggle:
-      return buildToggle(W, H, onBack, state, setState, rendererRef)
+      return buildToggle(W, H, onBack, state, setState, rendererRef, palette)
     case CatalogDestination.Slider:
-      return buildSlider(W, H, onBack, state, setState, rendererRef)
+      return buildSlider(W, H, onBack, state, setState, rendererRef, palette)
     case CatalogDestination.BottomTabs:
-      return buildBottomTabs(W, H, onBack, state, setState)
+      return buildBottomTabs(W, H, onBack, state, setState, palette)
     case CatalogDestination.Dialog:
-      return buildDialog(W, H, onBack)
+      return buildDialog(W, H, onBack, palette)
     case CatalogDestination.LockScreen:
-      return buildLockScreen(W, H, onBack, state, setState)
+      return buildLockScreen(W, H, onBack, state, setState, palette)
     case CatalogDestination.ControlCenter:
-      return buildControlCenter(W, H, onBack)
+      return buildControlCenter(W, H, onBack, palette)
     case CatalogDestination.Magnifier:
-      return buildMagnifier(W, H, onBack, state, setState)
+      return buildMagnifier(W, H, onBack, state, setState, palette)
     case CatalogDestination.GlassPlayground:
-      return buildGlassPlayground(W, H, onBack, state, setState)
+      return buildGlassPlayground(W, H, onBack, state, setState, palette)
     case CatalogDestination.AdaptiveLuminanceGlass:
-      return buildAdaptiveLuminanceGlass(W, H, onBack)
+      return buildAdaptiveLuminanceGlass(W, H, onBack, palette)
     case CatalogDestination.ProgressiveBlur:
-      return buildProgressiveBlur(W, H, onBack)
+      return buildProgressiveBlur(W, H, onBack, palette)
     case CatalogDestination.ScrollContainer:
-      return buildScrollContainer(W, onBack, 20)
+      return buildScrollContainer(W, onBack, 20, palette)
     case CatalogDestination.LazyScrollContainer:
-      return buildScrollContainer(W, onBack, 100)
+      return buildScrollContainer(W, onBack, 100, palette)
     default:
-      return buildHome(W, onNavigate)
+      return buildHome(W, onNavigate, palette)
   }
 }
