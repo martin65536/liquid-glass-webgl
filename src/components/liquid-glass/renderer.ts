@@ -628,6 +628,7 @@ export class LiquidGlassRenderer {
       'uHighlightAngle', 'uHighlightFalloff', 'uHighlightAlpha', 'uHighlightMode',
       'uHighlightStrokeWidth', 'uHighlightBlur',
       'uInnerShadowRadius', 'uInnerShadowAlpha', 'uInnerShadowOffset',
+      'uContentScale',
     ]
     for (const n of elNames) this.uEl[n] = gl.getUniformLocation(this.elementProgram, n)
     const shNames = [
@@ -2098,6 +2099,19 @@ export class LiquidGlassRenderer {
       let elInnerShadowOffsetX = el.innerShadow ? el.innerShadow.offsetX : 0
       let elInnerShadowOffsetY = el.innerShadow ? el.innerShadow.offsetY : 0
       let elSurfaceAlpha = el.surfaceColor[3]
+      // Content scale: 1.0 by default (no compression). For toggle knobs,
+      // faithful to LiquidToggle.kt:
+      //   scale(lerp(2/3, 0.75, progress), lerp(0, 0.75, progress)) { drawBackdrop() }
+      // We use a single uniform scale = lerp(1, 0.75, progress). At rest
+      // (progress=0), scale=1 (the white overlay hides the glass anyway).
+      // When pressed (progress=1), scale=0.75 — the track content visible
+      // through the knob glass appears compressed inward, matching the
+      // original's "pixel shrink inward" effect on press.
+      // For slider knobs, LiquidSlider.kt uses lerp(2/3, 1, progress) —
+      // at rest compressed (overlay hides it), when pressed full scale.
+      // We use lerp(1, 1, progress) = 1 (no compression needed since the
+      // slider's pressed state shows full-scale content).
+      let elContentScale = 1.0
       if (el.isToggleKnob) {
         const progress = togglePressProgress
         elRefractionHeight = el.refractionHeight * progress
@@ -2113,6 +2127,9 @@ export class LiquidGlassRenderer {
         elInnerShadowOffsetX = (el.innerShadow?.offsetX ?? 0) * progress
         elInnerShadowOffsetY = (el.innerShadow?.offsetY ?? 0) * progress
         elSurfaceAlpha = 0
+        // Toggle: scale compresses to 0.75 when pressed (track content
+        // shrinks inward, matching the original's scale(0.75, 0.75)).
+        elContentScale = 1.0 + (0.75 - 1.0) * progress
       }
       gl.uniform1f(this.uEl['uRefractionHeight'], elRefractionHeight * this.dpr)
       gl.uniform1f(this.uEl['uRefractionAmount'], elRefractionAmount * this.dpr)
@@ -2122,6 +2139,7 @@ export class LiquidGlassRenderer {
       gl.uniform1f(this.uEl['uSaturation'], el.saturation)
       gl.uniform1f(this.uEl['uBrightness'], el.brightness)
       gl.uniform1f(this.uEl['uContrast'], el.contrast)
+      gl.uniform1f(this.uEl['uContentScale'], elContentScale)
       gl.uniform4f(this.uEl['uTintColor'], el.tintColor[0], el.tintColor[1], el.tintColor[2], el.tintColor[3])
       gl.uniform4f(this.uEl['uSurfaceColor'], el.surfaceColor[0], el.surfaceColor[1], el.surfaceColor[2], elSurfaceAlpha)
 

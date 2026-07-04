@@ -508,6 +508,14 @@ function makeGlassShape(
 const ARROW_BACK_ICON_PATH =
   'M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z'
 
+// Sun and moon icon paths (24×24 viewport) for the theme toggle button.
+// Sun is shown in dark mode (click → switch to light).
+// Moon is shown in light mode (click → switch to dark).
+const SUN_ICON_PATH =
+  'M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0-5a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0V3a1 1 0 0 1 1-1zm0 17a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0v-2a1 1 0 0 1 1-1zM4.22 4.22a1 1 0 0 1 1.41 0l1.42 1.42a1 1 0 1 1-1.42 1.41L4.22 5.63a1 1 0 0 1 0-1.41zm12.73 12.73a1 1 0 0 1 1.41 0l1.42 1.42a1 1 0 1 1-1.42 1.41l-1.41-1.42a1 1 0 0 1 0-1.41zM2 12a1 1 0 0 1 1-1h2a1 1 0 1 1 0 2H3a1 1 0 0 1-1-1zm17 0a1 1 0 0 1 1-1h2a1 1 0 1 1 0 2h-2a1 1 0 0 1-1-1zM4.22 19.78a1 1 0 0 1 0-1.41l1.42-1.42a1 1 0 1 1 1.41 1.42l-1.41 1.41a1 1 0 0 1-1.42 0zM16.95 7.05a1 1 0 0 1 0-1.41l1.42-1.42a1 1 0 1 1 1.41 1.42l-1.41 1.41a1 1 0 0 1-1.42 0z'
+const MOON_ICON_PATH =
+  'M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'
+
 function makeBackButton(
   onBack: () => void,
   palette: ThemePalette,
@@ -550,6 +558,56 @@ function makeBackButton(
 }
 
 /* ------------------------------------------------------------------ *
+ * Theme toggle button — rendered at top-right, mirrored from the back
+ * button at top-left. Per user request: "把这个按钮也弄成canvas里面的，
+ * 和退出按钮等大对称" — make this button also inside the canvas, same size
+ * as the exit button, symmetric position.
+ *
+ * Same 56dp circular glass body as the back button, with a sun icon (in
+ * dark mode, click → light) or moon icon (in light mode, click → dark).
+ * The icon color flips with theme to match the back button's behavior.
+ * ------------------------------------------------------------------ */
+function makeThemeToggleButton(
+  onToggleTheme: () => void,
+  palette: ThemePalette,
+  isLightTheme: boolean,
+  canvasW: number,
+  scroll = false
+): { element: GlassElementConfig; interaction: ElementInteraction } {
+  const size = 56 * DP
+  const iconSize = 32 * DP
+  // Mirrored position: back button is at (16, 16); theme button is at
+  // (W - 16 - size, 16) so the two buttons are symmetric across the
+  // horizontal centerline.
+  const element: GlassElementConfig = {
+    id: '__theme__',
+    kind: 'button',
+    rect: { x: canvasW - 16 - size, y: 16, w: size, h: size },
+    ...GLASS_PARAMS,
+    cornerRadius: size / 2, // circular
+    tintColor: [0, 0, 0, 0],
+    surfaceColor: [1, 1, 1, 0.3],
+    highlight: null, // no edge highlight (matches back button)
+    outerShadow: { ...DEFAULT_SHADOW, radius: 12 * DP, alpha: 0.08 },
+    label: '',
+    labelColor: palette.backIconColor,
+    showChevron: false,
+    isInteractive: true,
+    scroll,
+    icon: {
+      // Sun in dark mode (click → light); moon in light mode (click → dark).
+      path: isLightTheme ? MOON_ICON_PATH : SUN_ICON_PATH,
+      size: iconSize,
+      color: palette.backIconColor,
+    },
+  }
+  return {
+    element,
+    interaction: { onTap: () => onToggleTheme() },
+  }
+}
+
+/* ------------------------------------------------------------------ *
  * applyVerticalCenter — offsets all element y positions (except the
  * back button, which stays top-left) so the content is vertically
  * centered within the viewport. Mirrors BackdropDemoScaffold's
@@ -569,7 +627,8 @@ function applyVerticalCenter(
   const yOffset = Math.max(0, (H - contentSize) / 2 - contentTop)
   if (yOffset <= 0) return contentHeight
   for (const el of elements) {
-    if (el.id === '__back__') continue // back button stays at top-left
+    // Back button and theme button stay at top corners (not shifted).
+    if (el.id === '__back__' || el.id === '__theme__') continue
     el.rect = { ...el.rect, y: el.rect.y + yOffset }
   }
   return contentHeight + yOffset
@@ -1209,16 +1268,46 @@ function buildSlider(
 
   // --- Interactions ---
   // Tap on track → animate knob to tapped position.
+  // Drag on track → knob follows finger (added for usability; the original
+  //   only supports tap on track + drag on knob, but a small knob is hard
+  //   to hit on touch devices, so we forward track drags to the knob).
   // Drag on knob → knob follows finger; on release, snap state to nearest value.
-  function makeSliderTrackInteractions(groupId: string, trackX: number, trackW: number) {
+  //
+  // dragWidth for fraction computation = trackW - knobW/2 (matches the
+  // renderer's positioning dragWidth). This ensures the knob tracks the
+  // finger 1:1 — previously we passed `trackW` here, which made the knob
+  // move ~6% slower than the finger.
+  const SLIDER_DRAG_W1 = s1TrackW - SLIDER_KNOB_W / 2
+  const SLIDER_DRAG_W2 = s2TrackW - SLIDER_KNOB_W / 2
+  function makeSliderTrackInteractions(groupId: string, trackX: number, trackW: number, dragW: number) {
+    let dragStartFraction = 0
+    let dragStartX = 0
     return {
       onTap: (pos: { x: number; y: number }) => {
         const f = Math.max(0, Math.min(1, (pos.x - trackX) / trackW))
         setState({ sliderValue: Math.round(f * 100) })
       },
+      onDragStart: (pos: { x: number; y: number }) => {
+        const r = rendererRef?.current
+        if (!r) return
+        dragStartFraction = r.getToggleTarget(groupId)
+        dragStartX = pos.x
+        r.beginToggleDrag(groupId, dragStartFraction)
+      },
+      onDrag: (pos: { x: number; y: number }) => {
+        const r = rendererRef?.current
+        if (!r) return
+        r.dragToggle(groupId, dragStartFraction, pos.x, dragStartX, dragW)
+      },
+      onDragEnd: () => {
+        const r = rendererRef?.current
+        if (!r) return
+        const finalTarget = r.endToggleDrag(groupId)
+        setState({ sliderValue: Math.round(finalTarget * 100) })
+      },
     }
   }
-  function makeSliderKnobInteractions(groupId: string, trackX: number, trackW: number) {
+  function makeSliderKnobInteractions(groupId: string, dragW: number) {
     let dragStartFraction = 0
     let dragStartX = 0
     return {
@@ -1232,7 +1321,7 @@ function buildSlider(
       onDrag: (pos: { x: number; y: number }) => {
         const r = rendererRef?.current
         if (!r) return
-        r.dragToggle(groupId, dragStartFraction, pos.x, dragStartX, trackW)
+        r.dragToggle(groupId, dragStartFraction, pos.x, dragStartX, dragW)
       },
       onDragEnd: () => {
         const r = rendererRef?.current
@@ -1242,10 +1331,10 @@ function buildSlider(
       },
     }
   }
-  interactions['slider1-track'] = makeSliderTrackInteractions('slider1', s1TrackX, s1TrackW)
-  interactions['slider1-knob'] = makeSliderKnobInteractions('slider1', s1TrackX, s1TrackW)
-  interactions['slider2-track'] = makeSliderTrackInteractions('slider2', s2TrackX, s2TrackW)
-  interactions['slider2-knob'] = makeSliderKnobInteractions('slider2', s2TrackX, s2TrackW)
+  interactions['slider1-track'] = makeSliderTrackInteractions('slider1', s1TrackX, s1TrackW, SLIDER_DRAG_W1)
+  interactions['slider1-knob'] = makeSliderKnobInteractions('slider1', SLIDER_DRAG_W1)
+  interactions['slider2-track'] = makeSliderTrackInteractions('slider2', s2TrackX, s2TrackW, SLIDER_DRAG_W2)
+  interactions['slider2-knob'] = makeSliderKnobInteractions('slider2', SLIDER_DRAG_W2)
 
   // Content height = card bottom (including outer padding 24dp below the card)
   const contentHeight = cardY + cardH + 24
@@ -1402,35 +1491,43 @@ function buildDialog(W: number, H: number, onBack: () => void, palette: ThemePal
     )
   )
   // Title — contentColor flips with theme.
+  // Faithful to DialogContent.kt: TextStyle(contentColor, 24f.sp, FontWeight.Medium).
+  // No halo — the dialog card provides enough contrast, and a halo on
+  // dark text (light theme) would just add a fuzzy dark blur that
+  // degrades text sharpness (matches the original which has no halo).
   elements.push(
     makeText(
       'dialog-title',
       { x: DIALOG_X + 28, y: DIALOG_Y + 24, w: DIALOG_W - 56, h: 36 },
       'Dialog Title',
-      { color: palette.dialogContentColor, fontSizePx: 24, fontWeight: 500, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
+      { color: palette.dialogContentColor, fontSizePx: 24, fontWeight: 500, align: 'left', paddingPx: 0, halo: 'none' }
     )
   )
-  // Body — contentColor.copy(0.68f). In dark mode the original uses
-  // BlendMode.Plus (lightens); we approximate with the same color swap.
-  // The halo maintains legibility on the dialog card background.
+  // Body — contentColor.copy(0.68f). Faithful to DialogContent.kt:
+  //   Light theme: 68% black, no BlendMode.Plus ("plus darker" = just regular)
+  //   Dark theme:  68% white with BlendMode.Plus ("plus lighter")
+  // We approximate the Plus blend by using a brighter color in dark mode
+  // (the Plus blend lightens the backdrop, so the text appears brighter
+  // than 68% white would suggest).
+  // No halo — the card provides enough contrast.
+  // Theme detection: light palette has dialogBrightness = 0.2, dark = 0.
+  const isLightPal = palette.dialogBrightness > 0.1
+  const bodyColor: [number, number, number, number] = isLightPal
+    ? [palette.dialogContentColor[0], palette.dialogContentColor[1], palette.dialogContentColor[2], 0.68]
+    : [palette.dialogContentColor[0], palette.dialogContentColor[1], palette.dialogContentColor[2], 0.78]
   elements.push(
     makeText(
       'dialog-body',
       { x: DIALOG_X + 24, y: DIALOG_Y + 72, w: DIALOG_W - 48, h: 120 },
       LOREM_IPSUM,
       {
-        color: [
-          palette.dialogContentColor[0],
-          palette.dialogContentColor[1],
-          palette.dialogContentColor[2],
-          0.68,
-        ],
+        color: bodyColor,
         fontSizePx: 15,
         fontWeight: 400,
         align: 'left',
         wrap: true,
         paddingPx: 0,
-        halo: palette.homeTextHalo,
+        halo: 'none',
       }
     )
   )
@@ -1454,7 +1551,7 @@ function buildDialog(W: number, H: number, onBack: () => void, palette: ThemePal
       'dialog-cancel-label',
       { x: DIALOG_X + 24, y: DIALOG_BTN_Y, w: DIALOG_BTN_W, h: DIALOG_BTN_H },
       'Cancel',
-      { color: palette.dialogContentColor, fontSizePx: 16, fontWeight: 400, align: 'center', paddingPx: 0, halo: palette.homeTextHalo }
+      { color: palette.dialogContentColor, fontSizePx: 16, fontWeight: 400, align: 'center', paddingPx: 0, halo: 'none' }
     )
   )
   elements.push(
@@ -2184,6 +2281,11 @@ function buildScrollContainer(W: number, onBack: () => void, count: number, pale
  * `isLightTheme` is forwarded as a `ThemePalette` to each builder so
  * they can pick the correct per-destination colors (faithful to each
  * *Content.kt file's `isLightTheme = !isSystemInDarkTheme()` check).
+ *
+ * `onToggleTheme` is wired into a canvas-rendered theme toggle button
+ * (top-right, 56dp, mirrored from the back button) that is added to
+ * EVERY destination's element list. Per user request: "把这个按钮也弄成
+ * canvas里面的，和退出按钮等大对称".
  * ------------------------------------------------------------------ */
 export function buildCatalog(
   dest: CatalogDestination,
@@ -2194,39 +2296,66 @@ export function buildCatalog(
   onNavigate: (d: CatalogDestination) => void,
   onBack: () => void,
   rendererRef?: React.MutableRefObject<LiquidGlassRenderer | null>,
-  isLightTheme: boolean = true
+  isLightTheme: boolean = true,
+  onToggleTheme?: () => void
 ): CatalogResult {
   const palette = getPalette(isLightTheme)
+  let result: CatalogResult
   switch (dest) {
     case CatalogDestination.Home:
-      return buildHome(W, onNavigate, palette)
+      result = buildHome(W, onNavigate, palette)
+      break
     case CatalogDestination.Buttons:
-      return buildButtons(W, H, onBack, palette)
+      result = buildButtons(W, H, onBack, palette)
+      break
     case CatalogDestination.Toggle:
-      return buildToggle(W, H, onBack, state, setState, rendererRef, palette)
+      result = buildToggle(W, H, onBack, state, setState, rendererRef, palette)
+      break
     case CatalogDestination.Slider:
-      return buildSlider(W, H, onBack, state, setState, rendererRef, palette)
+      result = buildSlider(W, H, onBack, state, setState, rendererRef, palette)
+      break
     case CatalogDestination.BottomTabs:
-      return buildBottomTabs(W, H, onBack, state, setState, palette)
+      result = buildBottomTabs(W, H, onBack, state, setState, palette)
+      break
     case CatalogDestination.Dialog:
-      return buildDialog(W, H, onBack, palette)
+      result = buildDialog(W, H, onBack, palette)
+      break
     case CatalogDestination.LockScreen:
-      return buildLockScreen(W, H, onBack, state, setState, palette)
+      result = buildLockScreen(W, H, onBack, state, setState, palette)
+      break
     case CatalogDestination.ControlCenter:
-      return buildControlCenter(W, H, onBack, palette)
+      result = buildControlCenter(W, H, onBack, palette)
+      break
     case CatalogDestination.Magnifier:
-      return buildMagnifier(W, H, onBack, state, setState, palette)
+      result = buildMagnifier(W, H, onBack, state, setState, palette)
+      break
     case CatalogDestination.GlassPlayground:
-      return buildGlassPlayground(W, H, onBack, state, setState, palette)
+      result = buildGlassPlayground(W, H, onBack, state, setState, palette)
+      break
     case CatalogDestination.AdaptiveLuminanceGlass:
-      return buildAdaptiveLuminanceGlass(W, H, onBack, palette)
+      result = buildAdaptiveLuminanceGlass(W, H, onBack, palette)
+      break
     case CatalogDestination.ProgressiveBlur:
-      return buildProgressiveBlur(W, H, onBack, palette)
+      result = buildProgressiveBlur(W, H, onBack, palette)
+      break
     case CatalogDestination.ScrollContainer:
-      return buildScrollContainer(W, onBack, 20, palette)
+      result = buildScrollContainer(W, onBack, 20, palette)
+      break
     case CatalogDestination.LazyScrollContainer:
-      return buildScrollContainer(W, onBack, 100, palette)
+      result = buildScrollContainer(W, onBack, 100, palette)
+      break
     default:
-      return buildHome(W, onNavigate, palette)
+      result = buildHome(W, onNavigate, palette)
+      break
   }
+  // Add the canvas-rendered theme toggle button to every destination.
+  // It is appended AFTER the destination's elements so it sits on top in
+  // z-order (tappable even over other glass elements). The button is
+  // non-scrolling (stays at top-right when the page scrolls).
+  if (onToggleTheme) {
+    const themeBtn = makeThemeToggleButton(onToggleTheme, palette, isLightTheme, W, false)
+    result.elements.push(themeBtn.element)
+    result.interactions[themeBtn.element.id] = themeBtn.interaction
+  }
+  return result
 }

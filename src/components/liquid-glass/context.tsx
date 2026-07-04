@@ -223,6 +223,12 @@ export function LiquidGlassCanvas({
       const scrollY = renderer.getScrollY()
 
       // Hit-test topmost first (last in array = topmost in z-order).
+      // Skip decorative elements (no interactions AND not isInteractive)
+      // so they don't block hit-test on interactive elements below them.
+      // E.g. the slider fill (plain-rect, no interactions) sits on top of
+      // the slider track (plain-rect, has onTap/onDrag) — without this
+      // skip, pressing on the colored fill would miss the track.
+      const interactions0 = interactionsRef.current
       let hit: GlassElementConfig | null = null
       for (let i = els.length - 1; i >= 0; i--) {
         const el = els[i]
@@ -233,6 +239,11 @@ export function LiquidGlassCanvas({
           y >= visibleY &&
           y <= visibleY + el.rect.h
         ) {
+          const hasInteraction = !!interactions0?.[el.id]
+          if (!hasInteraction && !el.isInteractive) {
+            // Decorative element — fall through to elements below.
+            continue
+          }
           hit = el
           break
         }

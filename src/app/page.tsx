@@ -22,9 +22,8 @@ import type { LiquidGlassRenderer } from '@/components/liquid-glass/renderer'
  * Dark mode: matches `isSystemInDarkTheme()` from MainContent.kt.
  *   - Initialized from `prefers-color-scheme: dark` media query.
  *   - Listens to system theme changes.
- *   - A manual sun/moon toggle in the top-right corner lets the user
- *     override the system preference (matching common Android dark-mode
- *     override behavior).
+ *   - A canvas-rendered sun/moon toggle in the top-right corner (mirrored
+ *     from the back button) lets the user override the system preference.
  * ------------------------------------------------------------------ */
 
 type Theme = 'light' | 'dark'
@@ -41,12 +40,6 @@ function useSystemTheme(): Theme {
   }, [])
   return theme
 }
-
-// Sun / Moon SVG icons (24×24 viewport) for the theme toggle.
-const SUN_ICON_PATH =
-  'M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0-5a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0V3a1 1 0 0 1 1-1zm0 17a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0v-2a1 1 0 0 1 1-1zM4.22 4.22a1 1 0 0 1 1.41 0l1.42 1.42a1 1 0 1 1-1.42 1.41L4.22 5.63a1 1 0 0 1 0-1.41zm12.73 12.73a1 1 0 0 1 1.41 0l1.42 1.42a1 1 0 1 1-1.42 1.41l-1.41-1.42a1 1 0 0 1 0-1.41zM2 12a1 1 0 0 1 1-1h2a1 1 0 1 1 0 2H3a1 1 0 0 1-1-1zm17 0a1 1 0 0 1 1-1h2a1 1 0 1 1 0 2h-2a1 1 0 0 1-1-1zM4.22 19.78a1 1 0 0 1 0-1.41l1.42-1.42a1 1 0 1 1 1.41 1.42l-1.41 1.41a1 1 0 0 1-1.42 0zM16.95 7.05a1 1 0 0 1 0-1.41l1.42-1.42a1 1 0 1 1 1.41 1.42l-1.41 1.41a1 1 0 0 1-1.42 0z'
-const MOON_ICON_PATH =
-  'M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'
 
 export default function Page() {
   // Theme: starts from system preference; user can override via the toggle.
@@ -118,11 +111,15 @@ export default function Page() {
   const W = frameSize.w
   const H = frameSize.h
 
+  const toggleTheme = React.useCallback(() => {
+    setUserOverride((prev) => (prev === 'light' ? 'dark' : 'light'))
+  }, [])
+
   // Build the catalog for the current destination.
   // useMemo so we don't rebuild every render (only when dest/state/W/H/theme change).
   const catalog = React.useMemo(
-    () => buildCatalog(destination, W, H, state, setState, onNavigate, onBack, rendererRef, isLightTheme),
-    [destination, W, H, state, setState, onNavigate, onBack, isLightTheme]
+    () => buildCatalog(destination, W, H, state, setState, onNavigate, onBack, rendererRef, isLightTheme, toggleTheme),
+    [destination, W, H, state, setState, onNavigate, onBack, isLightTheme, toggleTheme]
   )
 
   // Home page: original Android app uses the wallpaper as the background
@@ -152,10 +149,6 @@ export default function Page() {
     return targets
   }, [destination, state.toggleOn, state.sliderValue])
 
-  const toggleTheme = React.useCallback(() => {
-    setUserOverride((prev) => (prev === 'light' ? 'dark' : 'light'))
-  }, [])
-
   return (
     <div
       className="min-h-screen w-full flex items-center justify-center"
@@ -183,50 +176,6 @@ export default function Page() {
           rendererRef={rendererRef}
           className="w-full h-full"
         />
-
-        {/* Theme toggle button — top-right corner, always visible.
-            DOM overlay (outside the canvas) so it never interferes with
-            canvas pointer events. The button is theme-aware: shows a
-            sun icon in dark mode (click → light) and a moon icon in
-            light mode (click → dark). */}
-        <button
-          type="button"
-          onClick={toggleTheme}
-          aria-label={isLightTheme ? 'Switch to dark mode' : 'Switch to light mode'}
-          title={isLightTheme ? 'Switch to dark mode' : 'Switch to light mode'}
-          style={{
-            position: 'absolute',
-            top: 16,
-            right: 16,
-            width: 44,
-            height: 44,
-            borderRadius: 22,
-            border: 'none',
-            padding: 0,
-            cursor: 'pointer',
-            background: isLightTheme
-              ? 'rgba(255, 255, 255, 0.55)'
-              : 'rgba(20, 20, 22, 0.55)',
-            backdropFilter: 'blur(12px) saturate(150%)',
-            WebkitBackdropFilter: 'blur(12px) saturate(150%)',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.18), inset 0 0 0 0.5px rgba(255,255,255,0.18)',
-            color: isLightTheme ? '#1b1d24' : '#f5f5f7',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 10,
-          }}
-        >
-          <svg
-            width="22"
-            height="22"
-            viewBox="0 0 24 24"
-            fill="currentColor"
-            aria-hidden="true"
-          >
-            <path d={isLightTheme ? MOON_ICON_PATH : SUN_ICON_PATH} />
-          </svg>
-        </button>
       </div>
     </div>
   )

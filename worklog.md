@@ -257,3 +257,31 @@ Stage Summary:
 - The toggle button in dark mode: track color is #787880@0.36 (not #787878@0.2), accent green is #30D158 (not #34C759), and the second toggle's card background is #121212 (not white) — matching LiquidToggle.kt + ToggleContent.kt.
 - The dialog in dark mode: dimmer scrim (#121212@0.56 vs #29293A@0.23), darker container (#121212@0.4 vs #FAFAFA@0.6), less blur (8dp vs 16dp), no brightness boost (0 vs 0.2) — matching DialogContent.kt.
 - Build: ✓ Compiled successfully in 10.7s; dev server ✓ HTTP 200.
+
+---
+Task ID: 5
+Agent: main
+Task: Five fixes from user feedback: (1) Make the theme toggle button a canvas element (same size as exit button, symmetric position); (2) Add the toggle press "pixel inward-shrink" effect (scale track backdrop content inward when knob is pressed); (3) Fix dialog light mode text color (was using wrong halo); (4) Fix slider often can't be slid; (5) Improve blur quality to match original.
+
+Work Log:
+- Read original LiquidToggle.kt — confirmed the "inward shrink" effect: `scale(lerp(2/3, 0.75, progress), lerp(0, 0.75, progress)) { drawBackdrop() }` on the track backdrop. When pressed, the track content visible through the knob glass is scaled to 75% (compressed inward).
+- Read original LiquidSlider.kt — confirmed slider uses `scale(lerp(2/3, 1, progress), lerp(0, 1, progress))` (full scale when pressed, no compression needed).
+- Read original DialogContent.kt — confirmed body text is `contentColor.copy(0.68f)` with NO halo; light mode has no BlendMode.Plus, dark mode has BlendMode.Plus (lightens).
+- shaders.ts: Added `uContentScale` uniform to ELEMENT_FRAGMENT_SHADER. When < 1.0, the backdrop UV is scaled toward the element center before sampling (both the direct backdrop sample and the refraction samples). This compresses the visible content inward, matching the toggle's "pixel shrink inward" effect on press.
+- shaders.ts: Upgraded the poisson disc blur from 17 taps to 43 taps with two rings (inner ~0.5 radius for high-frequency detail, outer ~1.0 radius for the main blur). This gives a much smoother Gaussian-like result for large blur radii (8-16dp), closer to Skia's RenderEffect.
+- renderer.ts: Added `uContentScale` to the uniform location list. In the element render pass, for toggle knobs: `elContentScale = 1.0 + (0.75 - 1.0) * progress` (compresses to 75% when pressed). For all other elements: `elContentScale = 1.0` (no compression).
+- catalog.tsx: Added `makeThemeToggleButton` factory — 56dp circular glass button at top-right (mirrored from back button at top-left), with sun icon (dark mode, click → light) or moon icon (light mode, click → dark). Same glass body as back button (no edge highlight, white surface 0.3, outer shadow).
+- catalog.tsx: Modified `buildCatalog` to accept `onToggleTheme` callback and add the theme toggle button to EVERY destination's element list (appended after the destination's elements so it sits on top in z-order).
+- catalog.tsx: Updated `applyVerticalCenter` to skip both `__back__` and `__theme__` buttons (so they stay at top corners when content is vertically centered).
+- catalog.tsx: Fixed dialog text colors — removed halo from all dialog text (title, body, cancel label). The dialog card provides enough contrast; the previous 'dark' halo on black text (light theme) was adding a fuzzy dark blur that degraded text sharpness. Body text in dark mode now uses 0.78 alpha (approximating the BlendMode.Plus "plus lighter" effect).
+- catalog.tsx: Fixed slider drag — added onDragStart/onDrag/onDrag to the slider track interactions (previously only had onTap). Now dragging anywhere on the track moves the knob. Fixed dragWidth mismatch: interactions now pass `trackW - knobW/2` (matching the renderer's positioning dragWidth) so the knob tracks the finger 1:1 instead of ~6% slower.
+- context.tsx: Fixed hit-test to skip decorative elements (no interactions AND not isInteractive). Previously, the slider fill (plain-rect, no interactions) sat on top of the slider track (plain-rect, has interactions) and blocked hit-testing — pressing on the colored fill would miss the track. Now decorative elements are transparent to hit-testing.
+- page.tsx: Removed the DOM theme toggle button (top-right overlay). Wired `toggleTheme` callback through `buildCatalog` so the theme toggle is now a canvas-rendered element.
+
+Stage Summary:
+- Theme toggle is now a canvas element (56dp circular glass, top-right, mirrored from back button) on every destination.
+- Toggle knob glass now compresses its backdrop content inward to 75% when pressed, matching the original's `scale(0.75, 0.75)` on the track backdrop.
+- Dialog text in light mode is now crisp 68% black with no halo (matches DialogContent.kt).
+- Slider can now be dragged from anywhere on the track (not just the small 40×24 knob), and the knob tracks the finger 1:1.
+- Blur quality improved from 17 taps to 43 taps with a 2-ring poisson disc, giving smoother Gaussian-like results for large blur radii.
+- Build succeeds, dev server starts, page loads with HTTP 200.

@@ -165,6 +165,14 @@ uniform float uHighlightBlur;     // px (BlurMaskFilter radius)
 uniform float uInnerShadowRadius;
 uniform float uInnerShadowAlpha;
 uniform vec2  uInnerShadowOffset;
+// Content scale: when < 1.0, the backdrop UV is scaled toward the element
+// center by this factor before sampling. Faithful to LiquidToggle.kt's
+//   scale(scaleX, scaleY) { drawBackdrop() }
+// where scaleX/Y lerp from (2/3, 0) at rest to (0.75, 0.75) when pressed.
+// We approximate by scaling the whole scene UV (which includes the track)
+// since the white overlay hides the glass at rest anyway. The visual
+// effect — track content appearing to shrink inward when pressed — matches.
+uniform float uContentScale;
 
 ${SDF_GLSL}
 
@@ -181,10 +189,11 @@ vec2 sceneUv(vec2 canvasPx) {
     return vec2(canvasPx.x / uCanvasSize.x, 1.0 - canvasPx.y / uCanvasSize.y);
 }
 
-// 17-tap poisson disc for a smoother Gaussian-ish blur.
-// Inlined as individual texture2D calls (GLSL ES 1.00 does not support
-// array constructors). Each tap's offset is normalized (radius 1) and
-// scaled by pxToUv = (1/canvasSize) * radius at the call site.
+// 43-tap poisson disc for a smoother Gaussian-ish blur.
+// Two rings: an inner ring (~0.5 radius) for high-frequency detail, and
+// an outer ring (~1.0 radius) for the main blur. This gives a much
+// smoother result than the previous 17-tap disc, especially for larger
+// blur radii (8-16dp), and is closer to Skia's RenderEffect Gaussian.
 //
 // Sample the scene texture at a canvas-pixel coordinate, with a
 // Gaussian-ish blur. radius < 0.5 falls back to a single tap.
@@ -193,29 +202,62 @@ vec4 sampleBackdrop(vec2 canvasPx, float radius) {
     if (radius < 0.5) {
         return texture2D(uBackdrop, uv);
     }
-    // UV-space step per pixel — same X and Y since the scene texture is
-    // canvas-sized. Multiply by radius to get the actual sample spread.
     vec2 pxToUv = radius / uCanvasSize;
     vec4 sum = vec4(0.0);
     float total = 0.0;
 
-    sum += texture2D(uBackdrop, uv + vec2( 0.000000,  0.000000) * pxToUv) * 1.00; total += 1.00;
-    sum += texture2D(uBackdrop, uv + vec2( 0.536355,  0.000000) * pxToUv) * 0.85; total += 0.85;
-    sum += texture2D(uBackdrop, uv + vec2(-0.536355,  0.000000) * pxToUv) * 0.85; total += 0.85;
-    sum += texture2D(uBackdrop, uv + vec2( 0.166048,  0.510274) * pxToUv) * 0.75; total += 0.75;
-    sum += texture2D(uBackdrop, uv + vec2( 0.166048, -0.510274) * pxToUv) * 0.75; total += 0.75;
-    sum += texture2D(uBackdrop, uv + vec2(-0.166048,  0.510274) * pxToUv) * 0.75; total += 0.75;
-    sum += texture2D(uBackdrop, uv + vec2(-0.166048, -0.510274) * pxToUv) * 0.75; total += 0.75;
-    sum += texture2D(uBackdrop, uv + vec2( 0.654479,  0.364250) * pxToUv) * 0.65; total += 0.65;
-    sum += texture2D(uBackdrop, uv + vec2( 0.654479, -0.364250) * pxToUv) * 0.65; total += 0.65;
-    sum += texture2D(uBackdrop, uv + vec2(-0.654479,  0.364250) * pxToUv) * 0.65; total += 0.65;
-    sum += texture2D(uBackdrop, uv + vec2(-0.654479, -0.364250) * pxToUv) * 0.65; total += 0.65;
-    sum += texture2D(uBackdrop, uv + vec2( 0.873489,  0.117558) * pxToUv) * 0.55; total += 0.55;
-    sum += texture2D(uBackdrop, uv + vec2( 0.873489, -0.117558) * pxToUv) * 0.55; total += 0.55;
-    sum += texture2D(uBackdrop, uv + vec2(-0.873489,  0.117558) * pxToUv) * 0.55; total += 0.55;
-    sum += texture2D(uBackdrop, uv + vec2(-0.873489, -0.117558) * pxToUv) * 0.55; total += 0.55;
-    sum += texture2D(uBackdrop, uv + vec2( 0.348733,  0.835549) * pxToUv) * 0.45; total += 0.45;
-    sum += texture2D(uBackdrop, uv + vec2( 0.348733, -0.835549) * pxToUv) * 0.45; total += 0.45;
+    // Inner ring (~0.5 radius) — 12 taps, weight 1.4 (high weight, small offset)
+    sum += texture2D(uBackdrop, uv + vec2( 0.000000,  0.000000) * pxToUv) * 1.40; total += 1.40;
+    sum += texture2D(uBackdrop, uv + vec2( 0.250000,  0.000000) * pxToUv) * 1.30; total += 1.30;
+    sum += texture2D(uBackdrop, uv + vec2(-0.250000,  0.000000) * pxToUv) * 1.30; total += 1.30;
+    sum += texture2D(uBackdrop, uv + vec2( 0.000000,  0.250000) * pxToUv) * 1.30; total += 1.30;
+    sum += texture2D(uBackdrop, uv + vec2( 0.000000, -0.250000) * pxToUv) * 1.30; total += 1.30;
+    sum += texture2D(uBackdrop, uv + vec2( 0.177000,  0.177000) * pxToUv) * 1.20; total += 1.20;
+    sum += texture2D(uBackdrop, uv + vec2( 0.177000, -0.177000) * pxToUv) * 1.20; total += 1.20;
+    sum += texture2D(uBackdrop, uv + vec2(-0.177000,  0.177000) * pxToUv) * 1.20; total += 1.20;
+    sum += texture2D(uBackdrop, uv + vec2(-0.177000, -0.177000) * pxToUv) * 1.20; total += 1.20;
+    sum += texture2D(uBackdrop, uv + vec2( 0.400000,  0.100000) * pxToUv) * 1.10; total += 1.10;
+    sum += texture2D(uBackdrop, uv + vec2(-0.400000,  0.100000) * pxToUv) * 1.10; total += 1.10;
+    sum += texture2D(uBackdrop, uv + vec2( 0.100000,  0.400000) * pxToUv) * 1.10; total += 1.10;
+    sum += texture2D(uBackdrop, uv + vec2( 0.100000, -0.400000) * pxToUv) * 1.10; total += 1.10;
+
+    // Outer ring (~1.0 radius) — 32 taps, weight decaying from 0.9 to 0.4
+    sum += texture2D(uBackdrop, uv + vec2( 0.998000,  0.000000) * pxToUv) * 0.85; total += 0.85;
+    sum += texture2D(uBackdrop, uv + vec2(-0.998000,  0.000000) * pxToUv) * 0.85; total += 0.85;
+    sum += texture2D(uBackdrop, uv + vec2( 0.000000,  0.998000) * pxToUv) * 0.85; total += 0.85;
+    sum += texture2D(uBackdrop, uv + vec2( 0.000000, -0.998000) * pxToUv) * 0.85; total += 0.85;
+    sum += texture2D(uBackdrop, uv + vec2( 0.900000,  0.430000) * pxToUv) * 0.80; total += 0.80;
+    sum += texture2D(uBackdrop, uv + vec2( 0.900000, -0.430000) * pxToUv) * 0.80; total += 0.80;
+    sum += texture2D(uBackdrop, uv + vec2(-0.900000,  0.430000) * pxToUv) * 0.80; total += 0.80;
+    sum += texture2D(uBackdrop, uv + vec2(-0.900000, -0.430000) * pxToUv) * 0.80; total += 0.80;
+    sum += texture2D(uBackdrop, uv + vec2( 0.430000,  0.900000) * pxToUv) * 0.80; total += 0.80;
+    sum += texture2D(uBackdrop, uv + vec2( 0.430000, -0.900000) * pxToUv) * 0.80; total += 0.80;
+    sum += texture2D(uBackdrop, uv + vec2(-0.430000,  0.900000) * pxToUv) * 0.80; total += 0.80;
+    sum += texture2D(uBackdrop, uv + vec2(-0.430000, -0.900000) * pxToUv) * 0.80; total += 0.80;
+    sum += texture2D(uBackdrop, uv + vec2( 0.770000,  0.640000) * pxToUv) * 0.70; total += 0.70;
+    sum += texture2D(uBackdrop, uv + vec2( 0.770000, -0.640000) * pxToUv) * 0.70; total += 0.70;
+    sum += texture2D(uBackdrop, uv + vec2(-0.770000,  0.640000) * pxToUv) * 0.70; total += 0.70;
+    sum += texture2D(uBackdrop, uv + vec2(-0.770000, -0.640000) * pxToUv) * 0.70; total += 0.70;
+    sum += texture2D(uBackdrop, uv + vec2( 0.640000,  0.770000) * pxToUv) * 0.70; total += 0.70;
+    sum += texture2D(uBackdrop, uv + vec2( 0.640000, -0.770000) * pxToUv) * 0.70; total += 0.70;
+    sum += texture2D(uBackdrop, uv + vec2(-0.640000,  0.770000) * pxToUv) * 0.70; total += 0.70;
+    sum += texture2D(uBackdrop, uv + vec2(-0.640000, -0.770000) * pxToUv) * 0.70; total += 0.70;
+    sum += texture2D(uBackdrop, uv + vec2( 0.980000,  0.200000) * pxToUv) * 0.60; total += 0.60;
+    sum += texture2D(uBackdrop, uv + vec2( 0.980000, -0.200000) * pxToUv) * 0.60; total += 0.60;
+    sum += texture2D(uBackdrop, uv + vec2(-0.980000,  0.200000) * pxToUv) * 0.60; total += 0.60;
+    sum += texture2D(uBackdrop, uv + vec2(-0.980000, -0.200000) * pxToUv) * 0.60; total += 0.60;
+    sum += texture2D(uBackdrop, uv + vec2( 0.200000,  0.980000) * pxToUv) * 0.60; total += 0.60;
+    sum += texture2D(uBackdrop, uv + vec2( 0.200000, -0.980000) * pxToUv) * 0.60; total += 0.60;
+    sum += texture2D(uBackdrop, uv + vec2(-0.200000,  0.980000) * pxToUv) * 0.60; total += 0.60;
+    sum += texture2D(uBackdrop, uv + vec2(-0.200000, -0.980000) * pxToUv) * 0.60; total += 0.60;
+    sum += texture2D(uBackdrop, uv + vec2( 0.560000,  0.835000) * pxToUv) * 0.50; total += 0.50;
+    sum += texture2D(uBackdrop, uv + vec2( 0.560000, -0.835000) * pxToUv) * 0.50; total += 0.50;
+    sum += texture2D(uBackdrop, uv + vec2(-0.560000,  0.835000) * pxToUv) * 0.50; total += 0.50;
+    sum += texture2D(uBackdrop, uv + vec2(-0.560000, -0.835000) * pxToUv) * 0.50; total += 0.50;
+    sum += texture2D(uBackdrop, uv + vec2( 0.835000,  0.560000) * pxToUv) * 0.50; total += 0.50;
+    sum += texture2D(uBackdrop, uv + vec2( 0.835000, -0.560000) * pxToUv) * 0.50; total += 0.50;
+    sum += texture2D(uBackdrop, uv + vec2(-0.835000,  0.560000) * pxToUv) * 0.50; total += 0.50;
+    sum += texture2D(uBackdrop, uv + vec2(-0.835000, -0.560000) * pxToUv) * 0.50; total += 0.50;
 
     return sum / total;
 }
@@ -292,6 +334,15 @@ vec3 blendHue(vec3 dst, vec3 src) {
 void main() {
     // gl_FragCoord origin is bottom-left in WebGL; flip to top-left.
     vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
+    // Content scale: when < 1.0, compress the backdrop UV toward the element
+    // center. Faithful to LiquidToggle.kt's scale(scaleX, scaleY) applied to
+    // the track backdrop — the track content appears to shrink inward when
+    // the knob is pressed.
+    vec2 sampleCoord = screenCoord;
+    if (uContentScale < 0.999) {
+        vec2 elementCenter = uElementOffset + uElementSize * 0.5;
+        sampleCoord = elementCenter + (screenCoord - elementCenter) * uContentScale;
+    }
     vec2 localCoord = screenCoord - uElementOffset;
     vec2 halfSize = uElementSize * 0.5;
     // Faithful to AGSL: centeredCoord = (coord + offset) - halfSize.
@@ -312,7 +363,9 @@ void main() {
     }
 
     // --- 1. Backdrop sample (before refraction) -------------------
-    vec4 backdrop = sampleBackdrop(screenCoord, uBlurRadius);
+    // Use sampleCoord (content-scaled) so the backdrop shrinks inward when
+    // uContentScale < 1.0 (toggle knob press effect).
+    vec4 backdrop = sampleBackdrop(sampleCoord, uBlurRadius);
     vec3 color = applyColorControls(backdrop.rgb, uBrightness, uContrast, uSaturation);
     float alpha = backdrop.a;
 
@@ -337,7 +390,14 @@ void main() {
         if (gradLen > 1e-6) grad = gradSum / gradLen;
 
         vec2 refractedLocal = localCoord + d * grad;
+        // Apply content scale to the refracted sample too, so the lens
+        // refraction also sees the compressed backdrop.
         vec2 refractedScreen = uElementOffset + refractedLocal;
+        vec2 refractedSampleCoord = refractedScreen;
+        if (uContentScale < 0.999) {
+            vec2 elementCenter = uElementOffset + uElementSize * 0.5;
+            refractedSampleCoord = elementCenter + (refractedScreen - elementCenter) * uContentScale;
+        }
 
         if (uChromaticAberration > 0.5) {
             float dispersionIntensity = 1.0 * ((centeredCoord.x * centeredCoord.y) / (halfSize.x * halfSize.y));
@@ -346,34 +406,34 @@ void main() {
             vec3 dispColor = vec3(0.0);
             float dispAlpha = 0.0;
 
-            vec4 redC    = sampleBackdrop(refractedScreen + dispersedCoord,               uBlurRadius);
+            vec4 redC    = sampleBackdrop(refractedSampleCoord + dispersedCoord,               uBlurRadius);
             dispColor.r += redC.r / 3.5;
             dispAlpha   += redC.a / 7.0;
 
-            vec4 orangeC = sampleBackdrop(refractedScreen + dispersedCoord * (2.0 / 3.0), uBlurRadius);
+            vec4 orangeC = sampleBackdrop(refractedSampleCoord + dispersedCoord * (2.0 / 3.0), uBlurRadius);
             dispColor.r += orangeC.r / 3.5;
             dispColor.g += orangeC.g / 7.0;
             dispAlpha   += orangeC.a / 7.0;
 
-            vec4 yellowC = sampleBackdrop(refractedScreen + dispersedCoord * (1.0 / 3.0), uBlurRadius);
+            vec4 yellowC = sampleBackdrop(refractedSampleCoord + dispersedCoord * (1.0 / 3.0), uBlurRadius);
             dispColor.r += yellowC.r / 3.5;
             dispColor.g += yellowC.g / 3.5;
             dispAlpha   += yellowC.a / 7.0;
 
-            vec4 greenC  = sampleBackdrop(refractedScreen,                               uBlurRadius);
+            vec4 greenC  = sampleBackdrop(refractedSampleCoord,                               uBlurRadius);
             dispColor.g += greenC.g / 3.5;
             dispAlpha   += greenC.a / 7.0;
 
-            vec4 cyanC   = sampleBackdrop(refractedScreen - dispersedCoord * (1.0 / 3.0), uBlurRadius);
+            vec4 cyanC   = sampleBackdrop(refractedSampleCoord - dispersedCoord * (1.0 / 3.0), uBlurRadius);
             dispColor.g += cyanC.g / 3.5;
             dispColor.b += cyanC.b / 3.0;
             dispAlpha   += cyanC.a / 7.0;
 
-            vec4 blueC   = sampleBackdrop(refractedScreen - dispersedCoord * (2.0 / 3.0), uBlurRadius);
+            vec4 blueC   = sampleBackdrop(refractedSampleCoord - dispersedCoord * (2.0 / 3.0), uBlurRadius);
             dispColor.b += blueC.b / 3.0;
             dispAlpha   += blueC.a / 7.0;
 
-            vec4 purpleC = sampleBackdrop(refractedScreen - dispersedCoord,               uBlurRadius);
+            vec4 purpleC = sampleBackdrop(refractedSampleCoord - dispersedCoord,               uBlurRadius);
             dispColor.r += purpleC.r / 7.0;
             dispColor.b += purpleC.b / 3.0;
             dispAlpha   += purpleC.a / 7.0;
@@ -381,7 +441,7 @@ void main() {
             color = applyColorControls(dispColor, uBrightness, uContrast, uSaturation);
             alpha = dispAlpha;
         } else {
-            vec4 refracted = sampleBackdrop(refractedScreen, uBlurRadius);
+            vec4 refracted = sampleBackdrop(refractedSampleCoord, uBlurRadius);
             color = applyColorControls(refracted.rgb, uBrightness, uContrast, uSaturation);
             alpha = refracted.a;
         }
