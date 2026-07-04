@@ -720,31 +720,32 @@ void main() {
         discard;
     }
 
-    // Stroke mask: FAITHFUL to the original paint behavior.
+    // Stroke mask — approximates Android's stroke + BlurMaskFilter convolved
+    // with clipOutline (clip to inside the shape).
     //
-    // The original draws a STROKE centered on the edge with strokeWidth,
-    // then clips to inside the shape (clipOutline). The visible stroke
-    // band is sd ∈ [-strokeWidth/2, 0]. The blur (BlurMaskFilter on the
-    // paint) softens the inner edge; the outer edge is hard-clipped by
-    // the shape clip.
+    // Original paint setup (HighlightModifier.kt):
+    //   paint.style = Stroke
+    //   paint.strokeWidth = ceil(width.toPx()) * 2     // full stroke, centered on edge
+    //   paint.blur(blurRadius.toPx())                   // BlurMaskFilter, Blur.NORMAL
+    //   canvas.clipOutline(outline)                     // clip to inside the shape
+    //   canvas.drawOutline(outline, paint)              // stroke centered on edge
     //
-    // Correct mask shape:
-    //   sd <= -strokeWidth/2 - blur: 0   (outside the blur)
-    //   sd ∈ [-strokeWidth/2 - blur, -strokeWidth/2]: smooth fade-in (blur)
-    //   sd ∈ [-strokeWidth/2, 0]: 1.0   (FLAT — full stroke, not a triangle)
-    //   sd > 0: 0                       (hard-clipped by shape, 1px AA)
+    // The clip removes the outer half of the stroke (sd > 0). The visible
+    // inside half (sd ∈ [-strokeWidth/2, 0]) is then softened by the blur
+    // mask filter, which spreads alpha over ~±radius from each edge of
+    // the stroke. The result is roughly a TRIANGULAR profile:
+    //   - peak (alpha ≈ 1) near sd = -strokeWidth/2 (inner edge of stroke)
+    //   - fade to 0 at sd = -strokeWidth/2 - blur   (blur spread inward)
+    //   - fade to 0 at sd = 0                         (shape edge, clip)
     //
-    // BUGFIX: the previous code used edgeAlpha = 1 - smoothstep(-1, 0, sd),
-    // which fades the mask from 1 to 0 across the ENTIRE stroke band
-    // [-strokeWidth/2, 0]. That produced a triangular mask (peak at the
-    // inner edge, zero at the outer edge) instead of a flat band — making
-    // the stroke look like a thin line rather than an even-width ring.
+    // We approximate this as:
+    //   strokeMask = smoothstep(-W/2 - blur, -W/2, sd)   // blur fade-in
+    //              * (1 - smoothstep(-W/2, 0, sd))       // triangle fade-out toward edge
+    // where W = strokeWidth. This gives a triangular peak at sd = -W/2.
     float strokeInner = -uHighlightStrokeWidth * 0.5;
     float strokeMask = smoothstep(strokeInner - uHighlightBlur, strokeInner, sd);
-    // 1px AA at the shape edge (sd = 0), matching clipOutline's AA.
-    // This does NOT fade across the stroke band — only at the very edge.
-    float edgeAA = 1.0 - smoothstep(-0.5, 0.5, sd);
-    strokeMask *= edgeAA;
+    float edgeFade = 1.0 - smoothstep(strokeInner, 0.0, sd);
+    strokeMask *= edgeFade;
 
     if (uHighlightMode < 0.5) {
         // Default — shader returns color * intensity, Plus blend.

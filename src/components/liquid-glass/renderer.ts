@@ -929,16 +929,20 @@ export class LiquidGlassRenderer {
         gl.uniform4f(this.uHl['uColor'], 1, 1, 1, 0.15 * p)
         const minDim = Math.min(sw, sh) * this.dpr
         gl.uniform1f(this.uHl['uRadius'], minDim * 1.5)
-        // Position: convert dragX/dragY (original-rect-local CSS px) to
-        // scaled-rect-local device px so the glow stays under the finger
-        // even when the rect grows/translates during press.
-        //   fingerCanvasCssX = dragX + el.rect.x
-        //   fingerScaledLocalDeviceX = (fingerCanvasCssX - sx) * dpr
-        gl.uniform2f(
-          this.uHl['uPosition'],
-          (st.dragX + el.rect.x - sx) * this.dpr,
-          (st.dragY + el.rect.y - sy) * this.dpr
-        )
+        // Position: faithful to InteractiveHighlight.kt's
+        //   position.x.fastCoerceIn(0f, size.width)
+        //   position.y.fastCoerceIn(0f, size.height)
+        // The Kotlin code CLAMPS the finger position to the element bounds
+        // before passing it to the shader — so the glow stays anchored at
+        // the edge when the finger drags off the button (instead of
+        // following the finger off-button).
+        //
+        // fingerCanvasCssX = dragX + el.rect.x  (finger in canvas CSS px)
+        // fingerScaledLocalCssX = fingerCanvasCssX - sx  (in scaled rect local)
+        // CLAMP to [0, sw] then * dpr → element-local device px for shader.
+        const px = Math.max(0, Math.min(sw, st.dragX + el.rect.x - sx)) * this.dpr
+        const py = Math.max(0, Math.min(sh, st.dragY + el.rect.y - sy)) * this.dpr
+        gl.uniform2f(this.uHl['uPosition'], px, py)
         gl.drawArrays(gl.TRIANGLES, 0, 6)
         // Restore normal blending.
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
