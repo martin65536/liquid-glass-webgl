@@ -24,10 +24,11 @@ import type { GlassButtonConfig } from '@/components/liquid-glass/renderer'
  * Wallpaper = wallpaper_light.webp (cover-fit, centered).
  * ------------------------------------------------------------------ */
 
-// Density factor: 1 dp = DP css px. We use 2 (a typical Android phone
-// density) instead of 3 — at DP=3 the buttons were too chunky on a
-// 420px-wide frame.
-const DP = 2
+// Density factor: CSS pixels are already density-independent units
+// (equivalent to Android dp), so we use DP=1. Using DP=2 here would
+// double-count density — buttons would render ~2x larger than the
+// original 48dp spec.
+const DP = 1
 
 // 1 dp = DP css px. The catalog uses 48.dp height and 16.dp padding.
 const BUTTON_HEIGHT = 48 * DP

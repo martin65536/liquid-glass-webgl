@@ -97,23 +97,36 @@ interface ButtonState {
 }
 
 /* ------------------------------------------------------------------ *
- * Underdamped spring physics — faithful port of Compose's
+ * Underdamped spring physics — EXACT closed-form port of Compose's
  * spring(dampingRatio = 0.5f, stiffness = 300f) used by
  * InteractiveHighlight.kt for both pressProgress and drag offset.
  *
- * With mass = 1:
- *   k = stiffness             = 300
- *   c = 2 * dampingRatio * sqrt(k * m) = sqrt(k) = sqrt(300) ≈ 17.32
- *   a = -k * (x - target) - c * v
- *   v += a * dt
- *   x += v * dt
+ * Compose's SpringSpec uses the exact analytical solution for the
+ * underdamped ODE m·ẍ + c·ẋ + k·(x - target) = 0:
  *
- * The natural frequency omega_n = sqrt(k/m) ≈ 17.32 rad/s.
- * For numerical stability we sub-step so that dt * omega_n < 0.1.
+ *   ω_n = sqrt(k/m)              = sqrt(300)   ≈ 17.3205
+ *   ζ   = dampingRatio           = 0.5
+ *   ω_d = ω_n · sqrt(1 - ζ²)     ≈ 15.0
+ *
+ *   x(t) = target
+ *        + (x0 - target) · e^(-ζω_n·t) · cos(ω_d·t)
+ *        + ((v0 + ζω_n·(x0 - target)) / ω_d) · e^(-ζω_n·t) · sin(ω_d·t)
+ *
+ *   v(t) = -ζω_n · A(t) + ω_d · B(t) ... (full derivative)
+ *
+ * where A(t) = (x0-target)·e^(-ζω_n·t)·cos(ω_d·t) + ... is the offset
+ * from target. We compute both x and v at the end of each frame's dt
+ * using this closed form, which is EXACT — no numerical damping, no
+ * energy loss. This matches Compose's behavior bit-for-bit, including
+ * the full overshoot/undershoot oscillation.
+ *
+ * When the target changes (press → release), we re-derive x0/v0 from
+ * the current state, so the spring smoothly redirects.
  * ------------------------------------------------------------------ */
 const SPRING_K = 300
-const SPRING_C = 17.3205 // 2 * 0.5 * sqrt(300)
-const SPRING_MAX_SUBSTEP = 0.1 / SPRING_K ** 0.5 // ~5.77 ms
+const SPRING_DAMPING_RATIO = 0.5
+const SPRING_OMEGA_N = Math.sqrt(SPRING_K) // ≈ 17.3205 (m = 1)
+const SPRING_OMEGA_D = SPRING_OMEGA_N * Math.sqrt(1 - SPRING_DAMPING_RATIO * SPRING_DAMPING_RATIO) // ≈ 15.0
 const SPRING_THRESHOLD = 0.0005
 
 function springStep1D(
@@ -122,16 +135,31 @@ function springStep1D(
   target: number,
   dt: number
 ): { current: number; velocity: number } {
-  let cur = current
-  let vel = velocity
-  const steps = Math.max(1, Math.ceil(dt / SPRING_MAX_SUBSTEP))
-  const subDt = dt / steps
-  for (let i = 0; i < steps; i++) {
-    const a = -SPRING_K * (cur - target) - SPRING_C * vel
-    vel += a * subDt
-    cur += vel * subDt
-  }
-  return { current: cur, velocity: vel }
+  // Closed-form solution of the underdamped spring ODE.
+  // For the critically damped / overdamped case (ζ >= 1) we'd need a
+  // different formula, but our ζ = 0.5 so this branch is always taken.
+  const x0 = current - target
+  const v0 = velocity
+
+  // Decay envelope.
+  const decay = Math.exp(-SPRING_DAMPING_RATIO * SPRING_OMEGA_N * dt)
+  const cosWd = Math.cos(SPRING_OMEGA_D * dt)
+  const sinWd = Math.sin(SPRING_OMEGA_D * dt)
+
+  // Position relative to target.
+  const offset =
+    x0 * decay * cosWd +
+    ((v0 + SPRING_DAMPING_RATIO * SPRING_OMEGA_N * x0) / SPRING_OMEGA_D) * decay * sinWd
+
+  // Velocity (derivative of the position expression).
+  // v(t) = -ζω_n·offset(t) + ω_d·[(-x0·sin + B0·cos)·decay]
+  // where B0 = (v0 + ζω_n·x0)/ω_d
+  const b0 = (v0 + SPRING_DAMPING_RATIO * SPRING_OMEGA_N * x0) / SPRING_OMEGA_D
+  const newVel =
+    -SPRING_DAMPING_RATIO * SPRING_OMEGA_N * offset +
+    decay * (-x0 * SPRING_OMEGA_D * sinWd + b0 * SPRING_OMEGA_D * cosWd)
+
+  return { current: target + offset, velocity: newVel }
 }
 
 /* ------------------------------------------------------------------ *
@@ -411,6 +439,14 @@ export class LiquidGlassRenderer {
    * is recorded as the drag start; subsequent calls with pressed=true update
    * the drag target. When pressed=false, the drag target springs back to
    * the start position.
+   *
+   * FAITHFUL TO InteractiveHighlight.kt:
+   *   - onDragStart: positionAnimation.snapTo(down.position)  // instant snap
+   *   - onDrag:      positionAnimation.snapTo(change.position) // instant snap
+   *   - onDragEnd:   positionAnimation.animateTo(startPosition, springSpec) // spring back
+   *
+   * So during a drag the position FOLLOWS the finger instantly (no spring
+   * lag); only on release does the spring kick in to return to start.
    */
   setPressed(id: string, pressed: boolean, position?: { x: number; y: number }) {
     const st = this.buttonStates.get(id)
@@ -422,19 +458,27 @@ export class LiquidGlassRenderer {
         const localX = position.x - btn.rect.x
         const localY = position.y - btn.rect.y
         if (st.targetPress === 0) {
-          // Drag start — record start position.
+          // Drag start — record start position AND snap current to it
+          // (matches positionAnimation.snapTo(startPosition)).
           st.startDragX = localX
           st.startDragY = localY
           st.dragX = localX
           st.dragY = localY
+          st.dragVx = 0
+          st.dragVy = 0
         }
+        // During drag, snap directly (matches positionAnimation.snapTo(change.position)).
+        st.dragX = localX
+        st.dragY = localY
+        st.dragVx = 0
+        st.dragVy = 0
         st.targetDragX = localX
         st.targetDragY = localY
       }
       st.targetPress = 1
     } else {
       st.targetPress = 0
-      // Spring drag back to start.
+      // Spring drag back to start (matches positionAnimation.animateTo(startPosition, spec)).
       st.targetDragX = st.startDragX
       st.targetDragY = st.startDragY
     }
@@ -444,15 +488,26 @@ export class LiquidGlassRenderer {
   /**
    * Update the drag position while pressed (without changing press state).
    * Used for pointermove during a drag.
+   *
+   * FAITHFUL TO InteractiveHighlight.kt: positionAnimation.snapTo(change.position)
+   * — the position FOLLOWS the finger instantly with no spring lag. Only
+   * on release (setPressed false) does the spring kick in to return to start.
    */
   setDragPosition(id: string, position: { x: number; y: number }) {
     const st = this.buttonStates.get(id)
     if (!st || st.targetPress === 0) return
     const btn = this.buttonConfigs.find((b) => b.id === id)
     if (!btn) return
-    st.targetDragX = position.x - btn.rect.x
-    st.targetDragY = position.y - btn.rect.y
-    this.startAnimation()
+    const localX = position.x - btn.rect.x
+    const localY = position.y - btn.rect.y
+    // Snap directly to finger position — no spring lag during drag.
+    st.dragX = localX
+    st.dragY = localY
+    st.dragVx = 0
+    st.dragVy = 0
+    st.targetDragX = localX
+    st.targetDragY = localY
+    this.requestRender()
   }
 
   /**
@@ -670,15 +725,20 @@ export class LiquidGlassRenderer {
       // 4dp / 48dp is a UNITLESS ratio (density cancels). The original Kotlin
       // uses `4f.dp.toPx() / size.height` where both numerator and denominator
       // are in device px — so the ratio is just 4/48 for a 48dp button.
-      // NOTE: This assumes a 48dp button height (the LiquidButton spec). For
-      // other heights, parameterize this.
+      //
+      // IMPORTANT: We do NOT clamp `p` to >= 0 here. The underdamped spring
+      // (dampingRatio=0.5, stiffness=300) overshoots on release, sending
+      // `p` briefly NEGATIVE — which makes scale drop below 1 (button
+      // shrinks a hair below rest). That undershoot is the "Q-bounce" you
+      // see in the original app. Skipping the transform when p <= 0.001
+      // would clip off the undershoot and kill the bounce.
       const PRESS_SCALE_RATIO = 4 / 48
       let scale = 1
       let translationX = 0
       let translationY = 0
       let scaleX = 1
       let scaleY = 1
-      if (el.isInteractive && p > 0.001) {
+      if (el.isInteractive && Math.abs(p) > 0.0001) {
         const width = el.rect.w
         const height = el.rect.h
         const maxDim = Math.max(width, height)
@@ -687,6 +747,7 @@ export class LiquidGlassRenderer {
         const initialDerivative = 0.05
         const maxDragScale = PRESS_SCALE_RATIO
 
+        // p can be negative on release overshoot — that's the Q-bounce.
         scale = 1 + PRESS_SCALE_RATIO * p
 
         // drag offset relative to start

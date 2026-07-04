@@ -1,0 +1,960 @@
+     1→     1→'use client'
+     2→     2→
+     3→     3→import {
+     4→     4→  ELEMENT_FRAGMENT_SHADER,
+     5→     5→  FOREGROUND_FRAGMENT_SHADER,
+     6→     6→  HIGHLIGHT_FRAGMENT_SHADER,
+     7→     7→  RIM_HIGHLIGHT_FRAGMENT_SHADER,
+     8→     8→  SHADOW_FRAGMENT_SHADER,
+     9→     9→  TINT_FRAGMENT_SHADER,
+    10→    10→  VERTEX_SHADER,
+    11→    11→  WALLPAPER_FRAGMENT_SHADER,
+    12→    12→} from './shaders'
+    13→    13→
+    14→    14→/* ------------------------------------------------------------------ *
+    15→    15→ * Types — mirror the Kotlin modifier parameters.
+    16→    16→ * ------------------------------------------------------------------ */
+    17→    17→
+    18→    18→export interface GlassRect {
+    19→    19→  x: number
+    20→    20→  y: number
+    21→    21→  w: number
+    22→    22→  h: number
+    23→    23→}
+    24→    24→
+    25→    25→export interface GlassHighlight {
+    26→    26→  /** 0 = Default, 1 = Ambient, 2 = Plain */
+    27→    27→  mode: 0 | 1 | 2
+    28→    28→  color: [number, number, number]
+    29→    29→  /** radians */
+    30→    30→  angle: number
+    31→    31→  falloff: number
+    32→    32→  alpha: number
+    33→    33→  /** Full stroke width in CSS px (matches paint.strokeWidth = ceil(width.dp.toPx()) * 2). */
+    34→    34→  strokeWidth: number
+    35→    35→  /** Blur radius in CSS px (matches paint.blur(width.dp.toPx() / 2)). */
+    36→    36→  blur: number
+    37→    37→}
+    38→    38→
+    39→    39→export interface GlassButtonConfig {
+    40→    40→  /** Unique id used to track per-button press state across re-renders. */
+    41→    41→  id: string
+    42→    42→  /** Button rectangle in CSS pixels (canvas-relative, top-left origin). */
+    43→    43→  rect: GlassRect
+    44→    44→  /** Uniform corner radius in CSS pixels. Capsule = min(w,h)/2. */
+    45→    45→  cornerRadius: number
+    46→    46→  refractionHeight: number
+    47→    47→  /** Already negated to match Kotlin's -refractionAmount. */
+    48→    48→  refractionAmount: number
+    49→    49→  depthEffect: boolean
+    50→    50→  chromaticAberration: boolean
+    51→    51→  blurRadius: number
+    52→    52→  saturation: number
+    53→    53→  brightness: number
+    54→    54→  contrast: number
+    55→    55→  /** [r,g,b,a] 0..1; alpha 0 = no tint */
+    56→    56→  tintColor: [number, number, number, number]
+    57→    57→  /** [r,g,b,a] 0..1; alpha 0 = no surface */
+    58→    58→  surfaceColor: [number, number, number, number]
+    59→    59→  highlight: GlassHighlight | null
+    60→    60→  outerShadow: {
+    61→    61→    radius: number
+    62→    62→    alpha: number
+    63→    63→    offsetX: number
+    64→    64→    offsetY: number
+    65→    65→    color: [number, number, number]
+    66→    66→  } | null
+    67→    67→  /** Button label text. */
+    68→    68→  label: string
+    69→    69→  /** Label color (black or white depending on tint). */
+    70→    70→  labelColor: [number, number, number, number]
+    71→    71→  /** Show the right chevron. */
+    72→    72→  showChevron: boolean
+    73→    73→  /** Whether to apply InteractiveHighlight press effect. */
+    74→    74→  isInteractive: boolean
+    75→    75→}
+    76→    76→
+    77→    77→/* ------------------------------------------------------------------ *
+    78→    78→ * Per-button interaction state — mirrors InteractiveHighlight.kt.
+    79→    79→ * ------------------------------------------------------------------ */
+    80→    80→
+    81→    81→interface ButtonState {
+    82→    82→  // pressProgress interpolates 0..1 with an underdamped spring
+    83→    83→  // (matches Compose spring(dampingRatio=0.5, stiffness=300)).
+    84→    84→  pressProgress: number
+    85→    85→  pressVelocity: number
+    86→    86→  targetPress: number
+    87→    87→  // Drag position (element-local, top-left origin) follows the finger
+    88→    88→  // while pressed, springs back to start on release. Same spring spec.
+    89→    89→  dragX: number
+    90→    90→  dragY: number
+    91→    91→  dragVx: number
+    92→    92→  dragVy: number
+    93→    93→  targetDragX: number
+    94→    94→  targetDragY: number
+    95→    95→  startDragX: number
+    96→    96→  startDragY: number
+    97→    97→}
+    98→    98→
+    99→    99→/* ------------------------------------------------------------------ *
+   100→   100→ * Underdamped spring physics — faithful port of Compose's
+   101→   101→ * spring(dampingRatio = 0.5f, stiffness = 300f) used by
+   102→   102→ * InteractiveHighlight.kt for both pressProgress and drag offset.
+   103→   103→ *
+   104→   104→ * With mass = 1:
+   105→   105→ *   k = stiffness             = 300
+   106→   106→ *   c = 2 * dampingRatio * sqrt(k * m) = sqrt(k) = sqrt(300) ≈ 17.32
+   107→   107→ *   a = -k * (x - target) - c * v
+   108→   108→ *   v += a * dt
+   109→   109→ *   x += v * dt
+   110→   110→ *
+   111→   111→ * The natural frequency omega_n = sqrt(k/m) ≈ 17.32 rad/s.
+   112→   112→ * For numerical stability we sub-step so that dt * omega_n < 0.1.
+   113→   113→ * ------------------------------------------------------------------ */
+   114→   114→const SPRING_K = 300
+   115→   115→const SPRING_C = 17.3205 // 2 * 0.5 * sqrt(300)
+   116→   116→const SPRING_MAX_SUBSTEP = 0.1 / SPRING_K ** 0.5 // ~5.77 ms
+   117→   117→const SPRING_THRESHOLD = 0.0005
+   118→   118→
+   119→   119→function springStep1D(
+   120→   120→  current: number,
+   121→   121→  velocity: number,
+   122→   122→  target: number,
+   123→   123→  dt: number
+   124→   124→): { current: number; velocity: number } {
+   125→   125→  let cur = current
+   126→   126→  let vel = velocity
+   127→   127→  const steps = Math.max(1, Math.ceil(dt / SPRING_MAX_SUBSTEP))
+   128→   128→  const subDt = dt / steps
+   129→   129→  for (let i = 0; i < steps; i++) {
+   130→   130→    const a = -SPRING_K * (cur - target) - SPRING_C * vel
+   131→   131→    vel += a * subDt
+   132→   132→    cur += vel * subDt
+   133→   133→  }
+   134→   134→  return { current: cur, velocity: vel }
+   135→   135→}
+   136→   136→
+   137→   137→/* ------------------------------------------------------------------ *
+   138→   138→ * WebGL helpers
+   139→   139→ * ------------------------------------------------------------------ */
+   140→   140→
+   141→   141→function compileShader(gl: WebGLRenderingContext, type: number, src: string): WebGLShader {
+   142→   142→  const sh = gl.createShader(type)!
+   143→   143→  gl.shaderSource(sh, src)
+   144→   144→  gl.compileShader(sh)
+   145→   145→  if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+   146→   146→    const log = gl.getShaderInfoLog(sh)
+   147→   147→    gl.deleteShader(sh)
+   148→   148→    throw new Error('Shader compile error: ' + log)
+   149→   149→  }
+   150→   150→  return sh
+   151→   151→}
+   152→   152→
+   153→   153→function createProgram(gl: WebGLRenderingContext, vsSrc: string, fsSrc: string): WebGLProgram {
+   154→   154→  const vs = compileShader(gl, gl.VERTEX_SHADER, vsSrc)
+   155→   155→  const fs = compileShader(gl, gl.FRAGMENT_SHADER, fsSrc)
+   156→   156→  const p = gl.createProgram()!
+   157→   157→  gl.attachShader(p, vs)
+   158→   158→  gl.attachShader(p, fs)
+   159→   159→  gl.linkProgram(p)
+   160→   160→  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+   161→   161→    const log = gl.getProgramInfoLog(p)
+   162→   162→    gl.deleteProgram(p)
+   163→   163→    throw new Error('Program link error: ' + log)
+   164→   164→  }
+   165→   165→  return p
+   166→   166→}
+   167→   167→
+   168→   168→/* ------------------------------------------------------------------ *
+   169→   169→ * LiquidGlassRenderer
+   170→   170→ *
+   171→   171→ * One opaque WebGL canvas. Render pipeline per frame:
+   172→   172→ *   1. Wallpaper background pass (cover-fit).
+   173→   173→ *   2. For each button (in order):
+   174→   174→ *      a. Outer drop shadow pass (if configured).
+   175→   175→ *      b. Element pass (refraction + vibrancy + tint + highlight),
+   176→   176→ *         with InteractiveHighlight-driven scale/translation/stretch.
+   177→   177→ *      c. White overlay pass (Plus blend, 8% * progress) on press.
+   178→   178→ *      d. Radial highlight pass (Plus blend, at finger position) on press.
+   179→   179→ *      e. Foreground pass (button label, with press-driven alpha fade).
+   180→   180→ *
+   181→   181→ * No DOM children — the canvas owns the entire visual surface.
+   182→   182→ * ------------------------------------------------------------------ */
+   183→   183→export class LiquidGlassRenderer {
+   184→   184→  private gl: WebGLRenderingContext
+   185→   185→  private elementProgram: WebGLProgram
+   186→   186→  private shadowProgram: WebGLProgram
+   187→   187→  private wallpaperProgram: WebGLProgram
+   188→   188→  private foregroundProgram: WebGLProgram
+   189→   189→  private highlightProgram: WebGLProgram
+   190→   190→  private tintProgram: WebGLProgram
+   191→   191→  private rimHighlightProgram: WebGLProgram
+   192→   192→  private quadBuffer: WebGLBuffer
+   193→   193→  private wallpaperTexture: WebGLTexture | null = null
+   194→   194→  private wallpaperReady = false
+   195→   195→  private wallpaperSize: [number, number] = [1, 1]
+   196→   196→  private canvas: HTMLCanvasElement
+   197→   197→  private dpr = 1
+   198→   198→  private buttonConfigs: GlassButtonConfig[] = []
+   199→   199→  private buttonStates = new Map<string, ButtonState>()
+   200→   200→
+   201→   201→  // Offscreen 2D canvas for the foreground (label + chevron). Reused
+   202→   202→  // across buttons — we re-rasterize + re-upload per button per frame.
+   203→   203→  private fgCanvas: HTMLCanvasElement
+   204→   204→  private fgCtx: CanvasRenderingContext2D
+   205→   205→  private fgTextures = new Map<string, WebGLTexture>()
+   206→   206→  private fgDirtyIds = new Set<string>()
+   207→   207→
+   208→   208→  private rafId: number | null = null
+   209→   209→  private animRafId: number | null = null
+   210→   210→  private aPosLocEl: number
+   211→   211→  private aPosLocSh: number
+   212→   212→  private aPosLocWp: number
+   213→   213→  private aPosLocFg: number
+   214→   214→  private aPosLocHl: number
+   215→   215→  private aPosLocTn: number
+   216→   216→  private aPosLocRm: number
+   217→   217→
+   218→   218→  // Program uniform locations (cached)
+   219→   219→  private uEl: Record<string, WebGLUniformLocation | null> = {}
+   220→   220→  private uSh: Record<string, WebGLUniformLocation | null> = {}
+   221→   221→  private uWp: Record<string, WebGLUniformLocation | null> = {}
+   222→   222→  private uFg: Record<string, WebGLUniformLocation | null> = {}
+   223→   223→  private uHl: Record<string, WebGLUniformLocation | null> = {}
+   224→   224→  private uTn: Record<string, WebGLUniformLocation | null> = {}
+   225→   225→  private uRm: Record<string, WebGLUniformLocation | null> = {}
+   226→   226→
+   227→   227→  constructor(canvas: HTMLCanvasElement) {
+   228→   228→    this.canvas = canvas
+   229→   229→    const gl = canvas.getContext('webgl', {
+   230→   230→      premultipliedAlpha: false,
+   231→   231→      alpha: false,
+   232→   232→      antialias: true,
+   233→   233→      preserveDrawingBuffer: false,
+   234→   234→    })
+   235→   235→    if (!gl) throw new Error('WebGL not supported')
+   236→   236→    this.gl = gl
+   237→   237→
+   238→   238→    this.elementProgram = createProgram(gl, VERTEX_SHADER, ELEMENT_FRAGMENT_SHADER)
+   239→   239→    this.shadowProgram = createProgram(gl, VERTEX_SHADER, SHADOW_FRAGMENT_SHADER)
+   240→   240→    this.wallpaperProgram = createProgram(gl, VERTEX_SHADER, WALLPAPER_FRAGMENT_SHADER)
+   241→   241→    this.foregroundProgram = createProgram(gl, VERTEX_SHADER, FOREGROUND_FRAGMENT_SHADER)
+   242→   242→    this.highlightProgram = createProgram(gl, VERTEX_SHADER, HIGHLIGHT_FRAGMENT_SHADER)
+   243→   243→    this.tintProgram = createProgram(gl, VERTEX_SHADER, TINT_FRAGMENT_SHADER)
+   244→   244→    this.rimHighlightProgram = createProgram(gl, VERTEX_SHADER, RIM_HIGHLIGHT_FRAGMENT_SHADER)
+   245→   245→
+   246→   246→    // Fullscreen quad
+   247→   247→    this.quadBuffer = gl.createBuffer()!
+   248→   248→    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+   249→   249→    gl.bufferData(
+   250→   250→      gl.ARRAY_BUFFER,
+   251→   251→      new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]),
+   252→   252→      gl.STATIC_DRAW
+   253→   253→    )
+   254→   254→
+   255→   255→    this.aPosLocEl = gl.getAttribLocation(this.elementProgram, 'aPos')
+   256→   256→    this.aPosLocSh = gl.getAttribLocation(this.shadowProgram, 'aPos')
+   257→   257→    this.aPosLocWp = gl.getAttribLocation(this.wallpaperProgram, 'aPos')
+   258→   258→    this.aPosLocFg = gl.getAttribLocation(this.foregroundProgram, 'aPos')
+   259→   259→    this.aPosLocHl = gl.getAttribLocation(this.highlightProgram, 'aPos')
+   260→   260→    this.aPosLocTn = gl.getAttribLocation(this.tintProgram, 'aPos')
+   261→   261→    this.aPosLocRm = gl.getAttribLocation(this.rimHighlightProgram, 'aPos')
+   262→   262→
+   263→   263→    // Offscreen 2D canvas for the foreground texture.
+   264→   264→    this.fgCanvas = typeof document !== 'undefined' ? document.createElement('canvas') : (null as any)
+   265→   265→    const fgCtx = this.fgCanvas?.getContext('2d', { alpha: true })
+   266→   266→    if (!fgCtx) throw new Error('2D canvas not supported')
+   267→   267→    this.fgCtx = fgCtx
+   268→   268→
+   269→   269→    this.cacheUniforms()
+   270→   270→  }
+   271→   271→
+   272→   272→  private cacheUniforms() {
+   273→   273→    const gl = this.gl
+   274→   274→    const elNames = [
+   275→   275→      'uBackdrop', 'uCanvasSize', 'uWallpaperSize', 'uElementOffset', 'uElementSize',
+   276→   276→      'uCornerRadii', 'uRefractionHeight', 'uRefractionAmount', 'uDepthEffect',
+   277→   277→      'uChromaticAberration', 'uBlurRadius', 'uSaturation', 'uBrightness',
+   278→   278→      'uContrast', 'uTintColor', 'uSurfaceColor', 'uHighlightColor',
+   279→   279→      'uHighlightAngle', 'uHighlightFalloff', 'uHighlightAlpha', 'uHighlightMode',
+   280→   280→      'uHighlightStrokeWidth', 'uHighlightBlur',
+   281→   281→      'uInnerShadowRadius', 'uInnerShadowAlpha', 'uInnerShadowOffset',
+   282→   282→    ]
+   283→   283→    for (const n of elNames) this.uEl[n] = gl.getUniformLocation(this.elementProgram, n)
+   284→   284→    const shNames = [
+   285→   285→      'uCanvasSize', 'uElementOffset', 'uElementSize', 'uCornerRadii',
+   286→   286→      'uShadowRadius', 'uShadowOffset', 'uShadowColor',
+   287→   287→    ]
+   288→   288→    for (const n of shNames) this.uSh[n] = gl.getUniformLocation(this.shadowProgram, n)
+   289→   289→    const wpNames = ['uBackdrop', 'uCanvasSize', 'uWallpaperSize']
+   290→   290→    for (const n of wpNames) this.uWp[n] = gl.getUniformLocation(this.wallpaperProgram, n)
+   291→   291→    const fgNames = ['uTexture', 'uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uAlpha']
+   292→   292→    for (const n of fgNames) this.uFg[n] = gl.getUniformLocation(this.foregroundProgram, n)
+   293→   293→    const hlNames = ['uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uColor', 'uRadius', 'uPosition']
+   294→   294→    for (const n of hlNames) this.uHl[n] = gl.getUniformLocation(this.highlightProgram, n)
+   295→   295→    const tnNames = ['uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uColor']
+   296→   296→    for (const n of tnNames) this.uTn[n] = gl.getUniformLocation(this.tintProgram, n)
+   297→   297→    const rmNames = [
+   298→   298→      'uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii',
+   299→   299→      'uHighlightColor', 'uHighlightAngle', 'uHighlightFalloff',
+   300→   300→      'uHighlightAlpha', 'uHighlightMode', 'uHighlightStrokeWidth',
+   301→   301→      'uHighlightBlur',
+   302→   302→    ]
+   303→   303→    for (const n of rmNames) this.uRm[n] = gl.getUniformLocation(this.rimHighlightProgram, n)
+   304→   304→  }
+   305→   305→
+   306→   306→  /** Load the wallpaper image as a texture. */
+   307→   307→  async loadWallpaper(src: string) {
+   308→   308→    const img = new Image()
+   309→   309→    img.crossOrigin = 'anonymous'
+   310→   310→    await new Promise<void>((resolve, reject) => {
+   311→   311→      img.onload = () => resolve()
+   312→   312→      img.onerror = () => reject(new Error('Failed to load wallpaper: ' + src))
+   313→   313→      img.src = src
+   314→   314→    })
+   315→   315→    const gl = this.gl
+   316→   316→    if (this.wallpaperTexture) gl.deleteTexture(this.wallpaperTexture)
+   317→   317→    const tex = gl.createTexture()!
+   318→   318→    gl.bindTexture(gl.TEXTURE_2D, tex)
+   319→   319→    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
+   320→   320→    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img)
+   321→   321→    const w = img.naturalWidth
+   322→   322→    const h = img.naturalHeight
+   323→   323→    const isPOT = (w & (w - 1)) === 0 && (h & (h - 1)) === 0
+   324→   324→    if (isPOT) {
+   325→   325→      gl.generateMipmap(gl.TEXTURE_2D)
+   326→   326→      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
+   327→   327→    } else {
+   328→   328→      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+   329→   329→    }
+   330→   330→    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+   331→   331→    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+   332→   332→    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+   333→   333→    this.wallpaperTexture = tex
+   334→   334→    this.wallpaperSize = [w || 1, h || 1]
+   335→   335→    this.wallpaperReady = true
+   336→   336→    this.requestRender()
+   337→   337→  }
+   338→   338→
+   339→   339→  /** Set canvas size (CSS pixels) + handle DPR. */
+   340→   340→  resize(cssW: number, cssH: number) {
+   341→   341→    this.dpr = Math.min(window.devicePixelRatio || 1, 2)
+   342→   342→    const w = Math.round(cssW * this.dpr)
+   343→   343→    const h = Math.round(cssH * this.dpr)
+   344→   344→    if (this.canvas.width !== w || this.canvas.height !== h) {
+   345→   345→      this.canvas.width = w
+   346→   346→      this.canvas.height = h
+   347→   347→      this.gl.viewport(0, 0, w, h)
+   348→   348→    }
+   349→   349→    // All foregrounds need re-rasterization when DPR changes.
+   350→   350→    for (const b of this.buttonConfigs) this.fgDirtyIds.add(b.id)
+   351→   351→    this.requestRender()
+   352→   352→  }
+   353→   353→
+   354→   354→  /** Set the button list. Triggers foreground re-raster for changed buttons. */
+   355→   355→  setButtons(configs: GlassButtonConfig[]) {
+   356→   356→    const prevIds = new Set(this.buttonConfigs.map((b) => b.id))
+   357→   357→    const nextIds = new Set(configs.map((b) => b.id))
+   358→   358→    // Mark new buttons as needing rasterization.
+   359→   359→    for (const id of nextIds) if (!prevIds.has(id)) this.fgDirtyIds.add(id)
+   360→   360→    // Mark buttons whose label/rect/color changed as needing rasterization.
+   361→   361→    for (const next of configs) {
+   362→   362→      const prev = this.buttonConfigs.find((b) => b.id === next.id)
+   363→   363→      if (!prev) continue
+   364→   364→      if (
+   365→   365→        prev.label !== next.label ||
+   366→   366→        prev.labelColor !== next.labelColor ||
+   367→   367→        prev.showChevron !== next.showChevron ||
+   368→   368→        prev.rect.w !== next.rect.w ||
+   369→   369→        prev.rect.h !== next.rect.h
+   370→   370→      ) {
+   371→   371→        this.fgDirtyIds.add(next.id)
+   372→   372→      }
+   373→   373→    }
+   374→   374→    // Clean up state for removed buttons.
+   375→   375→    for (const id of prevIds) {
+   376→   376→      if (!nextIds.has(id)) {
+   377→   377→        this.buttonStates.delete(id)
+   378→   378→        const tex = this.fgTextures.get(id)
+   379→   379→        if (tex) {
+   380→   380→          this.gl.deleteTexture(tex)
+   381→   381→          this.fgTextures.delete(id)
+   382→   382→        }
+   383→   383→        this.fgDirtyIds.delete(id)
+   384→   384→      }
+   385→   385→    }
+   386→   386→    // Ensure state exists for new buttons.
+   387→   387→    for (const c of configs) {
+   388→   388→      if (!this.buttonStates.has(c.id)) {
+   389→   389→        this.buttonStates.set(c.id, {
+   390→   390→          pressProgress: 0,
+   391→   391→          pressVelocity: 0,
+   392→   392→          targetPress: 0,
+   393→   393→          dragX: 0,
+   394→   394→          dragY: 0,
+   395→   395→          dragVx: 0,
+   396→   396→          dragVy: 0,
+   397→   397→          targetDragX: 0,
+   398→   398→          targetDragY: 0,
+   399→   399→          startDragX: 0,
+   400→   400→          startDragY: 0,
+   401→   401→        })
+   402→   402→      }
+   403→   403→    }
+   404→   404→    this.buttonConfigs = configs
+   405→   405→    this.requestRender()
+   406→   406→  }
+   407→   407→
+   408→   408→  /**
+   409→   409→   * Set the pressed state for a button. `position` is the finger position
+   410→   410→   * in canvas CSS pixels (top-left origin). When pressed=true, the position
+   411→   411→   * is recorded as the drag start; subsequent calls with pressed=true update
+   412→   412→   * the drag target. When pressed=false, the drag target springs back to
+   413→   413→   * the start position.
+   414→   414→   */
+   415→   415→  setPressed(id: string, pressed: boolean, position?: { x: number; y: number }) {
+   416→   416→    const st = this.buttonStates.get(id)
+   417→   417→    if (!st) return
+   418→   418→    if (pressed) {
+   419→   419→      const btn = this.buttonConfigs.find((b) => b.id === id)
+   420→   420→      if (btn && position) {
+   421→   421→        // Convert canvas-relative position to element-local position.
+   422→   422→        const localX = position.x - btn.rect.x
+   423→   423→        const localY = position.y - btn.rect.y
+   424→   424→        if (st.targetPress === 0) {
+   425→   425→          // Drag start — record start position.
+   426→   426→          st.startDragX = localX
+   427→   427→          st.startDragY = localY
+   428→   428→          st.dragX = localX
+   429→   429→          st.dragY = localY
+   430→   430→        }
+   431→   431→        st.targetDragX = localX
+   432→   432→        st.targetDragY = localY
+   433→   433→      }
+   434→   434→      st.targetPress = 1
+   435→   435→    } else {
+   436→   436→      st.targetPress = 0
+   437→   437→      // Spring drag back to start.
+   438→   438→      st.targetDragX = st.startDragX
+   439→   439→      st.targetDragY = st.startDragY
+   440→   440→    }
+   441→   441→    this.startAnimation()
+   442→   442→  }
+   443→   443→
+   444→   444→  /**
+   445→   445→   * Update the drag position while pressed (without changing press state).
+   446→   446→   * Used for pointermove during a drag.
+   447→   447→   */
+   448→   448→  setDragPosition(id: string, position: { x: number; y: number }) {
+   449→   449→    const st = this.buttonStates.get(id)
+   450→   450→    if (!st || st.targetPress === 0) return
+   451→   451→    const btn = this.buttonConfigs.find((b) => b.id === id)
+   452→   452→    if (!btn) return
+   453→   453→    st.targetDragX = position.x - btn.rect.x
+   454→   454→    st.targetDragY = position.y - btn.rect.y
+   455→   455→    this.startAnimation()
+   456→   456→  }
+   457→   457→
+   458→   458→  /**
+   459→   459→   * Spring-based animation loop. Matches InteractiveHighlight.kt's
+   460→   460→   * spring(0.5f, 300f) spec — underdamped, with a small overshoot on
+   461→   461→   * release. Uses real wall-clock dt for frame-rate-independent timing.
+   462→   462→   */
+   463→   463→  private startAnimation() {
+   464→   464→    if (this.animRafId !== null) return
+   465→   465→    let lastTime = performance.now()
+   466→   466→    const tick = () => {
+   467→   467→      const now = performance.now()
+   468→   468→      // Cap dt at 50 ms to avoid huge jumps after tab switches.
+   469→   469→      const dt = Math.min((now - lastTime) / 1000, 0.05)
+   470→   470→      lastTime = now
+   471→   471→
+   472→   472→      let stillAnimating = false
+   473→   473→      for (const st of this.buttonStates.values()) {
+   474→   474→        // --- Press spring (underdamped, bouncy on release) ---
+   475→   475→        const pDelta = Math.abs(st.targetPress - st.pressProgress)
+   476→   476→        if (
+   477→   477→          pDelta > SPRING_THRESHOLD ||
+   478→   478→          Math.abs(st.pressVelocity) > SPRING_THRESHOLD
+   479→   479→        ) {
+   480→   480→          const r = springStep1D(
+   481→   481→            st.pressProgress,
+   482→   482→            st.pressVelocity,
+   483→   483→            st.targetPress,
+   484→   484→            dt
+   485→   485→          )
+   486→   486→          st.pressProgress = r.current
+   487→   487→          st.pressVelocity = r.velocity
+   488→   488→          stillAnimating = true
+   489→   489→        } else {
+   490→   490→          st.pressProgress = st.targetPress
+   491→   491→          st.pressVelocity = 0
+   492→   492→        }
+   493→   493→
+   494→   494→        // --- Drag X spring ---
+   495→   495→        if (
+   496→   496→          Math.abs(st.targetDragX - st.dragX) > SPRING_THRESHOLD ||
+   497→   497→          Math.abs(st.dragVx) > SPRING_THRESHOLD
+   498→   498→        ) {
+   499→   499→          const r = springStep1D(st.dragX, st.dragVx, st.targetDragX, dt)
+   500→   500→          st.dragX = r.current
+   501→   501→          st.dragVx = r.velocity
+   502→   502→          stillAnimating = true
+   503→   503→        } else {
+   504→   504→          st.dragX = st.targetDragX
+   505→   505→          st.dragVx = 0
+   506→   506→        }
+   507→   507→
+   508→   508→        // --- Drag Y spring ---
+   509→   509→        if (
+   510→   510→          Math.abs(st.targetDragY - st.dragY) > SPRING_THRESHOLD ||
+   511→   511→          Math.abs(st.dragVy) > SPRING_THRESHOLD
+   512→   512→        ) {
+   513→   513→          const r = springStep1D(st.dragY, st.dragVy, st.targetDragY, dt)
+   514→   514→          st.dragY = r.current
+   515→   515→          st.dragVy = r.velocity
+   516→   516→          stillAnimating = true
+   517→   517→        } else {
+   518→   518→          st.dragY = st.targetDragY
+   519→   519→          st.dragVy = 0
+   520→   520→        }
+   521→   521→      }
+   522→   522→      this.requestRender()
+   523→   523→      if (stillAnimating) {
+   524→   524→        this.animRafId = requestAnimationFrame(tick)
+   525→   525→      } else {
+   526→   526→        this.animRafId = null
+   527→   527→      }
+   528→   528→    }
+   529→   529→    this.animRafId = requestAnimationFrame(tick)
+   530→   530→  }
+   531→   531→
+   532→   532→  private requestRender() {
+   533→   533→    if (this.rafId !== null) return
+   534→   534→    this.rafId = requestAnimationFrame(() => {
+   535→   535→      this.rafId = null
+   536→   536→      this.render()
+   537→   537→    })
+   538→   538→  }
+   539→   539→
+   540→   540→  /* ---------------------------------------------------------------- *
+   541→   541→   * Foreground rasterization — draws the button label (+ optional
+   542→   542→   * chevron) to an offscreen 2D canvas at device-pixel resolution,
+   543→   543→   * then uploads it as a WebGL texture.
+   544→   544→   * ---------------------------------------------------------------- */
+   545→   545→  private rasterizeForeground(cfg: GlassButtonConfig) {
+   546→   546→    const dpr = this.dpr
+   547→   547→    const w = Math.max(1, Math.round(cfg.rect.w * dpr))
+   548→   548→    const h = Math.max(1, Math.round(cfg.rect.h * dpr))
+   549→   549→    if (this.fgCanvas.width !== w) this.fgCanvas.width = w
+   550→   550→    if (this.fgCanvas.height !== h) this.fgCanvas.height = h
+   551→   551→
+   552→   552→    const ctx = this.fgCtx
+   553→   553→    ctx.setTransform(1, 0, 0, 1, 0, 0)
+   554→   554→    ctx.clearRect(0, 0, w, h)
+   555→   555→    ctx.scale(dpr, dpr)
+   556→   556→
+   557→   557→    const cssW = cfg.rect.w
+   558→   558→    const cssH = cfg.rect.h
+   559→   559→
+   560→   560→    // --- Label -------------------------------------------------------
+   561→   561→    // Text size scales with the button rect height (rect.h = 48 * DP in
+   562→   562→    // page.tsx, and the original Kotlin spec uses 15.sp). So
+   563→   563→    // fontPx = rect.h * (15/48). This keeps measurement (in page.tsx)
+   564→   564→    // and rasterization (here) consistent at any DP factor.
+   565→   565→    const fontPx = cssH * (15 / 48)
+   566→   566→    const fontFamily =
+   567→   567→      '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+   568→   568→    ctx.font = `400 ${fontPx}px ${fontFamily}`
+   569→   569→    ctx.textBaseline = 'middle'
+   570→   570→    ctx.textAlign = 'center'
+   571→   571→
+   572→   572→    const colorStr = `rgba(${Math.round(cfg.labelColor[0] * 255)}, ${Math.round(
+   573→   573→      cfg.labelColor[1] * 255
+   574→   574→    )}, ${Math.round(cfg.labelColor[2] * 255)}, ${cfg.labelColor[3]})`
+   575→   575→
+   576→   576→    // Subtle halo for legibility over busy wallpaper.
+   577→   577→    const haloIsLight = cfg.labelColor[0] + cfg.labelColor[1] + cfg.labelColor[2] < 1.5
+   578→   578→    ctx.save()
+   579→   579→    ctx.shadowColor = haloIsLight ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.25)'
+   580→   580→    ctx.shadowBlur = haloIsLight ? fontPx * 0.13 : fontPx * 0.07
+   581→   581→    ctx.fillStyle = colorStr
+   582→   582→    ctx.fillText(cfg.label, cssW / 2, cssH / 2 + 0.5)
+   583→   583→    ctx.restore()
+   584→   584→
+   585→   585→    // --- Chevron -----------------------------------------------------
+   586→   586→    if (cfg.showChevron) {
+   587→   587→      const chevronSize = fontPx * 0.93
+   588→   588→      const labelWidth = ctx.measureText(cfg.label).width
+   589→   589→      const cx = cssW / 2 + labelWidth / 2 + fontPx * 0.53 + chevronSize / 2
+   590→   590→      const cy = cssH / 2
+   591→   591→      ctx.save()
+   592→   592→      ctx.strokeStyle = colorStr
+   593→   593→      ctx.globalAlpha = 0.6
+   594→   594→      ctx.lineWidth = fontPx * 0.107
+   595→   595→      ctx.lineCap = 'round'
+   596→   596→      ctx.lineJoin = 'round'
+   597→   597→      ctx.beginPath()
+   598→   598→      ctx.moveTo(cx - chevronSize * 0.3, cy - chevronSize * 0.4)
+   599→   599→      ctx.lineTo(cx + chevronSize * 0.2, cy)
+   600→   600→      ctx.lineTo(cx - chevronSize * 0.3, cy + chevronSize * 0.4)
+   601→   601→      ctx.stroke()
+   602→   602→      ctx.restore()
+   603→   603→    }
+   604→   604→
+   605→   605→    this.uploadForegroundTexture(cfg.id)
+   606→   606→    this.fgDirtyIds.delete(cfg.id)
+   607→   607→  }
+   608→   608→
+   609→   609→  private uploadForegroundTexture(id: string) {
+   610→   610→    const gl = this.gl
+   611→   611→    let tex = this.fgTextures.get(id)
+   612→   612→    if (!tex) {
+   613→   613→      tex = gl.createTexture()!
+   614→   614→      this.fgTextures.set(id, tex)
+   615→   615→    }
+   616→   616→    gl.bindTexture(gl.TEXTURE_2D, tex)
+   617→   617→    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
+   618→   618→    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.fgCanvas)
+   619→   619→    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+   620→   620→    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+   621→   621→    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+   622→   622→    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+   623→   623→  }
+   624→   624→
+   625→   625→  private render() {
+   626→   626→    const gl = this.gl
+   627→   627→    if (!this.wallpaperReady) return
+   628→   628→
+   629→   629→    // Re-rasterize any dirty foregrounds.
+   630→   630→    for (const cfg of this.buttonConfigs) {
+   631→   631→      if (this.fgDirtyIds.has(cfg.id)) {
+   632→   632→        this.rasterizeForeground(cfg)
+   633→   633→      }
+   634→   634→    }
+   635→   635→
+   636→   636→    // Opaque clear (alpha:false context ignores alpha anyway).
+   637→   637→    gl.clearColor(0, 0, 0, 1)
+   638→   638→    gl.clear(gl.COLOR_BUFFER_BIT)
+   639→   639→    gl.disable(gl.BLEND)
+   640→   640→
+   641→   641→    // --- 1. Wallpaper background pass (opaque) ----------------------
+   642→   642→    gl.useProgram(this.wallpaperProgram)
+   643→   643→    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+   644→   644→    gl.enableVertexAttribArray(this.aPosLocWp)
+   645→   645→    gl.vertexAttribPointer(this.aPosLocWp, 2, gl.FLOAT, false, 0, 0)
+   646→   646→    gl.activeTexture(gl.TEXTURE0)
+   647→   647→    gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture!)
+   648→   648→    gl.uniform1i(this.uWp['uBackdrop'], 0)
+   649→   649→    gl.uniform2f(this.uWp['uCanvasSize'], this.canvas.width, this.canvas.height)
+   650→   650→    gl.uniform2f(this.uWp['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
+   651→   651→    gl.drawArrays(gl.TRIANGLES, 0, 6)
+   652→   652→
+   653→   653→    if (this.buttonConfigs.length === 0) return
+   654→   654→
+   655→   655→    // Enable blending for the remaining passes.
+   656→   656→    gl.enable(gl.BLEND)
+   657→   657→    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+   658→   658→
+   659→   659→    for (const el of this.buttonConfigs) {
+   660→   660→      const st = this.buttonStates.get(el.id)!
+   661→   661→      const p = st.pressProgress
+   662→   662→
+   663→   663→      // --- Compute press transform (faithful to LiquidButton.kt) ---
+   664→   664→      // scale = lerp(1, 1 + 4dp/height, progress)  -> grows on press
+   665→   665→      // translationX = maxOffset * tanh(0.05 * dragOffsetX / maxOffset)
+   666→   666→      // translationY = maxOffset * tanh(0.05 * dragOffsetY / maxOffset)
+   667→   667→      // scaleX = scale + maxDragScale * |cos(angle)*dx/maxDim| * (w/h capped at 1)
+   668→   668→      // scaleY = scale + maxDragScale * |sin(angle)*dy/maxDim| * (h/w capped at 1)
+   669→   669→      //
+   670→   670→      // 4dp / 48dp is a UNITLESS ratio (density cancels). The original Kotlin
+   671→   671→      // uses `4f.dp.toPx() / size.height` where both numerator and denominator
+   672→   672→      // are in device px — so the ratio is just 4/48 for a 48dp button.
+   673→   673→      // NOTE: This assumes a 48dp button height (the LiquidButton spec). For
+   674→   674→      // other heights, parameterize this.
+   675→   675→      const PRESS_SCALE_RATIO = 4 / 48
+   676→   676→      let scale = 1
+   677→   677→      let translationX = 0
+   678→   678→      let translationY = 0
+   679→   679→      let scaleX = 1
+   680→   680→      let scaleY = 1
+   681→   681→      if (el.isInteractive && p > 0.001) {
+   682→   682→        const width = el.rect.w
+   683→   683→        const height = el.rect.h
+   684→   684→        const maxDim = Math.max(width, height)
+   685→   685→        const minDim = Math.min(width, height)
+   686→   686→        const maxOffset = minDim
+   687→   687→        const initialDerivative = 0.05
+   688→   688→        const maxDragScale = PRESS_SCALE_RATIO
+   689→   689→
+   690→   690→        scale = 1 + PRESS_SCALE_RATIO * p
+   691→   691→
+   692→   692→        // drag offset relative to start
+   693→   693→        const dx = st.dragX - st.startDragX
+   694→   694→        const dy = st.dragY - st.startDragY
+   695→   695→        translationX = maxOffset * Math.tanh(initialDerivative * dx / maxOffset)
+   696→   696→        translationY = maxOffset * Math.tanh(initialDerivative * dy / maxOffset)
+   697→   697→
+   698→   698→        const offsetAngle = Math.atan2(dy, dx)
+   699→   699→        const whCap = Math.min(width / height, 1)
+   700→   700→        const hwCap = Math.min(height / width, 1)
+   701→   701→        scaleX = scale + maxDragScale * Math.abs(Math.cos(offsetAngle) * dx / maxDim) * whCap
+   702→   702→        scaleY = scale + maxDragScale * Math.abs(Math.sin(offsetAngle) * dy / maxDim) * hwCap
+   703→   703→      } else {
+   704→   704→        scaleX = scale
+   705→   705→        scaleY = scale
+   706→   706→      }
+   707→   707→
+   708→   708→      const cx = el.rect.x + el.rect.w / 2 + translationX
+   709→   709→      const cy = el.rect.y + el.rect.h / 2 + translationY
+   710→   710→      const sw = el.rect.w * scaleX
+   711→   711→      const sh = el.rect.h * scaleY
+   712→   712→      const sx = cx - sw / 2
+   713→   713→      const sy = cy - sh / 2
+   714→   714→      const cornerRadius = el.cornerRadius * Math.min(scaleX, scaleY)
+   715→   715→
+   716→   716→      const radii: [number, number, number, number] = [
+   717→   717→        cornerRadius, cornerRadius, cornerRadius, cornerRadius,
+   718→   718→      ]
+   719→   719→
+   720→   720→      // --- 2. Shadow pass --------------------------------------------
+   721→   721→      if (el.outerShadow && el.outerShadow.alpha > 0.001 && el.outerShadow.radius > 0.5) {
+   722→   722→        gl.useProgram(this.shadowProgram)
+   723→   723→        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+   724→   724→        gl.enableVertexAttribArray(this.aPosLocSh)
+   725→   725→        gl.vertexAttribPointer(this.aPosLocSh, 2, gl.FLOAT, false, 0, 0)
+   726→   726→        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+   727→   727→
+   728→   728→        gl.uniform2f(this.uSh['uCanvasSize'], this.canvas.width, this.canvas.height)
+   729→   729→        gl.uniform2f(this.uSh['uElementOffset'], sx * this.dpr, sy * this.dpr)
+   730→   730→        gl.uniform2f(this.uSh['uElementSize'], sw * this.dpr, sh * this.dpr)
+   731→   731→        gl.uniform4f(
+   732→   732→          this.uSh['uCornerRadii'],
+   733→   733→          radii[0] * this.dpr,
+   734→   734→          radii[1] * this.dpr,
+   735→   735→          radii[2] * this.dpr,
+   736→   736→          radii[3] * this.dpr
+   737→   737→        )
+   738→   738→        gl.uniform1f(this.uSh['uShadowRadius'], el.outerShadow.radius * this.dpr)
+   739→   739→        gl.uniform2f(
+   740→   740→          this.uSh['uShadowOffset'],
+   741→   741→          el.outerShadow.offsetX * this.dpr,
+   742→   742→          el.outerShadow.offsetY * this.dpr
+   743→   743→        )
+   744→   744→        gl.uniform4f(
+   745→   745→          this.uSh['uShadowColor'],
+   746→   746→          el.outerShadow.color[0],
+   747→   747→          el.outerShadow.color[1],
+   748→   748→          el.outerShadow.color[2],
+   749→   749→          el.outerShadow.alpha
+   750→   750→        )
+   751→   751→        gl.drawArrays(gl.TRIANGLES, 0, 6)
+   752→   752→      }
+   753→   753→
+   754→   754→      // --- 3. Element pass (refraction + vibrancy + tint) ------------
+   755→   755→      gl.useProgram(this.elementProgram)
+   756→   756→      gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+   757→   757→      gl.enableVertexAttribArray(this.aPosLocEl)
+   758→   758→      gl.vertexAttribPointer(this.aPosLocEl, 2, gl.FLOAT, false, 0, 0)
+   759→   759→      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+   760→   760→
+   761→   761→      gl.activeTexture(gl.TEXTURE0)
+   762→   762→      gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture!)
+   763→   763→      gl.uniform1i(this.uEl['uBackdrop'], 0)
+   764→   764→
+   765→   765→      gl.uniform2f(this.uEl['uCanvasSize'], this.canvas.width, this.canvas.height)
+   766→   766→      gl.uniform2f(this.uEl['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
+   767→   767→      gl.uniform2f(this.uEl['uElementOffset'], sx * this.dpr, sy * this.dpr)
+   768→   768→      gl.uniform2f(this.uEl['uElementSize'], sw * this.dpr, sh * this.dpr)
+   769→   769→      gl.uniform4f(
+   770→   770→        this.uEl['uCornerRadii'],
+   771→   771→        radii[0] * this.dpr,
+   772→   772→        radii[1] * this.dpr,
+   773→   773→        radii[2] * this.dpr,
+   774→   774→        radii[3] * this.dpr
+   775→   775→      )
+   776→   776→      gl.uniform1f(this.uEl['uRefractionHeight'], el.refractionHeight * this.dpr)
+   777→   777→      gl.uniform1f(this.uEl['uRefractionAmount'], el.refractionAmount * this.dpr)
+   778→   778→      gl.uniform1f(this.uEl['uDepthEffect'], el.depthEffect ? 1 : 0)
+   779→   779→      gl.uniform1f(this.uEl['uChromaticAberration'], el.chromaticAberration ? 1 : 0)
+   780→   780→      gl.uniform1f(this.uEl['uBlurRadius'], el.blurRadius * this.dpr)
+   781→   781→      gl.uniform1f(this.uEl['uSaturation'], el.saturation)
+   782→   782→      gl.uniform1f(this.uEl['uBrightness'], el.brightness)
+   783→   783→      gl.uniform1f(this.uEl['uContrast'], el.contrast)
+   784→   784→      gl.uniform4f(this.uEl['uTintColor'], el.tintColor[0], el.tintColor[1], el.tintColor[2], el.tintColor[3])
+   785→   785→      gl.uniform4f(this.uEl['uSurfaceColor'], el.surfaceColor[0], el.surfaceColor[1], el.surfaceColor[2], el.surfaceColor[3])
+   786→   786→
+   787→   787→      if (el.highlight) {
+   788→   788→        gl.uniform3f(this.uEl['uHighlightColor'], el.highlight.color[0], el.highlight.color[1], el.highlight.color[2])
+   789→   789→        gl.uniform1f(this.uEl['uHighlightAngle'], el.highlight.angle)
+   790→   790→        gl.uniform1f(this.uEl['uHighlightFalloff'], el.highlight.falloff)
+   791→   791→        gl.uniform1f(this.uEl['uHighlightAlpha'], el.highlight.alpha)
+   792→   792→        gl.uniform1f(this.uEl['uHighlightMode'], el.highlight.mode)
+   793→   793→        gl.uniform1f(this.uEl['uHighlightStrokeWidth'], el.highlight.strokeWidth * this.dpr)
+   794→   794→        gl.uniform1f(this.uEl['uHighlightBlur'], el.highlight.blur * this.dpr)
+   795→   795→      } else {
+   796→   796→        gl.uniform1f(this.uEl['uHighlightAlpha'], 0)
+   797→   797→        gl.uniform1f(this.uEl['uHighlightMode'], 0)
+   798→   798→        gl.uniform1f(this.uEl['uHighlightStrokeWidth'], 0)
+   799→   799→        gl.uniform1f(this.uEl['uHighlightBlur'], 0)
+   800→   800→      }
+   801→   801→
+   802→   802→      gl.uniform1f(this.uEl['uInnerShadowAlpha'], 0)
+   803→   803→      gl.uniform2f(this.uEl['uInnerShadowOffset'], 0, 0)
+   804→   804→
+   805→   805→      gl.drawArrays(gl.TRIANGLES, 0, 6)
+   806→   806→
+   807→   807→      // --- 4. InteractiveHighlight (press glow) ----------------------
+   808→   808→      // Two sub-passes:
+   809→   809→      //   a. White overlay at 8% * progress (Plus blend = additive)
+   810→   810→      //   b. Radial gradient at finger position, 15% * progress (Plus blend)
+   811→   811→      //
+   812→   812→      // Both are clipped to the capsule shape via SDF discard in the
+   813→   813→      // fragment shader (matches the outermost graphicsLayer clip in
+   814→   814→      // Compose that wraps the whole button).
+   815→   815→      if (el.isInteractive && p > 0.001) {
+   816→   816→        // a. Flat white overlay
+   817→   817→        gl.useProgram(this.tintProgram)
+   818→   818→        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+   819→   819→        gl.enableVertexAttribArray(this.aPosLocTn)
+   820→   820→        gl.vertexAttribPointer(this.aPosLocTn, 2, gl.FLOAT, false, 0, 0)
+   821→   821→        // Plus blend ≈ additive for low-alpha white
+   822→   822→        gl.blendFunc(gl.SRC_ALPHA, gl.ONE)
+   823→   823→        gl.uniform2f(this.uTn['uCanvasSize'], this.canvas.width, this.canvas.height)
+   824→   824→        gl.uniform2f(this.uTn['uOffset'], sx * this.dpr, sy * this.dpr)
+   825→   825→        gl.uniform2f(this.uTn['uSize'], sw * this.dpr, sh * this.dpr)
+   826→   826→        gl.uniform4f(
+   827→   827→          this.uTn['uCornerRadii'],
+   828→   828→          radii[0] * this.dpr,
+   829→   829→          radii[1] * this.dpr,
+   830→   830→          radii[2] * this.dpr,
+   831→   831→          radii[3] * this.dpr
+   832→   832→        )
+   833→   833→        gl.uniform4f(this.uTn['uColor'], 1, 1, 1, 0.08 * p)
+   834→   834→        gl.drawArrays(gl.TRIANGLES, 0, 6)
+   835→   835→
+   836→   836→        // b. Radial highlight at finger position
+   837→   837→        gl.useProgram(this.highlightProgram)
+   838→   838→        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+   839→   839→        gl.enableVertexAttribArray(this.aPosLocHl)
+   840→   840→        gl.vertexAttribPointer(this.aPosLocHl, 2, gl.FLOAT, false, 0, 0)
+   841→   841→        gl.blendFunc(gl.SRC_ALPHA, gl.ONE)
+   842→   842→        gl.uniform2f(this.uHl['uCanvasSize'], this.canvas.width, this.canvas.height)
+   843→   843→        gl.uniform2f(this.uHl['uOffset'], sx * this.dpr, sy * this.dpr)
+   844→   844→        gl.uniform2f(this.uHl['uSize'], sw * this.dpr, sh * this.dpr)
+   845→   845→        gl.uniform4f(
+   846→   846→          this.uHl['uCornerRadii'],
+   847→   847→          radii[0] * this.dpr,
+   848→   848→          radii[1] * this.dpr,
+   849→   849→          radii[2] * this.dpr,
+   850→   850→          radii[3] * this.dpr
+   851→   851→        )
+   852→   852→        gl.uniform4f(this.uHl['uColor'], 1, 1, 1, 0.15 * p)
+   853→   853→        const minDim = Math.min(sw, sh) * this.dpr
+   854→   854→        gl.uniform1f(this.uHl['uRadius'], minDim * 1.5)
+   855→   855→        // Position is in element-local CSS px relative to the (possibly
+   856→   856→        // translated/scaled) element rect. The dragX/dragY state is in
+   857→   857→        // the *original* element's local space — close enough for the
+   858→   858→        // press glow.
+   859→   859→        gl.uniform2f(
+   860→   860→          this.uHl['uPosition'],
+   861→   861→          st.dragX * this.dpr,
+   862→   862→          st.dragY * this.dpr
+   863→   863→        )
+   864→   864→        gl.drawArrays(gl.TRIANGLES, 0, 6)
+   865→   865→        // Restore normal blending.
+   866→   866→        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+   867→   867→      }
+   868→   868→
+   869→   869→      // --- 5. Foreground pass (label + chevron) ----------------------
+   870→   870→      const fgTex = this.fgTextures.get(el.id)
+   871→   871→      if (fgTex) {
+   872→   872→        gl.useProgram(this.foregroundProgram)
+   873→   873→        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+   874→   874→        gl.enableVertexAttribArray(this.aPosLocFg)
+   875→   875→        gl.vertexAttribPointer(this.aPosLocFg, 2, gl.FLOAT, false, 0, 0)
+   876→   876→        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+   877→   877→
+   878→   878→        gl.activeTexture(gl.TEXTURE0)
+   879→   879→        gl.bindTexture(gl.TEXTURE_2D, fgTex)
+   880→   880→        gl.uniform1i(this.uFg['uTexture'], 0)
+   881→   881→        gl.uniform2f(this.uFg['uCanvasSize'], this.canvas.width, this.canvas.height)
+   882→   882→        gl.uniform2f(this.uFg['uOffset'], sx * this.dpr, sy * this.dpr)
+   883→   883→        gl.uniform2f(this.uFg['uSize'], sw * this.dpr, sh * this.dpr)
+   884→   884→        gl.uniform4f(
+   885→   885→          this.uFg['uCornerRadii'],
+   886→   886→          radii[0] * this.dpr,
+   887→   887→          radii[1] * this.dpr,
+   888→   888→          radii[2] * this.dpr,
+   889→   889→          radii[3] * this.dpr
+   890→   890→        )
+   891→   891→        // Label fades slightly on press (matches the "swallow" feel).
+   892→   892→        gl.uniform1f(this.uFg['uAlpha'], 1.0 - 0.15 * p)
+   893→   893→        gl.drawArrays(gl.TRIANGLES, 0, 6)
+   894→   894→      }
+   895→   895→
+   896→   896→      // --- 6. Rim highlight pass (Default/Ambient/Plain) -------------
+   897→   897→      // Faithful to HighlightModifier.kt: a separate layer composited on
+   898→   898→      // top of the content with its own blend mode (Plus for Default/Plain,
+   899→   899→      // SrcOver for Ambient). Drawn AFTER the foreground (label) to match
+   900→   900→      // the original modifier order.
+   901→   901→      if (el.highlight && el.highlight.alpha > 0.001) {
+   902→   902→        gl.useProgram(this.rimHighlightProgram)
+   903→   903→        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+   904→   904→        gl.enableVertexAttribArray(this.aPosLocRm)
+   905→   905→        gl.vertexAttribPointer(this.aPosLocRm, 2, gl.FLOAT, false, 0, 0)
+   906→   906→
+   907→   907→        // Default and Plain use Plus blend (additive). Ambient uses SrcOver.
+   908→   908→        if (el.highlight.mode === 1) {
+   909→   909→          gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+   910→   910→        } else {
+   911→   911→          // Plus blend: result = src.rgb + dst.rgb (clamped). The shader
+   912→   912→          // outputs premultiplied alpha=1, so we use ONE/ONE.
+   913→   913→          gl.blendFunc(gl.ONE, gl.ONE)
+   914→   914→        }
+   915→   915→
+   916→   916→        gl.uniform2f(this.uRm['uCanvasSize'], this.canvas.width, this.canvas.height)
+   917→   917→        gl.uniform2f(this.uRm['uOffset'], sx * this.dpr, sy * this.dpr)
+   918→   918→        gl.uniform2f(this.uRm['uSize'], sw * this.dpr, sh * this.dpr)
+   919→   919→        gl.uniform4f(
+   920→   920→          this.uRm['uCornerRadii'],
+   921→   921→          radii[0] * this.dpr,
+   922→   922→          radii[1] * this.dpr,
+   923→   923→          radii[2] * this.dpr,
+   924→   924→          radii[3] * this.dpr
+   925→   925→        )
+   926→   926→        gl.uniform4f(this.uRm['uHighlightColor'], el.highlight.color[0], el.highlight.color[1], el.highlight.color[2], 1.0)
+   927→   927→        gl.uniform1f(this.uRm['uHighlightAngle'], el.highlight.angle)
+   928→   928→        gl.uniform1f(this.uRm['uHighlightFalloff'], el.highlight.falloff)
+   929→   929→        gl.uniform1f(this.uRm['uHighlightAlpha'], el.highlight.alpha)
+   930→   930→        gl.uniform1f(this.uRm['uHighlightMode'], el.highlight.mode)
+   931→   931→        gl.uniform1f(this.uRm['uHighlightStrokeWidth'], el.highlight.strokeWidth * this.dpr)
+   932→   932→        gl.uniform1f(this.uRm['uHighlightBlur'], el.highlight.blur * this.dpr)
+   933→   933→        gl.drawArrays(gl.TRIANGLES, 0, 6)
+   934→   934→
+   935→   935→        // Restore normal blending.
+   936→   936→        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+   937→   937→      }
+   938→   938→    }
+   939→   939→  }
+   940→   940→
+   941→   941→  dispose() {
+   942→   942→    if (this.rafId !== null) cancelAnimationFrame(this.rafId)
+   943→   943→    this.rafId = null
+   944→   944→    if (this.animRafId !== null) cancelAnimationFrame(this.animRafId)
+   945→   945→    this.animRafId = null
+   946→   946→    const gl = this.gl
+   947→   947→    if (this.wallpaperTexture) gl.deleteTexture(this.wallpaperTexture)
+   948→   948→    for (const tex of this.fgTextures.values()) gl.deleteTexture(tex)
+   949→   949→    this.fgTextures.clear()
+   950→   950→    gl.deleteProgram(this.elementProgram)
+   951→   951→    gl.deleteProgram(this.shadowProgram)
+   952→   952→    gl.deleteProgram(this.wallpaperProgram)
+   953→   953→    gl.deleteProgram(this.foregroundProgram)
+   954→   954→    gl.deleteProgram(this.highlightProgram)
+   955→   955→    gl.deleteProgram(this.tintProgram)
+   956→   956→    gl.deleteProgram(this.rimHighlightProgram)
+   957→   957→    gl.deleteBuffer(this.quadBuffer)
+   958→   958→  }
+   959→   959→}
+   960→   960→
