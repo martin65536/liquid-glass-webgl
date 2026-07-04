@@ -132,16 +132,9 @@ vec2 canvasPxToUvScale() {
 export const ELEMENT_FRAGMENT_SHADER = /* glsl */ `
 precision highp float;
 
-// uBackdrop is now the SCENE TEXTURE — a framebuffer that contains
-// everything rendered BEFORE this glass element (wallpaper + plain-rects +
-// other glass elements below this one). Sampling is direct-UV (canvasPx /
-// canvasSize) — no cover-fit transform — because the scene texture is the
-// same size as the canvas. This is the critical fix: the glass now
-// refracts the ACTUAL colors behind it (e.g. the green toggle track, the
-// white card background, the slider fill), not just the wallpaper.
 uniform sampler2D uBackdrop;
 uniform vec2  uCanvasSize;        // canvas size in px
-uniform vec2  uWallpaperSize;     // UNUSED — kept for uniform-set compatibility
+uniform vec2  uWallpaperSize;     // wallpaper texture natural size in px
 uniform vec2  uElementOffset;     // element top-left in canvas px
 uniform vec2  uElementSize;       // element size in px
 uniform vec4  uCornerRadii;       // (topLeft, topRight, bottomRight, bottomLeft) in px
@@ -168,34 +161,25 @@ uniform vec2  uInnerShadowOffset;
 
 ${SDF_GLSL}
 
+${COVER_GLSL}
+
 float circleMap(float x) {
     return 1.0 - sqrt(1.0 - x * x);
-}
-
-// Convert a canvas-pixel coordinate (top-left origin) to scene-texture UV.
-// The scene texture is the same size as the canvas, and is rendered with
-// gl_FragCoord (bottom-left origin). So UV = (canvasPx.x / canvasW, 1 -
-// canvasPx.y / canvasH). The Y flip happens here so the rest of the shader
-// can work in top-left-origin canvas px.
-vec2 sceneUv(vec2 canvasPx) {
-    return vec2(canvasPx.x / uCanvasSize.x, 1.0 - canvasPx.y / uCanvasSize.y);
 }
 
 // 17-tap poisson disc for a smoother Gaussian-ish blur.
 // Inlined as individual texture2D calls (GLSL ES 1.00 does not support
 // array constructors). Each tap's offset is normalized (radius 1) and
-// scaled by pxToUv = (1/canvasSize) * radius at the call site.
+// scaled by pxToUv = canvasPxToUvScale() * radius at the call site.
 //
-// Sample the scene texture at a canvas-pixel coordinate, with a
+// Sample the backdrop (wallpaper) at a canvas-pixel coordinate, with a
 // Gaussian-ish blur. radius < 0.5 falls back to a single tap.
 vec4 sampleBackdrop(vec2 canvasPx, float radius) {
-    vec2 uv = sceneUv(canvasPx);
+    vec2 uv = coverUv(canvasPx);
     if (radius < 0.5) {
         return texture2D(uBackdrop, uv);
     }
-    // UV-space step per pixel — same X and Y since the scene texture is
-    // canvas-sized. Multiply by radius to get the actual sample spread.
-    vec2 pxToUv = radius / uCanvasSize;
+    vec2 pxToUv = canvasPxToUvScale() * radius;
     vec4 sum = vec4(0.0);
     float total = 0.0;
 
@@ -909,42 +893,5 @@ void main() {
         vec3 c = uHighlightColor.rgb * strokeMask * uHighlightAlpha;
         gl_FragColor = vec4(c, 1.0);
     }
-}
-`
-
-/* ------------------------------------------------------------------ *
- * COPY_FRAGMENT_SHADER — fullscreen texture copy. Used by the renderer
- * to blit one FBO to another (ping-pong for glass-on-glass sampling),
- * and to blit the final composed scene FBO to the default framebuffer.
- *
- * The texture is uploaded with UNPACK_FLIP_Y_WEBGL=false. The renderer
- * writes the scene in top-left-origin canvas px (Y down). UV.y is flipped
- * here so gl_FragCoord (bottom-left origin in WebGL framebuffer space)
- * maps to the correct texel.
- * ------------------------------------------------------------------ */
-export const COPY_FRAGMENT_SHADER = /* glsl */ `
-precision highp float;
-
-uniform sampler2D uTexture;
-uniform vec2 uCanvasSize;
-
-void main() {
-    vec2 uv = vec2(gl_FragCoord.x / uCanvasSize.x, gl_FragCoord.y / uCanvasSize.y);
-    gl_FragColor = texture2D(uTexture, uv);
-}
-`
-
-/* ------------------------------------------------------------------ *
- * SOLID_FILL_FRAGMENT_SHADER — fill the entire canvas with a solid color.
- * Used as the first pass when a backgroundColor is set (e.g. black for
- * the Home page). Replaces the wallpaper pass in that case.
- * ------------------------------------------------------------------ */
-export const SOLID_FILL_FRAGMENT_SHADER = /* glsl */ `
-precision highp float;
-
-uniform vec4 uColor;
-
-void main() {
-    gl_FragColor = uColor;
 }
 `

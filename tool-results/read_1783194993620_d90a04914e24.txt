@@ -1,0 +1,2002 @@
+     1→'use client'
+     2→
+     3→import {
+     4→  ELEMENT_FRAGMENT_SHADER,
+     5→  FOREGROUND_FRAGMENT_SHADER,
+     6→  HIGHLIGHT_FRAGMENT_SHADER,
+     7→  PLAIN_RECT_FRAGMENT_SHADER,
+     8→  PROGRESSIVE_BLUR_FRAGMENT_SHADER,
+     9→  RIM_HIGHLIGHT_FRAGMENT_SHADER,
+    10→  SHADOW_FRAGMENT_SHADER,
+    11→  TINT_FRAGMENT_SHADER,
+    12→  VERTEX_SHADER,
+    13→  WALLPAPER_FRAGMENT_SHADER,
+    14→} from './shaders'
+    15→
+    16→/* ------------------------------------------------------------------ *
+    17→ * Types — mirror the Kotlin modifier parameters.
+    18→ * ------------------------------------------------------------------ */
+    19→
+    20→export interface GlassRect {
+    21→  x: number
+    22→  y: number
+    23→  w: number
+    24→  h: number
+    25→}
+    26→
+    27→export interface GlassHighlight {
+    28→  /** 0 = Default, 1 = Ambient, 2 = Plain */
+    29→  mode: 0 | 1 | 2
+    30→  color: [number, number, number]
+    31→  /** radians */
+    32→  angle: number
+    33→  falloff: number
+    34→  alpha: number
+    35→  /** Stroke width in dp. The renderer computes the device-pixel strokeWidth
+    36→   *  using the original Kotlin formula: ceil(widthDp * dpr) * 2.
+    37→   *  This matches HighlightModifier.kt:
+    38→   *    paint.strokeWidth = ceil(highlight.width.toPx()) * 2f
+    39→   *  where toPx() = dp * density. */
+    40→  widthDp: number
+    41→}
+    42→
+    43→export interface GlassButtonConfig {
+    44→  /** Unique id used to track per-button press state across re-renders. */
+    45→  id: string
+    46→  /** Button rectangle in CSS pixels (canvas-relative, top-left origin). */
+    47→  rect: GlassRect
+    48→  /** Uniform corner radius in CSS pixels. Capsule = min(w,h)/2. */
+    49→  cornerRadius: number
+    50→  refractionHeight: number
+    51→  /** Already negated to match Kotlin's -refractionAmount. */
+    52→  refractionAmount: number
+    53→  depthEffect: boolean
+    54→  chromaticAberration: boolean
+    55→  blurRadius: number
+    56→  saturation: number
+    57→  brightness: number
+    58→  contrast: number
+    59→  /** [r,g,b,a] 0..1; alpha 0 = no tint */
+    60→  tintColor: [number, number, number, number]
+    61→  /** [r,g,b,a] 0..1; alpha 0 = no surface */
+    62→  surfaceColor: [number, number, number, number]
+    63→  highlight: GlassHighlight | null
+    64→  outerShadow: {
+    65→    radius: number
+    66→    alpha: number
+    67→    offsetX: number
+    68→    offsetY: number
+    69→    color: [number, number, number]
+    70→  } | null
+    71→  /** Button label text. */
+    72→  label: string
+    73→  /** Label color (black or white depending on tint). */
+    74→  labelColor: [number, number, number, number]
+    75→  /** Show the right chevron. */
+    76→  showChevron: boolean
+    77→  /** Whether to apply InteractiveHighlight press effect. */
+    78→  isInteractive: boolean
+    79→}
+    80→
+    81→/* ------------------------------------------------------------------ *
+    82→ * Element kinds — extends the glass-button model to cover the catalog.
+    83→ *
+    84→ *   - 'button'          : existing glass button (default)
+    85→ *   - 'glass-shape'     : glass rect with NO label and NO press effect
+    86→ *                         (e.g. dialog card, tabbar background, toggle/slider knob)
+    87→ *   - 'plain-rect'      : solid colored rounded rect (track, fill, card, scrim)
+    88→ *   - 'progressive-blur': alpha-masked backdrop blur band
+    89→ *   - 'text'            : unclipped text label (section titles, dialog body)
+    90→ *
+    91→ * The renderer treats each element uniformly through GlassElementConfig.
+    92→ * ------------------------------------------------------------------ */
+    93→
+    94→export type ElementKind =
+    95→  | 'button'
+    96→  | 'glass-shape'
+    97→  | 'plain-rect'
+    98→  | 'progressive-blur'
+    99→  | 'text'
+   100→
+   101→export interface PlainRectSpec {
+   102→  color: [number, number, number, number] // rgba
+   103→}
+   104→
+   105→export interface ProgressiveBlurSpec {
+   106→  blurRadius: number // px (canvas space)
+   107→  tintColor: [number, number, number, number] // rgba
+   108→  tintIntensity: number // 0..1
+   109→}
+   110→
+   111→export interface TextSpec {
+   112→  content: string
+   113→  color: [number, number, number, number]
+   114→  fontSizePx: number
+   115→  fontWeight: number // 400, 500, 600...
+   116→  align: 'left' | 'center' | 'right'
+   117→  /** Wrap into multiple lineshares if too long (default false = single line). */
+   118→  wrap?: boolean
+   119→  /** For 'left' / 'right' alignment: horizontal padding from rect edge (px). */
+   120→  paddingPx?: number
+   121→  /** Halo for legibility (default = auto from color brightness). */
+   122→  halo?: 'auto' | 'light' | 'dark' | 'none'
+   123→  /** Optional vector icon drawn above the text (for tab items / control
+   124→   *  center tiles). The path is SVG path data in a 24×24 viewport,
+   125→   *  scaled to `iconSize` px and centered horizontally. */
+   126→  icon?: {
+   127→    path: string
+   128→    size: number // px
+   129→    color: [number, number, number, number]
+   130→  }
+   131→}
+   132→
+   133→export interface GlassElementConfig extends GlassButtonConfig {
+   134→  kind: ElementKind
+   135→  plainRect?: PlainRectSpec
+   136→  progressiveBlur?: ProgressiveBlurSpec
+   137→  text?: TextSpec
+   138→  /** Optional vector icon drawn on a 'button' (replaces the text label).
+   139→   *  Used by the circular back button (MD arrow_back icon). The path is
+   140→   *  SVG path data in a 24×24 viewport, scaled to `size` px and centered. */
+   141→  icon?: {
+   142→    path: string
+   143→    size: number // px (CSS space)
+   144→    color: [number, number, number, number]
+   145→  }
+   146→  /** Inner shadow (optional, for toggle/slider knobs). */
+   147→  innerShadow?: {
+   148→    radius: number
+   149→    alpha: number
+   150→    offsetX: number
+   151→    offsetY: number
+   152→  } | null
+   153→  /**
+   154→   * Scroll-anchor: if set, the element's rect.y is interpreted as relative
+   155→   * to the section top, and the renderer adds `scrollY` to its screen y.
+   156→   * The renderer keeps a single scrollY for the whole canvas; elements
+   157→   * without this flag are static (drawn at their rect.y as-is).
+   158→   */
+   159→  scroll?: boolean
+   160→  /**
+   161→   * If set, this element is a toggle knob. The renderer maintains an
+   162→   * animated `fraction` (0..1) per groupId and applies:
+   163→   *   - x-offset = fraction * dragWidth (knob slides between off/on)
+   164→   *   - scale = lerp(1, 1.5, pressProgress) (knob grows on press)
+   165→   *   - white overlay alpha = 1 - pressProgress (matches onDrawSurface in LiquidToggle.kt)
+   166→   *
+   167→   * Faithful to LiquidToggle.kt + DampedDragAnimation.kt:
+   168→   *   - valueAnimation: spring(1f, 1000f) — critically damped, no overshoot
+   169→   *   - pressProgress: spring(1f, 1000f) — critically damped
+   170→   *   - scale: spring(0.6f/0.7f, 250f) — underdamped, slight overshoot
+   171→   */
+   172→  isToggleKnob?: {
+   173→    groupId: string
+   174→    /** How far the knob moves from fraction=0 to fraction=1, in CSS px. */
+   175→    dragWidth: number
+   176→  }
+   177→  /**
+   178→   * If set, this element is a toggle track. Its color is lerped between
+   179→   * offColor and onColor based on the corresponding toggle group's
+   180→   * animated fraction.
+   181→   */
+   182→  isToggleTrack?: {
+   183→    groupId: string
+   184→    offColor: [number, number, number, number]
+   185→    onColor: [number, number, number, number]
+   186→  }
+   187→}
+   188→
+   189→/* ------------------------------------------------------------------ *
+   190→ * Per-element interaction state — mirrors InteractiveHighlight.kt for
+   191→ * buttons, and adds toggle/slider/tabbar state for the catalog.
+   192→ * ------------------------------------------------------------------ */
+   193→
+   194→interface ElementState {
+   195→  // InteractiveHighlight state (button press + drag) — used by 'button'
+   196→  // kind. Other kinds ignore these.
+   197→  pressProgress: number
+   198→  pressVelocity: number
+   199→  targetPress: number
+   200→  dragX: number
+   201→  dragY: number
+   202→  dragVx: number
+   203→  dragVy: number
+   204→  targetDragX: number
+   205→  targetDragY: number
+   206→  startDragX: number
+   207→  startDragY: number
+   208→
+   209→  // Toggle / Slider / Tabbar state — managed by the React layer and
+   210→  // pushed in via setInteractiveValue(). The renderer just reads them
+   211→  // to position knobs / fill bars / tab indicators. We keep a spring-
+   212→  // animated `displayValue` so changes animate smoothly.
+   213→  interactiveValue: number // current animated value (0..1 for toggle/slider; integer index for tabbar)
+   214→  interactiveVelocity: number
+   215→  targetInteractiveValue: number
+   216→}
+   217→
+   218→/* ------------------------------------------------------------------ *
+   219→ * ToggleGroupState — faithful port of DampedDragAnimation.kt.
+   220→ *
+   221→ * The renderer maintains one ToggleGroupState per groupId. The fraction
+   222→ * (0..1) is animated with a critically damped spring (k=1000, ζ=1) so
+   223→ * it tracks the target with no overshoot — matching the smooth knob
+   224→ * glide of the original. The pressProgress (also critically damped)
+   225→ * drives the knob scale (1→1.5) and the white overlay alpha (1→0).
+   226→ * The scale is animated with a slightly underdamped spring (k=250,
+   227→ * ζ=0.65) to give a tiny bounce on release.
+   228→ * ------------------------------------------------------------------ */
+   229→interface ToggleGroupState {
+   230→  // Knob position fraction (0..1). Animated with critically damped spring.
+   231→  fraction: number
+   232→  fractionVelocity: number
+   233→  targetFraction: number
+   234→  // Press progress (0 = released, 1 = pressed). Drives scale + white overlay.
+   235→  pressProgress: number
+   236→  pressVelocity: number
+   237→  targetPress: number
+   238→  // Knob scale (1..1.5). Slightly underdamped for a tiny bounce.
+   239→  scale: number
+   240→  scaleVelocity: number
+   241→  targetScale: number
+   242→  // True while the user is dragging the knob. While true, drag deltas
+   243→  // update targetFraction directly (no spring lag, matches onDrag in
+   244→  // DampedDragAnimation which updates `fraction` instantly).
+   245→  isDragging: boolean
+   246→}
+   247→
+   248→/* ------------------------------------------------------------------ *
+   249→ * Spring physics — closed-form solutions of the damped spring ODE
+   250→ *   m·ẍ + c·ẋ + k·(x - target) = 0
+   251→ *
+   252→ * Two regimes:
+   253→ *   1. Underdamped (ζ < 1): bouncy, with overshoot — used for button
+   254→ *      press, drag offset, toggle scale.
+   255→ *   2. Critically damped (ζ = 1): smooth, no overshoot — used for
+   256→ *      toggle value/press (matches DampedDragAnimation.kt's
+   257→ *      spring(1f, 1000f)) and tab indicator.
+   258→ *
+   259→ * Underdamped closed form:
+   260→ *   ω_n = sqrt(k/m), ζ = dampingRatio, ω_d = ω_n·sqrt(1 - ζ²)
+   261→ *   x(t) = target + (x0-target)·e^(-ζω_n·t)·cos(ω_d·t)
+   262→ *                 + ((v0 + ζω_n·(x0-target)) / ω_d)·e^(-ζω_n·t)·sin(ω_d·t)
+   263→ *
+   264→ * Critically damped closed form:
+   265→ *   ω_n = sqrt(k/m)
+   266→ *   x(t) = target + (x0-target)·e^(-ω_n·t)
+   267→ *                 + (v0 + ω_n·(x0-target))·t·e^(-ω_n·t)
+   268→ * ------------------------------------------------------------------ */
+   269→const SPRING_K = 300
+   270→const SPRING_DAMPING_RATIO = 0.5
+   271→const SPRING_OMEGA_N = Math.sqrt(SPRING_K) // ≈ 17.3205 (m = 1)
+   272→const SPRING_OMEGA_D = SPRING_OMEGA_N * Math.sqrt(1 - SPRING_DAMPING_RATIO * SPRING_DAMPING_RATIO) // ≈ 15.0
+   273→const SPRING_THRESHOLD = 0.0005
+   274→
+   275→// Critically-damped spring constants for toggle value/press
+   276→// (matches DampedDragAnimation.kt's spring(1f, 1000f)).
+   277→const TOGGLE_VALUE_K = 1000
+   278→const TOGGLE_VALUE_OMEGA_N = Math.sqrt(TOGGLE_VALUE_K) // ≈ 31.623
+   279→
+   280→// Underdamped spring constants for toggle scale
+   281→// (avg of spring(0.6f, 250f) for X and spring(0.7f, 250f) for Y).
+   282→const TOGGLE_SCALE_K = 250
+   283→const TOGGLE_SCALE_DAMPING_RATIO = 0.65
+   284→const TOGGLE_SCALE_OMEGA_N = Math.sqrt(TOGGLE_SCALE_K)
+   285→const TOGGLE_SCALE_OMEGA_D = TOGGLE_SCALE_OMEGA_N * Math.sqrt(1 - TOGGLE_SCALE_DAMPING_RATIO * TOGGLE_SCALE_DAMPING_RATIO)
+   286→
+   287→function springStep1D(
+   288→  current: number,
+   289→  velocity: number,
+   290→  target: number,
+   291→  dt: number
+   292→): { current: number; velocity: number } {
+   293→  // Underdamped (ζ = 0.5).
+   294→  const x0 = current - target
+   295→  const v0 = velocity
+   296→  const decay = Math.exp(-SPRING_DAMPING_RATIO * SPRING_OMEGA_N * dt)
+   297→  const cosWd = Math.cos(SPRING_OMEGA_D * dt)
+   298→  const sinWd = Math.sin(SPRING_OMEGA_D * dt)
+   299→  const offset =
+   300→    x0 * decay * cosWd +
+   301→    ((v0 + SPRING_DAMPING_RATIO * SPRING_OMEGA_N * x0) / SPRING_OMEGA_D) * decay * sinWd
+   302→  const b0 = (v0 + SPRING_DAMPING_RATIO * SPRING_OMEGA_N * x0) / SPRING_OMEGA_D
+   303→  const newVel =
+   304→    -SPRING_DAMPING_RATIO * SPRING_OMEGA_N * offset +
+   305→    decay * (-x0 * SPRING_OMEGA_D * sinWd + b0 * SPRING_OMEGA_D * cosWd)
+   306→  return { current: target + offset, velocity: newVel }
+   307→}
+   308→
+   309→function springStepCritical(
+   310→  current: number,
+   311→  velocity: number,
+   312→  target: number,
+   313→  dt: number,
+   314→  omegaN: number
+   315→): { current: number; velocity: number } {
+   316→  // Critically damped (ζ = 1).
+   317→  // x(t) = target + (x0-target)·e^(-ω_n·t) + (v0 + ω_n·(x0-target))·t·e^(-ω_n·t)
+   318→  const x0 = current - target
+   319→  const v0 = velocity
+   320→  const decay = Math.exp(-omegaN * dt)
+   321→  const offset = x0 * decay + (v0 + omegaN * x0) * dt * decay
+   322→  // v(t) = -ω_n·(x0-target)·e^(-ω_n·t)
+   323→  //        + (v0 + ω_n·(x0-target))·(e^(-ω_n·t) - ω_n·t·e^(-ω_n·t))
+   324→  //        - ω_n·(x0-target)·e^(-ω_n·t)   [from derivative of first term]
+   325→  // Simpler: v = derivative of offset:
+   326→  //   d/dt[ x0·e^(-ω_n·t) ] = -ω_n·x0·e^(-ω_n·t)
+   327→  //   d/dt[ (v0+ω_n·x0)·t·e^(-ω_n·t) ] = (v0+ω_n·x0)·(e^(-ω_n·t) - ω_n·t·e^(-ω_n·t))
+   328→  const newVel =
+   329→    -omegaN * x0 * decay +
+   330→    (v0 + omegaN * x0) * (decay - omegaN * dt * decay)
+   331→  return { current: target + offset, velocity: newVel }
+   332→}
+   333→
+   334→function springStepUnderdamped(
+   335→  current: number,
+   336→  velocity: number,
+   337→  target: number,
+   338→  dt: number,
+   339→  omegaN: number,
+   340→  dampingRatio: number
+   341→): { current: number; velocity: number } {
+   342→  const x0 = current - target
+   343→  const v0 = velocity
+   344→  const omegaD = omegaN * Math.sqrt(1 - dampingRatio * dampingRatio)
+   345→  const decay = Math.exp(-dampingRatio * omegaN * dt)
+   346→  const cosWd = Math.cos(omegaD * dt)
+   347→  const sinWd = Math.sin(omegaD * dt)
+   348→  const offset =
+   349→    x0 * decay * cosWd +
+   350→    ((v0 + dampingRatio * omegaN * x0) / omegaD) * decay * sinWd
+   351→  const b0 = (v0 + dampingRatio * omegaN * x0) / omegaD
+   352→  const newVel =
+   353→    -dampingRatio * omegaN * offset +
+   354→    decay * (-x0 * omegaD * sinWd + b0 * omegaD * cosWd)
+   355→  return { current: target + offset, velocity: newVel }
+   356→}
+   357→
+   358→/* ------------------------------------------------------------------ *
+   359→ * WebGL helpers
+   360→ * ------------------------------------------------------------------ */
+   361→
+   362→function compileShader(gl: WebGLRenderingContext, type: number, src: string): WebGLShader {
+   363→  const sh = gl.createShader(type)!
+   364→  gl.shaderSource(sh, src)
+   365→  gl.compileShader(sh)
+   366→  if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+   367→    const log = gl.getShaderInfoLog(sh)
+   368→    gl.deleteShader(sh)
+   369→    throw new Error('Shader compile error: ' + log)
+   370→  }
+   371→  return sh
+   372→}
+   373→
+   374→/* ------------------------------------------------------------------ *
+   375→ * Word-wrap helper — splits `text` into lines that fit within `maxW`
+   376→ * using the current 2D-context font. Used by the text rasterizer.
+   377→ * ------------------------------------------------------------------ */
+   378→function wrapText(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
+   379→  // Simple greedy wrap on word boundaries. Soft-hyphenate long words.
+   380→  const words = text.split(/\s+/)
+   381→  const lines: string[] = []
+   382→  let cur = ''
+   383→  for (const word of words) {
+   384→    const test = cur ? cur + ' ' + word : word
+   385→    if (ctx.measureText(test).width <= maxW || !cur) {
+   386→      cur = test
+   387→    } else {
+   388→      lines.push(cur)
+   389→      cur = word
+   390→    }
+   391→  }
+   392→  if (cur) lines.push(cur)
+   393→  return lines
+   394→}
+   395→
+   396→function createProgram(gl: WebGLRenderingContext, vsSrc: string, fsSrc: string): WebGLProgram {
+   397→  const vs = compileShader(gl, gl.VERTEX_SHADER, vsSrc)
+   398→  const fs = compileShader(gl, gl.FRAGMENT_SHADER, fsSrc)
+   399→  const p = gl.createProgram()!
+   400→  gl.attachShader(p, vs)
+   401→  gl.attachShader(p, fs)
+   402→  gl.linkProgram(p)
+   403→  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+   404→    const log = gl.getProgramInfoLog(p)
+   405→    gl.deleteProgram(p)
+   406→    throw new Error('Program link error: ' + log)
+   407→  }
+   408→  return p
+   409→}
+   410→
+   411→/* ------------------------------------------------------------------ *
+   412→ * LiquidGlassRenderer
+   413→ *
+   414→ * One opaque WebGL canvas. Render pipeline per frame:
+   415→ *   1. Wallpaper background pass (cover-fit).
+   416→ *   2. For each button (in order):
+   417→ *      a. Outer drop shadow pass (if configured).
+   418→ *      b. Element pass (refraction + vibrancy + tint + highlight),
+   419→ *         with InteractiveHighlight-driven scale/translation/stretch.
+   420→ *      c. White overlay pass (Plus blend, 8% * progress) on press.
+   421→ *      d. Radial highlight pass (Plus blend, at finger position) on press.
+   422→ *      e. Foreground pass (button label, with press-driven alpha fade).
+   423→ *
+   424→ * No DOM children — the canvas owns the entire visual surface.
+   425→ * ------------------------------------------------------------------ */
+   426→export class LiquidGlassRenderer {
+   427→  private gl: WebGLRenderingContext
+   428→  private elementProgram: WebGLProgram
+   429→  private shadowProgram: WebGLProgram
+   430→  private wallpaperProgram: WebGLProgram
+   431→  private foregroundProgram: WebGLProgram
+   432→  private highlightProgram: WebGLProgram
+   433→  private tintProgram: WebGLProgram
+   434→  private rimHighlightProgram: WebGLProgram
+   435→  private plainRectProgram: WebGLProgram
+   436→  private progressiveBlurProgram: WebGLProgram
+   437→  private quadBuffer: WebGLBuffer
+   438→  private wallpaperTexture: WebGLTexture | null = null
+   439→  private wallpaperReady = false
+   440→  private wallpaperSize: [number, number] = [1, 1]
+   441→  private canvas: HTMLCanvasElement
+   442→  private dpr = 1
+   443→  private buttonConfigs: GlassElementConfig[] = []
+   444→  private buttonStates = new Map<string, ElementState>()
+   445→  /** Toggle group state — keyed by groupId. Faithful port of DampedDragAnimation.kt. */
+   446→  private toggleStates = new Map<string, ToggleGroupState>()
+   447→  /** Scroll offset in CSS px (positive = scrolled down). */
+   448→  private scrollY = 0
+   449→  /** Scroll velocity for inertia (CSS px / s). Decays exponentially. */
+   450→  private scrollVelocity = 0
+   451→  /** Total scrollable content height in CSS px. */
+   452→  private contentHeight = 0
+   453→  /** CSS-pixel canvas size (separate from the device-pixel backing store). */
+   454→  private cssWidth = 0
+   455→  private cssHeight = 0
+   456→  /** Wheel listener target — set in attachWheelListener(). */
+   457→  private wheelTarget: HTMLElement | null = null
+   458→  /** Background color override. If set, the renderer fills the canvas with
+   459→   *  this color instead of drawing the wallpaper. Used for the Home page
+   460→   *  (black background) per the user's request. */
+   461→  private backgroundColor: [number, number, number] | null = null
+   462→
+   463→  // Offscreen 2D canvas for the foreground (label + chevron). Reused
+   464→  // across buttons — we re-rasterize + re-upload per button per frame.
+   465→  private fgCanvas: HTMLCanvasElement
+   466→  private fgCtx: CanvasRenderingContext2D
+   467→  private fgTextures = new Map<string, WebGLTexture>()
+   468→  private fgDirtyIds = new Set<string>()
+   469→
+   470→  private rafId: number | null = null
+   471→  private animRafId: number | null = null
+   472→  private aPosLocEl: number
+   473→  private aPosLocSh: number
+   474→  private aPosLocWp: number
+   475→  private aPosLocFg: number
+   476→  private aPosLocHl: number
+   477→  private aPosLocTn: number
+   478→  private aPosLocRm: number
+   479→  private aPosLocPr: number
+   480→  private aPosLocPb: number
+   481→
+   482→  // Program uniform locations (cached)
+   483→  private uEl: Record<string, WebGLUniformLocation | null> = {}
+   484→  private uSh: Record<string, WebGLUniformLocation | null> = {}
+   485→  private uWp: Record<string, WebGLUniformLocation | null> = {}
+   486→  private uFg: Record<string, WebGLUniformLocation | null> = {}
+   487→  private uHl: Record<string, WebGLUniformLocation | null> = {}
+   488→  private uTn: Record<string, WebGLUniformLocation | null> = {}
+   489→  private uRm: Record<string, WebGLUniformLocation | null> = {}
+   490→  private uPr: Record<string, WebGLUniformLocation | null> = {}
+   491→  private uPb: Record<string, WebGLUniformLocation | null> = {}
+   492→
+   493→  constructor(canvas: HTMLCanvasElement) {
+   494→    this.canvas = canvas
+   495→    const gl = canvas.getContext('webgl', {
+   496→      premultipliedAlpha: false,
+   497→      alpha: false,
+   498→      antialias: true,
+   499→      preserveDrawingBuffer: false,
+   500→    })
+   501→    if (!gl) throw new Error('WebGL not supported')
+   502→    this.gl = gl
+   503→
+   504→    this.elementProgram = createProgram(gl, VERTEX_SHADER, ELEMENT_FRAGMENT_SHADER)
+   505→    this.shadowProgram = createProgram(gl, VERTEX_SHADER, SHADOW_FRAGMENT_SHADER)
+   506→    this.wallpaperProgram = createProgram(gl, VERTEX_SHADER, WALLPAPER_FRAGMENT_SHADER)
+   507→    this.foregroundProgram = createProgram(gl, VERTEX_SHADER, FOREGROUND_FRAGMENT_SHADER)
+   508→    this.highlightProgram = createProgram(gl, VERTEX_SHADER, HIGHLIGHT_FRAGMENT_SHADER)
+   509→    this.tintProgram = createProgram(gl, VERTEX_SHADER, TINT_FRAGMENT_SHADER)
+   510→    this.rimHighlightProgram = createProgram(gl, VERTEX_SHADER, RIM_HIGHLIGHT_FRAGMENT_SHADER)
+   511→    this.plainRectProgram = createProgram(gl, VERTEX_SHADER, PLAIN_RECT_FRAGMENT_SHADER)
+   512→    this.progressiveBlurProgram = createProgram(gl, VERTEX_SHADER, PROGRESSIVE_BLUR_FRAGMENT_SHADER)
+   513→
+   514→    // Fullscreen quad
+   515→    this.quadBuffer = gl.createBuffer()!
+   516→    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+   517→    gl.bufferData(
+   518→      gl.ARRAY_BUFFER,
+   519→      new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]),
+   520→      gl.STATIC_DRAW
+   521→    )
+   522→
+   523→    this.aPosLocEl = gl.getAttribLocation(this.elementProgram, 'aPos')
+   524→    this.aPosLocSh = gl.getAttribLocation(this.shadowProgram, 'aPos')
+   525→    this.aPosLocWp = gl.getAttribLocation(this.wallpaperProgram, 'aPos')
+   526→    this.aPosLocFg = gl.getAttribLocation(this.foregroundProgram, 'aPos')
+   527→    this.aPosLocHl = gl.getAttribLocation(this.highlightProgram, 'aPos')
+   528→    this.aPosLocTn = gl.getAttribLocation(this.tintProgram, 'aPos')
+   529→    this.aPosLocRm = gl.getAttribLocation(this.rimHighlightProgram, 'aPos')
+   530→    this.aPosLocPr = gl.getAttribLocation(this.plainRectProgram, 'aPos')
+   531→    this.aPosLocPb = gl.getAttribLocation(this.progressiveBlurProgram, 'aPos')
+   532→
+   533→    // Offscreen 2D canvas for the foreground texture.
+   534→    this.fgCanvas = typeof document !== 'undefined' ? document.createElement('canvas') : (null as any)
+   535→    const fgCtx = this.fgCanvas?.getContext('2d', { alpha: true })
+   536→    if (!fgCtx) throw new Error('2D canvas not supported')
+   537→    this.fgCtx = fgCtx
+   538→
+   539→    this.cacheUniforms()
+   540→  }
+   541→
+   542→  private cacheUniforms() {
+   543→    const gl = this.gl
+   544→    const elNames = [
+   545→      'uBackdrop', 'uCanvasSize', 'uWallpaperSize', 'uElementOffset', 'uElementSize',
+   546→      'uCornerRadii', 'uRefractionHeight', 'uRefractionAmount', 'uDepthEffect',
+   547→      'uChromaticAberration', 'uBlurRadius', 'uSaturation', 'uBrightness',
+   548→      'uContrast', 'uTintColor', 'uSurfaceColor', 'uHighlightColor',
+   549→      'uHighlightAngle', 'uHighlightFalloff', 'uHighlightAlpha', 'uHighlightMode',
+   550→      'uHighlightStrokeWidth', 'uHighlightBlur',
+   551→      'uInnerShadowRadius', 'uInnerShadowAlpha', 'uInnerShadowOffset',
+   552→    ]
+   553→    for (const n of elNames) this.uEl[n] = gl.getUniformLocation(this.elementProgram, n)
+   554→    const shNames = [
+   555→      'uCanvasSize', 'uElementOffset', 'uElementSize', 'uCornerRadii',
+   556→      'uShadowRadius', 'uShadowOffset', 'uShadowColor',
+   557→    ]
+   558→    for (const n of shNames) this.uSh[n] = gl.getUniformLocation(this.shadowProgram, n)
+   559→    const wpNames = ['uBackdrop', 'uCanvasSize', 'uWallpaperSize']
+   560→    for (const n of wpNames) this.uWp[n] = gl.getUniformLocation(this.wallpaperProgram, n)
+   561→    const fgNames = ['uTexture', 'uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uAlpha']
+   562→    for (const n of fgNames) this.uFg[n] = gl.getUniformLocation(this.foregroundProgram, n)
+   563→    const hlNames = ['uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uColor', 'uRadius', 'uPosition']
+   564→    for (const n of hlNames) this.uHl[n] = gl.getUniformLocation(this.highlightProgram, n)
+   565→    const tnNames = ['uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uColor']
+   566→    for (const n of tnNames) this.uTn[n] = gl.getUniformLocation(this.tintProgram, n)
+   567→    const rmNames = [
+   568→      'uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii',
+   569→      'uHighlightColor', 'uHighlightAngle', 'uHighlightFalloff',
+   570→      'uHighlightAlpha', 'uHighlightMode', 'uHighlightStrokeWidth',
+   571→      'uHighlightBlur',
+   572→    ]
+   573→    for (const n of rmNames) this.uRm[n] = gl.getUniformLocation(this.rimHighlightProgram, n)
+   574→    const prNames = ['uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uColor']
+   575→    for (const n of prNames) this.uPr[n] = gl.getUniformLocation(this.plainRectProgram, n)
+   576→    const pbNames = [
+   577→      'uBackdrop', 'uCanvasSize', 'uWallpaperSize', 'uOffset', 'uSize',
+   578→      'uBlurRadius', 'uTintColor', 'uTintIntensity',
+   579→    ]
+   580→    for (const n of pbNames) this.uPb[n] = gl.getUniformLocation(this.progressiveBlurProgram, n)
+   581→  }
+   582→
+   583→  /** Load the wallpaper image as a texture. */
+   584→  async loadWallpaper(src: string) {
+   585→    const img = new Image()
+   586→    img.crossOrigin = 'anonymous'
+   587→    await new Promise<void>((resolve, reject) => {
+   588→      img.onload = () => resolve()
+   589→      img.onerror = () => reject(new Error('Failed to load wallpaper: ' + src))
+   590→      img.src = src
+   591→    })
+   592→    const gl = this.gl
+   593→    if (this.wallpaperTexture) gl.deleteTexture(this.wallpaperTexture)
+   594→    const tex = gl.createTexture()!
+   595→    gl.bindTexture(gl.TEXTURE_2D, tex)
+   596→    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
+   597→    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img)
+   598→    const w = img.naturalWidth
+   599→    const h = img.naturalHeight
+   600→    const isPOT = (w & (w - 1)) === 0 && (h & (h - 1)) === 0
+   601→    if (isPOT) {
+   602→      gl.generateMipmap(gl.TEXTURE_2D)
+   603→      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
+   604→    } else {
+   605→      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+   606→    }
+   607→    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+   608→    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+   609→    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+   610→    this.wallpaperTexture = tex
+   611→    this.wallpaperSize = [w || 1, h || 1]
+   612→    this.wallpaperReady = true
+   613→    this.requestRender()
+   614→  }
+   615→
+   616→  /** Set canvas size (CSS pixels) + handle DPR. */
+   617→  resize(cssW: number, cssH: number) {
+   618→    this.dpr = Math.min(window.devicePixelRatio || 1, 2)
+   619→    const w = Math.round(cssW * this.dpr)
+   620→    const h = Math.round(cssH * this.dpr)
+   621→    if (this.canvas.width !== w || this.canvas.height !== h) {
+   622→      this.canvas.width = w
+   623→      this.canvas.height = h
+   624→      this.gl.viewport(0, 0, w, h)
+   625→    }
+   626→    // All foregrounds need re-rasterization when DPR changes.
+   627→    for (const b of this.buttonConfigs) this.fgDirtyIds.add(b.id)
+   628→    this.cssWidth = cssW
+   629→    this.cssHeight = cssH
+   630→    this.requestRender()
+   631→  }
+   632→
+   633→  /** Total scrollable content height in CSS px (set by the React layer). */
+   634→  setContentHeight(h: number) {
+   635→    this.contentHeight = h
+   636→    this.clampScrollY()
+   637→    this.requestRender()
+   638→  }
+   639→
+   640→  /**
+   641→   * Set the scroll offset directly (CSS px, positive = scrolled down).
+   642→   * Used during touch drag — the scroll position follows the finger with
+   643→   * no spring lag. Inertia velocity is reset to 0 (the finger is in control).
+   644→   * The value is clamped to [0, maxScroll].
+   645→   */
+   646→  setScrollY(y: number) {
+   647→    this.scrollVelocity = 0
+   648→    this.scrollY = this.clampScrollValue(y)
+   649→    this.requestRender()
+   650→  }
+   651→
+   652→  /**
+   653→   * Apply an inertia impulse to the scroll (CSS px / s). Used on touch
+   654→   * release — the drag velocity becomes the initial scroll velocity,
+   655→   * then exponentially decays. The renderer's animation loop applies
+   656→   * `scrollY += scrollVelocity * dt` each frame and decays the velocity.
+   657→   * No spring rebound at edges — scrolling just stops at the boundary.
+   658→   */
+   659→  setScrollVelocity(v: number) {
+   660→    // Clamp to a sane max to avoid absurd flicks.
+   661→    const MAX_VEL = 4000
+   662→    this.scrollVelocity = Math.max(-MAX_VEL, Math.min(MAX_VEL, v))
+   663→    this.startAnimation()
+   664→  }
+   665→
+   666→  /** Get current scroll offset (CSS px). */
+   667→  getScrollY() {
+   668→    return this.scrollY
+   669→  }
+   670→
+   671→  /** Get current scroll velocity (CSS px / s, for inertia). */
+   672→  getScrollVelocity() {
+   673→    return this.scrollVelocity
+   674→  }
+   675→
+   676→  /** Clamp a scroll value to [0, maxScroll]. */
+   677→  private clampScrollValue(y: number): number {
+   678→    const max = Math.max(0, this.contentHeight - this.cssHeight)
+   679→    if (y < 0) return 0
+   680→    if (y > max) return max
+   681→    return y
+   682→  }
+   683→
+   684→  /** Clamp current scrollY in place (called when content size changes). */
+   685→  private clampScrollY() {
+   686→    this.scrollY = this.clampScrollValue(this.scrollY)
+   687→  }
+   688→
+   689→  /**
+   690→   * Set the background color override. If non-null, the renderer fills
+   691→   * the canvas with this color instead of drawing the wallpaper image.
+   692→   * Used for the Home page (black background) per the user's request.
+   693→   */
+   694→  setBackgroundColor(color: [number, number, number] | null) {
+   695→    this.backgroundColor = color
+   696→    this.requestRender()
+   697→  }
+   698→
+   699→  /* ------------------------------------------------------------------ *
+   700→   * Toggle group API — faithful port of DampedDragAnimation.kt.
+   701→   *
+   702→   * The React layer calls these methods to drive toggle interactions:
+   703→   *   - setToggleTarget(groupId, target): programmatic toggle (tap)
+   704→   *   - beginToggleDrag(groupId): start a finger drag (press animation)
+   705→   *   - dragToggle(groupId, startFraction, currentX, startX, dragWidth):
+   706→   *     update targetFraction based on finger delta
+   707→   *   - endToggleDrag(groupId): release — snaps target to 0 or 1, returns
+   708→   *     the final value so React state can sync
+   709→   *   - getToggleFraction(groupId): read current animated fraction (for
+   710→   *     external callers that need to know the displayed position)
+   711→   *   - getToggleTarget(groupId): read current target (for drag-end threshold)
+   712→   * ------------------------------------------------------------------ */
+   713→
+   714→  /** Ensure a toggle group state exists, initialized to the given fraction. */
+   715→  private ensureToggleState(groupId: string, initialFraction: number): ToggleGroupState {
+   716→    let st = this.toggleStates.get(groupId)
+   717→    if (!st) {
+   718→      st = {
+   719→        fraction: initialFraction,
+   720→        fractionVelocity: 0,
+   721→        targetFraction: initialFraction,
+   722→        pressProgress: 0,
+   723→        pressVelocity: 0,
+   724→        targetPress: 0,
+   725→        scale: 1,
+   726→        scaleVelocity: 0,
+   727→        targetScale: 1,
+   728→        isDragging: false,
+   729→      }
+   730→      this.toggleStates.set(groupId, st)
+   731→    }
+   732→    return st
+   733→  }
+   734→
+   735→  /**
+   736→   * Set the toggle's target fraction (0..1). Animates with critically
+   737→   * damped spring. Also triggers a quick press-and-release cycle to
+   738→   * match the original `animateToValue` behavior (which calls press()
+   739→   * + animateTo + release()).
+   740→   *
+   741→   * Used for tap-to-toggle: the React layer flips `toggleOn`, then calls
+   742→   * this method with the new target.
+   743→   *
+   744→   * NOTE: If the target is unchanged (e.g. React re-renders after a drag
+   745→   * end and pushes the same target back), this is a no-op — we don't
+   746→   * re-trigger the press animation. This prevents a feedback loop where
+   747→   * drag-end → setState → useEffect → setToggleTarget would restart the
+   748→   * press animation that endToggleDrag just played.
+   749→   */
+   750→  setToggleTarget(groupId: string, target: number) {
+   751→    const st = this.ensureToggleState(groupId, target)
+   752→    if (st.isDragging) return // Don't fight a drag in progress
+   753→    if (st.targetFraction === target) return // Same target — no-op
+   754→    st.targetFraction = target
+   755→    // Trigger a brief press animation (matches animateToValue's press()+release()).
+   756→    // The press animation auto-releases when fraction settles near target
+   757→    // (handled in the animation loop).
+   758→    if (st.targetPress === 0) {
+   759→      st.targetPress = 1
+   760→      st.targetScale = 1.5
+   761→    }
+   762→    this.startAnimation()
+   763→  }
+   764→
+   765→  /**
+   766→   * Begin a finger drag on a toggle group. Sets isDragging=true and
+   767→   * starts the press animation (scale → 1.5, white overlay fades in).
+   768→   * The startFraction is recorded so drag deltas can be added to it.
+   769→   */
+   770→  beginToggleDrag(groupId: string, startFraction: number) {
+   771→    const st = this.ensureToggleState(groupId, startFraction)
+   772→    st.isDragging = true
+   773→    st.targetPress = 1
+   774→    st.targetScale = 1.5
+   775→    this.startAnimation()
+   776→  }
+   777→
+   778→  /**
+   779→   * Update the toggle's target fraction based on finger movement.
+   780→   * The new target is computed as `startFraction + (currentX - startX) / dragWidth`,
+   781→   * clamped to [0, 1]. The animated fraction then springs toward this
+   782→   * target with critically damped spec — so the knob tracks the finger
+   783→   * with a tiny smooth lag (matches the original's `updateValue(fraction)`
+   784→   * which animates toward the latest fraction state).
+   785→   */
+   786→  dragToggle(
+   787→    groupId: string,
+   788→    startFraction: number,
+   789→    currentX: number,
+   790→    startX: number,
+   791→    dragWidth: number
+   792→  ) {
+   793→    const st = this.ensureToggleState(groupId, startFraction)
+   794→    if (!st.isDragging) return
+   795→    const delta = (currentX - startX) / Math.max(1, dragWidth)
+   796→    st.targetFraction = Math.max(0, Math.min(1, startFraction + delta))
+   797→    this.startAnimation()
+   798→  }
+   799→
+   800→  /**
+   801→   * End a finger drag. Snaps the target to 0 or 1 based on the current
+   802→   * targetFraction (≥0.5 → 1, else 0). Returns the snapped value so the
+   803→   * React layer can sync its state.
+   804→   *
+   805→   * NOTE: We do NOT immediately release the press animation here. The
+   806→   * original `release()` waits for `value` to settle near `targetValue`
+   807→   * before animating press→0. Our animation loop's auto-release logic
+   808→   * handles this: when `isDragging === false` and `fraction` is within
+   809→   * 0.02 of `targetFraction`, it sets `targetPress = 0` and `targetScale = 1`.
+   810→   * This gives a smooth "press stays until knob settles, then releases"
+   811→   * feel that matches the original.
+   812→   */
+   813→  endToggleDrag(groupId: string): number {
+   814→    const st = this.toggleStates.get(groupId)
+   815→    if (!st) return 0
+   816→    st.isDragging = false
+   817→    const finalTarget = st.targetFraction >= 0.5 ? 1 : 0
+   818→    st.targetFraction = finalTarget
+   819→    // Don't release press here — auto-release will fire when fraction
+   820→    // settles near finalTarget.
+   821→    this.startAnimation()
+   822→    return finalTarget
+   823→  }
+   824→
+   825→  /** Read the current animated fraction (0..1) for a toggle group. */
+   826→  getToggleFraction(groupId: string): number {
+   827→    return this.toggleStates.get(groupId)?.fraction ?? 0
+   828→  }
+   829→
+   830→  /** Read the current target fraction (0..1) for a toggle group. */
+   831→  getToggleTarget(groupId: string): number {
+   832→    return this.toggleStates.get(groupId)?.targetFraction ?? 0
+   833→  }
+   834→
+   835→  /** Set the element list. Triggers foreground re-raster for changed elements. */
+   836→  setElements(configs: GlassElementConfig[]) {
+   837→    this.setButtons(configs)
+   838→  }
+   839→
+   840→  /** Set the element list (legacy name; same as setElements). */
+   841→  setButtons(configs: GlassElementConfig[]) {
+   842→    const prevIds = new Set(this.buttonConfigs.map((b) => b.id))
+   843→    const nextIds = new Set(configs.map((b) => b.id))
+   844→    // Mark new buttons as needing rasterization.
+   845→    for (const id of nextIds) if (!prevIds.has(id)) this.fgDirtyIds.add(id)
+   846→    // Mark buttons whose label/rect/color/icon changed as needing rasterization.
+   847→    for (const next of configs) {
+   848→      const prev = this.buttonConfigs.find((b) => b.id === next.id)
+   849→      if (!prev) continue
+   850→      // Value-equality helpers for color arrays. Reference equality
+   851→      // (prev.labelColor !== next.labelColor) is FALSE here because each
+   852→      // makeButton / makeGlassShape call creates a NEW array, even when
+   853→      // the actual rgba values are identical. That previously marked
+   854→      // every element dirty on every state change, forcing constant
+   855→      // foreground re-rasterization (the "SDF freeze" symptom: rapid
+   856→      // state updates on the LockScreen page made the icon redraw
+   857→      // hundreds of times per second).
+   858→      const eq4 = (a?: number[], b?: number[]) => {
+   859→        if (!a || !b) return a === b
+   860→        if (a.length !== b.length) return false
+   861→        for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
+   862→        return true
+   863→      }
+   864→      const prevTextIcon = prev.text?.icon
+   865→      const nextTextIcon = next.text?.icon
+   866→      const textIconChanged = !!prevTextIcon !== !!nextTextIcon ||
+   867→        (prevTextIcon && nextTextIcon &&
+   868→          (prevTextIcon.path !== nextTextIcon.path ||
+   869→           prevTextIcon.size !== nextTextIcon.size ||
+   870→           !eq4(prevTextIcon.color, nextTextIcon.color)))
+   871→      // Button-level icon (used by the circular back button).
+   872→      const prevBtnIcon = prev.icon
+   873→      const nextBtnIcon = next.icon
+   874→      const btnIconChanged = !!prevBtnIcon !== !!nextBtnIcon ||
+   875→        (prevBtnIcon && nextBtnIcon &&
+   876→          (prevBtnIcon.path !== nextBtnIcon.path ||
+   877→           prevBtnIcon.size !== nextBtnIcon.size ||
+   878→           !eq4(prevBtnIcon.color, nextBtnIcon.color)))
+   879→      if (
+   880→        prev.label !== next.label ||
+   881→        !eq4(prev.labelColor, next.labelColor) ||
+   882→        prev.showChevron !== next.showChevron ||
+   883→        prev.rect.w !== next.rect.w ||
+   884→        prev.rect.h !== next.rect.h ||
+   885→        (next.text && prev.text && prev.text.content !== next.text.content) ||
+   886→        (next.text && !prev.text) ||
+   887→        (!next.text && prev.text) ||
+   888→        textIconChanged ||
+   889→        btnIconChanged
+   890→      ) {
+   891→        this.fgDirtyIds.add(next.id)
+   892→      }
+   893→    }
+   894→    // Clean up state for removed buttons.
+   895→    for (const id of prevIds) {
+   896→      if (!nextIds.has(id)) {
+   897→        this.buttonStates.delete(id)
+   898→        const tex = this.fgTextures.get(id)
+   899→        if (tex) {
+   900→          this.gl.deleteTexture(tex)
+   901→          this.fgTextures.delete(id)
+   902→        }
+   903→        this.fgDirtyIds.delete(id)
+   904→      }
+   905→    }
+   906→    // Ensure state exists for new buttons.
+   907→    for (const c of configs) {
+   908→      if (!this.buttonStates.has(c.id)) {
+   909→        // interactiveValue is initialized to 0; the React layer should
+   910→        // call setInteractiveValue() right after setElements() to push
+   911→        // the real value (toggle fraction, slider value, tab index).
+   912→        const initValue = 0
+   913→        this.buttonStates.set(c.id, {
+   914→          pressProgress: 0,
+   915→          pressVelocity: 0,
+   916→          targetPress: 0,
+   917→          dragX: 0,
+   918→          dragY: 0,
+   919→          dragVx: 0,
+   920→          dragVy: 0,
+   921→          targetDragX: 0,
+   922→          targetDragY: 0,
+   923→          startDragX: 0,
+   924→          startDragY: 0,
+   925→          interactiveValue: initValue,
+   926→          interactiveVelocity: 0,
+   927→          targetInteractiveValue: initValue,
+   928→        })
+   929→      }
+   930→    }
+   931→    this.buttonConfigs = configs
+   932→    this.requestRender()
+   933→  }
+   934→
+   935→  /**
+   936→   * Set the interactive value (0..1 for toggle/slider; integer index for
+   937→   * tabbar) for an element. The renderer springs `interactiveValue` toward
+   938→   * this target so motion looks animated, not snapped.
+   939→   */
+   940→  setInteractiveValue(id: string, value: number) {
+   941→    const st = this.buttonStates.get(id)
+   942→    if (!st) return
+   943→    if (st.targetInteractiveValue !== value) {
+   944→      st.targetInteractiveValue = value
+   945→      this.startAnimation()
+   946→      this.requestRender()
+   947→    }
+   948→  }
+   949→
+   950→  /**
+   951→   * Set the pressed state for a button. `position` is the finger position
+   952→   * in canvas CSS pixels (top-left origin). When pressed=true, the position
+   953→   * is recorded as the drag start; subsequent calls with pressed=true update
+   954→   * the drag target. When pressed=false, the drag target springs back to
+   955→   * the start position.
+   956→   *
+   957→   * FAITHFUL TO InteractiveHighlight.kt:
+   958→   *   - onDragStart: positionAnimation.snapTo(down.position)  // instant snap
+   959→   *   - onDrag:      positionAnimation.snapTo(change.position) // instant snap
+   960→   *   - onDragEnd:   positionAnimation.animateTo(startPosition, springSpec) // spring back
+   961→   *
+   962→   * So during a drag the position FOLLOWS the finger instantly (no spring
+   963→   * lag); only on release does the spring kick in to return to start.
+   964→   */
+   965→  setPressed(id: string, pressed: boolean, position?: { x: number; y: number }) {
+   966→    const st = this.buttonStates.get(id)
+   967→    if (!st) return
+   968→    if (pressed) {
+   969→      const btn = this.buttonConfigs.find((b) => b.id === id)
+   970→      if (btn && position) {
+   971→        // Convert canvas-relative position to element-local position.
+   972→        const localX = position.x - btn.rect.x
+   973→        const localY = position.y - btn.rect.y
+   974→        if (st.targetPress === 0) {
+   975→          // Drag start — record start position AND snap current to it
+   976→          // (matches positionAnimation.snapTo(startPosition)).
+   977→          st.startDragX = localX
+   978→          st.startDragY = localY
+   979→          st.dragX = localX
+   980→          st.dragY = localY
+   981→          st.dragVx = 0
+   982→          st.dragVy = 0
+   983→        }
+   984→        // During drag, snap directly (matches positionAnimation.snapTo(change.position)).
+   985→        st.dragX = localX
+   986→        st.dragY = localY
+   987→        st.dragVx = 0
+   988→        st.dragVy = 0
+   989→        st.targetDragX = localX
+   990→        st.targetDragY = localY
+   991→      }
+   992→      st.targetPress = 1
+   993→    } else {
+   994→      st.targetPress = 0
+   995→      // Spring drag back to start (matches positionAnimation.animateTo(startPosition, spec)).
+   996→      st.targetDragX = st.startDragX
+   997→      st.targetDragY = st.startDragY
+   998→    }
+   999→    this.startAnimation()
+  1000→  }
+  1001→
+  1002→  /**
+  1003→   * Update the drag position while pressed (without changing press state).
+  1004→   * Used for pointermove during a drag.
+  1005→   *
+  1006→   * FAITHFUL TO InteractiveHighlight.kt: positionAnimation.snapTo(change.position)
+  1007→   * — the position FOLLOWS the finger instantly with no spring lag. Only
+  1008→   * on release (setPressed false) does the spring kick in to return to start.
+  1009→   */
+  1010→  setDragPosition(id: string, position: { x: number; y: number }) {
+  1011→    const st = this.buttonStates.get(id)
+  1012→    if (!st || st.targetPress === 0) return
+  1013→    const btn = this.buttonConfigs.find((b) => b.id === id)
+  1014→    if (!btn) return
+  1015→    const localX = position.x - btn.rect.x
+  1016→    const localY = position.y - btn.rect.y
+  1017→    // Snap directly to finger position — no spring lag during drag.
+  1018→    st.dragX = localX
+  1019→    st.dragY = localY
+  1020→    st.dragVx = 0
+  1021→    st.dragVy = 0
+  1022→    st.targetDragX = localX
+  1023→    st.targetDragY = localY
+  1024→    this.requestRender()
+  1025→  }
+  1026→
+  1027→  /**
+  1028→   * Spring-based animation loop. Matches InteractiveHighlight.kt's
+  1029→   * spring(0.5f, 300f) spec — underdamped, with a small overshoot on
+  1030→   * release. Uses real wall-clock dt for frame-rate-independent timing.
+  1031→   */
+  1032→  private startAnimation() {
+  1033→    if (this.animRafId !== null) return
+  1034→    let lastTime = performance.now()
+  1035→    const tick = () => {
+  1036→      const now = performance.now()
+  1037→      // Cap dt at 50 ms to avoid huge jumps after tab switches.
+  1038→      const dt = Math.min((now - lastTime) / 1000, 0.05)
+  1039→      lastTime = now
+  1040→
+  1041→      let stillAnimating = false
+  1042→      for (const st of this.buttonStates.values()) {
+  1043→        // --- Press spring (underdamped, bouncy on release) ---
+  1044→        const pDelta = Math.abs(st.targetPress - st.pressProgress)
+  1045→        if (
+  1046→          pDelta > SPRING_THRESHOLD ||
+  1047→          Math.abs(st.pressVelocity) > SPRING_THRESHOLD
+  1048→        ) {
+  1049→          const r = springStep1D(
+  1050→            st.pressProgress,
+  1051→            st.pressVelocity,
+  1052→            st.targetPress,
+  1053→            dt
+  1054→          )
+  1055→          st.pressProgress = r.current
+  1056→          st.pressVelocity = r.velocity
+  1057→          stillAnimating = true
+  1058→        } else {
+  1059→          st.pressProgress = st.targetPress
+  1060→          st.pressVelocity = 0
+  1061→        }
+  1062→
+  1063→        // --- Drag X spring ---
+  1064→        if (
+  1065→          Math.abs(st.targetDragX - st.dragX) > SPRING_THRESHOLD ||
+  1066→          Math.abs(st.dragVx) > SPRING_THRESHOLD
+  1067→        ) {
+  1068→          const r = springStep1D(st.dragX, st.dragVx, st.targetDragX, dt)
+  1069→          st.dragX = r.current
+  1070→          st.dragVx = r.velocity
+  1071→          stillAnimating = true
+  1072→        } else {
+  1073→          st.dragX = st.targetDragX
+  1074→          st.dragVx = 0
+  1075→        }
+  1076→
+  1077→        // --- Drag Y spring ---
+  1078→        if (
+  1079→          Math.abs(st.targetDragY - st.dragY) > SPRING_THRESHOLD ||
+  1080→          Math.abs(st.dragVy) > SPRING_THRESHOLD
+  1081→        ) {
+  1082→          const r = springStep1D(st.dragY, st.dragVy, st.targetDragY, dt)
+  1083→          st.dragY = r.current
+  1084→          st.dragVy = r.velocity
+  1085→          stillAnimating = true
+  1086→        } else {
+  1087→          st.dragY = st.targetDragY
+  1088→          st.dragVy = 0
+  1089→        }
+  1090→
+  1091→        // --- Interactive value spring (toggle / slider / tabbar) ---
+  1092→        // Same spring spec (ζ=0.5, k=300) so toggles/tabbar overshoot a hair
+  1093→        // — matches the original bouncy feel.
+  1094→        const iDelta = Math.abs(st.targetInteractiveValue - st.interactiveValue)
+  1095→        if (
+  1096→          iDelta > SPRING_THRESHOLD ||
+  1097→          Math.abs(st.interactiveVelocity) > SPRING_THRESHOLD
+  1098→        ) {
+  1099→          const r = springStep1D(
+  1100→            st.interactiveValue,
+  1101→            st.interactiveVelocity,
+  1102→            st.targetInteractiveValue,
+  1103→            dt
+  1104→          )
+  1105→          st.interactiveValue = r.current
+  1106→          st.interactiveVelocity = r.velocity
+  1107→          stillAnimating = true
+  1108→        } else {
+  1109→          st.interactiveValue = st.targetInteractiveValue
+  1110→          st.interactiveVelocity = 0
+  1111→        }
+  1112→      }
+  1113→
+  1114→      // --- Toggle group springs (faithful port of DampedDragAnimation.kt) ---
+  1115→      for (const tg of this.toggleStates.values()) {
+  1116→        // Auto-release press when fraction has nearly settled (mirrors the
+  1117→        // original `release()` which awaits `value` near `targetValue`).
+  1118→        if (
+  1119→          tg.targetPress === 1 &&
+  1120→          !tg.isDragging &&
+  1121→          Math.abs(tg.targetFraction - tg.fraction) < 0.02
+  1122→        ) {
+  1123→          tg.targetPress = 0
+  1124→          tg.targetScale = 1
+  1125→        }
+  1126→
+  1127→        // Fraction: critically damped (spring(1f, 1000f)).
+  1128→        const fDelta = Math.abs(tg.targetFraction - tg.fraction)
+  1129→        if (
+  1130→          fDelta > SPRING_THRESHOLD ||
+  1131→          Math.abs(tg.fractionVelocity) > SPRING_THRESHOLD
+  1132→        ) {
+  1133→          const r = springStepCritical(
+  1134→            tg.fraction,
+  1135→            tg.fractionVelocity,
+  1136→            tg.targetFraction,
+  1137→            dt,
+  1138→            TOGGLE_VALUE_OMEGA_N
+  1139→          )
+  1140→          tg.fraction = r.current
+  1141→          tg.fractionVelocity = r.velocity
+  1142→          stillAnimating = true
+  1143→        } else {
+  1144→          tg.fraction = tg.targetFraction
+  1145→          tg.fractionVelocity = 0
+  1146→        }
+  1147→
+  1148→        // Press progress: critically damped (spring(1f, 1000f)).
+  1149→        const ppDelta = Math.abs(tg.targetPress - tg.pressProgress)
+  1150→        if (
+  1151→          ppDelta > SPRING_THRESHOLD ||
+  1152→          Math.abs(tg.pressVelocity) > SPRING_THRESHOLD
+  1153→        ) {
+  1154→          const r = springStepCritical(
+  1155→            tg.pressProgress,
+  1156→            tg.pressVelocity,
+  1157→            tg.targetPress,
+  1158→            dt,
+  1159→            TOGGLE_VALUE_OMEGA_N
+  1160→          )
+  1161→          tg.pressProgress = r.current
+  1162→          tg.pressVelocity = r.velocity
+  1163→          stillAnimating = true
+  1164→        } else {
+  1165→          tg.pressProgress = tg.targetPress
+  1166→          tg.pressVelocity = 0
+  1167→        }
+  1168→
+  1169→        // Scale: underdamped (spring(0.65f, 250f) — avg of 0.6/0.7).
+  1170→        const sDelta = Math.abs(tg.targetScale - tg.scale)
+  1171→        if (
+  1172→          sDelta > SPRING_THRESHOLD ||
+  1173→          Math.abs(tg.scaleVelocity) > SPRING_THRESHOLD
+  1174→        ) {
+  1175→          const r = springStepUnderdamped(
+  1176→            tg.scale,
+  1177→            tg.scaleVelocity,
+  1178→            tg.targetScale,
+  1179→            dt,
+  1180→            TOGGLE_SCALE_OMEGA_N,
+  1181→            TOGGLE_SCALE_DAMPING_RATIO
+  1182→          )
+  1183→          tg.scale = r.current
+  1184→          tg.scaleVelocity = r.velocity
+  1185→          stillAnimating = true
+  1186→        } else {
+  1187→          tg.scale = tg.targetScale
+  1188→          tg.scaleVelocity = 0
+  1189→        }
+  1190→      }
+  1191→
+  1192→      // --- Scroll inertia (no spring rebound) ---
+  1193→      // Velocity decays exponentially; scrollY follows velocity and is
+  1194→      // hard-clamped at [0, maxScroll] with velocity zeroed on hit.
+  1195→      // Decay rate ≈ 4/sec → velocity halves every ~170 ms.
+  1196→      if (Math.abs(this.scrollVelocity) > 0.5) {
+  1197→        const SCROLL_DECAY = 4.0
+  1198→        const newScrollY = this.scrollY + this.scrollVelocity * dt
+  1199→        const clamped = this.clampScrollValue(newScrollY)
+  1200→        if (clamped !== newScrollY) {
+  1201→          // Hit an edge — stop dead (no rebound).
+  1202→          this.scrollY = clamped
+  1203→          this.scrollVelocity = 0
+  1204→        } else {
+  1205→          this.scrollY = clamped
+  1206→          this.scrollVelocity *= Math.exp(-SCROLL_DECAY * dt)
+  1207→        }
+  1208→        stillAnimating = true
+  1209→      } else {
+  1210→        this.scrollVelocity = 0
+  1211→      }
+  1212→
+  1213→      this.requestRender()
+  1214→      if (stillAnimating) {
+  1215→        this.animRafId = requestAnimationFrame(tick)
+  1216→      } else {
+  1217→        this.animRafId = null
+  1218→      }
+  1219→    }
+  1220→    this.animRafId = requestAnimationFrame(tick)
+  1221→  }
+  1222→
+  1223→  private requestRender() {
+  1224→    if (this.rafId !== null) return
+  1225→    this.rafId = requestAnimationFrame(() => {
+  1226→      this.rafId = null
+  1227→      this.render()
+  1228→    })
+  1229→  }
+  1230→
+  1231→  /* ---------------------------------------------------------------- *
+  1232→   * Foreground rasterization — draws the button label (+ optional
+  1233→   * chevron) to an offscreen 2D canvas at device-pixel resolution,
+  1234→   * then uploads it as a WebGL texture.
+  1235→   * ---------------------------------------------------------------- */
+  1236→  private rasterizeForeground(cfg: GlassElementConfig) {
+  1237→    // For 'text' kind, use the dedicated text rasterizer.
+  1238→    if (cfg.kind === 'text' && cfg.text) {
+  1239→      this.rasterizeText(cfg)
+  1240→      return
+  1241→    }
+  1242→    // For non-button kinds without a label/icon, skip (no foreground content).
+  1243→    if (cfg.kind !== 'button' && !cfg.label && !cfg.icon) {
+  1244→      this.fgDirtyIds.delete(cfg.id)
+  1245→      return
+  1246→    }
+  1247→    const dpr = this.dpr
+  1248→    const w = Math.max(1, Math.round(cfg.rect.w * dpr))
+  1249→    const h = Math.max(1, Math.round(cfg.rect.h * dpr))
+  1250→    if (this.fgCanvas.width !== w) this.fgCanvas.width = w
+  1251→    if (this.fgCanvas.height !== h) this.fgCanvas.height = h
+  1252→
+  1253→    const ctx = this.fgCtx
+  1254→    ctx.setTransform(1, 0, 0, 1, 0, 0)
+  1255→    ctx.clearRect(0, 0, w, h)
+  1256→    ctx.scale(dpr, dpr)
+  1257→
+  1258→    const cssW = cfg.rect.w
+  1259→    const cssH = cfg.rect.h
+  1260→
+  1261→    // --- Icon (replaces label if present) ---------------------------
+  1262→    // Used by the circular back button (MD arrow_back icon). The icon is
+  1263→    // drawn as a filled SVG path scaled from a 24×24 viewport to `size`×`size`,
+  1264→    // centered in the button rect.
+  1265→    if (cfg.icon) {
+  1266→      const iconSize = cfg.icon.size
+  1267→      const ic = cfg.icon.color
+  1268→      ctx.save()
+  1269→      ctx.translate(cssW / 2 - iconSize / 2, cssH / 2 - iconSize / 2)
+  1270→      ctx.scale(iconSize / 24, iconSize / 24)
+  1271→      const p = new Path2D(cfg.icon.path)
+  1272→      ctx.fillStyle = `rgba(${Math.round(ic[0] * 255)}, ${Math.round(
+  1273→        ic[1] * 255
+  1274→      )}, ${Math.round(ic[2] * 255)}, ${ic[3]})`
+  1275→      ctx.fill(p)
+  1276→      ctx.restore()
+  1277→
+  1278→      this.uploadForegroundTexture(cfg.id)
+  1279→      this.fgDirtyIds.delete(cfg.id)
+  1280→      return
+  1281→    }
+  1282→
+  1283→    // --- Label -------------------------------------------------------
+  1284→    // Text size scales with the button rect height (rect.h = 48 * DP in
+  1285→    // page.tsx, and the original Kotlin spec uses 15.sp). So
+  1286→    // fontPx = rect.h * (15/48). This keeps measurement (in page.tsx)
+  1287→    // and rasterization (here) consistent at any DP factor.
+  1288→    const fontPx = cssH * (15 / 48)
+  1289→    const fontFamily =
+  1290→      '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+  1291→    ctx.font = `400 ${fontPx}px ${fontFamily}`
+  1292→    ctx.textBaseline = 'middle'
+  1293→    ctx.textAlign = 'center'
+  1294→
+  1295→    const colorStr = `rgba(${Math.round(cfg.labelColor[0] * 255)}, ${Math.round(
+  1296→      cfg.labelColor[1] * 255
+  1297→    )}, ${Math.round(cfg.labelColor[2] * 255)}, ${cfg.labelColor[3]})`
+  1298→
+  1299→    // Subtle halo for legibility over busy wallpaper. The halo color is
+  1300→    // chosen to contrast with the label color (light halo for dark text,
+  1301→    // dark halo for light text). We keep the blur radius small and the
+  1302→    // alpha low to avoid visible dark fringes around light text on
+  1303→    // tinted buttons (per user feedback: "按钮文字在滑动时…有黑边").
+  1304→    const haloIsLight = cfg.labelColor[0] + cfg.labelColor[1] + cfg.labelColor[2] < 1.5
+  1305→    ctx.save()
+  1306→    ctx.shadowColor = haloIsLight ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.15)'
+  1307→    ctx.shadowBlur = haloIsLight ? fontPx * 0.12 : fontPx * 0.05
+  1308→    ctx.fillStyle = colorStr
+  1309→    ctx.fillText(cfg.label, cssW / 2, cssH / 2 + 0.5)
+  1310→    ctx.restore()
+  1311→
+  1312→    // --- Chevron -----------------------------------------------------
+  1313→    if (cfg.showChevron) {
+  1314→      const chevronSize = fontPx * 0.93
+  1315→      const labelWidth = ctx.measureText(cfg.label).width
+  1316→      const cx = cssW / 2 + labelWidth / 2 + fontPx * 0.53 + chevronSize / 2
+  1317→      const cy = cssH / 2
+  1318→      ctx.save()
+  1319→      ctx.strokeStyle = colorStr
+  1320→      ctx.globalAlpha = 0.6
+  1321→      ctx.lineWidth = fontPx * 0.107
+  1322→      ctx.lineCap = 'round'
+  1323→      ctx.lineJoin = 'round'
+  1324→      ctx.beginPath()
+  1325→      ctx.moveTo(cx - chevronSize * 0.3, cy - chevronSize * 0.4)
+  1326→      ctx.lineTo(cx + chevronSize * 0.2, cy)
+  1327→      ctx.lineTo(cx - chevronSize * 0.3, cy + chevronSize * 0.4)
+  1328→      ctx.stroke()
+  1329→      ctx.restore()
+  1330→    }
+  1331→
+  1332→    this.uploadForegroundTexture(cfg.id)
+  1333→    this.fgDirtyIds.delete(cfg.id)
+  1334→  }
+  1335→
+  1336→  /* ---------------------------------------------------------------- *
+  1337→   * Text-element rasterizer — draws an arbitrary text label (with
+  1338→   * optional word wrap) to the foreground texture. Used for section
+  1339→   * titles, dialog body text, slider value labels, etc.
+  1340→   * ---------------------------------------------------------------- */
+  1341→  private rasterizeText(cfg: GlassElementConfig) {
+  1342→    if (!cfg.text) return
+  1343→    const dpr = this.dpr
+  1344→    const w = Math.max(1, Math.round(cfg.rect.w * dpr))
+  1345→    const h = Math.max(1, Math.round(cfg.rect.h * dpr))
+  1346→    if (this.fgCanvas.width !== w) this.fgCanvas.width = w
+  1347→    if (this.fgCanvas.height !== h) this.fgCanvas.height = h
+  1348→
+  1349→    const ctx = this.fgCtx
+  1350→    ctx.setTransform(1, 0, 0, 1, 0, 0)
+  1351→    ctx.clearRect(0, 0, w, h)
+  1352→    ctx.scale(dpr, dpr)
+  1353→
+  1354→    const t = cfg.text
+  1355→    const cssW = cfg.rect.w
+  1356→    const cssH = cfg.rect.h
+  1357→    const fontFamily =
+  1358→      '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+  1359→    ctx.font = `${t.fontWeight} ${t.fontSizePx}px ${fontFamily}`
+  1360→    ctx.textBaseline = 'middle'
+  1361→    const pad = t.paddingPx ?? 0
+  1362→
+  1363→    // Determine halo mode.
+  1364→    let halo: 'light' | 'dark' | 'none' = 'none'
+  1365→    if (t.halo === 'light') halo = 'light'
+  1366→    else if (t.halo === 'dark') halo = 'dark'
+  1367→    else if (t.halo === 'auto' || t.halo === undefined) {
+  1368→      const bright = t.color[0] + t.color[1] + t.color[2]
+  1369→      halo = bright < 1.5 ? 'light' : 'dark'
+  1370→    }
+  1371→    if (halo === 'light') {
+  1372→      ctx.shadowColor = 'rgba(255,255,255,0.55)'
+  1373→      ctx.shadowBlur = t.fontSizePx * 0.16
+  1374→    } else if (halo === 'dark') {
+  1375→      ctx.shadowColor = 'rgba(0,0,0,0.28)'
+  1376→      ctx.shadowBlur = t.fontSizePx * 0.1
+  1377→    } else {
+  1378→      ctx.shadowColor = 'transparent'
+  1379→      ctx.shadowBlur = 0
+  1380→    }
+  1381→
+  1382→    const colorStr = `rgba(${Math.round(t.color[0] * 255)}, ${Math.round(
+  1383→      t.color[1] * 255
+  1384→    )}, ${Math.round(t.color[2] * 255)}, ${t.color[3]})`
+  1385→    ctx.fillStyle = colorStr
+  1386→
+  1387→    // --- Optional icon (drawn above the text, centered horizontally) --
+  1388→    let textYOffset = 0
+  1389→    if (t.icon) {
+  1390→      const iconSize = t.icon.size
+  1391→      // Icon sits in the upper portion; text shifts down by iconSize + gap.
+  1392→      const gap = iconSize * 0.15
+  1393→      const totalBlockH = iconSize + gap + (t.content ? t.fontSizePx : 0)
+  1394→      const blockTop = cssH / 2 - totalBlockH / 2
+  1395→      const iconCx = cssW / 2
+  1396→      const iconCy = blockTop + iconSize / 2
+  1397→      // Draw the icon path scaled from a 24×24 viewport to iconSize×iconSize,
+  1398→      // centered at (iconCx, iconCy).
+  1399→      ctx.save()
+  1400→      ctx.translate(iconCx - iconSize / 2, iconCy - iconSize / 2)
+  1401→      ctx.scale(iconSize / 24, iconSize / 24)
+  1402→      const p = new Path2D(t.icon.path)
+  1403→      const ic = t.icon.color
+  1404→      ctx.fillStyle = `rgba(${Math.round(ic[0] * 255)}, ${Math.round(
+  1405→        ic[1] * 255
+  1406→      )}, ${Math.round(ic[2] * 255)}, ${ic[3]})`
+  1407→      ctx.fill(p)
+  1408→      ctx.restore()
+  1409→      textYOffset = (iconSize + gap) / 2
+  1410→    }
+  1411→
+  1412→    if (t.align === 'center') {
+  1413→      ctx.textAlign = 'center'
+  1414→      if (t.wrap) {
+  1415→        const lines = wrapText(ctx, t.content, cssW - pad * 2)
+  1416→        const lineH = t.fontSizePx * 1.35
+  1417→        const totalH = lineH * lines.length
+  1418→        let y = cssH / 2 - totalH / 2 + lineH / 2 + textYOffset
+  1419→        for (const line of lines) {
+  1420→          ctx.fillText(line, cssW / 2, y)
+  1421→          y += lineH
+  1422→        }
+  1423→      } else {
+  1424→        ctx.fillText(t.content, cssW / 2, cssH / 2 + 0.5 + textYOffset)
+  1425→      }
+  1426→    } else if (t.align === 'left') {
+  1427→      ctx.textAlign = 'left'
+  1428→      if (t.wrap) {
+  1429→        const lines = wrapText(ctx, t.content, cssW - pad * 2)
+  1430→        const lineH = t.fontSizePx * 1.35
+  1431→        const totalH = lineH * lines.length
+  1432→        let y = cssH / 2 - totalH / 2 + lineH / 2 + textYOffset
+  1433→        for (const line of lines) {
+  1434→          ctx.fillText(line, pad, y)
+  1435→          y += lineH
+  1436→        }
+  1437→      } else {
+  1438→        ctx.fillText(t.content, pad, cssH / 2 + 0.5 + textYOffset)
+  1439→      }
+  1440→    } else {
+  1441→      // right
+  1442→      ctx.textAlign = 'right'
+  1443→      ctx.fillText(t.content, cssW - pad, cssH / 2 + 0.5 + textYOffset)
+  1444→    }
+  1445→
+  1446→    this.uploadForegroundTexture(cfg.id)
+  1447→    this.fgDirtyIds.delete(cfg.id)
+  1448→  }
+  1449→
+  1450→  private uploadForegroundTexture(id: string) {
+  1451→    const gl = this.gl
+  1452→    let tex = this.fgTextures.get(id)
+  1453→    if (!tex) {
+  1454→      tex = gl.createTexture()!
+  1455→      this.fgTextures.set(id, tex)
+  1456→    }
+  1457→    gl.bindTexture(gl.TEXTURE_2D, tex)
+  1458→    // The 2D canvas backing store is premultiplied alpha. Upload it as
+  1459→    // premultiplied so the GPU doesn't un-premultiply (which loses
+  1460→    // precision in low-alpha halo pixels and produces dark fringes
+  1461→    // when the texture is then re-premultiplied during blending).
+  1462→    // Paired with blendFunc(ONE, ONE_MINUS_SRC_ALPHA) at the draw site.
+  1463→    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true)
+  1464→    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
+  1465→    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.fgCanvas)
+  1466→    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+  1467→    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+  1468→    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+  1469→    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+  1470→    // Restore the default for other texture uploads (wallpaper etc.).
+  1471→    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false)
+  1472→  }
+  1473→
+  1474→  private render() {
+  1475→    const gl = this.gl
+  1476→    if (!this.wallpaperReady && !this.backgroundColor) return
+  1477→
+  1478→    // Re-rasterize any dirty foregrounds.
+  1479→    for (const cfg of this.buttonConfigs) {
+  1480→      if (this.fgDirtyIds.has(cfg.id)) {
+  1481→        this.rasterizeForeground(cfg)
+  1482→      }
+  1483→    }
+  1484→
+  1485→    // Opaque clear (alpha:false context ignores alpha anyway).
+  1486→    gl.clearColor(0, 0, 0, 1)
+  1487→    gl.clear(gl.COLOR_BUFFER_BIT)
+  1488→    gl.disable(gl.BLEND)
+  1489→
+  1490→    // --- 1. Background pass (opaque) --------------------------------
+  1491→    // If a backgroundColor override is set (e.g. black for Home), fill
+  1492→    // the canvas with that color instead of drawing the wallpaper image.
+  1493→    // This matches the user's request: "主页改成黑色背景".
+  1494→    if (this.backgroundColor) {
+  1495→      const [r, g, b] = this.backgroundColor
+  1496→      gl.clearColor(r, g, b, 1)
+  1497→      gl.clear(gl.COLOR_BUFFER_BIT)
+  1498→    } else {
+  1499→      gl.useProgram(this.wallpaperProgram)
+  1500→      gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+  1501→      gl.enableVertexAttribArray(this.aPosLocWp)
+  1502→      gl.vertexAttribPointer(this.aPosLocWp, 2, gl.FLOAT, false, 0, 0)
+  1503→      gl.activeTexture(gl.TEXTURE0)
+  1504→      gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture!)
+  1505→      gl.uniform1i(this.uWp['uBackdrop'], 0)
+  1506→      gl.uniform2f(this.uWp['uCanvasSize'], this.canvas.width, this.canvas.height)
+  1507→      gl.uniform2f(this.uWp['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
+  1508→      gl.drawArrays(gl.TRIANGLES, 0, 6)
+  1509→    }
+  1510→
+  1511→    if (this.buttonConfigs.length === 0) return
+  1512→
+  1513→    // Enable blending for the remaining passes.
+  1514→    gl.enable(gl.BLEND)
+  1515→    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+  1516→
+  1517→    // Cull + sort: render in two waves.
+  1518→    //   Wave 1: 'plain-rect' (backgrounds, scrims, tracks, fills) and
+  1519→    //           'progressive-blur' — these are opaque-ish backgrounds
+  1520→    //           that should sit UNDER glass elements.
+  1521→    //   Wave 2: 'glass-shape' and 'button' (glass elements with shadow
+  1522→    //           and highlight) and 'text' — these render on top.
+  1523→    // Within each wave we preserve input order (which is the React layer's
+  1524→    // declared order — typically top-to-bottom of the page).
+  1525→    //
+  1526→    // All elements are offset by -scrollY (CSS px). Off-screen elements
+  1527→    // are skipped. We use a generous cull margin (~120px) to account for
+  1528→    // outer shadows (up to ~24dp), press/toggle scale (up to 1.5x), and
+  1529→    // foreground halo blur — so elements don't visibly pop out before
+  1530→    // crossing the viewport edge.
+  1531→    //
+  1532→    // CULL MARGIN UNITS: All comparisons are in VIEWPORT coords (the
+  1533→    // coordinate system where y=0 is the top of the visible canvas and
+  1534→    // y=cssHeight is the bottom). Mixing viewport y with content y (which
+  1535→    // is offset by scrollY) was the cause of the long-standing
+  1536→    // "elements disappear before sliding off screen" bug.
+  1537→    const scrollY = this.scrollY
+  1538→    const CULL_MARGIN = 120
+  1539→    const viewportTop = -CULL_MARGIN
+  1540→    const viewportBottom = this.cssHeight + CULL_MARGIN
+  1541→
+  1542→    const wave1: GlassElementConfig[] = []
+  1543→    const wave2: GlassElementConfig[] = []
+  1544→    for (const el of this.buttonConfigs) {
+  1545→      // Compute the element's effective y in VIEWPORT coords (after scroll).
+  1546→      const y = el.scroll ? el.rect.y - scrollY : el.rect.y
+  1547→      if (y + el.rect.h < viewportTop || y > viewportBottom) continue
+  1548→      if (el.kind === 'plain-rect' || el.kind === 'progressive-blur') {
+  1549→        wave1.push(el)
+  1550→      } else {
+  1551→        wave2.push(el)
+  1552→      }
+  1553→    }
+  1554→
+  1555→    // Helper to compute the element's effective rect (with scroll offset).
+  1556→    const effRect = (el: GlassElementConfig) => {
+  1557→      const y = el.scroll ? el.rect.y - scrollY : el.rect.y
+  1558→      return { x: el.rect.x, y, w: el.rect.w, h: el.rect.h }
+  1559→    }
+  1560→
+  1561→    // Helper to set SDF uniforms (canvasSize + offset + size + cornerRadii)
+  1562→    // for any of the SDF-using programs.
+  1563→    const gl_ctx = this
+  1564→    const setSdfUniforms = (
+  1565→      u: Record<string, WebGLUniformLocation | null>,
+  1566→      aPosLoc: number,
+  1567→      r: { x: number; y: number; w: number; h: number },
+  1568→      cornerRadius: number
+  1569→    ) => {
+  1570→      gl.bindBuffer(gl.ARRAY_BUFFER, gl_ctx.quadBuffer)
+  1571→      gl.enableVertexAttribArray(aPosLoc)
+  1572→      gl.vertexAttribPointer(aPosLoc, 2, gl.FLOAT, false, 0, 0)
+  1573→      gl.uniform2f(u['uCanvasSize'], gl_ctx.canvas.width, gl_ctx.canvas.height)
+  1574→      gl.uniform2f(u['uOffset'], r.x * gl_ctx.dpr, r.y * gl_ctx.dpr)
+  1575→      gl.uniform2f(u['uSize'], r.w * gl_ctx.dpr, r.h * gl_ctx.dpr)
+  1576→      gl.uniform4f(
+  1577→        u['uCornerRadii'],
+  1578→        cornerRadius * gl_ctx.dpr,
+  1579→        cornerRadius * gl_ctx.dpr,
+  1580→        cornerRadius * gl_ctx.dpr,
+  1581→        cornerRadius * gl_ctx.dpr
+  1582→      )
+  1583→    }
+  1584→
+  1585→    // --- Wave 1: plain-rects + progressive-blur -------------------------
+  1586→    for (const el of wave1) {
+  1587→      const r = effRect(el)
+  1588→      if (el.kind === 'plain-rect' && el.plainRect) {
+  1589→        gl.useProgram(this.plainRectProgram)
+  1590→        setSdfUniforms(this.uPr, this.aPosLocPr, r, el.cornerRadius)
+  1591→        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+  1592→        // Toggle tracks: lerp between offColor and onColor based on the
+  1593→        // group's animated fraction. Faithful to LiquidToggle.kt's
+  1594→        // `drawRect(lerp(trackColor, accentColor, fraction))`.
+  1595→        let c: [number, number, number, number]
+  1596→        if (el.isToggleTrack) {
+  1597→          const tg = this.toggleStates.get(el.isToggleTrack.groupId)
+  1598→          const f = tg ? tg.fraction : 0
+  1599→          const off = el.isToggleTrack.offColor
+  1600→          const on = el.isToggleTrack.onColor
+  1601→          c = [
+  1602→            off[0] + (on[0] - off[0]) * f,
+  1603→            off[1] + (on[1] - off[1]) * f,
+  1604→            off[2] + (on[2] - off[2]) * f,
+  1605→            off[3] + (on[3] - off[3]) * f,
+  1606→          ]
+  1607→        } else {
+  1608→          c = el.plainRect.color
+  1609→        }
+  1610→        gl.uniform4f(this.uPr['uColor'], c[0], c[1], c[2], c[3])
+  1611→        gl.drawArrays(gl.TRIANGLES, 0, 6)
+  1612→      } else if (el.kind === 'progressive-blur' && el.progressiveBlur) {
+  1613→        gl.useProgram(this.progressiveBlurProgram)
+  1614→        setSdfUniforms(this.uPb, this.aPosLocPb, r, el.cornerRadius)
+  1615→        // Backdrop blur is opaque-ish — use SrcOver (the band has its own
+  1616→        // alpha mask built in via the smoothstep gradient).
+  1617→        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+  1618→        gl.activeTexture(gl.TEXTURE0)
+  1619→        gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture!)
+  1620→        gl.uniform1i(this.uPb['uBackdrop'], 0)
+  1621→        gl.uniform2f(this.uPb['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
+  1622→        gl.uniform1f(this.uPb['uBlurRadius'], el.progressiveBlur.blurRadius * this.dpr)
+  1623→        const tc = el.progressiveBlur.tintColor
+  1624→        gl.uniform4f(this.uPb['uTintColor'], tc[0], tc[1], tc[2], tc[3])
+  1625→        gl.uniform1f(this.uPb['uTintIntensity'], el.progressiveBlur.tintIntensity)
+  1626→        gl.drawArrays(gl.TRIANGLES, 0, 6)
+  1627→      }
+  1628→    }
+  1629→
+  1630→    // --- Wave 2: glass-shapes + buttons + text --------------------------
+  1631→    for (const el of wave2) {
+  1632→      const st = this.buttonStates.get(el.id)
+  1633→      // 'text' kind: just composite the foreground texture (no glass).
+  1634→      if (el.kind === 'text') {
+  1635→        const r = effRect(el)
+  1636→        // Press tint overlay for interactive text items (e.g. home list
+  1637→        // items). Draws a subtle white rect with Plus blend so the row
+  1638→        // visibly brightens on tap — matches the Material ripple feel
+  1639→        // of the original clickable modifier.
+  1640→        const pText = st?.pressProgress ?? 0
+  1641→        if (el.isInteractive && pText > 0.001) {
+  1642→          gl.useProgram(this.tintProgram)
+  1643→          gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+  1644→          gl.enableVertexAttribArray(this.aPosLocTn)
+  1645→          gl.vertexAttribPointer(this.aPosLocTn, 2, gl.FLOAT, false, 0, 0)
+  1646→          gl.blendFunc(gl.SRC_ALPHA, gl.ONE)
+  1647→          gl.uniform2f(this.uTn['uCanvasSize'], this.canvas.width, this.canvas.height)
+  1648→          gl.uniform2f(this.uTn['uOffset'], r.x * this.dpr, r.y * this.dpr)
+  1649→          gl.uniform2f(this.uTn['uSize'], r.w * this.dpr, r.h * this.dpr)
+  1650→          // No corner clip — full-width row tint.
+  1651→          gl.uniform4f(this.uTn['uCornerRadii'], 0, 0, 0, 0)
+  1652→          gl.uniform4f(this.uTn['uColor'], 1, 1, 1, 0.10 * pText)
+  1653→          gl.drawArrays(gl.TRIANGLES, 0, 6)
+  1654→          gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+  1655→        }
+  1656→        const fgTex = this.fgTextures.get(el.id)
+  1657→        if (fgTex) {
+  1658→          gl.useProgram(this.foregroundProgram)
+  1659→          gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+  1660→          gl.enableVertexAttribArray(this.aPosLocFg)
+  1661→          gl.vertexAttribPointer(this.aPosLocFg, 2, gl.FLOAT, false, 0, 0)
+  1662→          // Premultiplied alpha blend — the foreground texture is uploaded
+  1663→          // with UNPACK_PREMULTIPLY_ALPHA_WEBGL=true below.
+  1664→          gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+  1665→          gl.activeTexture(gl.TEXTURE0)
+  1666→          gl.bindTexture(gl.TEXTURE_2D, fgTex)
+  1667→          gl.uniform1i(this.uFg['uTexture'], 0)
+  1668→          // For 'text' elements we don't want the capsule clip — pass a
+  1669→          // huge corner radius so the SDF never discards. We use the
+  1670→          // element's own cornerRadius (usually 0 for text blocks).
+  1671→          gl.uniform2f(this.uFg['uCanvasSize'], this.canvas.width, this.canvas.height)
+  1672→          gl.uniform2f(this.uFg['uOffset'], r.x * this.dpr, r.y * this.dpr)
+  1673→          gl.uniform2f(this.uFg['uSize'], r.w * this.dpr, r.h * this.dpr)
+  1674→          gl.uniform4f(
+  1675→            this.uFg['uCornerRadii'],
+  1676→            el.cornerRadius * this.dpr,
+  1677→            el.cornerRadius * this.dpr,
+  1678→            el.cornerRadius * this.dpr,
+  1679→            el.cornerRadius * this.dpr
+  1680→          )
+  1681→          gl.uniform1f(this.uFg['uAlpha'], 1.0)
+  1682→          gl.drawArrays(gl.TRIANGLES, 0, 6)
+  1683→          gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+  1684→        }
+  1685→        continue
+  1686→      }
+  1687→
+  1688→      // 'glass-shape' and 'button' share the glass pipeline. The only
+  1689→      // differences: 'glass-shape' has no press glow and no label.
+  1690→      const isButton = el.kind === 'button'
+  1691→      const p = st?.pressProgress ?? 0
+  1692→
+  1693→      // --- Compute press transform (button only) ---
+  1694→      const PRESS_SCALE_RATIO = 4 / 48
+  1695→      let scale = 1
+  1696→      let translationX = 0
+  1697→      let translationY = 0
+  1698→      let scaleX = 1
+  1699→      let scaleY = 1
+  1700→      if (isButton && el.isInteractive && st && Math.abs(p) > 0.0001) {
+  1701→        const width = el.rect.w
+  1702→        const height = el.rect.h
+  1703→        const maxDim = Math.max(width, height)
+  1704→        const minDim = Math.min(width, height)
+  1705→        const maxOffset = minDim
+  1706→        const initialDerivative = 0.05
+  1707→        const maxDragScale = PRESS_SCALE_RATIO
+  1708→
+  1709→        scale = 1 + PRESS_SCALE_RATIO * p
+  1710→        const dx = st.dragX - st.startDragX
+  1711→        const dy = st.dragY - st.startDragY
+  1712→        translationX = maxOffset * Math.tanh(initialDerivative * dx / maxOffset)
+  1713→        translationY = maxOffset * Math.tanh(initialDerivative * dy / maxOffset)
+  1714→
+  1715→        const offsetAngle = Math.atan2(dy, dx)
+  1716→        const whCap = Math.min(width / height, 1)
+  1717→        const hwCap = Math.min(height / width, 1)
+  1718→        scaleX = scale + maxDragScale * Math.abs(Math.cos(offsetAngle) * dx / maxDim) * whCap
+  1719→        scaleY = scale + maxDragScale * Math.abs(Math.sin(offsetAngle) * dy / maxDim) * hwCap
+  1720→      } else {
+  1721→        scaleX = scale
+  1722→        scaleY = scale
+  1723→      }
+  1724→
+  1725→      // --- Toggle knob transform (faithful to LiquidToggle.kt) ---
+  1726→      // The knob slides horizontally by `fraction * dragWidth`, and grows
+  1727→      // by `scale = lerp(1, 1.5, pressProgress)` on press (DampedDragAnimation).
+  1728→      // The base position (fraction=0) is set by the catalog layer; the
+  1729→      // renderer adds the animated offset.
+  1730→      let toggleXOffset = 0
+  1731→      let toggleScale = 1
+  1732→      let togglePressProgress = 0
+  1733→      if (el.isToggleKnob) {
+  1734→        const tg = this.toggleStates.get(el.isToggleKnob.groupId)
+  1735→        if (tg) {
+  1736→          toggleXOffset = tg.fraction * el.isToggleKnob.dragWidth
+  1737→          toggleScale = tg.scale
+  1738→          togglePressProgress = tg.pressProgress
+  1739→        }
+  1740→      }
+  1741→      scaleX *= toggleScale
+  1742→      scaleY *= toggleScale
+  1743→
+  1744→      const baseR = effRect(el)
+  1745→      const cx = baseR.x + baseR.w / 2 + translationX + toggleXOffset
+  1746→      const cy = baseR.y + baseR.h / 2 + translationY
+  1747→      const sw = baseR.w * scaleX
+  1748→      const sh = baseR.h * scaleY
+  1749→      const sx = cx - sw / 2
+  1750→      const sy = cy - sh / 2
+  1751→      const cornerRadius = el.cornerRadius * Math.min(scaleX, scaleY)
+  1752→
+  1753→      const radii: [number, number, number, number] = [
+  1754→        cornerRadius, cornerRadius, cornerRadius, cornerRadius,
+  1755→      ]
+  1756→
+  1757→      // --- Shadow pass ---
+  1758→      if (el.outerShadow && el.outerShadow.alpha > 0.001 && el.outerShadow.radius > 0.5) {
+  1759→        gl.useProgram(this.shadowProgram)
+  1760→        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+  1761→        gl.enableVertexAttribArray(this.aPosLocSh)
+  1762→        gl.vertexAttribPointer(this.aPosLocSh, 2, gl.FLOAT, false, 0, 0)
+  1763→        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+  1764→
+  1765→        gl.uniform2f(this.uSh['uCanvasSize'], this.canvas.width, this.canvas.height)
+  1766→        gl.uniform2f(this.uSh['uElementOffset'], sx * this.dpr, sy * this.dpr)
+  1767→        gl.uniform2f(this.uSh['uElementSize'], sw * this.dpr, sh * this.dpr)
+  1768→        gl.uniform4f(
+  1769→          this.uSh['uCornerRadii'],
+  1770→          radii[0] * this.dpr,
+  1771→          radii[1] * this.dpr,
+  1772→          radii[2] * this.dpr,
+  1773→          radii[3] * this.dpr
+  1774→        )
+  1775→        gl.uniform1f(this.uSh['uShadowRadius'], el.outerShadow.radius * this.dpr)
+  1776→        gl.uniform2f(
+  1777→          this.uSh['uShadowOffset'],
+  1778→          el.outerShadow.offsetX * this.dpr,
+  1779→          el.outerShadow.offsetY * this.dpr
+  1780→        )
+  1781→        gl.uniform4f(
+  1782→          this.uSh['uShadowColor'],
+  1783→          el.outerShadow.color[0],
+  1784→          el.outerShadow.color[1],
+  1785→          el.outerShadow.color[2],
+  1786→          el.outerShadow.alpha
+  1787→        )
+  1788→        gl.drawArrays(gl.TRIANGLES, 0, 6)
+  1789→      }
+  1790→
+  1791→      // --- Element pass (refraction + vibrancy + tint) ---
+  1792→      gl.useProgram(this.elementProgram)
+  1793→      gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+  1794→      gl.enableVertexAttribArray(this.aPosLocEl)
+  1795→      gl.vertexAttribPointer(this.aPosLocEl, 2, gl.FLOAT, false, 0, 0)
+  1796→      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+  1797→
+  1798→      gl.activeTexture(gl.TEXTURE0)
+  1799→      gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture!)
+  1800→      gl.uniform1i(this.uEl['uBackdrop'], 0)
+  1801→
+  1802→      gl.uniform2f(this.uEl['uCanvasSize'], this.canvas.width, this.canvas.height)
+  1803→      gl.uniform2f(this.uEl['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
+  1804→      gl.uniform2f(this.uEl['uElementOffset'], sx * this.dpr, sy * this.dpr)
+  1805→      gl.uniform2f(this.uEl['uElementSize'], sw * this.dpr, sh * this.dpr)
+  1806→      gl.uniform4f(
+  1807→        this.uEl['uCornerRadii'],
+  1808→        radii[0] * this.dpr,
+  1809→        radii[1] * this.dpr,
+  1810→        radii[2] * this.dpr,
+  1811→        radii[3] * this.dpr
+  1812→      )
+  1813→      // Toggle knobs: animate refraction/blur/highlight/inner-shadow with
+  1814→      // pressProgress to faithfully match LiquidToggle.kt / LiquidSlider.kt:
+  1815→      //   blur(8.dp * (1 - progress))       → frosted at rest, clear when pressed
+  1816→      //   lens(H * progress, A * progress)  → no refraction at rest, full when pressed
+  1817→      //   highlight.alpha = progress         → no edge highlight at rest
+  1818→      //   innerShadow(radius = 4.dp * progress, alpha = progress)
+  1819→      // The white overlay (drawRect(White alpha = 1 - progress)) is drawn
+  1820→      // in a separate pass below — alpha 1.0 at rest (solid frosted white
+  1821→      // pebble) fading to 0 when pressed (revealing the glass refraction).
+  1822→      let elRefractionHeight = el.refractionHeight
+  1823→      let elRefractionAmount = el.refractionAmount
+  1824→      let elBlurRadius = el.blurRadius
+  1825→      let elHighlightAlpha = el.highlight ? el.highlight.alpha : 0
+  1826→      let elInnerShadowAlpha = el.innerShadow ? el.innerShadow.alpha : 0
+  1827→      let elInnerShadowRadius = el.innerShadow ? el.innerShadow.radius : 0
+  1828→      let elSurfaceAlpha = el.surfaceColor[3]
+  1829→      if (el.isToggleKnob) {
+  1830→        const progress = togglePressProgress
+  1831→        // Lens grows from 0 → full as user presses.
+  1832→        elRefractionHeight = el.refractionHeight * progress
+  1833→        elRefractionAmount = el.refractionAmount * progress
+  1834→        // Blur fades from 8dp → 0 as user presses (frosted → clear).
+  1835→        elBlurRadius = 8 * (1 - progress)
+  1836→        // Highlight + inner shadow grow with press.
+  1837→        elHighlightAlpha = (el.highlight?.alpha ?? 0) * progress
+  1838→        elInnerShadowAlpha = (el.innerShadow?.alpha ?? 0) * progress
+  1839→        elInnerShadowRadius = (el.innerShadow?.radius ?? 0) * progress
+  1840→        // No surface color — the white overlay pass handles the frosted
+  1841→        // appearance. Keeping surfaceColor at 0 ensures the element pass
+  1842→        // shows the (blurred) backdrop, which is then covered by the
+  1843→        // white overlay at rest.
+  1844→        elSurfaceAlpha = 0
+  1845→      }
+  1846→      gl.uniform1f(this.uEl['uRefractionHeight'], elRefractionHeight * this.dpr)
+  1847→      gl.uniform1f(this.uEl['uRefractionAmount'], elRefractionAmount * this.dpr)
+  1848→      gl.uniform1f(this.uEl['uDepthEffect'], el.depthEffect ? 1 : 0)
+  1849→      gl.uniform1f(this.uEl['uChromaticAberration'], el.chromaticAberration ? 1 : 0)
+  1850→      gl.uniform1f(this.uEl['uBlurRadius'], elBlurRadius * this.dpr)
+  1851→      gl.uniform1f(this.uEl['uSaturation'], el.saturation)
+  1852→      gl.uniform1f(this.uEl['uBrightness'], el.brightness)
+  1853→      gl.uniform1f(this.uEl['uContrast'], el.contrast)
+  1854→      gl.uniform4f(this.uEl['uTintColor'], el.tintColor[0], el.tintColor[1], el.tintColor[2], el.tintColor[3])
+  1855→      gl.uniform4f(this.uEl['uSurfaceColor'], el.surfaceColor[0], el.surfaceColor[1], el.surfaceColor[2], elSurfaceAlpha)
+  1856→
+  1857→      if (el.highlight) {
+  1858→        gl.uniform3f(this.uEl['uHighlightColor'], el.highlight.color[0], el.highlight.color[1], el.highlight.color[2])
+  1859→        gl.uniform1f(this.uEl['uHighlightAngle'], el.highlight.angle)
+  1860→        gl.uniform1f(this.uEl['uHighlightFalloff'], el.highlight.falloff)
+  1861→        gl.uniform1f(this.uEl['uHighlightAlpha'], elHighlightAlpha)
+  1862→        gl.uniform1f(this.uEl['uHighlightMode'], el.highlight.mode)
+  1863→        const elWidthPx = el.highlight.widthDp * this.dpr
+  1864→        gl.uniform1f(this.uEl['uHighlightStrokeWidth'], Math.ceil(elWidthPx) * 2)
+  1865→        gl.uniform1f(this.uEl['uHighlightBlur'], elWidthPx * 0.5)
+  1866→      } else {
+  1867→        gl.uniform1f(this.uEl['uHighlightAlpha'], 0)
+  1868→        gl.uniform1f(this.uEl['uHighlightMode'], 0)
+  1869→        gl.uniform1f(this.uEl['uHighlightStrokeWidth'], 0)
+  1870→        gl.uniform1f(this.uEl['uHighlightBlur'], 0)
+  1871→      }
+  1872→
+  1873→      // Inner shadow (used by toggle/slider knobs).
+  1874→      if (elInnerShadowAlpha > 0.001 && elInnerShadowRadius > 0.5) {
+  1875→        gl.uniform1f(this.uEl['uInnerShadowRadius'], elInnerShadowRadius * this.dpr)
+  1876→        gl.uniform1f(this.uEl['uInnerShadowAlpha'], elInnerShadowAlpha)
+  1877→        gl.uniform2f(
+  1878→          this.uEl['uInnerShadowOffset'],
+  1879→          (el.innerShadow?.offsetX ?? 0) * this.dpr,
+  1880→          (el.innerShadow?.offsetY ?? 0) * this.dpr
+  1881→        )
+  1882→      } else {
+  1883→        gl.uniform1f(this.uEl['uInnerShadowRadius'], 0)
+  1884→        gl.uniform1f(this.uEl['uInnerShadowAlpha'], 0)
+  1885→        gl.uniform2f(this.uEl['uInnerShadowOffset'], 0, 0)
+  1886→      }
+  1887→
+  1888→      gl.drawArrays(gl.TRIANGLES, 0, 6)
+  1889→
+  1890→      // --- Press glow (button only) ---
+  1891→      if (isButton && el.isInteractive && st && p > 0.001) {
+  1892→        // a. Flat white overlay
+  1893→        gl.useProgram(this.tintProgram)
+  1894→        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+  1895→        gl.enableVertexAttribArray(this.aPosLocTn)
+  1896→        gl.vertexAttribPointer(this.aPosLocTn, 2, gl.FLOAT, false, 0, 0)
+  1897→        gl.blendFunc(gl.SRC_ALPHA, gl.ONE)
+  1898→        gl.uniform2f(this.uTn['uCanvasSize'], this.canvas.width, this.canvas.height)
+  1899→        gl.uniform2f(this.uTn['uOffset'], sx * this.dpr, sy * this.dpr)
+  1900→        gl.uniform2f(this.uTn['uSize'], sw * this.dpr, sh * this.dpr)
+  1901→        gl.uniform4f(
+  1902→          this.uTn['uCornerRadii'],
+  1903→          radii[0] * this.dpr,
+  1904→          radii[1] * this.dpr,
+  1905→          radii[2] * this.dpr,
+  1906→          radii[3] * this.dpr
+  1907→        )
+  1908→        gl.uniform4f(this.uTn['uColor'], 1, 1, 1, 0.08 * p)
+  1909→        gl.drawArrays(gl.TRIANGLES, 0, 6)
+  1910→
+  1911→        // b. Radial highlight at finger position
+  1912→        gl.useProgram(this.highlightProgram)
+  1913→        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+  1914→        gl.enableVertexAttribArray(this.aPosLocHl)
+  1915→        gl.vertexAttribPointer(this.aPosLocHl, 2, gl.FLOAT, false, 0, 0)
+  1916→        gl.blendFunc(gl.ONE, gl.ONE)
+  1917→        gl.uniform2f(this.uHl['uCanvasSize'], this.canvas.width, this.canvas.height)
+  1918→        gl.uniform2f(this.uHl['uOffset'], sx * this.dpr, sy * this.dpr)
+  1919→        gl.uniform2f(this.uHl['uSize'], sw * this.dpr, sh * this.dpr)
+  1920→        gl.uniform4f(
+  1921→          this.uHl['uCornerRadii'],
+  1922→          radii[0] * this.dpr,
+  1923→          radii[1] * this.dpr,
+  1924→          radii[2] * this.dpr,
+  1925→          radii[3] * this.dpr
+  1926→        )
+  1927→        gl.uniform4f(this.uHl['uColor'], 1, 1, 1, 0.15 * p)
+  1928→        const minDim = Math.min(sw, sh) * this.dpr
+  1929→        gl.uniform1f(this.uHl['uRadius'], minDim * 1.5)
+  1930→        const px = Math.max(0, Math.min(sw, st.dragX + el.rect.x - sx)) * this.dpr
+  1931→        const py = Math.max(0, Math.min(sh, st.dragY + el.rect.y - sy)) * this.dpr
+  1932→        gl.uniform2f(this.uHl['uPosition'], px, py)
+  1933→        gl.drawArrays(gl.TRIANGLES, 0, 6)
+  1934→        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+  1935→      }
+  1936→
+  1937→      // --- Toggle knob white overlay (faithful to LiquidToggle.kt /
+  1938→      // LiquidSlider.kt onDrawSurface) ---
+  1939→      // The original draws `Color.White.copy(alpha = 1f - progress)` on
+  1940→      // the knob via `onDrawSurface`. As the user presses (progress → 1),
+  1941→      // the white overlay fades out, revealing the glass refraction.
+  1942→      // We draw it AFTER the glass pass so it composites on top.
+  1943→      //
+  1944→      // FAITHFUL BEHAVIOR:
+  1945→      //   - At rest (progress=0): solid white (alpha=1) — knob looks like
+  1946→      //     a frosted white pebble. The 8dp blur underneath is hidden.
+  1947→      //   - Pressed (progress=1): transparent (alpha=0) — glass refraction
+  1948→      //     is fully visible.
+  1949→      if (el.isToggleKnob && togglePressProgress < 0.999) {
+  1950→        const whiteAlpha = 1.0 * (1 - togglePressProgress)
+  1951→        gl.useProgram(this.tintProgram)
+  1952→        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+  1953→        gl.enableVertexAttribArray(this.aPosLocTn)
+  1954→        gl.vertexAttribPointer(this.aPosLocTn, 2, gl.FLOAT, false, 0, 0)
+  1955→        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+  1956→        gl.uniform2f(this.uTn['uCanvasSize'], this.canvas.width, this.canvas.height)
+  1957→        gl.uniform2f(this.uTn['uOffset'], sx * this.dpr, sy * this.dpr)
+  1958→        gl.uniform2f(this.uTn['uSize'], sw * this.dpr, sh * this.dpr)
+  1959→        gl.uniform4f(
+  1960→          this.uTn['uCornerRadii'],
+  1961→          radii[0] * this.dpr,
+  1962→          radii[1] * this.dpr,
+  1963→          radii[2] * this.dpr,
+  1964→          radii[3] * this.dpr
+  1965→        )
+  1966→        gl.uniform4f(this.uTn['uColor'], 1, 1, 1, whiteAlpha)
+  1967→        gl.drawArrays(gl.TRIANGLES, 0, 6)
+  1968→      }
+  1969→
+  1970→      // --- Foreground (label or icon) pass (button only) ---
+  1971→      if (isButton && (el.label || el.icon)) {
+  1972→        const fgTex = this.fgTextures.get(el.id)
+  1973→        if (fgTex) {
+  1974→          gl.useProgram(this.foregroundProgram)
+  1975→          gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+  1976→          gl.enableVertexAttribArray(this.aPosLocFg)
+  1977→          gl.vertexAttribPointer(this.aPosLocFg, 2, gl.FLOAT, false, 0, 0)
+  1978→          // Premultiplied alpha blend — the foreground texture is uploaded
+  1979→          // with UNPACK_PREMULTIPLY_ALPHA_WEBGL=true (see uploadForegroundTexture).
+  1980→          gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+  1981→
+  1982→          gl.activeTexture(gl.TEXTURE0)
+  1983→          gl.bindTexture(gl.TEXTURE_2D, fgTex)
+  1984→          gl.uniform1i(this.uFg['uTexture'], 0)
+  1985→          gl.uniform2f(this.uFg['uCanvasSize'], this.canvas.width, this.canvas.height)
+  1986→          gl.uniform2f(this.uFg['uOffset'], sx * this.dpr, sy * this.dpr)
+  1987→          gl.uniform2f(this.uFg['uSize'], sw * this.dpr, sh * this.dpr)
+  1988→          gl.uniform4f(
+  1989→            this.uFg['uCornerRadii'],
+  1990→            radii[0] * this.dpr,
+  1991→            radii[1] * this.dpr,
+  1992→            radii[2] * this.dpr,
+  1993→            radii[3] * this.dpr
+  1994→          )
+  1995→          // Label fades slightly on press (matches the "swallow" feel).
+  1996→          gl.uniform1f(this.uFg['uAlpha'], 1.0 - 0.15 * p)
+  1997→          gl.drawArrays(gl.TRIANGLES, 0, 6)
+  1998→          gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+  1999→        }
+  2000→      }
+
+[showing lines 1-2000 of 2063; use offset=2001 with limit to continue reading]
