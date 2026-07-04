@@ -225,8 +225,18 @@ interface ElementState {
  * it tracks the target with no overshoot — matching the smooth knob
  * glide of the original. The pressProgress (also critically damped)
  * drives the knob scale (1→1.5) and the white overlay alpha (1→0).
- * The scale is animated with a slightly underdamped spring (k=250,
- * ζ=0.65) to give a tiny bounce on release.
+ *
+ * Faithful to DampedDragAnimation.kt:
+ *   - valueAnimation:        spring(1f, 1000f)  — critically damped
+ *   - velocityAnimation:     spring(0.5f, 300f) — underdamped (drag velocity)
+ *   - pressProgressAnimation: spring(1f, 1000f) — critically damped
+ *   - scaleXAnimation:       spring(0.6f, 250f) — underdamped, more bounce
+ *   - scaleYAnimation:       spring(0.7f, 250f) — underdamped, less bounce
+ *
+ * The velocity (tracked via a VelocityTracker on the value animation)
+ * drives the squash-and-stretch in the layerBlock:
+ *   scaleX /= 1 - clamp(vel/50 * 0.75, -0.2, 0.2)
+ *   scaleY *= 1 - clamp(vel/50 * 0.25, -0.2, 0.2)
  * ------------------------------------------------------------------ */
 interface ToggleGroupState {
   // Knob position fraction (0..1). Animated with critically damped spring.
@@ -237,14 +247,27 @@ interface ToggleGroupState {
   pressProgress: number
   pressVelocity: number
   targetPress: number
-  // Knob scale (1..1.5). Slightly underdamped for a tiny bounce.
-  scale: number
-  scaleVelocity: number
-  targetScale: number
+  // Knob scale X (1..1.5). Underdamped spring (ζ=0.6, k=250) — more bounce.
+  scaleX: number
+  scaleXVelocity: number
+  targetScaleX: number
+  // Knob scale Y (1..1.5). Underdamped spring (ζ=0.7, k=250) — less bounce.
+  scaleY: number
+  scaleYVelocity: number
+  targetScaleY: number
+  // Drag velocity (normalized 0..1 per second). Underdamped spring (ζ=0.5, k=300).
+  // Drives the squash-and-stretch in the layerBlock. Tracked via a simple
+  // velocity tracker on the fraction animation.
+  velocity: number
+  velocityVelocity: number
+  targetVelocity: number
   // True while the user is dragging the knob. While true, drag deltas
   // update targetFraction directly (no spring lag, matches onDrag in
   // DampedDragAnimation which updates `fraction` instantly).
   isDragging: boolean
+  // Last fraction value seen by the velocity tracker (for computing Δfraction/Δt).
+  lastFractionForVelocity: number
+  lastFractionTime: number
 }
 
 /* ------------------------------------------------------------------ *
@@ -279,12 +302,26 @@ const SPRING_THRESHOLD = 0.0005
 const TOGGLE_VALUE_K = 1000
 const TOGGLE_VALUE_OMEGA_N = Math.sqrt(TOGGLE_VALUE_K) // ≈ 31.623
 
-// Underdamped spring constants for toggle scale
-// (avg of spring(0.6f, 250f) for X and spring(0.7f, 250f) for Y).
-const TOGGLE_SCALE_K = 250
-const TOGGLE_SCALE_DAMPING_RATIO = 0.65
-const TOGGLE_SCALE_OMEGA_N = Math.sqrt(TOGGLE_SCALE_K)
-const TOGGLE_SCALE_OMEGA_D = TOGGLE_SCALE_OMEGA_N * Math.sqrt(1 - TOGGLE_SCALE_DAMPING_RATIO * TOGGLE_SCALE_DAMPING_RATIO)
+// Underdamped spring constants for toggle scale X
+// (matches DampedDragAnimation.kt's spring(0.6f, 250f) for scaleX).
+const TOGGLE_SCALE_X_K = 250
+const TOGGLE_SCALE_X_DAMPING_RATIO = 0.6
+const TOGGLE_SCALE_X_OMEGA_N = Math.sqrt(TOGGLE_SCALE_X_K)
+const TOGGLE_SCALE_X_OMEGA_D = TOGGLE_SCALE_X_OMEGA_N * Math.sqrt(1 - TOGGLE_SCALE_X_DAMPING_RATIO * TOGGLE_SCALE_X_DAMPING_RATIO)
+
+// Underdamped spring constants for toggle scale Y
+// (matches DampedDragAnimation.kt's spring(0.7f, 250f) for scaleY).
+const TOGGLE_SCALE_Y_K = 250
+const TOGGLE_SCALE_Y_DAMPING_RATIO = 0.7
+const TOGGLE_SCALE_Y_OMEGA_N = Math.sqrt(TOGGLE_SCALE_Y_K)
+const TOGGLE_SCALE_Y_OMEGA_D = TOGGLE_SCALE_Y_OMEGA_N * Math.sqrt(1 - TOGGLE_SCALE_Y_DAMPING_RATIO * TOGGLE_SCALE_Y_DAMPING_RATIO)
+
+// Underdamped spring constants for toggle drag velocity
+// (matches DampedDragAnimation.kt's spring(0.5f, 300f) for velocity).
+const TOGGLE_VELOCITY_K = 300
+const TOGGLE_VELOCITY_DAMPING_RATIO = 0.5
+const TOGGLE_VELOCITY_OMEGA_N = Math.sqrt(TOGGLE_VELOCITY_K)
+const TOGGLE_VELOCITY_OMEGA_D = TOGGLE_VELOCITY_OMEGA_N * Math.sqrt(1 - TOGGLE_VELOCITY_DAMPING_RATIO * TOGGLE_VELOCITY_DAMPING_RATIO)
 
 function springStep1D(
   current: number,
@@ -846,10 +883,18 @@ export class LiquidGlassRenderer {
         pressProgress: 0,
         pressVelocity: 0,
         targetPress: 0,
-        scale: 1,
-        scaleVelocity: 0,
-        targetScale: 1,
+        scaleX: 1,
+        scaleXVelocity: 0,
+        targetScaleX: 1,
+        scaleY: 1,
+        scaleYVelocity: 0,
+        targetScaleY: 1,
+        velocity: 0,
+        velocityVelocity: 0,
+        targetVelocity: 0,
         isDragging: false,
+        lastFractionForVelocity: initialFraction,
+        lastFractionTime: 0,
       }
       this.toggleStates.set(groupId, st)
     }
@@ -881,7 +926,8 @@ export class LiquidGlassRenderer {
     // (handled in the animation loop).
     if (st.targetPress === 0) {
       st.targetPress = 1
-      st.targetScale = 1.5
+      st.targetScaleX = 1.5
+      st.targetScaleY = 1.5
     }
     this.startAnimation()
   }
@@ -895,7 +941,8 @@ export class LiquidGlassRenderer {
     const st = this.ensureToggleState(groupId, startFraction)
     st.isDragging = true
     st.targetPress = 1
-    st.targetScale = 1.5
+    st.targetScaleX = 1.5
+    st.targetScaleY = 1.5
     this.startAnimation()
   }
 
@@ -906,6 +953,11 @@ export class LiquidGlassRenderer {
    * target with critically damped spec — so the knob tracks the finger
    * with a tiny smooth lag (matches the original's `updateValue(fraction)`
    * which animates toward the latest fraction state).
+   *
+   * VELOCITY TRACKING: Each drag call also updates `targetVelocity` based
+   * on the rate of change of targetFraction (Δfraction / Δt). This
+   * velocity then drives the squash-and-stretch in the layerBlock,
+   * matching DampedDragAnimation.kt's VelocityTracker + velocityAnimation.
    */
   dragToggle(
     groupId: string,
@@ -917,7 +969,20 @@ export class LiquidGlassRenderer {
     const st = this.ensureToggleState(groupId, startFraction)
     if (!st.isDragging) return
     const delta = (currentX - startX) / Math.max(1, dragWidth)
-    st.targetFraction = Math.max(0, Math.min(1, startFraction + delta))
+    const newTarget = Math.max(0, Math.min(1, startFraction + delta))
+    // Velocity tracking: measure ΔtargetFraction / Δt.
+    const now = performance.now() / 1000
+    if (st.lastFractionTime > 0) {
+      const dt = now - st.lastFractionTime
+      if (dt > 0.001) {
+        const dv = (newTarget - st.lastFractionForVelocity) / dt
+        // Clamp to a sane range to avoid spikes from tiny dt.
+        st.targetVelocity = Math.max(-10, Math.min(10, dv))
+      }
+    }
+    st.lastFractionForVelocity = newTarget
+    st.lastFractionTime = now
+    st.targetFraction = newTarget
     this.startAnimation()
   }
 
@@ -930,9 +995,11 @@ export class LiquidGlassRenderer {
    * original `release()` waits for `value` to settle near `targetValue`
    * before animating press→0. Our animation loop's auto-release logic
    * handles this: when `isDragging === false` and `fraction` is within
-   * 0.02 of `targetFraction`, it sets `targetPress = 0` and `targetScale = 1`.
-   * This gives a smooth "press stays until knob settles, then releases"
-   * feel that matches the original.
+   * 0.02 of `targetFraction`, it sets `targetPress = 0` and
+   * `targetScaleX/Y = 1`. This gives a smooth "press stays until knob
+   * settles, then releases" feel that matches the original.
+   *
+   * We also decay the velocity target to 0 (the drag is over).
    */
   endToggleDrag(groupId: string): number {
     const st = this.toggleStates.get(groupId)
@@ -940,6 +1007,8 @@ export class LiquidGlassRenderer {
     st.isDragging = false
     const finalTarget = st.targetFraction >= 0.5 ? 1 : 0
     st.targetFraction = finalTarget
+    st.targetVelocity = 0
+    st.lastFractionTime = 0
     // Don't release press here — auto-release will fire when fraction
     // settles near finalTarget.
     this.startAnimation()
@@ -1245,7 +1314,8 @@ export class LiquidGlassRenderer {
           Math.abs(tg.targetFraction - tg.fraction) < 0.02
         ) {
           tg.targetPress = 0
-          tg.targetScale = 1
+          tg.targetScaleX = 1
+          tg.targetScaleY = 1
         }
 
         // Fraction: critically damped (spring(1f, 1000f)).
@@ -1290,26 +1360,71 @@ export class LiquidGlassRenderer {
           tg.pressVelocity = 0
         }
 
-        // Scale: underdamped (spring(0.65f, 250f) — avg of 0.6/0.7).
-        const sDelta = Math.abs(tg.targetScale - tg.scale)
+        // Scale X: underdamped (spring(0.6f, 250f) — more bounce).
+        const sx = Math.abs(tg.targetScaleX - tg.scaleX)
         if (
-          sDelta > SPRING_THRESHOLD ||
-          Math.abs(tg.scaleVelocity) > SPRING_THRESHOLD
+          sx > SPRING_THRESHOLD ||
+          Math.abs(tg.scaleXVelocity) > SPRING_THRESHOLD
         ) {
           const r = springStepUnderdamped(
-            tg.scale,
-            tg.scaleVelocity,
-            tg.targetScale,
+            tg.scaleX,
+            tg.scaleXVelocity,
+            tg.targetScaleX,
             dt,
-            TOGGLE_SCALE_OMEGA_N,
-            TOGGLE_SCALE_DAMPING_RATIO
+            TOGGLE_SCALE_X_OMEGA_N,
+            TOGGLE_SCALE_X_DAMPING_RATIO
           )
-          tg.scale = r.current
-          tg.scaleVelocity = r.velocity
+          tg.scaleX = r.current
+          tg.scaleXVelocity = r.velocity
           stillAnimating = true
         } else {
-          tg.scale = tg.targetScale
-          tg.scaleVelocity = 0
+          tg.scaleX = tg.targetScaleX
+          tg.scaleXVelocity = 0
+        }
+
+        // Scale Y: underdamped (spring(0.7f, 250f) — less bounce).
+        const sy = Math.abs(tg.targetScaleY - tg.scaleY)
+        if (
+          sy > SPRING_THRESHOLD ||
+          Math.abs(tg.scaleYVelocity) > SPRING_THRESHOLD
+        ) {
+          const r = springStepUnderdamped(
+            tg.scaleY,
+            tg.scaleYVelocity,
+            tg.targetScaleY,
+            dt,
+            TOGGLE_SCALE_Y_OMEGA_N,
+            TOGGLE_SCALE_Y_DAMPING_RATIO
+          )
+          tg.scaleY = r.current
+          tg.scaleYVelocity = r.velocity
+          stillAnimating = true
+        } else {
+          tg.scaleY = tg.targetScaleY
+          tg.scaleYVelocity = 0
+        }
+
+        // Velocity: underdamped (spring(0.5f, 300f)).
+        // Decays toward targetVelocity (0 when not dragging).
+        const vDelta = Math.abs(tg.targetVelocity - tg.velocity)
+        if (
+          vDelta > SPRING_THRESHOLD ||
+          Math.abs(tg.velocityVelocity) > SPRING_THRESHOLD
+        ) {
+          const r = springStepUnderdamped(
+            tg.velocity,
+            tg.velocityVelocity,
+            tg.targetVelocity,
+            dt,
+            TOGGLE_VELOCITY_OMEGA_N,
+            TOGGLE_VELOCITY_DAMPING_RATIO
+          )
+          tg.velocity = r.current
+          tg.velocityVelocity = r.velocity
+          stillAnimating = true
+        } else {
+          tg.velocity = tg.targetVelocity
+          tg.velocityVelocity = 0
         }
       }
 
@@ -1848,20 +1963,41 @@ export class LiquidGlassRenderer {
         scaleY = scale
       }
 
-      // --- Toggle knob transform (faithful to LiquidToggle.kt) ---
+      // --- Toggle knob transform (faithful to LiquidToggle.kt + DampedDragAnimation.kt) ---
+      // The knob's layerBlock applies:
+      //   scaleX = dampedDragAnimation.scaleX
+      //   scaleY = dampedDragAnimation.scaleY
+      //   velocity = dampedDragAnimation.velocity / 50
+      //   scaleX /= 1 - clamp(velocity * 0.75, -0.2, 0.2)
+      //   scaleY *= 1 - clamp(velocity * 0.25, -0.2, 0.2)
+      // The X and Y scales use SEPARATE underdamped springs (ζ=0.6 / ζ=0.7),
+      // giving X a tiny bit more bounce than Y on release.
       let toggleXOffset = 0
-      let toggleScale = 1
+      let toggleScaleX = 1
+      let toggleScaleY = 1
       let togglePressProgress = 0
       if (el.isToggleKnob) {
         const tg = this.toggleStates.get(el.isToggleKnob.groupId)
         if (tg) {
           toggleXOffset = tg.fraction * el.isToggleKnob.dragWidth
-          toggleScale = tg.scale
+          toggleScaleX = tg.scaleX
+          toggleScaleY = tg.scaleY
           togglePressProgress = tg.pressProgress
+          // Velocity-driven squash-and-stretch (faithful to LiquidToggle.kt layerBlock).
+          //   velocity = dampedDragAnimation.velocity / 50
+          //   scaleX /= 1 - clamp(velocity * 0.75, -0.2, 0.2)
+          //   scaleY *= 1 - clamp(velocity * 0.25, -0.2, 0.2)
+          // Positive velocity (dragging right) → scaleX shrinks, scaleY grows (vertical stretch).
+          // Negative velocity (dragging left) → scaleX grows, scaleY shrinks (horizontal stretch).
+          const vel = tg.velocity / 50
+          const velX = Math.max(-0.2, Math.min(0.2, vel * 0.75))
+          const velY = Math.max(-0.2, Math.min(0.2, vel * 0.25))
+          toggleScaleX = toggleScaleX / (1 - velX)
+          toggleScaleY = toggleScaleY * (1 - velY)
         }
       }
-      scaleX *= toggleScale
-      scaleY *= toggleScale
+      scaleX *= toggleScaleX
+      scaleY *= toggleScaleY
 
       const baseR = effRect(el)
       const cx = baseR.x + baseR.w / 2 + translationX + toggleXOffset

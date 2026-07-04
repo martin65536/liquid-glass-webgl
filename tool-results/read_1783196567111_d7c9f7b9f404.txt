@@ -1,0 +1,951 @@
+     1→/**
+     2→ * GLSL shaders — faithful port of Kyant's AGSL shaders from
+     3→ * backdrop/src/commonMain/kotlin/com/kyant/backdrop/internal/Shaders.kt
+     4→ *
+     5→ * Ported line-by-line:
+     6→ *   - RoundedRectSDF (sdRoundedRect + gradSdRoundedRect)
+     7→ *   - circleMap
+     8→ *   - RoundedRectRefractionWithDispersionShaderString
+     9→ *   - DefaultHighlightShaderString
+    10→ *   - AmbientHighlightShaderString
+    11→ *
+    12→ * Coordinate convention (matches AGSL RuntimeShader):
+    13→ *   - origin (0,0) at top-left of the element
+    14→ *   - `size` = element size in pixels
+    15→ *   - `coord` ranges from (0,0) to (size.x, size.y)
+    16→ *   - `centeredCoord = coord - halfSize` (centered at element center)
+    17→ *
+    18→ * WebGL adaptation:
+    19→ *   - `content.eval(coord)` becomes `texture2D(uBackdrop, coverUv(canvasPx))`
+    20→ *   - The wallpaper is rendered into the canvas as the first pass (cover-fit),
+    21→ *     and the same cover-fit UV transform is applied when the element shader
+    22→ *     samples the wallpaper texture. This guarantees visual parity between
+    23→ *     the backdrop visible behind the glass and the backdrop sampled by
+    24→ *     the refraction shader.
+    25→ */
+    26→
+    27→/* ------------------------------------------------------------------ *
+    28→ * SDF helpers — shared by refraction + highlight shaders.
+    29→ * Ported from the RoundedRectSDF block in Shaders.kt.
+    30→ * ------------------------------------------------------------------ */
+    31→export const SDF_GLSL = /* glsl */ `
+    32→// radiusAt — picks the corner radius from cornerRadii based on which
+    33→// quadrant 'coord' is in. For uniform radii (the catalog case) this
+    34→// always returns the same value.
+    35→float radiusAt(vec2 coord, vec4 radii) {
+    36→    if (coord.x >= 0.0) {
+    37→        if (coord.y <= 0.0) return radii.y;
+    38→        else return radii.z;
+    39→    } else {
+    40→        if (coord.y <= 0.0) return radii.x;
+    41→        else return radii.w;
+    42→    }
+    43→}
+    44→
+    45→// sdRoundedRect — signed distance to a rounded-rect boundary.
+    46→// Negative inside, positive outside, zero on the edge.
+    47→float sdRoundedRect(vec2 coord, vec2 halfSize, float radius) {
+    48→    vec2 cornerCoord = abs(coord) - (halfSize - vec2(radius));
+    49→    float outside = length(max(cornerCoord, 0.0)) - radius;
+    50→    float inside = min(max(cornerCoord.x, cornerCoord.y), 0.0);
+    51→    return outside + inside;
+    52→}
+    53→
+    54→// gradSdRoundedRect — gradient of the SDF (points outward from edge).
+    55→// Used both for refraction direction and highlight specular.
+    56→vec2 gradSdRoundedRect(vec2 coord, vec2 halfSize, float radius) {
+    57→    vec2 cornerCoord = abs(coord) - (halfSize - vec2(radius));
+    58→    if (cornerCoord.x >= 0.0 || cornerCoord.y >= 0.0) {
+    59→        vec2 v = max(cornerCoord, vec2(0.0));
+    60→        // Guard against normalize(0,0) -> NaN
+    61→        float len = length(v);
+    62→        if (len < 1e-6) return vec2(0.0);
+    63→        return sign(coord) * (v / len);
+    64→    } else {
+    65→        float gradX = step(cornerCoord.y, cornerCoord.x);
+    66→        return sign(coord) * vec2(gradX, 1.0 - gradX);
+    67→    }
+    68→}
+    69→`
+    70→
+    71→/* ------------------------------------------------------------------ *
+    72→ * Cover-fit UV helper.
+    73→ *
+    74→ * Maps canvas pixel coordinates to wallpaper texture UV using the same
+    75→ * "cover" fit as CSS `background-size: cover; background-position:
+    76→ * center` — i.e. the wallpaper is scaled to fully cover the canvas,
+    77→ * centered, and any overflow is cropped. This MUST match the wallpaper
+    78→ * background pass exactly, so the glass shader samples the same texel
+    79→ * that is visually displayed at a given canvas pixel.
+    80→ * ------------------------------------------------------------------ */
+    81→export const COVER_GLSL = /* glsl */ `
+    82→// Returns wallpaper UV for a canvas pixel coordinate (top-left origin).
+    83→vec2 coverUv(vec2 canvasPx) {
+    84→    float canvasAspect = uCanvasSize.x / uCanvasSize.y;
+    85→    float wpAspect = uWallpaperSize.x / uWallpaperSize.y;
+    86→    vec2 uv = canvasPx / uCanvasSize;
+    87→    if (wpAspect > canvasAspect) {
+    88→        // Wallpaper is wider than canvas — crop horizontally.
+    89→        float s = canvasAspect / wpAspect;
+    90→        uv.x = (uv.x - 0.5) * s + 0.5;
+    91→    } else {
+    92→        // Wallpaper is taller than canvas — crop vertically.
+    93→        float s = wpAspect / canvasAspect;
+    94→        uv.y = (uv.y - 0.5) * s + 0.5;
+    95→    }
+    96→    return uv;
+    97→}
+    98→
+    99→// Per-axis scale: 1 canvas pixel in wallpaper UV units.
+   100→// Used to convert a blur radius (in canvas px) into UV-space offsets
+   101→// for poisson-disc sampling.
+   102→vec2 canvasPxToUvScale() {
+   103→    float canvasAspect = uCanvasSize.x / uCanvasSize.y;
+   104→    float wpAspect = uWallpaperSize.x / uWallpaperSize.y;
+   105→    if (wpAspect > canvasAspect) {
+   106→        return vec2(canvasAspect / wpAspect, 1.0) / uCanvasSize;
+   107→    } else {
+   108→        return vec2(1.0, wpAspect / canvasAspect) / uCanvasSize;
+   109→    }
+   110→}
+   111→`
+   112→
+   113→/* ------------------------------------------------------------------ *
+   114→ * Full per-element fragment shader.
+   115→ *
+   116→ * Order of operations (mirrors DrawBackdropNode.draw + effects chain):
+   117→ *   1. Discard pixels outside the rounded-rect shape.
+   118→ *   2. Sample backdrop (wallpaper) at the current pixel, with blur.
+   119→ *   3. Apply vibrancy (saturation 1.5 color matrix) — ported from
+   120→ *      ColorFilter.kt `colorControlsColorFilter`.
+   121→ *   4. Apply lens refraction (SDF + circleMap displacement), with
+   122→ *      optional 7-channel chromatic dispersion.
+   123→ *   5. Apply onDrawSurface: tint (BlendMode.Hue + 0.75 alpha) and/or
+   124→ *      surfaceColor (drawRect with alpha).
+   125→ *   6. Apply highlight (Default / Ambient / Plain edge specular).
+   126→ *   7. Apply inner shadow.
+   127→ *   8. Edge anti-aliasing via smoothstep on the SDF.
+   128→ *
+   129→ * Outer drop shadow is drawn as a separate expanded quad pass below
+   130→ * the main element (see renderer).
+   131→ * ------------------------------------------------------------------ */
+   132→export const ELEMENT_FRAGMENT_SHADER = /* glsl */ `
+   133→precision highp float;
+   134→
+   135→// uBackdrop is now the SCENE TEXTURE — a framebuffer that contains
+   136→// everything rendered BEFORE this glass element (wallpaper + plain-rects +
+   137→// other glass elements below this one). Sampling is direct-UV (canvasPx /
+   138→// canvasSize) — no cover-fit transform — because the scene texture is the
+   139→// same size as the canvas. This is the critical fix: the glass now
+   140→// refracts the ACTUAL colors behind it (e.g. the green toggle track, the
+   141→// white card background, the slider fill), not just the wallpaper.
+   142→uniform sampler2D uBackdrop;
+   143→uniform vec2  uCanvasSize;        // canvas size in px
+   144→uniform vec2  uWallpaperSize;     // UNUSED — kept for uniform-set compatibility
+   145→uniform vec2  uElementOffset;     // element top-left in canvas px
+   146→uniform vec2  uElementSize;       // element size in px
+   147→uniform vec4  uCornerRadii;       // (topLeft, topRight, bottomRight, bottomLeft) in px
+   148→uniform float uRefractionHeight;  // px
+   149→uniform float uRefractionAmount;  // px (already negated to match Kotlin's -refractionAmount)
+   150→uniform float uDepthEffect;       // 0 or 1
+   151→uniform float uChromaticAberration; // 0 or 1
+   152→uniform float uBlurRadius;        // px
+   153→uniform float uSaturation;        // vibrancy = 1.5
+   154→uniform float uBrightness;        // brightness offset (0 for vibrancy)
+   155→uniform float uContrast;          // 1.0 for vibrancy
+   156→uniform vec4  uTintColor;         // rgba; alpha 0 = no tint
+   157→uniform vec4  uSurfaceColor;      // rgba; alpha 0 = no surface
+   158→uniform vec4  uHighlightColor;    // rgb + 1.0 (alpha handled by uHighlightAlpha)
+   159→uniform float uHighlightAngle;    // radians
+   160→uniform float uHighlightFalloff;
+   161→uniform float uHighlightAlpha;
+   162→uniform float uHighlightMode;     // 0=default, 1=ambient, 2=plain
+   163→uniform float uHighlightStrokeWidth; // px (full stroke width, matching paint.strokeWidth)
+   164→uniform float uHighlightBlur;     // px (BlurMaskFilter radius)
+   165→uniform float uInnerShadowRadius;
+   166→uniform float uInnerShadowAlpha;
+   167→uniform vec2  uInnerShadowOffset;
+   168→
+   169→${SDF_GLSL}
+   170→
+   171→float circleMap(float x) {
+   172→    return 1.0 - sqrt(1.0 - x * x);
+   173→}
+   174→
+   175→// Convert a canvas-pixel coordinate (top-left origin) to scene-texture UV.
+   176→// The scene texture is the same size as the canvas, and is rendered with
+   177→// gl_FragCoord (bottom-left origin). So UV = (canvasPx.x / canvasW, 1 -
+   178→// canvasPx.y / canvasH). The Y flip happens here so the rest of the shader
+   179→// can work in top-left-origin canvas px.
+   180→vec2 sceneUv(vec2 canvasPx) {
+   181→    return vec2(canvasPx.x / uCanvasSize.x, 1.0 - canvasPx.y / uCanvasSize.y);
+   182→}
+   183→
+   184→// 17-tap poisson disc for a smoother Gaussian-ish blur.
+   185→// Inlined as individual texture2D calls (GLSL ES 1.00 does not support
+   186→// array constructors). Each tap's offset is normalized (radius 1) and
+   187→// scaled by pxToUv = (1/canvasSize) * radius at the call site.
+   188→//
+   189→// Sample the scene texture at a canvas-pixel coordinate, with a
+   190→// Gaussian-ish blur. radius < 0.5 falls back to a single tap.
+   191→vec4 sampleBackdrop(vec2 canvasPx, float radius) {
+   192→    vec2 uv = sceneUv(canvasPx);
+   193→    if (radius < 0.5) {
+   194→        return texture2D(uBackdrop, uv);
+   195→    }
+   196→    // UV-space step per pixel — same X and Y since the scene texture is
+   197→    // canvas-sized. Multiply by radius to get the actual sample spread.
+   198→    vec2 pxToUv = radius / uCanvasSize;
+   199→    vec4 sum = vec4(0.0);
+   200→    float total = 0.0;
+   201→
+   202→    sum += texture2D(uBackdrop, uv + vec2( 0.000000,  0.000000) * pxToUv) * 1.00; total += 1.00;
+   203→    sum += texture2D(uBackdrop, uv + vec2( 0.536355,  0.000000) * pxToUv) * 0.85; total += 0.85;
+   204→    sum += texture2D(uBackdrop, uv + vec2(-0.536355,  0.000000) * pxToUv) * 0.85; total += 0.85;
+   205→    sum += texture2D(uBackdrop, uv + vec2( 0.166048,  0.510274) * pxToUv) * 0.75; total += 0.75;
+   206→    sum += texture2D(uBackdrop, uv + vec2( 0.166048, -0.510274) * pxToUv) * 0.75; total += 0.75;
+   207→    sum += texture2D(uBackdrop, uv + vec2(-0.166048,  0.510274) * pxToUv) * 0.75; total += 0.75;
+   208→    sum += texture2D(uBackdrop, uv + vec2(-0.166048, -0.510274) * pxToUv) * 0.75; total += 0.75;
+   209→    sum += texture2D(uBackdrop, uv + vec2( 0.654479,  0.364250) * pxToUv) * 0.65; total += 0.65;
+   210→    sum += texture2D(uBackdrop, uv + vec2( 0.654479, -0.364250) * pxToUv) * 0.65; total += 0.65;
+   211→    sum += texture2D(uBackdrop, uv + vec2(-0.654479,  0.364250) * pxToUv) * 0.65; total += 0.65;
+   212→    sum += texture2D(uBackdrop, uv + vec2(-0.654479, -0.364250) * pxToUv) * 0.65; total += 0.65;
+   213→    sum += texture2D(uBackdrop, uv + vec2( 0.873489,  0.117558) * pxToUv) * 0.55; total += 0.55;
+   214→    sum += texture2D(uBackdrop, uv + vec2( 0.873489, -0.117558) * pxToUv) * 0.55; total += 0.55;
+   215→    sum += texture2D(uBackdrop, uv + vec2(-0.873489,  0.117558) * pxToUv) * 0.55; total += 0.55;
+   216→    sum += texture2D(uBackdrop, uv + vec2(-0.873489, -0.117558) * pxToUv) * 0.55; total += 0.55;
+   217→    sum += texture2D(uBackdrop, uv + vec2( 0.348733,  0.835549) * pxToUv) * 0.45; total += 0.45;
+   218→    sum += texture2D(uBackdrop, uv + vec2( 0.348733, -0.835549) * pxToUv) * 0.45; total += 0.45;
+   219→
+   220→    return sum / total;
+   221→}
+   222→
+   223→// colorControls — exact port of ColorFilter.kt colorControlsColorFilter.
+   224→// saturation 1.5, brightness 0, contrast 1 -> pure saturation boost.
+   225→vec3 applyColorControls(vec3 c, float brightness, float contrast, float saturation) {
+   226→    float invSat = 1.0 - saturation;
+   227→    float r = 0.213 * invSat;
+   228→    float g = 0.715 * invSat;
+   229→    float b = 0.072 * invSat;
+   230→    float t = (0.5 - contrast * 0.5 + brightness) * 255.0;
+   231→    float cs = contrast * saturation;
+   232→    float cr = contrast * r;
+   233→    float cg = contrast * g;
+   234→    float cb = contrast * b;
+   235→    vec3 outc;
+   236→    outc.r = (cr + cs) * c.r + cg * c.g + cb * c.b + t / 255.0;
+   237→    outc.g = cr * c.r + (cg + cs) * c.g + cb * c.b + t / 255.0;
+   238→    outc.b = cr * c.r + cg * c.g + (cb + cs) * c.b + t / 255.0;
+   239→    return outc;
+   240→}
+   241→
+   242→// --- HSV conversion + BlendMode.Hue ---------------------------
+   243→// Faithful port of Skia's BlendMode.Hue (non-separable blend).
+   244→// Hue blend: result takes hue from src, saturation+value from dst.
+   245→// Used by drawRect(tint, BlendMode.Hue) in onDrawSurface.
+   246→vec3 rgb2hsv(vec3 c) {
+   247→    float maxC = max(c.r, max(c.g, c.b));
+   248→    float minC = min(c.r, min(c.g, c.b));
+   249→    float delta = maxC - minC;
+   250→    float v = maxC;
+   251→    float s = maxC < 1e-6 ? 0.0 : delta / maxC;
+   252→    float h = 0.0;
+   253→    if (delta > 1e-6) {
+   254→        if (maxC == c.r) {
+   255→            h = mod((c.g - c.b) / delta, 6.0);
+   256→        } else if (maxC == c.g) {
+   257→            h = (c.b - c.r) / delta + 2.0;
+   258→        } else {
+   259→            h = (c.r - c.g) / delta + 4.0;
+   260→        }
+   261→        h *= 60.0;
+   262→        if (h < 0.0) h += 360.0;
+   263→    }
+   264→    return vec3(h / 360.0, s, v);
+   265→}
+   266→
+   267→vec3 hsv2rgb(vec3 c) {
+   268→    float h = c.x * 6.0;
+   269→    float s = c.y;
+   270→    float v = c.z;
+   271→    float i = floor(h);
+   272→    float f = h - i;
+   273→    float p = v * (1.0 - s);
+   274→    float q = v * (1.0 - s * f);
+   275→    float t = v * (1.0 - s * (1.0 - f));
+   276→    i = mod(i, 6.0);
+   277→    if (i < 1.0) return vec3(v, t, p);
+   278→    if (i < 2.0) return vec3(q, v, p);
+   279→    if (i < 3.0) return vec3(p, v, t);
+   280→    if (i < 4.0) return vec3(p, q, v);
+   281→    if (i < 5.0) return vec3(t, p, v);
+   282→    return vec3(v, p, q);
+   283→}
+   284→
+   285→// BlendMode.Hue: take hue from src, sat+val from dst.
+   286→vec3 blendHue(vec3 dst, vec3 src) {
+   287→    vec3 dh = rgb2hsv(dst);
+   288→    vec3 sh = rgb2hsv(src);
+   289→    return hsv2rgb(vec3(sh.x, dh.y, dh.z));
+   290→}
+   291→
+   292→void main() {
+   293→    // gl_FragCoord origin is bottom-left in WebGL; flip to top-left.
+   294→    vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
+   295→    vec2 localCoord = screenCoord - uElementOffset;
+   296→    vec2 halfSize = uElementSize * 0.5;
+   297→    // Faithful to AGSL: centeredCoord = (coord + offset) - halfSize.
+   298→    // offset is the lens-center shift (0,0 for the catalog buttons since
+   299→    // blur with TileMode.Clamp doesn't add padding). We bake offset = 0
+   300→    // in directly to keep the uniform set small.
+   301→    vec2 centeredCoord = localCoord - halfSize;
+   302→
+   303→    // Faithful to AGSL: radiusAt is called with the raw local coord, NOT
+   304→    // the centered coord. (For uniform radii this is moot, but we match
+   305→    // the original to avoid surprises with non-uniform radii later.)
+   306→    float radius = radiusAt(localCoord, uCornerRadii);
+   307→    float sd = sdRoundedRect(centeredCoord, halfSize, radius);
+   308→
+   309→    // Outside the shape — fully transparent (clip).
+   310→    if (sd > 0.5) {
+   311→        discard;
+   312→    }
+   313→
+   314→    // --- 1. Backdrop sample (before refraction) -------------------
+   315→    vec4 backdrop = sampleBackdrop(screenCoord, uBlurRadius);
+   316→    vec3 color = applyColorControls(backdrop.rgb, uBrightness, uContrast, uSaturation);
+   317→    float alpha = backdrop.a;
+   318→
+   319→    // --- 2. Lens refraction (SDF + circleMap) ---------------------
+   320→    // Faithful port of RoundedRectRefractionWithDispersionShaderString.
+   321→    // Early-out: if we're deeper than refractionHeight from the edge,
+   322→    // skip refraction entirely (the lens doesn't reach here).
+   323→    if (uRefractionHeight > 0.5 && (-sd) < uRefractionHeight) {
+   324→        float sdClamped = min(sd, 0.0);
+   325→        float d = circleMap(1.0 - (-sdClamped) / uRefractionHeight) * uRefractionAmount;
+   326→
+   327→        float gradRadius = min(radius * 1.5, min(halfSize.x, halfSize.y));
+   328→        vec2 grad = gradSdRoundedRect(centeredCoord, halfSize, gradRadius);
+   329→        // AGSL: normalize(grad + depthEffect * normalize(centeredCoord))
+   330→        vec2 depthVec = vec2(0.0);
+   331→        if (uDepthEffect > 0.5) {
+   332→            float dirLen = length(centeredCoord);
+   333→            if (dirLen > 1e-6) depthVec = centeredCoord / dirLen;
+   334→        }
+   335→        vec2 gradSum = grad + uDepthEffect * depthVec;
+   336→        float gradLen = length(gradSum);
+   337→        if (gradLen > 1e-6) grad = gradSum / gradLen;
+   338→
+   339→        vec2 refractedLocal = localCoord + d * grad;
+   340→        vec2 refractedScreen = uElementOffset + refractedLocal;
+   341→
+   342→        if (uChromaticAberration > 0.5) {
+   343→            float dispersionIntensity = 1.0 * ((centeredCoord.x * centeredCoord.y) / (halfSize.x * halfSize.y));
+   344→            vec2 dispersedCoord = d * grad * dispersionIntensity;
+   345→
+   346→            vec3 dispColor = vec3(0.0);
+   347→            float dispAlpha = 0.0;
+   348→
+   349→            vec4 redC    = sampleBackdrop(refractedScreen + dispersedCoord,               uBlurRadius);
+   350→            dispColor.r += redC.r / 3.5;
+   351→            dispAlpha   += redC.a / 7.0;
+   352→
+   353→            vec4 orangeC = sampleBackdrop(refractedScreen + dispersedCoord * (2.0 / 3.0), uBlurRadius);
+   354→            dispColor.r += orangeC.r / 3.5;
+   355→            dispColor.g += orangeC.g / 7.0;
+   356→            dispAlpha   += orangeC.a / 7.0;
+   357→
+   358→            vec4 yellowC = sampleBackdrop(refractedScreen + dispersedCoord * (1.0 / 3.0), uBlurRadius);
+   359→            dispColor.r += yellowC.r / 3.5;
+   360→            dispColor.g += yellowC.g / 3.5;
+   361→            dispAlpha   += yellowC.a / 7.0;
+   362→
+   363→            vec4 greenC  = sampleBackdrop(refractedScreen,                               uBlurRadius);
+   364→            dispColor.g += greenC.g / 3.5;
+   365→            dispAlpha   += greenC.a / 7.0;
+   366→
+   367→            vec4 cyanC   = sampleBackdrop(refractedScreen - dispersedCoord * (1.0 / 3.0), uBlurRadius);
+   368→            dispColor.g += cyanC.g / 3.5;
+   369→            dispColor.b += cyanC.b / 3.0;
+   370→            dispAlpha   += cyanC.a / 7.0;
+   371→
+   372→            vec4 blueC   = sampleBackdrop(refractedScreen - dispersedCoord * (2.0 / 3.0), uBlurRadius);
+   373→            dispColor.b += blueC.b / 3.0;
+   374→            dispAlpha   += blueC.a / 7.0;
+   375→
+   376→            vec4 purpleC = sampleBackdrop(refractedScreen - dispersedCoord,               uBlurRadius);
+   377→            dispColor.r += purpleC.r / 7.0;
+   378→            dispColor.b += purpleC.b / 3.0;
+   379→            dispAlpha   += purpleC.a / 7.0;
+   380→
+   381→            color = applyColorControls(dispColor, uBrightness, uContrast, uSaturation);
+   382→            alpha = dispAlpha;
+   383→        } else {
+   384→            vec4 refracted = sampleBackdrop(refractedScreen, uBlurRadius);
+   385→            color = applyColorControls(refracted.rgb, uBrightness, uContrast, uSaturation);
+   386→            alpha = refracted.a;
+   387→        }
+   388→    }
+   389→
+   390→    // --- 3. onDrawSurface: tint (BlendMode.Hue + 0.75 alpha) -----
+   391→    // Faithful port of LiquidButton.kt onDrawSurface:
+   392→    //   drawRect(tint, blendMode = BlendMode.Hue)
+   393→    //   drawRect(tint.copy(alpha = 0.75f))
+   394→    // First pass: replace backdrop hue with tint hue (Hue blend, alpha = tint.a).
+   395→    // Second pass: overlay tint color at 0.75*alpha (SrcOver blend).
+   396→    if (uTintColor.a > 0.001) {
+   397→        vec3 hueBlended = blendHue(color, uTintColor.rgb);
+   398→        color = mix(color, hueBlended, uTintColor.a);
+   399→        color = mix(color, uTintColor.rgb, 0.75 * uTintColor.a);
+   400→    }
+   401→
+   402→    // --- 4. onDrawSurface: surfaceColor (drawRect(surfaceColor)) --
+   403→    if (uSurfaceColor.a > 0.001) {
+   404→        color = mix(color, uSurfaceColor.rgb, uSurfaceColor.a);
+   405→    }
+   406→
+   407→    // --- 5. Highlight (edge specular) -----------------------------
+   408→    // NOTE: The rim highlight is drawn as a SEPARATE pass (see
+   409→    // RIM_HIGHLIGHT_FRAGMENT_SHADER below) with true Plus/SrcOver blend,
+   410→    // matching the original HighlightModifier.kt which records a separate
+   411→    // graphics layer. Doing it inline here would dim the highlight via the
+   412→    // element's edge AA, which is wrong — the highlight layer is composited
+   413→    // on top with its own blend mode.
+   414→
+   415→    // --- 6. Inner shadow ------------------------------------------
+   416→    // Offset inward SDF, darken where inside the offset band.
+   417→    if (uInnerShadowAlpha > 0.001 && uInnerShadowRadius > 0.5) {
+   418→        vec2 innerCentered = centeredCoord - uInnerShadowOffset;
+   419→        float innerSd = sdRoundedRect(innerCentered, halfSize, radius);
+   420→        // innerSd > 0 means we're "inside" the offset shape (closer to edge)
+   421→        float band = smoothstep(uInnerShadowRadius, 0.0, innerSd);
+   422→        // Only darken the outer band (between offset shape and real edge)
+   423→        band *= step(0.0, innerSd);
+   424→        color *= 1.0 - band * uInnerShadowAlpha * 0.5;
+   425→    }
+   426→
+   427→    // --- 7. Edge anti-aliasing -----------------------------------
+   428→    float edgeAlpha = 1.0 - smoothstep(-0.5, 0.5, sd);
+   429→
+   430→    gl_FragColor = vec4(color, alpha * edgeAlpha);
+   431→}
+   432→`
+   433→
+   434→/* ------------------------------------------------------------------ *
+   435→ * Outer drop-shadow pass — draws a blurred dark shape behind the
+   436→ * element. Renders an expanded quad with the same SDF, computes
+   437→ * distance, and applies Gaussian falloff.
+   438→ * ------------------------------------------------------------------ */
+   439→export const SHADOW_FRAGMENT_SHADER = /* glsl */ `
+   440→precision highp float;
+   441→
+   442→uniform vec2  uCanvasSize;
+   443→uniform vec2  uElementOffset;
+   444→uniform vec2  uElementSize;
+   445→uniform vec4  uCornerRadii;
+   446→uniform float uShadowRadius;
+   447→uniform vec2  uShadowOffset;  // CSS-space (offsetX, offsetY); +Y = downward
+   448→uniform vec4  uShadowColor;   // rgba
+   449→
+   450→${SDF_GLSL}
+   451→
+   452→void main() {
+   453→    // Flip gl_FragCoord (bottom-left origin) to top-left origin, so +Y
+   454→    // points downward — matching CSS convention. Therefore uShadowOffset
+   455→    // can be passed through verbatim: positive offsetY (downward in CSS)
+   456→    // moves the shadow center DOWNWARD on screen.
+   457→    vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
+   458→    vec2 localCoord = screenCoord - uElementOffset;
+   459→    vec2 halfSize = uElementSize * 0.5;
+   460→    vec2 centeredCoord = localCoord - halfSize;
+   461→
+   462→    float radius = radiusAt(centeredCoord, uCornerRadii);
+   463→    // SDF of the shape offset by shadow offset. Evaluating the SDF at
+   464→    // (P - offset) gives the distance from P to a shape centered at offset.
+   465→    vec2 shadowCentered = centeredCoord - uShadowOffset;
+   466→    float sd = sdRoundedRect(shadowCentered, halfSize, radius);
+   467→    // SDF of the element itself (not offset) — used to mask the shadow
+   468→    // inside the element so it doesn't bleed through the AA edge.
+   469→    float elementSd = sdRoundedRect(centeredCoord, halfSize, radius);
+   470→
+   471→    // Shadow intensity: falloff from the shadow shape's edge.
+   472→    //
+   473→    // FAITHFUL TO BlurMaskFilter(radius, Blur.NORMAL):
+   474→    //   The original Android shadow uses BlurMaskFilter with Blur.NORMAL,
+   475→    //   which convolves a solid mask with a Gaussian-like kernel. For a
+   476→    //   step mask (alpha 1 inside, 0 outside), the result is an erfc-like
+   477→    //   profile: peak alpha ≈ 0.5 at the edge, fading to 0 over ~radius
+   478→    //   pixels. The inside stays ≈ 1 but is cut out by Clear blend.
+   479→    //
+   480→    //   Our Gaussian approximation exp(-sd²/2σ²) has peak 1.0 — TWICE
+   481→    //   the correct 0.5. Without the 0.5 factor the shadow is 2× too
+   482→    //   dark at the edge, which looks "heavy" compared to the original.
+   483→    //
+   484→    // sigma = radius/3 matches the BlurMaskFilter spread (the blur
+   485→    // extends to ~3σ ≈ radius pixels from the edge).
+   486→    float sigma = max(uShadowRadius / 3.0, 1.0);
+   487→    float shadow = 0.5 * exp(-sd * sd / (2.0 * sigma * sigma));
+   488→    // Mask out the shadow inside the element (the element covers it).
+   489→    // Using a smoothstep over elementSd avoids a hard edge that would
+   490→    // otherwise show through the element's own AA edge.
+   491→    shadow *= smoothstep(-1.0, 1.0, elementSd);
+   492→
+   493→    gl_FragColor = vec4(uShadowColor.rgb, uShadowColor.a * shadow);
+   494→}
+   495→`
+   496→
+   497→/* ------------------------------------------------------------------ *
+   498→ * Wallpaper background pass — draws the wallpaper texture to the
+   499→ * canvas with CSS `cover` fit. Drawn first in the render pipeline so
+   500→ * the canvas owns the wallpaper (no DOM <img> behind it). This makes
+   501→ * the glass shader's backdrop sampling visually consistent with what
+   502→ * is displayed behind the glass.
+   503→ * ------------------------------------------------------------------ */
+   504→export const WALLPAPER_FRAGMENT_SHADER = /* glsl */ `
+   505→precision highp float;
+   506→
+   507→uniform sampler2D uBackdrop;
+   508→uniform vec2 uCanvasSize;
+   509→uniform vec2 uWallpaperSize;
+   510→
+   511→${COVER_GLSL}
+   512→
+   513→void main() {
+   514→    vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
+   515→    vec2 uv = coverUv(screenCoord);
+   516→    gl_FragColor = texture2D(uBackdrop, uv);
+   517→}
+   518→`
+   519→
+   520→/* ------------------------------------------------------------------ *
+   521→ * Foreground (text/icon) pass — composites a pre-rendered RGBA texture
+   522→ * (containing the button label and chevron) on top of the glass.
+   523→ *
+   524→ * The texture is produced by an offscreen 2D canvas in renderer.ts; we
+   525→ * simply sample it and write through with premultiplied alpha blending.
+   526→ * ------------------------------------------------------------------ */
+   527→export const FOREGROUND_FRAGMENT_SHADER = /* glsl */ `
+   528→precision highp float;
+   529→
+   530→uniform sampler2D uTexture;
+   531→uniform vec2 uCanvasSize;
+   532→uniform vec2 uOffset;   // foreground texture top-left in canvas px (top-left origin)
+   533→uniform vec2 uSize;     // foreground texture size in canvas px
+   534→uniform vec4 uCornerRadii;  // capsule radii (topLeft, topRight, bottomRight, bottomLeft) in px
+   535→uniform float uAlpha;   // global alpha multiplier (used for press fade)
+   536→
+   537→${SDF_GLSL}
+   538→
+   539→void main() {
+   540→    // gl_FragCoord is bottom-left origin in WebGL framebuffer space.
+   541→    // Flip Y to get top-left origin (matching CSS / 2D canvas convention).
+   542→    vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
+   543→    vec2 localCoord = screenCoord - uOffset;
+   544→    // Scissor to the foreground rectangle.
+   545→    if (localCoord.x < 0.0 || localCoord.x > uSize.x ||
+   546→        localCoord.y < 0.0 || localCoord.y > uSize.y) {
+   547→        discard;
+   548→    }
+   549→
+   550→    // --- Capsule clip (matches outermost graphicsLayer { clip = true; shape = Capsule })
+   551→    // The original Compose modifier chain wraps EVERYTHING (text included) in
+   552→    // a graphicsLayer clipped to the capsule shape. Without this, text halos
+   553→    // and shadow blur bleed into the AABB corners outside the capsule.
+   554→    vec2 halfSize = uSize * 0.5;
+   555→    vec2 centeredCoord = localCoord - halfSize;
+   556→    float radius = radiusAt(localCoord, uCornerRadii);
+   557→    float sd = sdRoundedRect(centeredCoord, halfSize, radius);
+   558→    if (sd > 0.5) discard;
+   559→    float clipAlpha = 1.0 - smoothstep(-0.5, 0.5, sd);
+   560→
+   561→    // The texture is uploaded from a 2D canvas with UNPACK_FLIP_Y_WEBGL=false,
+   562→    // so texture row 0 (= v=0) is the TOP row of the source canvas. Combined
+   563→    // with the Y flip above, uv.y=0 corresponds to the top of the button rect
+   564→    // (which is what we want — text drawn at the middle of the source canvas
+   565→    // appears at the middle of the button).
+   566→    //
+   567→    // The texture is uploaded with UNPACK_PREMULTIPLY_ALPHA_WEBGL=true, so
+   568→    // c is already in premultiplied form (c.rgb <= c.a). We scale both
+   569→    // rgb and a by uAlpha * clipAlpha and output premultiplied rgba, paired
+   570→    // with blendFunc(ONE, ONE_MINUS_SRC_ALPHA) at the draw site.
+   571→    vec2 uv = localCoord / uSize;
+   572→    vec4 c = texture2D(uTexture, uv);
+   573→    float a = c.a * uAlpha * clipAlpha;
+   574→    gl_FragColor = vec4(c.rgb * uAlpha * clipAlpha, a);
+   575→}
+   576→`
+   577→
+   578→/* ------------------------------------------------------------------ *
+   579→ * Plain-rect pass — a solid colored rounded rectangle, alpha-blended.
+   580→ *
+   581→ * Used for non-glass UI surfaces:
+   582→ *   - Toggle / slider tracks (solid color, full alpha)
+   583→ *   - Slider progress fills (accent color)
+   584→ *   - Background cards (white rounded rect behind on-card toggles)
+   585→ *   - Dim overlays (e.g. dialog scrim behind the glass card)
+   586→ *
+   587→ * No glass effect, no blur, no sampling. Just a tinted SDF clip.
+   588→ * ------------------------------------------------------------------ */
+   589→export const PLAIN_RECT_FRAGMENT_SHADER = /* glsl */ `
+   590→precision highp float;
+   591→
+   592→uniform vec2  uCanvasSize;
+   593→uniform vec2  uOffset;
+   594→uniform vec2  uSize;
+   595→uniform vec4  uCornerRadii;
+   596→uniform vec4  uColor;       // rgba (premultiplied not required; alpha used as-is)
+   597→
+   598→${SDF_GLSL}
+   599→
+   600→void main() {
+   601→    vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
+   602→    vec2 localCoord = screenCoord - uOffset;
+   603→    vec2 halfSize = uSize * 0.5;
+   604→    vec2 centeredCoord = localCoord - halfSize;
+   605→
+   606→    float radius = radiusAt(centeredCoord, uCornerRadii);
+   607→    float sd = sdRoundedRect(centeredCoord, halfSize, radius);
+   608→    if (sd > 0.5) discard;
+   609→    float alpha = 1.0 - smoothstep(-0.5, 0.5, sd);
+   610→    gl_FragColor = vec4(uColor.rgb, uColor.a * alpha);
+   611→}
+   612→`
+   613→
+   614→/* ------------------------------------------------------------------ *
+   615→ * Progressive-blur pass — alpha-masked backdrop blur, faithful to
+   616→ * ProgressiveBlurContent.kt's AlphaMask shader:
+   617→ *
+   618→ *   half4 main(float2 coord) {
+   619→ *       float blurAlpha = smoothstep(size.y, size.y * 0.5, coord.y);
+   620→ *       float tintAlpha = smoothstep(size.y, size.y * 0.5, coord.y);
+   621→ *       return mix(content.eval(coord) * blurAlpha, tint * tintAlpha, tintIntensity);
+   622→ *   }
+   623→ *
+   624→ * The original samples the *backdrop* (which is the wallpaper here),
+   625→ * applies a Gaussian blur, then alpha-masks the result with a vertical
+   626→ * gradient (opaque at top, transparent at bottom). A tint color is
+   627→ * mixed in at `tintIntensity` (0.8 in the catalog).
+   628→ *
+   629→ * We approximate the blur with a 9-tap poisson-disc sample at
+   630→ * `blurRadius` px in canvas space (converted to UV space).
+   631→ * ------------------------------------------------------------------ */
+   632→export const PROGRESSIVE_BLUR_FRAGMENT_SHADER = /* glsl */ `
+   633→precision highp float;
+   634→
+   635→uniform sampler2D uBackdrop;
+   636→uniform vec2  uCanvasSize;
+   637→uniform vec2  uWallpaperSize;
+   638→uniform vec2  uOffset;          // band top-left in canvas px (top-left origin)
+   639→uniform vec2  uSize;            // band size in canvas px
+   640→uniform float uBlurRadius;      // px in canvas space
+   641→uniform vec4  uTintColor;       // rgba
+   642→uniform float uTintIntensity;   // 0..1
+   643→
+   644→${COVER_GLSL}
+   645→
+   646→// 9-tap poisson disc — offsets are inlined because GLSL ES 1.00 (WebGL 1)
+   647→// does not support array constructors or const-array initializers.
+   648→// The offsets are normalized (unit disc), multiplied by step (radius in UV).
+   649→vec4 sampleBackdrop(vec2 canvasPx, float radius) {
+   650→    vec2 uvScale = canvasPxToUvScale();
+   651→    vec2 uv = coverUv(canvasPx);
+   652→    vec2 st = radius * uvScale;
+   653→    vec4 sum = vec4(0.0);
+   654→    sum += texture2D(uBackdrop, uv + vec2( 0.0000,  0.0000) * st);
+   655→    sum += texture2D(uBackdrop, uv + vec2( 0.5000,  0.0000) * st);
+   656→    sum += texture2D(uBackdrop, uv + vec2(-0.5000,  0.0000) * st);
+   657→    sum += texture2D(uBackdrop, uv + vec2( 0.0000,  0.5000) * st);
+   658→    sum += texture2D(uBackdrop, uv + vec2( 0.0000, -0.5000) * st);
+   659→    sum += texture2D(uBackdrop, uv + vec2( 0.3536,  0.3536) * st);
+   660→    sum += texture2D(uBackdrop, uv + vec2(-0.3536,  0.3536) * st);
+   661→    sum += texture2D(uBackdrop, uv + vec2( 0.3536, -0.3536) * st);
+   662→    sum += texture2D(uBackdrop, uv + vec2(-0.3536, -0.3536) * st);
+   663→    return sum / 9.0;
+   664→}
+   665→
+   666→void main() {
+   667→    vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
+   668→    vec2 localCoord = screenCoord - uOffset;
+   669→    // Outside the band — nothing to draw.
+   670→    if (localCoord.x < 0.0 || localCoord.x > uSize.x ||
+   671→        localCoord.y < 0.0 || localCoord.y > uSize.y) {
+   672→        discard;
+   673→    }
+   674→
+   675→    // Alpha mask: opaque at top (coord.y = size.y, i.e. BOTTOM in top-left
+   676→    // origin = size.y in AGSL coord), transparent at bottom. Matches the
+   677→    // Kotlin smoothstep(size.y, size.y * 0.5, coord.y).
+   678→    float a = smoothstep(uSize.y, uSize.y * 0.5, localCoord.y);
+   679→
+   680→    // Sample the (cover-fit) backdrop at the canvas pixel, blurred.
+   681→    vec4 blurred = sampleBackdrop(screenCoord, uBlurRadius);
+   682→
+   683→    // Mix: blur * alpha  ->  tint * alpha * tintIntensity
+   684→    vec3 rgb = mix(blurred.rgb * a, uTintColor.rgb * a, uTintIntensity);
+   685→    gl_FragColor = vec4(rgb, a);
+   686→}
+   687→`
+   688→
+   689→/* ------------------------------------------------------------------ *
+   690→ * Vertex shader — draws a fullscreen quad. Per-element scissor is
+   691→ * done in the fragment shader via discard.
+   692→ * ------------------------------------------------------------------ */
+   693→export const VERTEX_SHADER = /* glsl */ `
+   694→attribute vec2 aPos;
+   695→void main() {
+   696→    gl_Position = vec4(aPos, 0.0, 1.0);
+   697→}
+   698→`
+   699→
+   700→/* ------------------------------------------------------------------ *
+   701→ * Interactive highlight pass — faithful port of the AGSL shader from
+   702→ * InteractiveHighlight.kt:
+   703→ *
+   704→ *   uniform float2 size;
+   705→ *   layout(color) uniform half4 color;
+   706→ *   uniform float radius;
+   707→ *   uniform float2 position;
+   708→ *   half4 main(float2 coord) {
+   709→ *       float dist = distance(coord, position);
+   710→ *       float intensity = smoothstep(radius, radius * 0.5, dist);
+   711→ *       return color * intensity;
+   712→ *   }
+   713→ *
+   714→ * Combined with the white-overlay pass (drawRect white 8% Plus blend)
+   715→ * this reproduces the catalog's drag-follow press glow. Drawn ABOVE the
+   716→ * element pass and BELOW the foreground (label) pass, all clipped to the
+   717→ * element rect.
+   718→ *
+   719→ * BLEND CORRECTNESS: Skia's BlendMode.Plus is `result = S + D` where S
+   720→ * is the source color in PREMULTIPLIED form. Compose stores
+   721→ * `White(1.0).copy(alpha = a)` premultiplied as `(a, a, a, a)`, so the
+   722→ * actual contribution to dst.rgb is `color.rgb * color.a * intensity`.
+   723→ *
+   724→ * To replicate in WebGL we output the premultiplied contribution as RGB
+   725→ * and use blendFunc(ONE, ONE) (pure additive). Using (SRC_ALPHA, ONE)
+   726→ * here would re-multiply by src.a, squaring the alpha and making the
+   727→ * glow ~50x dimmer (e.g. 0.15² = 0.0225 — essentially invisible).
+   728→ * ------------------------------------------------------------------ */
+   729→export const HIGHLIGHT_FRAGMENT_SHADER = /* glsl */ `
+   730→precision highp float;
+   731→
+   732→uniform vec2  uCanvasSize;
+   733→uniform vec2  uOffset;       // element top-left in canvas px (top-left origin)
+   734→uniform vec2  uSize;         // element size in canvas px
+   735→uniform vec4  uCornerRadii;  // capsule radii (topLeft, topRight, bottomRight, bottomLeft) in px
+   736→uniform vec4  uColor;        // rgba; usually white * (alpha = 0.15 * progress)
+   737→uniform float uRadius;       // glow radius in canvas px (= minDim * 1.5)
+   738→uniform vec2  uPosition;     // finger position in element-local px (top-left origin)
+   739→
+   740→${SDF_GLSL}
+   741→
+   742→void main() {
+   743→    vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
+   744→    vec2 localCoord = screenCoord - uOffset;
+   745→
+   746→    // --- Capsule clip (matches outermost graphicsLayer { clip = true; shape = Capsule })
+   747→    vec2 halfSize = uSize * 0.5;
+   748→    vec2 centeredCoord = localCoord - halfSize;
+   749→    float radius = radiusAt(localCoord, uCornerRadii);
+   750→    float sd = sdRoundedRect(centeredCoord, halfSize, radius);
+   751→    if (sd > 0.5) discard;
+   752→    float clipAlpha = 1.0 - smoothstep(-0.5, 0.5, sd);
+   753→
+   754→    // Faithful AGSL port: smoothstep(radius, radius*0.5, dist) means
+   755→    // intensity = 1 at dist <= radius*0.5, fading to 0 at dist >= radius.
+   756→    float dist = distance(localCoord, uPosition);
+   757→    float intensity = smoothstep(uRadius, uRadius * 0.5, dist);
+   758→
+   759→    // Premultiplied Plus-blend contribution. Renderer uses blendFunc(ONE, ONE)
+   760→    // so result.rgb = contribution + dst.rgb (clamped to 1).
+   761→    vec3 contribution = uColor.rgb * uColor.a * intensity * clipAlpha;
+   762→    gl_FragColor = vec4(contribution, 1.0);
+   763→}
+   764→`
+   765→
+   766→/* ------------------------------------------------------------------ *
+   767→ * White-overlay pass — a flat white fill at low alpha, used for the
+   768→ * first half of the InteractiveHighlight effect (drawRect white 8%
+   769→ * Plus blend in the Kotlin source). Plus blend is approximated by
+   770→ * additive blending in the renderer.
+   771→ *
+   772→ * IMPORTANT: the original Compose chain wraps everything (this drawRect
+   773→ * included) in a graphicsLayer with clip=true and the capsule shape.
+   774→ * Without SDF clipping here, the white fill would flood the AABB
+   775→ * corners OUTSIDE the capsule. We discard sd > 0.5 with 1px AA.
+   776→ * ------------------------------------------------------------------ */
+   777→export const TINT_FRAGMENT_SHADER = /* glsl */ `
+   778→precision highp float;
+   779→
+   780→uniform vec2  uCanvasSize;
+   781→uniform vec2  uOffset;
+   782→uniform vec2  uSize;
+   783→uniform vec4  uCornerRadii;
+   784→uniform vec4  uColor;
+   785→
+   786→${SDF_GLSL}
+   787→
+   788→void main() {
+   789→    vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
+   790→    vec2 localCoord = screenCoord - uOffset;
+   791→    vec2 halfSize = uSize * 0.5;
+   792→    vec2 centeredCoord = localCoord - halfSize;
+   793→
+   794→    float radius = radiusAt(localCoord, uCornerRadii);
+   795→    float sd = sdRoundedRect(centeredCoord, halfSize, radius);
+   796→    if (sd > 0.5) discard;
+   797→    float clipAlpha = 1.0 - smoothstep(-0.5, 0.5, sd);
+   798→
+   799→    gl_FragColor = vec4(uColor.rgb, uColor.a * clipAlpha);
+   800→}
+   801→`
+   802→
+   803→/* ------------------------------------------------------------------ *
+   804→ * Rim highlight pass — faithful port of HighlightModifier.kt +
+   805→ * DefaultHighlightShaderString / AmbientHighlightShaderString.
+   806→ *
+   807→ * The original draws a STROKE of width strokeWidth centered on the shape
+   808→ * edge, blurred by blurRadius, clipped to inside the shape. The stroke is
+   809→ * colored by the AGSL shader (Default or Ambient), then composited with
+   810→ * the layer's blendMode (Plus for Default, SrcOver for Ambient).
+   811→ *
+   812→ * We model the visible (post-clip) stroke band as a smooth mask: 1 from
+   813→ * sd = -strokeWidth/2 up to sd = 0 (edge), fading to 0 over blur pixels
+   814→ * further inward. The outward half is removed by the shape clip (discard
+   815→ * for sd > 0).
+   816→ *
+   817→ * Default shader: returns color * intensity, color = White(1.0).
+   818→ *   Plus blend (renderer uses gl.ONE/gl.ONE): output rgb = color * intensity * mask.
+   819→ * Ambient shader: returns half4(t,t,t,1.0) * intensity, t = step(0,d).
+   820→ *   SrcOver blend: output = (t*i, t*i, t*i, i) where i = intensity * mask.
+   821→ * ------------------------------------------------------------------ */
+   822→export const RIM_HIGHLIGHT_FRAGMENT_SHADER = /* glsl */ `
+   823→precision highp float;
+   824→
+   825→uniform vec2  uCanvasSize;
+   826→uniform vec2  uOffset;          // element top-left in canvas px (top-left origin)
+   827→uniform vec2  uSize;            // element size in canvas px
+   828→uniform vec4  uCornerRadii;     // (topLeft, topRight, bottomRight, bottomLeft) in px
+   829→uniform vec4  uHighlightColor;  // rgb + 1.0
+   830→uniform float uHighlightAngle;  // radians
+   831→uniform float uHighlightFalloff;
+   832→uniform float uHighlightAlpha;
+   833→uniform float uHighlightMode;     // 0=Default, 1=Ambient, 2=Plain
+   834→uniform float uHighlightStrokeWidth;
+   835→uniform float uHighlightBlur;
+   836→
+   837→${SDF_GLSL}
+   838→
+   839→void main() {
+   840→    vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
+   841→    vec2 localCoord = screenCoord - uOffset;
+   842→    vec2 halfSize = uSize * 0.5;
+   843→    vec2 centeredCoord = localCoord - halfSize;
+   844→
+   845→    float radius = radiusAt(localCoord, uCornerRadii);
+   846→    float sd = sdRoundedRect(centeredCoord, halfSize, radius);
+   847→
+   848→    // Outside the shape — nothing to add (the stroke's outward half is clipped).
+   849→    // Strict discard at sd > 0 (no outward bleed) — the original HighlightModifier
+   850→    // calls canvas.clipOutline(outline) before drawing the stroke, which removes
+   851→    // the outward half of the stroke entirely.
+   852→    if (sd > 0.0) {
+   853→        discard;
+   854→    }
+   855→
+   856→    // Stroke mask — approximates Android's stroke + BlurMaskFilter convolved
+   857→    // with clipOutline (clip to inside the shape).
+   858→    //
+   859→    // Original paint setup (HighlightModifier.kt):
+   860→    //   paint.style = Stroke
+   861→    //   paint.strokeWidth = ceil(width.toPx()) * 2     // full stroke, centered on edge
+   862→    //   paint.blur(blurRadius.toPx())                   // BlurMaskFilter, Blur.NORMAL
+   863→    //   canvas.clipOutline(outline)                     // clip to inside the shape
+   864→    //   canvas.drawOutline(outline, paint)              // stroke centered on edge
+   865→    //
+   866→    // The clip removes the outer half of the stroke (sd > 0). The visible
+   867→    // inside half (sd ∈ [-strokeWidth/2, 0]) is then softened by the blur
+   868→    // mask filter, which spreads alpha over ~±radius from each edge of
+   869→    // the stroke. The result is roughly a TRIANGULAR profile:
+   870→    //   - peak (alpha ≈ 1) near sd = -strokeWidth/2 (inner edge of stroke)
+   871→    //   - fade to 0 at sd = -strokeWidth/2 - blur   (blur spread inward)
+   872→    //   - fade to 0 at sd = 0                         (shape edge, clip)
+   873→    //
+   874→    // We approximate this as:
+   875→    //   strokeMask = smoothstep(-W/2 - blur, -W/2, sd)   // blur fade-in
+   876→    //              * (1 - smoothstep(-W/2, 0, sd))       // triangle fade-out toward edge
+   877→    // where W = strokeWidth. This gives a triangular peak at sd = -W/2.
+   878→    float strokeInner = -uHighlightStrokeWidth * 0.5;
+   879→    float strokeMask = smoothstep(strokeInner - uHighlightBlur, strokeInner, sd);
+   880→    float edgeFade = 1.0 - smoothstep(strokeInner, 0.0, sd);
+   881→    strokeMask *= edgeFade;
+   882→
+   883→    if (uHighlightMode < 0.5) {
+   884→        // Default — shader returns color * intensity, Plus blend.
+   885→        // Output rgb = color * intensity * mask * alpha. Renderer uses
+   886→        // gl.blendFunc(ONE, ONE) so result = src + dst (clamped).
+   887→        float gradRadius = min(radius * 1.5, min(halfSize.x, halfSize.y));
+   888→        vec2 grad = gradSdRoundedRect(centeredCoord, halfSize, gradRadius);
+   889→        vec2 normal = vec2(cos(uHighlightAngle), sin(uHighlightAngle));
+   890→        float d = dot(grad, normal);
+   891→        float intensity = pow(abs(d), uHighlightFalloff);
+   892→        vec3 c = uHighlightColor.rgb * intensity * strokeMask * uHighlightAlpha;
+   893→        gl_FragColor = vec4(c, 1.0);
+   894→    } else if (uHighlightMode < 1.5) {
+   895→        // Ambient — shader returns half4(t,t,t,1.0)*intensity, SrcOver blend.
+   896→        // src.rgb = t*intensity, src.a = intensity. With SrcOver:
+   897→        // result = src.rgb*src.a + dst*(1-src.a) = t*i^2 + dst*(1-i).
+   898→        // We output (t*i, t*i, t*i, i) and let the renderer use SrcOver blend.
+   899→        float gradRadius = min(radius * 1.5, min(halfSize.x, halfSize.y));
+   900→        vec2 grad = gradSdRoundedRect(centeredCoord, halfSize, gradRadius);
+   901→        vec2 normal = vec2(cos(uHighlightAngle), sin(uHighlightAngle));
+   902→        float d = dot(grad, normal);
+   903→        float intensity = pow(abs(d), uHighlightFalloff);
+   904→        float t = step(0.0, d);
+   905→        float i = intensity * strokeMask * uHighlightAlpha;
+   906→        gl_FragColor = vec4(vec3(t) * i, i);
+   907→    } else {
+   908→        // Plain — even stroke, paint.color, Plus blend.
+   909→        vec3 c = uHighlightColor.rgb * strokeMask * uHighlightAlpha;
+   910→        gl_FragColor = vec4(c, 1.0);
+   911→    }
+   912→}
+   913→`
+   914→
+   915→/* ------------------------------------------------------------------ *
+   916→ * COPY_FRAGMENT_SHADER — fullscreen texture copy. Used by the renderer
+   917→ * to blit one FBO to another (ping-pong for glass-on-glass sampling),
+   918→ * and to blit the final composed scene FBO to the default framebuffer.
+   919→ *
+   920→ * The texture is uploaded with UNPACK_FLIP_Y_WEBGL=false. The renderer
+   921→ * writes the scene in top-left-origin canvas px (Y down). UV.y is flipped
+   922→ * here so gl_FragCoord (bottom-left origin in WebGL framebuffer space)
+   923→ * maps to the correct texel.
+   924→ * ------------------------------------------------------------------ */
+   925→export const COPY_FRAGMENT_SHADER = /* glsl */ `
+   926→precision highp float;
+   927→
+   928→uniform sampler2D uTexture;
+   929→uniform vec2 uCanvasSize;
+   930→
+   931→void main() {
+   932→    vec2 uv = vec2(gl_FragCoord.x / uCanvasSize.x, gl_FragCoord.y / uCanvasSize.y);
+   933→    gl_FragColor = texture2D(uTexture, uv);
+   934→}
+   935→`
+   936→
+   937→/* ------------------------------------------------------------------ *
+   938→ * SOLID_FILL_FRAGMENT_SHADER — fill the entire canvas with a solid color.
+   939→ * Used as the first pass when a backgroundColor is set (e.g. black for
+   940→ * the Home page). Replaces the wallpaper pass in that case.
+   941→ * ------------------------------------------------------------------ */
+   942→export const SOLID_FILL_FRAGMENT_SHADER = /* glsl */ `
+   943→precision highp float;
+   944→
+   945→uniform vec4 uColor;
+   946→
+   947→void main() {
+   948→    gl_FragColor = uColor;
+   949→}
+   950→`
+   951→
