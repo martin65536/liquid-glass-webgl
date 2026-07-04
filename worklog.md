@@ -90,3 +90,56 @@ Stage Summary:
 - Scroll: wheel + drag-on-empty-space, spring-animated, clamped to contentHeight - viewportHeight.
 - Interactive: buttons (existing press + drag glow), toggle (tap to flip, drag knob), slider (drag knob, tap track), tabbar (tap tab to switch indicator), scroll (wheel/drag).
 - All glass effects (refraction, vibrancy, tint, surface, blur, default/ambient/plain highlight, outer shadow, inner shadow) carry over to glass-shape elements (toggle knob, slider knob, dialog card, tabbar container, tab indicator).
+
+---
+Task ID: 5
+Agent: main
+Task: User feedback: (1) finger often can't scroll the page; (2) make scrolling more normal, no fancy rebound animation, with inertia; (3) home page should be black background (text unreadable); (4) redo the switch (toggle) to match the original animation.
+
+Work Log:
+- Read original LiquidToggle.kt + DampedDragAnimation.kt to understand the toggle animation:
+  - value: spring(1f, 1000f) — critically damped, no overshoot
+  - pressProgress: spring(1f, 1000f) — critically damped
+  - scale: spring(0.6f/0.7f, 250f) — slightly underdamped, tiny bounce
+  - onDrag: updates fraction instantly, knob follows via critically damped spring
+  - onDragStopped: snaps to 0 or 1 based on targetValue
+  - animateToValue (tap): press() + animateTo + release() (brief press-and-release cycle)
+  - onDrawSurface: drawRect(White, alpha = 1 - pressProgress) — white overlay fades out as pressed
+- Renderer changes (renderer.ts):
+  - Added springStepCritical (ζ=1) and springStepUnderdamped (parametric) helpers alongside existing springStep1D (ζ=0.5)
+  - Added ToggleGroupState interface + Map<groupId, ToggleGroupState> with fraction/pressProgress/scale springs
+  - Added methods: setToggleTarget, beginToggleDrag, dragToggle, endToggleDrag, getToggleFraction, getToggleTarget
+  - Added isToggleKnob / isToggleTrack markers on GlassElementConfig
+  - Render: toggle knob gets x-offset = fraction * dragWidth, scale = tg.scale, white overlay (alpha = 1 - pressProgress)
+  - Render: toggle track color is lerped between offColor and onColor by animated fraction
+  - Replaced scroll spring with velocity-based inertia: setScrollY (direct, velocity=0), setScrollVelocity (impulse), exponential decay (rate 4/s), hard clamp at edges (no rebound)
+  - Added backgroundColor field + setBackgroundColor method; render() fills with bg color instead of wallpaper when set
+  - Animation loop auto-releases toggle press when fraction settles near target (mirrors original release() behavior)
+- Context changes (context.tsx):
+  - Added backgroundColor, toggleTargets, rendererRef props
+  - Rewrote pointer handling with gesture modes: pending → drag | scroll
+  - Scroll takeover: vertical-dominant movement on any element (including buttons) converts to scroll, cancels button press
+  - Velocity tracking: ring buffer of recent (t, clientY) samples; on release, compute velocity from last ~100ms
+  - On scroll release: renderer.setScrollVelocity(-dragVelocity) for inertia
+  - Wheel: direct setScrollY (no inertia, discrete)
+  - Syncs toggleTargets → renderer.setToggleTarget via useEffect
+- Catalog changes (catalog.tsx):
+  - buildHome: white text + dark halo on black background; subtitle uses lighter blue (#40AEFF) for contrast on black
+  - buildToggle: complete rewrite using isToggleKnob/isToggleTrack markers
+    - Knob position set to fraction=0 (off); renderer animates via isToggleKnob.dragWidth
+    - Track color via isToggleTrack (offColor/onColor lerp)
+    - Interactions: onTap flips state.toggleOn; onDragStart/onDrag/onDragEnd call renderer.beginToggleDrag/dragToggle/endToggleDrag via rendererRef
+    - endToggleDrag returns final target → setState syncs React state
+  - buildCatalog accepts optional rendererRef param, forwards to buildToggle
+- page.tsx changes:
+  - Passes backgroundColor=[0,0,0] for Home destination, null for others
+  - Passes toggleTargets={toggle1: state.toggleOn?1:0, toggle2: ...} when on Toggle destination
+  - Passes rendererRef to LiquidGlassCanvas so catalog builders can call renderer methods
+  - toggleTargets is memoized on [destination, state.toggleOn] so it only updates when needed
+- Removed deprecated liquid-glass.tsx and src/components/catalog/* (old unused demo files causing type errors)
+- Verified: tsc --noEmit clean, npm run build succeeds, dev server returns HTTP 200
+
+Stage Summary:
+- Scroll: finger scroll works on all elements (including list items and buttons); vertical-dominant drag converts to scroll; inertia on release with exponential decay; no rebound at edges
+- Home: black background with white text (title, subtitles, list items) — readable
+- Toggle: faithful animation matching DampedDragAnimation.kt — critically damped knob glide, press-and-release on tap, drag follows finger with smooth lag, knob scales 1→1.5 on press, white overlay fades out, track color lerps between off/on

@@ -8,13 +8,14 @@ import {
   DEFAULT_CATALOG_STATE,
   type CatalogState,
 } from '@/components/liquid-glass/catalog'
+import type { LiquidGlassRenderer } from '@/components/liquid-glass/renderer'
 
 /* ------------------------------------------------------------------ *
  * Faithful WebGL reproduction of Kyant's AndroidLiquidGlass catalog.
  *
  * Structure mirrors MainContent.kt:
  *   - destination state (starts at Home)
- *   - when destination == Home → HomeContent (navigation list)
+ *   - when destination == Home → HomeContent (navigation list, black bg)
  *   - when destination != Home → corresponding *Content page
  *   - BackHandler (back button on each non-Home page) → return to Home
  *
@@ -31,11 +32,15 @@ export default function Page() {
   const [state, setStateRaw] = React.useState<CatalogState>(DEFAULT_CATALOG_STATE)
   const [frameSize, setFrameSize] = React.useState({ w: 420, h: 900 })
   const frameRef = React.useRef<HTMLDivElement>(null)
+  // Renderer ref — populated by LiquidGlassCanvas once it creates the
+  // renderer. Catalog builders use this to call renderer methods
+  // (e.g. setToggleTarget, beginToggleDrag, dragToggle, endToggleDrag).
+  const rendererRef = React.useRef<LiquidGlassRenderer | null>(null)
 
   // setState supports both a partial patch and a functional updater.
   // The functional form is critical for drag callbacks (slider, magnifier,
-  // lock screen) so they always read the latest state — avoiding stale
-  // closures when multiple pointermove events fire between React renders.
+  // lock screen, toggle) so they always read the latest state — avoiding
+  // stale closures when multiple pointermove events fire between React renders.
   const setState = React.useCallback(
     (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => {
       setStateRaw((prev) => {
@@ -89,9 +94,25 @@ export default function Page() {
   // Build the catalog for the current destination.
   // useMemo so we don't rebuild every render (only when dest/state/W/H change).
   const catalog = React.useMemo(
-    () => buildCatalog(destination, W, H, state, setState, onNavigate, onBack),
+    () => buildCatalog(destination, W, H, state, setState, onNavigate, onBack, rendererRef),
     [destination, W, H, state, setState, onNavigate, onBack]
   )
+
+  // Black background for Home (per user request: "主页改成黑色背景，不然看不清").
+  // Other destinations use the wallpaper image.
+  const backgroundColor = React.useMemo(
+    () => (destination === CatalogDestination.Home ? ([0, 0, 0] as [number, number, number]) : null),
+    [destination]
+  )
+
+  // Push toggle targets to the renderer whenever `state.toggleOn` changes
+  // (or when entering the Toggle destination). Both toggles share the same
+  // state, so both groups get the same target.
+  const toggleTargets = React.useMemo<Record<string, number>>(() => {
+    if (destination !== CatalogDestination.Toggle) return {} as Record<string, number>
+    const target = state.toggleOn ? 1 : 0
+    return { toggle1: target, toggle2: target }
+  }, [destination, state.toggleOn])
 
   return (
     <div
@@ -115,6 +136,9 @@ export default function Page() {
           contentHeight={catalog.contentHeight}
           interactions={catalog.interactions}
           scrollResetToken={destination}
+          backgroundColor={backgroundColor}
+          toggleTargets={toggleTargets}
+          rendererRef={rendererRef}
           className="w-full h-full"
         />
       </div>

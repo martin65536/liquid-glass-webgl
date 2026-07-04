@@ -149,6 +149,33 @@ export interface GlassElementConfig extends GlassButtonConfig {
    * without this flag are static (drawn at their rect.y as-is).
    */
   scroll?: boolean
+  /**
+   * If set, this element is a toggle knob. The renderer maintains an
+   * animated `fraction` (0..1) per groupId and applies:
+   *   - x-offset = fraction * dragWidth (knob slides between off/on)
+   *   - scale = lerp(1, 1.5, pressProgress) (knob grows on press)
+   *   - white overlay alpha = 1 - pressProgress (matches onDrawSurface in LiquidToggle.kt)
+   *
+   * Faithful to LiquidToggle.kt + DampedDragAnimation.kt:
+   *   - valueAnimation: spring(1f, 1000f) — critically damped, no overshoot
+   *   - pressProgress: spring(1f, 1000f) — critically damped
+   *   - scale: spring(0.6f/0.7f, 250f) — underdamped, slight overshoot
+   */
+  isToggleKnob?: {
+    groupId: string
+    /** How far the knob moves from fraction=0 to fraction=1, in CSS px. */
+    dragWidth: number
+  }
+  /**
+   * If set, this element is a toggle track. Its color is lerped between
+   * offColor and onColor based on the corresponding toggle group's
+   * animated fraction.
+   */
+  isToggleTrack?: {
+    groupId: string
+    offColor: [number, number, number, number]
+    onColor: [number, number, number, number]
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -181,31 +208,55 @@ interface ElementState {
 }
 
 /* ------------------------------------------------------------------ *
- * Underdamped spring physics — EXACT closed-form port of Compose's
- * spring(dampingRatio = 0.5f, stiffness = 300f) used by
- * InteractiveHighlight.kt for both pressProgress and drag offset.
+ * ToggleGroupState — faithful port of DampedDragAnimation.kt.
  *
- * Compose's SpringSpec uses the exact analytical solution for the
- * underdamped ODE m·ẍ + c·ẋ + k·(x - target) = 0:
+ * The renderer maintains one ToggleGroupState per groupId. The fraction
+ * (0..1) is animated with a critically damped spring (k=1000, ζ=1) so
+ * it tracks the target with no overshoot — matching the smooth knob
+ * glide of the original. The pressProgress (also critically damped)
+ * drives the knob scale (1→1.5) and the white overlay alpha (1→0).
+ * The scale is animated with a slightly underdamped spring (k=250,
+ * ζ=0.65) to give a tiny bounce on release.
+ * ------------------------------------------------------------------ */
+interface ToggleGroupState {
+  // Knob position fraction (0..1). Animated with critically damped spring.
+  fraction: number
+  fractionVelocity: number
+  targetFraction: number
+  // Press progress (0 = released, 1 = pressed). Drives scale + white overlay.
+  pressProgress: number
+  pressVelocity: number
+  targetPress: number
+  // Knob scale (1..1.5). Slightly underdamped for a tiny bounce.
+  scale: number
+  scaleVelocity: number
+  targetScale: number
+  // True while the user is dragging the knob. While true, drag deltas
+  // update targetFraction directly (no spring lag, matches onDrag in
+  // DampedDragAnimation which updates `fraction` instantly).
+  isDragging: boolean
+}
+
+/* ------------------------------------------------------------------ *
+ * Spring physics — closed-form solutions of the damped spring ODE
+ *   m·ẍ + c·ẋ + k·(x - target) = 0
  *
- *   ω_n = sqrt(k/m)              = sqrt(300)   ≈ 17.3205
- *   ζ   = dampingRatio           = 0.5
- *   ω_d = ω_n · sqrt(1 - ζ²)     ≈ 15.0
+ * Two regimes:
+ *   1. Underdamped (ζ < 1): bouncy, with overshoot — used for button
+ *      press, drag offset, toggle scale.
+ *   2. Critically damped (ζ = 1): smooth, no overshoot — used for
+ *      toggle value/press (matches DampedDragAnimation.kt's
+ *      spring(1f, 1000f)) and tab indicator.
  *
- *   x(t) = target
- *        + (x0 - target) · e^(-ζω_n·t) · cos(ω_d·t)
- *        + ((v0 + ζω_n·(x0 - target)) / ω_d) · e^(-ζω_n·t) · sin(ω_d·t)
+ * Underdamped closed form:
+ *   ω_n = sqrt(k/m), ζ = dampingRatio, ω_d = ω_n·sqrt(1 - ζ²)
+ *   x(t) = target + (x0-target)·e^(-ζω_n·t)·cos(ω_d·t)
+ *                 + ((v0 + ζω_n·(x0-target)) / ω_d)·e^(-ζω_n·t)·sin(ω_d·t)
  *
- *   v(t) = -ζω_n · A(t) + ω_d · B(t) ... (full derivative)
- *
- * where A(t) = (x0-target)·e^(-ζω_n·t)·cos(ω_d·t) + ... is the offset
- * from target. We compute both x and v at the end of each frame's dt
- * using this closed form, which is EXACT — no numerical damping, no
- * energy loss. This matches Compose's behavior bit-for-bit, including
- * the full overshoot/undershoot oscillation.
- *
- * When the target changes (press → release), we re-derive x0/v0 from
- * the current state, so the spring smoothly redirects.
+ * Critically damped closed form:
+ *   ω_n = sqrt(k/m)
+ *   x(t) = target + (x0-target)·e^(-ω_n·t)
+ *                 + (v0 + ω_n·(x0-target))·t·e^(-ω_n·t)
  * ------------------------------------------------------------------ */
 const SPRING_K = 300
 const SPRING_DAMPING_RATIO = 0.5
@@ -213,36 +264,86 @@ const SPRING_OMEGA_N = Math.sqrt(SPRING_K) // ≈ 17.3205 (m = 1)
 const SPRING_OMEGA_D = SPRING_OMEGA_N * Math.sqrt(1 - SPRING_DAMPING_RATIO * SPRING_DAMPING_RATIO) // ≈ 15.0
 const SPRING_THRESHOLD = 0.0005
 
+// Critically-damped spring constants for toggle value/press
+// (matches DampedDragAnimation.kt's spring(1f, 1000f)).
+const TOGGLE_VALUE_K = 1000
+const TOGGLE_VALUE_OMEGA_N = Math.sqrt(TOGGLE_VALUE_K) // ≈ 31.623
+
+// Underdamped spring constants for toggle scale
+// (avg of spring(0.6f, 250f) for X and spring(0.7f, 250f) for Y).
+const TOGGLE_SCALE_K = 250
+const TOGGLE_SCALE_DAMPING_RATIO = 0.65
+const TOGGLE_SCALE_OMEGA_N = Math.sqrt(TOGGLE_SCALE_K)
+const TOGGLE_SCALE_OMEGA_D = TOGGLE_SCALE_OMEGA_N * Math.sqrt(1 - TOGGLE_SCALE_DAMPING_RATIO * TOGGLE_SCALE_DAMPING_RATIO)
+
 function springStep1D(
   current: number,
   velocity: number,
   target: number,
   dt: number
 ): { current: number; velocity: number } {
-  // Closed-form solution of the underdamped spring ODE.
-  // For the critically damped / overdamped case (ζ >= 1) we'd need a
-  // different formula, but our ζ = 0.5 so this branch is always taken.
+  // Underdamped (ζ = 0.5).
   const x0 = current - target
   const v0 = velocity
-
-  // Decay envelope.
   const decay = Math.exp(-SPRING_DAMPING_RATIO * SPRING_OMEGA_N * dt)
   const cosWd = Math.cos(SPRING_OMEGA_D * dt)
   const sinWd = Math.sin(SPRING_OMEGA_D * dt)
-
-  // Position relative to target.
   const offset =
     x0 * decay * cosWd +
     ((v0 + SPRING_DAMPING_RATIO * SPRING_OMEGA_N * x0) / SPRING_OMEGA_D) * decay * sinWd
-
-  // Velocity (derivative of the position expression).
-  // v(t) = -ζω_n·offset(t) + ω_d·[(-x0·sin + B0·cos)·decay]
-  // where B0 = (v0 + ζω_n·x0)/ω_d
   const b0 = (v0 + SPRING_DAMPING_RATIO * SPRING_OMEGA_N * x0) / SPRING_OMEGA_D
   const newVel =
     -SPRING_DAMPING_RATIO * SPRING_OMEGA_N * offset +
     decay * (-x0 * SPRING_OMEGA_D * sinWd + b0 * SPRING_OMEGA_D * cosWd)
+  return { current: target + offset, velocity: newVel }
+}
 
+function springStepCritical(
+  current: number,
+  velocity: number,
+  target: number,
+  dt: number,
+  omegaN: number
+): { current: number; velocity: number } {
+  // Critically damped (ζ = 1).
+  // x(t) = target + (x0-target)·e^(-ω_n·t) + (v0 + ω_n·(x0-target))·t·e^(-ω_n·t)
+  const x0 = current - target
+  const v0 = velocity
+  const decay = Math.exp(-omegaN * dt)
+  const offset = x0 * decay + (v0 + omegaN * x0) * dt * decay
+  // v(t) = -ω_n·(x0-target)·e^(-ω_n·t)
+  //        + (v0 + ω_n·(x0-target))·(e^(-ω_n·t) - ω_n·t·e^(-ω_n·t))
+  //        - ω_n·(x0-target)·e^(-ω_n·t)   [from derivative of first term]
+  // Simpler: v = derivative of offset:
+  //   d/dt[ x0·e^(-ω_n·t) ] = -ω_n·x0·e^(-ω_n·t)
+  //   d/dt[ (v0+ω_n·x0)·t·e^(-ω_n·t) ] = (v0+ω_n·x0)·(e^(-ω_n·t) - ω_n·t·e^(-ω_n·t))
+  const newVel =
+    -omegaN * x0 * decay +
+    (v0 + omegaN * x0) * (decay - omegaN * dt * decay)
+  return { current: target + offset, velocity: newVel }
+}
+
+function springStepUnderdamped(
+  current: number,
+  velocity: number,
+  target: number,
+  dt: number,
+  omegaN: number,
+  dampingRatio: number
+): { current: number; velocity: number } {
+  const x0 = current - target
+  const v0 = velocity
+  const omegaD = omegaN * Math.sqrt(1 - dampingRatio * dampingRatio)
+  const decay = Math.exp(-dampingRatio * omegaN * dt)
+  const cosWd = Math.cos(omegaD * dt)
+  const sinWd = Math.sin(omegaD * dt)
+  const offset =
+    x0 * decay * cosWd +
+    ((v0 + dampingRatio * omegaN * x0) / omegaD) * decay * sinWd
+  const b0 = (v0 + dampingRatio * omegaN * x0) / omegaD
+  const newVel =
+    -dampingRatio * omegaN * offset +
+    decay * (-x0 * omegaD * sinWd + b0 * omegaD * cosWd)
   return { current: target + offset, velocity: newVel }
 }
 
@@ -333,9 +434,11 @@ export class LiquidGlassRenderer {
   private dpr = 1
   private buttonConfigs: GlassElementConfig[] = []
   private buttonStates = new Map<string, ElementState>()
+  /** Toggle group state — keyed by groupId. Faithful port of DampedDragAnimation.kt. */
+  private toggleStates = new Map<string, ToggleGroupState>()
   /** Scroll offset in CSS px (positive = scrolled down). */
   private scrollY = 0
-  private targetScrollY = 0
+  /** Scroll velocity for inertia (CSS px / s). Decays exponentially. */
   private scrollVelocity = 0
   /** Total scrollable content height in CSS px. */
   private contentHeight = 0
@@ -344,6 +447,10 @@ export class LiquidGlassRenderer {
   private cssHeight = 0
   /** Wheel listener target — set in attachWheelListener(). */
   private wheelTarget: HTMLElement | null = null
+  /** Background color override. If set, the renderer fills the canvas with
+   *  this color instead of drawing the wallpaper. Used for the Home page
+   *  (black background) per the user's request. */
+  private backgroundColor: [number, number, number] | null = null
 
   // Offscreen 2D canvas for the foreground (label + chevron). Reused
   // across buttons — we re-rasterize + re-upload per button per frame.
@@ -518,16 +625,34 @@ export class LiquidGlassRenderer {
   /** Total scrollable content height in CSS px (set by the React layer). */
   setContentHeight(h: number) {
     this.contentHeight = h
-    this.clampScroll()
+    this.clampScrollY()
     this.requestRender()
   }
 
-  /** Set the scroll offset (CSS px, positive = scrolled down). */
+  /**
+   * Set the scroll offset directly (CSS px, positive = scrolled down).
+   * Used during touch drag — the scroll position follows the finger with
+   * no spring lag. Inertia velocity is reset to 0 (the finger is in control).
+   * The value is clamped to [0, maxScroll].
+   */
   setScrollY(y: number) {
-    this.targetScrollY = y
-    this.clampScroll()
-    this.startAnimation()
+    this.scrollVelocity = 0
+    this.scrollY = this.clampScrollValue(y)
     this.requestRender()
+  }
+
+  /**
+   * Apply an inertia impulse to the scroll (CSS px / s). Used on touch
+   * release — the drag velocity becomes the initial scroll velocity,
+   * then exponentially decays. The renderer's animation loop applies
+   * `scrollY += scrollVelocity * dt` each frame and decays the velocity.
+   * No spring rebound at edges — scrolling just stops at the boundary.
+   */
+  setScrollVelocity(v: number) {
+    // Clamp to a sane max to avoid absurd flicks.
+    const MAX_VEL = 4000
+    this.scrollVelocity = Math.max(-MAX_VEL, Math.min(MAX_VEL, v))
+    this.startAnimation()
   }
 
   /** Get current scroll offset (CSS px). */
@@ -535,10 +660,168 @@ export class LiquidGlassRenderer {
     return this.scrollY
   }
 
-  private clampScroll() {
+  /** Get current scroll velocity (CSS px / s, for inertia). */
+  getScrollVelocity() {
+    return this.scrollVelocity
+  }
+
+  /** Clamp a scroll value to [0, maxScroll]. */
+  private clampScrollValue(y: number): number {
     const max = Math.max(0, this.contentHeight - this.cssHeight)
-    if (this.targetScrollY < 0) this.targetScrollY = 0
-    if (this.targetScrollY > max) this.targetScrollY = max
+    if (y < 0) return 0
+    if (y > max) return max
+    return y
+  }
+
+  /** Clamp current scrollY in place (called when content size changes). */
+  private clampScrollY() {
+    this.scrollY = this.clampScrollValue(this.scrollY)
+  }
+
+  /**
+   * Set the background color override. If non-null, the renderer fills
+   * the canvas with this color instead of drawing the wallpaper image.
+   * Used for the Home page (black background) per the user's request.
+   */
+  setBackgroundColor(color: [number, number, number] | null) {
+    this.backgroundColor = color
+    this.requestRender()
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Toggle group API — faithful port of DampedDragAnimation.kt.
+   *
+   * The React layer calls these methods to drive toggle interactions:
+   *   - setToggleTarget(groupId, target): programmatic toggle (tap)
+   *   - beginToggleDrag(groupId): start a finger drag (press animation)
+   *   - dragToggle(groupId, startFraction, currentX, startX, dragWidth):
+   *     update targetFraction based on finger delta
+   *   - endToggleDrag(groupId): release — snaps target to 0 or 1, returns
+   *     the final value so React state can sync
+   *   - getToggleFraction(groupId): read current animated fraction (for
+   *     external callers that need to know the displayed position)
+   *   - getToggleTarget(groupId): read current target (for drag-end threshold)
+   * ------------------------------------------------------------------ */
+
+  /** Ensure a toggle group state exists, initialized to the given fraction. */
+  private ensureToggleState(groupId: string, initialFraction: number): ToggleGroupState {
+    let st = this.toggleStates.get(groupId)
+    if (!st) {
+      st = {
+        fraction: initialFraction,
+        fractionVelocity: 0,
+        targetFraction: initialFraction,
+        pressProgress: 0,
+        pressVelocity: 0,
+        targetPress: 0,
+        scale: 1,
+        scaleVelocity: 0,
+        targetScale: 1,
+        isDragging: false,
+      }
+      this.toggleStates.set(groupId, st)
+    }
+    return st
+  }
+
+  /**
+   * Set the toggle's target fraction (0..1). Animates with critically
+   * damped spring. Also triggers a quick press-and-release cycle to
+   * match the original `animateToValue` behavior (which calls press()
+   * + animateTo + release()).
+   *
+   * Used for tap-to-toggle: the React layer flips `toggleOn`, then calls
+   * this method with the new target.
+   *
+   * NOTE: If the target is unchanged (e.g. React re-renders after a drag
+   * end and pushes the same target back), this is a no-op — we don't
+   * re-trigger the press animation. This prevents a feedback loop where
+   * drag-end → setState → useEffect → setToggleTarget would restart the
+   * press animation that endToggleDrag just played.
+   */
+  setToggleTarget(groupId: string, target: number) {
+    const st = this.ensureToggleState(groupId, target)
+    if (st.isDragging) return // Don't fight a drag in progress
+    if (st.targetFraction === target) return // Same target — no-op
+    st.targetFraction = target
+    // Trigger a brief press animation (matches animateToValue's press()+release()).
+    // The press animation auto-releases when fraction settles near target
+    // (handled in the animation loop).
+    if (st.targetPress === 0) {
+      st.targetPress = 1
+      st.targetScale = 1.5
+    }
+    this.startAnimation()
+  }
+
+  /**
+   * Begin a finger drag on a toggle group. Sets isDragging=true and
+   * starts the press animation (scale → 1.5, white overlay fades in).
+   * The startFraction is recorded so drag deltas can be added to it.
+   */
+  beginToggleDrag(groupId: string, startFraction: number) {
+    const st = this.ensureToggleState(groupId, startFraction)
+    st.isDragging = true
+    st.targetPress = 1
+    st.targetScale = 1.5
+    this.startAnimation()
+  }
+
+  /**
+   * Update the toggle's target fraction based on finger movement.
+   * The new target is computed as `startFraction + (currentX - startX) / dragWidth`,
+   * clamped to [0, 1]. The animated fraction then springs toward this
+   * target with critically damped spec — so the knob tracks the finger
+   * with a tiny smooth lag (matches the original's `updateValue(fraction)`
+   * which animates toward the latest fraction state).
+   */
+  dragToggle(
+    groupId: string,
+    startFraction: number,
+    currentX: number,
+    startX: number,
+    dragWidth: number
+  ) {
+    const st = this.ensureToggleState(groupId, startFraction)
+    if (!st.isDragging) return
+    const delta = (currentX - startX) / Math.max(1, dragWidth)
+    st.targetFraction = Math.max(0, Math.min(1, startFraction + delta))
+    this.startAnimation()
+  }
+
+  /**
+   * End a finger drag. Snaps the target to 0 or 1 based on the current
+   * targetFraction (≥0.5 → 1, else 0). Returns the snapped value so the
+   * React layer can sync its state.
+   *
+   * NOTE: We do NOT immediately release the press animation here. The
+   * original `release()` waits for `value` to settle near `targetValue`
+   * before animating press→0. Our animation loop's auto-release logic
+   * handles this: when `isDragging === false` and `fraction` is within
+   * 0.02 of `targetFraction`, it sets `targetPress = 0` and `targetScale = 1`.
+   * This gives a smooth "press stays until knob settles, then releases"
+   * feel that matches the original.
+   */
+  endToggleDrag(groupId: string): number {
+    const st = this.toggleStates.get(groupId)
+    if (!st) return 0
+    st.isDragging = false
+    const finalTarget = st.targetFraction >= 0.5 ? 1 : 0
+    st.targetFraction = finalTarget
+    // Don't release press here — auto-release will fire when fraction
+    // settles near finalTarget.
+    this.startAnimation()
+    return finalTarget
+  }
+
+  /** Read the current animated fraction (0..1) for a toggle group. */
+  getToggleFraction(groupId: string): number {
+    return this.toggleStates.get(groupId)?.fraction ?? 0
+  }
+
+  /** Read the current target fraction (0..1) for a toggle group. */
+  getToggleTarget(groupId: string): number {
+    return this.toggleStates.get(groupId)?.targetFraction ?? 0
   }
 
   /** Set the element list. Triggers foreground re-raster for changed elements. */
@@ -797,20 +1080,102 @@ export class LiquidGlassRenderer {
         }
       }
 
-      // --- Scroll spring (critically damped, smoother than press spring) ---
-      // Wheel scrolls set targetScrollY directly; we spring scrollY toward
-      // it with a fast critical spec so it glides instead of snapping.
-      const sDelta = Math.abs(this.targetScrollY - this.scrollY)
-      if (sDelta > 0.5 || Math.abs(this.scrollVelocity) > 0.5) {
-        const r = springStep1D(this.scrollY, this.scrollVelocity, this.targetScrollY, dt)
-        this.scrollY = r.current
-        this.scrollVelocity = r.velocity
-        // For scroll we use the same ζ=0.5 spring, which gives a tiny
-        // overshoot — feels responsive. If that's too bouncy, switch to
-        // a critically damped spec here.
+      // --- Toggle group springs (faithful port of DampedDragAnimation.kt) ---
+      for (const tg of this.toggleStates.values()) {
+        // Auto-release press when fraction has nearly settled (mirrors the
+        // original `release()` which awaits `value` near `targetValue`).
+        if (
+          tg.targetPress === 1 &&
+          !tg.isDragging &&
+          Math.abs(tg.targetFraction - tg.fraction) < 0.02
+        ) {
+          tg.targetPress = 0
+          tg.targetScale = 1
+        }
+
+        // Fraction: critically damped (spring(1f, 1000f)).
+        const fDelta = Math.abs(tg.targetFraction - tg.fraction)
+        if (
+          fDelta > SPRING_THRESHOLD ||
+          Math.abs(tg.fractionVelocity) > SPRING_THRESHOLD
+        ) {
+          const r = springStepCritical(
+            tg.fraction,
+            tg.fractionVelocity,
+            tg.targetFraction,
+            dt,
+            TOGGLE_VALUE_OMEGA_N
+          )
+          tg.fraction = r.current
+          tg.fractionVelocity = r.velocity
+          stillAnimating = true
+        } else {
+          tg.fraction = tg.targetFraction
+          tg.fractionVelocity = 0
+        }
+
+        // Press progress: critically damped (spring(1f, 1000f)).
+        const ppDelta = Math.abs(tg.targetPress - tg.pressProgress)
+        if (
+          ppDelta > SPRING_THRESHOLD ||
+          Math.abs(tg.pressVelocity) > SPRING_THRESHOLD
+        ) {
+          const r = springStepCritical(
+            tg.pressProgress,
+            tg.pressVelocity,
+            tg.targetPress,
+            dt,
+            TOGGLE_VALUE_OMEGA_N
+          )
+          tg.pressProgress = r.current
+          tg.pressVelocity = r.velocity
+          stillAnimating = true
+        } else {
+          tg.pressProgress = tg.targetPress
+          tg.pressVelocity = 0
+        }
+
+        // Scale: underdamped (spring(0.65f, 250f) — avg of 0.6/0.7).
+        const sDelta = Math.abs(tg.targetScale - tg.scale)
+        if (
+          sDelta > SPRING_THRESHOLD ||
+          Math.abs(tg.scaleVelocity) > SPRING_THRESHOLD
+        ) {
+          const r = springStepUnderdamped(
+            tg.scale,
+            tg.scaleVelocity,
+            tg.targetScale,
+            dt,
+            TOGGLE_SCALE_OMEGA_N,
+            TOGGLE_SCALE_DAMPING_RATIO
+          )
+          tg.scale = r.current
+          tg.scaleVelocity = r.velocity
+          stillAnimating = true
+        } else {
+          tg.scale = tg.targetScale
+          tg.scaleVelocity = 0
+        }
+      }
+
+      // --- Scroll inertia (no spring rebound) ---
+      // Velocity decays exponentially; scrollY follows velocity and is
+      // hard-clamped at [0, maxScroll] with velocity zeroed on hit.
+      // Decay rate ≈ 4/sec → velocity halves every ~170 ms.
+      if (Math.abs(this.scrollVelocity) > 0.5) {
+        const SCROLL_DECAY = 4.0
+        const newScrollY = this.scrollY + this.scrollVelocity * dt
+        const clamped = this.clampScrollValue(newScrollY)
+        if (clamped !== newScrollY) {
+          // Hit an edge — stop dead (no rebound).
+          this.scrollY = clamped
+          this.scrollVelocity = 0
+        } else {
+          this.scrollY = clamped
+          this.scrollVelocity *= Math.exp(-SCROLL_DECAY * dt)
+        }
         stillAnimating = true
       } else {
-        this.scrollY = this.targetScrollY
         this.scrollVelocity = 0
       }
 
@@ -1043,7 +1408,7 @@ export class LiquidGlassRenderer {
 
   private render() {
     const gl = this.gl
-    if (!this.wallpaperReady) return
+    if (!this.wallpaperReady && !this.backgroundColor) return
 
     // Re-rasterize any dirty foregrounds.
     for (const cfg of this.buttonConfigs) {
@@ -1057,17 +1422,26 @@ export class LiquidGlassRenderer {
     gl.clear(gl.COLOR_BUFFER_BIT)
     gl.disable(gl.BLEND)
 
-    // --- 1. Wallpaper background pass (opaque) ----------------------
-    gl.useProgram(this.wallpaperProgram)
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
-    gl.enableVertexAttribArray(this.aPosLocWp)
-    gl.vertexAttribPointer(this.aPosLocWp, 2, gl.FLOAT, false, 0, 0)
-    gl.activeTexture(gl.TEXTURE0)
-    gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture!)
-    gl.uniform1i(this.uWp['uBackdrop'], 0)
-    gl.uniform2f(this.uWp['uCanvasSize'], this.canvas.width, this.canvas.height)
-    gl.uniform2f(this.uWp['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
-    gl.drawArrays(gl.TRIANGLES, 0, 6)
+    // --- 1. Background pass (opaque) --------------------------------
+    // If a backgroundColor override is set (e.g. black for Home), fill
+    // the canvas with that color instead of drawing the wallpaper image.
+    // This matches the user's request: "主页改成黑色背景".
+    if (this.backgroundColor) {
+      const [r, g, b] = this.backgroundColor
+      gl.clearColor(r, g, b, 1)
+      gl.clear(gl.COLOR_BUFFER_BIT)
+    } else {
+      gl.useProgram(this.wallpaperProgram)
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+      gl.enableVertexAttribArray(this.aPosLocWp)
+      gl.vertexAttribPointer(this.aPosLocWp, 2, gl.FLOAT, false, 0, 0)
+      gl.activeTexture(gl.TEXTURE0)
+      gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture!)
+      gl.uniform1i(this.uWp['uBackdrop'], 0)
+      gl.uniform2f(this.uWp['uCanvasSize'], this.canvas.width, this.canvas.height)
+      gl.uniform2f(this.uWp['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
+      gl.drawArrays(gl.TRIANGLES, 0, 6)
+    }
 
     if (this.buttonConfigs.length === 0) return
 
@@ -1140,7 +1514,24 @@ export class LiquidGlassRenderer {
         gl.useProgram(this.plainRectProgram)
         setSdfUniforms(this.uPr, this.aPosLocPr, r, el.cornerRadius)
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-        const c = el.plainRect.color
+        // Toggle tracks: lerp between offColor and onColor based on the
+        // group's animated fraction. Faithful to LiquidToggle.kt's
+        // `drawRect(lerp(trackColor, accentColor, fraction))`.
+        let c: [number, number, number, number]
+        if (el.isToggleTrack) {
+          const tg = this.toggleStates.get(el.isToggleTrack.groupId)
+          const f = tg ? tg.fraction : 0
+          const off = el.isToggleTrack.offColor
+          const on = el.isToggleTrack.onColor
+          c = [
+            off[0] + (on[0] - off[0]) * f,
+            off[1] + (on[1] - off[1]) * f,
+            off[2] + (on[2] - off[2]) * f,
+            off[3] + (on[3] - off[3]) * f,
+          ]
+        } else {
+          c = el.plainRect.color
+        }
         gl.uniform4f(this.uPr['uColor'], c[0], c[1], c[2], c[3])
         gl.drawArrays(gl.TRIANGLES, 0, 6)
       } else if (el.kind === 'progressive-blur' && el.progressiveBlur) {
@@ -1233,8 +1624,27 @@ export class LiquidGlassRenderer {
         scaleY = scale
       }
 
+      // --- Toggle knob transform (faithful to LiquidToggle.kt) ---
+      // The knob slides horizontally by `fraction * dragWidth`, and grows
+      // by `scale = lerp(1, 1.5, pressProgress)` on press (DampedDragAnimation).
+      // The base position (fraction=0) is set by the catalog layer; the
+      // renderer adds the animated offset.
+      let toggleXOffset = 0
+      let toggleScale = 1
+      let togglePressProgress = 0
+      if (el.isToggleKnob) {
+        const tg = this.toggleStates.get(el.isToggleKnob.groupId)
+        if (tg) {
+          toggleXOffset = tg.fraction * el.isToggleKnob.dragWidth
+          toggleScale = tg.scale
+          togglePressProgress = tg.pressProgress
+        }
+      }
+      scaleX *= toggleScale
+      scaleY *= toggleScale
+
       const baseR = effRect(el)
-      const cx = baseR.x + baseR.w / 2 + translationX
+      const cx = baseR.x + baseR.w / 2 + translationX + toggleXOffset
       const cy = baseR.y + baseR.h / 2 + translationY
       const sw = baseR.w * scaleX
       const sh = baseR.h * scaleY
@@ -1391,6 +1801,32 @@ export class LiquidGlassRenderer {
         gl.uniform2f(this.uHl['uPosition'], px, py)
         gl.drawArrays(gl.TRIANGLES, 0, 6)
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+      }
+
+      // --- Toggle knob white overlay (faithful to LiquidToggle.kt) ---
+      // The original draws `Color.White.copy(alpha = 1f - progress)` on
+      // the knob via `onDrawSurface`. As the user presses (progress → 1),
+      // the white overlay fades out, revealing the glass refraction.
+      // We draw it AFTER the glass pass so it composites on top.
+      if (el.isToggleKnob && togglePressProgress < 0.999) {
+        const whiteAlpha = 1 - togglePressProgress
+        gl.useProgram(this.tintProgram)
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+        gl.enableVertexAttribArray(this.aPosLocTn)
+        gl.vertexAttribPointer(this.aPosLocTn, 2, gl.FLOAT, false, 0, 0)
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+        gl.uniform2f(this.uTn['uCanvasSize'], this.canvas.width, this.canvas.height)
+        gl.uniform2f(this.uTn['uOffset'], sx * this.dpr, sy * this.dpr)
+        gl.uniform2f(this.uTn['uSize'], sw * this.dpr, sh * this.dpr)
+        gl.uniform4f(
+          this.uTn['uCornerRadii'],
+          radii[0] * this.dpr,
+          radii[1] * this.dpr,
+          radii[2] * this.dpr,
+          radii[3] * this.dpr
+        )
+        gl.uniform4f(this.uTn['uColor'], 1, 1, 1, whiteAlpha)
+        gl.drawArrays(gl.TRIANGLES, 0, 6)
       }
 
       // --- Foreground (label) pass (button only) ---
