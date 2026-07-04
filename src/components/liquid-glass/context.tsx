@@ -274,7 +274,6 @@ export function LiquidGlassCanvas({
       const canvas = canvasRef.current
       if (!canvas || !renderer) return
       const { x, y } = localPos(e)
-      const mode = modeRef.current
 
       // Track velocity samples for inertia (always, while pressed).
       velocitySamplesRef.current.push({ t: performance.now(), y: e.clientY })
@@ -289,7 +288,7 @@ export function LiquidGlassCanvas({
       const absDy = Math.abs(dy)
 
       // --- Pending → commit to drag or scroll ---
-      if (mode === 'pending') {
+      if (modeRef.current === 'pending') {
         // Small wiggle threshold — keep press highlight alive for tiny
         // movements (finger jitter on tap). Press highlight position
         // follows the finger during this phase.
@@ -308,53 +307,68 @@ export function LiquidGlassCanvas({
 
         if (absDx < MOVE_THRESHOLD && absDy < MOVE_THRESHOLD) return
 
-        // Decide: vertical-dominant movement → scroll, even if hit an element.
-        // Horizontal-dominant + element has onDrag → drag.
-        // Otherwise → scroll (e.g. plain text rows should scroll).
-        // Use a larger threshold for scroll takeover so the press highlight
-        // has a chance to track small finger movements before scrolling.
-        const SCROLL_TAKEOVER_THRESHOLD = 14
-        const verticalDominant = absDy > absDx + 2 && absDy >= SCROLL_TAKEOVER_THRESHOLD
+        // Decide gesture ownership:
+        //   - Buttons (interactive 'button' kind): KEEP the press — do not
+        //     scroll-takeover. The press highlight follows the finger
+        //     everywhere, matching the original InteractiveHighlight
+        //     behavior (press only releases on pointerup). This is the
+        //     "和之前一样" the user asked for.
+        //   - Elements with onDrag (e.g. lock-screen glass, slider knobs):
+        //     the drag owns the gesture — commit immediately on any
+        //     directional movement. This prevents the scroll-takeover from
+        //     hijacking the lock-screen glass drag (which previously made
+        //     the page feel frozen because the glass never moved).
+        //   - Text list items (interactive 'text' kind, no onDrag): allow
+        //     vertical-dominant scroll-takeover so the home page scrolls.
+        //   - Empty / non-interactive: scroll.
+        const id = pressedIdRef.current
+        const els = elementsRef.current
+        const hitEl = id ? els.find((b) => b.id === id) : null
+        const isButton = hitEl?.kind === 'button' && hitEl?.isInteractive
+        const hasDrag = !!hitEl && !!interactionsRef.current?.[id!]?.onDrag
 
-        if (verticalDominant) {
-          // Convert to scroll. Cancel any pending button/text press.
-          const id = pressedIdRef.current
-          if (id) {
-            const els = elementsRef.current
-            const el = els.find((b) => b.id === id)
-            if (el?.isInteractive && (el.kind === 'button' || el.kind === 'text')) {
-              renderer.setPressed(id, false)
-            }
-          }
-          modeRef.current = 'scroll'
-          // Apply the scroll delta from the press start.
-          const scrollDelta = e.clientY - pressStartClientYRef.current
-          renderer.setScrollY(pressStartScrollYRef.current - scrollDelta)
-          return
-        }
-
-        // Horizontal-dominant movement (or small vertical movement that
-        // hasn't crossed the scroll-takeover threshold).
-        if (pressedHasDragRef.current && absDx >= MOVE_THRESHOLD) {
-          // Commit to element drag.
+        if (hasDrag) {
+          // Element owns the gesture — commit to drag immediately.
           modeRef.current = 'drag'
           dragStartedRef.current = true
-          const id = pressedIdRef.current!
-          interactionsRef.current?.[id]?.onDragStart?.({ x, y })
+          interactionsRef.current?.[id!]?.onDragStart?.({ x, y })
+          // Fall through to the committed 'drag' branch below.
+        } else if (isButton) {
+          // Button keeps its press — press highlight follows the finger.
+          // Update drag position so the glow tracks even large movements.
+          renderer.setDragPosition(id!, { x, y })
+          // Fall through: mode stays 'pending' so the press never commits
+          // to a scroll. On pointerup it will be treated as a tap.
+        } else {
+          // Text items / empty space → allow scroll-takeover.
+          const SCROLL_TAKEOVER_THRESHOLD = 14
+          const verticalDominant =
+            absDy > absDx + 2 && absDy >= SCROLL_TAKEOVER_THRESHOLD
+
+          if (verticalDominant) {
+            // Convert to scroll. Cancel any pending text press.
+            if (id) {
+              const el = els.find((b) => b.id === id)
+              if (el?.isInteractive && el.kind === 'text') {
+                renderer.setPressed(id, false)
+              }
+            }
+            modeRef.current = 'scroll'
+            const scrollDelta = e.clientY - pressStartClientYRef.current
+            renderer.setScrollY(pressStartScrollYRef.current - scrollDelta)
+            return
+          }
         }
-        // else: still pending — press highlight keeps tracking the finger.
-        // This makes the button feel responsive even when the user's finger
-        // drifts slightly without crossing the scroll threshold.
       }
 
       // --- Committed modes ---
-      if (mode === 'scroll') {
+      if (modeRef.current === 'scroll') {
         const scrollDelta = e.clientY - pressStartClientYRef.current
         renderer.setScrollY(pressStartScrollYRef.current - scrollDelta)
         return
       }
 
-      if (mode === 'drag') {
+      if (modeRef.current === 'drag') {
         const id = pressedIdRef.current
         if (!id) return
         const els = elementsRef.current

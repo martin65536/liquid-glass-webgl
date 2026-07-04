@@ -135,6 +135,14 @@ export interface GlassElementConfig extends GlassButtonConfig {
   plainRect?: PlainRectSpec
   progressiveBlur?: ProgressiveBlurSpec
   text?: TextSpec
+  /** Optional vector icon drawn on a 'button' (replaces the text label).
+   *  Used by the circular back button (MD arrow_back icon). The path is
+   *  SVG path data in a 24×24 viewport, scaled to `size` px and centered. */
+  icon?: {
+    path: string
+    size: number // px (CSS space)
+    color: [number, number, number, number]
+  }
   /** Inner shadow (optional, for toggle/slider knobs). */
   innerShadow?: {
     radius: number
@@ -835,17 +843,25 @@ export class LiquidGlassRenderer {
     const nextIds = new Set(configs.map((b) => b.id))
     // Mark new buttons as needing rasterization.
     for (const id of nextIds) if (!prevIds.has(id)) this.fgDirtyIds.add(id)
-    // Mark buttons whose label/rect/color changed as needing rasterization.
+    // Mark buttons whose label/rect/color/icon changed as needing rasterization.
     for (const next of configs) {
       const prev = this.buttonConfigs.find((b) => b.id === next.id)
       if (!prev) continue
-      const prevIcon = prev.text?.icon
-      const nextIcon = next.text?.icon
-      const iconChanged = !!prevIcon !== !!nextIcon ||
-        (prevIcon && nextIcon &&
-          (prevIcon.path !== nextIcon.path ||
-           prevIcon.size !== nextIcon.size ||
-           prevIcon.color !== nextIcon.color))
+      const prevTextIcon = prev.text?.icon
+      const nextTextIcon = next.text?.icon
+      const textIconChanged = !!prevTextIcon !== !!nextTextIcon ||
+        (prevTextIcon && nextTextIcon &&
+          (prevTextIcon.path !== nextTextIcon.path ||
+           prevTextIcon.size !== nextTextIcon.size ||
+           prevTextIcon.color !== nextTextIcon.color))
+      // Button-level icon (used by the circular back button).
+      const prevBtnIcon = prev.icon
+      const nextBtnIcon = next.icon
+      const btnIconChanged = !!prevBtnIcon !== !!nextBtnIcon ||
+        (prevBtnIcon && nextBtnIcon &&
+          (prevBtnIcon.path !== nextBtnIcon.path ||
+           prevBtnIcon.size !== nextBtnIcon.size ||
+           prevBtnIcon.color !== nextBtnIcon.color))
       if (
         prev.label !== next.label ||
         prev.labelColor !== next.labelColor ||
@@ -855,7 +871,8 @@ export class LiquidGlassRenderer {
         (next.text && prev.text && prev.text.content !== next.text.content) ||
         (next.text && !prev.text) ||
         (!next.text && prev.text) ||
-        iconChanged
+        textIconChanged ||
+        btnIconChanged
       ) {
         this.fgDirtyIds.add(next.id)
       }
@@ -1208,8 +1225,8 @@ export class LiquidGlassRenderer {
       this.rasterizeText(cfg)
       return
     }
-    // For non-button kinds without a label, skip (no foreground content).
-    if (cfg.kind !== 'button' && !cfg.label) {
+    // For non-button kinds without a label/icon, skip (no foreground content).
+    if (cfg.kind !== 'button' && !cfg.label && !cfg.icon) {
       this.fgDirtyIds.delete(cfg.id)
       return
     }
@@ -1226,6 +1243,28 @@ export class LiquidGlassRenderer {
 
     const cssW = cfg.rect.w
     const cssH = cfg.rect.h
+
+    // --- Icon (replaces label if present) ---------------------------
+    // Used by the circular back button (MD arrow_back icon). The icon is
+    // drawn as a filled SVG path scaled from a 24×24 viewport to `size`×`size`,
+    // centered in the button rect.
+    if (cfg.icon) {
+      const iconSize = cfg.icon.size
+      const ic = cfg.icon.color
+      ctx.save()
+      ctx.translate(cssW / 2 - iconSize / 2, cssH / 2 - iconSize / 2)
+      ctx.scale(iconSize / 24, iconSize / 24)
+      const p = new Path2D(cfg.icon.path)
+      ctx.fillStyle = `rgba(${Math.round(ic[0] * 255)}, ${Math.round(
+        ic[1] * 255
+      )}, ${Math.round(ic[2] * 255)}, ${ic[3]})`
+      ctx.fill(p)
+      ctx.restore()
+
+      this.uploadForegroundTexture(cfg.id)
+      this.fgDirtyIds.delete(cfg.id)
+      return
+    }
 
     // --- Label -------------------------------------------------------
     // Text size scales with the button rect height (rect.h = 48 * DP in
@@ -1903,8 +1942,8 @@ export class LiquidGlassRenderer {
         gl.drawArrays(gl.TRIANGLES, 0, 6)
       }
 
-      // --- Foreground (label) pass (button only) ---
-      if (isButton && el.label) {
+      // --- Foreground (label or icon) pass (button only) ---
+      if (isButton && (el.label || el.icon)) {
         const fgTex = this.fgTextures.get(el.id)
         if (fgTex) {
           gl.useProgram(this.foregroundProgram)

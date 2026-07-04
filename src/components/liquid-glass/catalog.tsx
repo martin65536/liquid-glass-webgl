@@ -354,31 +354,41 @@ function makeGlassShape(
 /* ------------------------------------------------------------------ *
  * Back button — rendered at top-left of every non-Home destination.
  * Matches the Android BackHandler behavior (hardware back → Home).
- * On web we expose a visible "← Back" capsule button.
+ * Circular glass button with a Material Design arrow_back icon,
+ * matching the original catalog's navigation icon button.
  * ------------------------------------------------------------------ */
+
+// Material Design arrow_back icon path (24×24 viewport).
+const ARROW_BACK_ICON_PATH =
+  'M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z'
+
 function makeBackButton(
   onBack: () => void,
   scroll = false
 ): { element: GlassElementConfig; interaction: ElementInteraction } {
-  const label = '‹ Back'
-  const textW = measureTextWidth(label, TEXT_FONT_SIZE_PX)
-  const w = Math.ceil(textW + 2 * BUTTON_HORIZONTAL_PADDING)
-  const h = 36 * DP
+  // Circular button: 40dp diameter, centered arrow_back icon (24dp).
+  const size = 40 * DP
+  const iconSize = 24 * DP
   const element: GlassElementConfig = {
     id: '__back__',
     kind: 'button',
-    rect: { x: 16, y: 16, w, h },
+    rect: { x: 16, y: 16, w: size, h: size },
     ...GLASS_PARAMS,
-    cornerRadius: h / 2,
+    cornerRadius: size / 2, // circular
     tintColor: [0, 0, 0, 0],
     surfaceColor: [1, 1, 1, 0.3],
     highlight: { ...DEFAULT_HIGHLIGHT },
     outerShadow: { ...DEFAULT_SHADOW, radius: 12 * DP, alpha: 0.08 },
-    label,
+    label: '', // no text label — icon replaces it
     labelColor: [0, 0, 0, 1],
     showChevron: false,
     isInteractive: true,
     scroll,
+    icon: {
+      path: ARROW_BACK_ICON_PATH,
+      size: iconSize,
+      color: [0, 0, 0, 1],
+    },
   }
   return {
     element,
