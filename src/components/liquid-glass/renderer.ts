@@ -847,13 +847,27 @@ export class LiquidGlassRenderer {
     for (const next of configs) {
       const prev = this.buttonConfigs.find((b) => b.id === next.id)
       if (!prev) continue
+      // Value-equality helpers for color arrays. Reference equality
+      // (prev.labelColor !== next.labelColor) is FALSE here because each
+      // makeButton / makeGlassShape call creates a NEW array, even when
+      // the actual rgba values are identical. That previously marked
+      // every element dirty on every state change, forcing constant
+      // foreground re-rasterization (the "SDF freeze" symptom: rapid
+      // state updates on the LockScreen page made the icon redraw
+      // hundreds of times per second).
+      const eq4 = (a?: number[], b?: number[]) => {
+        if (!a || !b) return a === b
+        if (a.length !== b.length) return false
+        for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
+        return true
+      }
       const prevTextIcon = prev.text?.icon
       const nextTextIcon = next.text?.icon
       const textIconChanged = !!prevTextIcon !== !!nextTextIcon ||
         (prevTextIcon && nextTextIcon &&
           (prevTextIcon.path !== nextTextIcon.path ||
            prevTextIcon.size !== nextTextIcon.size ||
-           prevTextIcon.color !== nextTextIcon.color))
+           !eq4(prevTextIcon.color, nextTextIcon.color)))
       // Button-level icon (used by the circular back button).
       const prevBtnIcon = prev.icon
       const nextBtnIcon = next.icon
@@ -861,10 +875,10 @@ export class LiquidGlassRenderer {
         (prevBtnIcon && nextBtnIcon &&
           (prevBtnIcon.path !== nextBtnIcon.path ||
            prevBtnIcon.size !== nextBtnIcon.size ||
-           prevBtnIcon.color !== nextBtnIcon.color))
+           !eq4(prevBtnIcon.color, nextBtnIcon.color)))
       if (
         prev.label !== next.label ||
-        prev.labelColor !== next.labelColor ||
+        !eq4(prev.labelColor, next.labelColor) ||
         prev.showChevron !== next.showChevron ||
         prev.rect.w !== next.rect.w ||
         prev.rect.h !== next.rect.h ||
@@ -1510,21 +1524,27 @@ export class LiquidGlassRenderer {
     // declared order — typically top-to-bottom of the page).
     //
     // All elements are offset by -scrollY (CSS px). Off-screen elements
-    // are skipped. We use a generous cull margin (~96px) to account for
+    // are skipped. We use a generous cull margin (~120px) to account for
     // outer shadows (up to ~24dp), press/toggle scale (up to 1.5x), and
     // foreground halo blur — so elements don't visibly pop out before
     // crossing the viewport edge.
+    //
+    // CULL MARGIN UNITS: All comparisons are in VIEWPORT coords (the
+    // coordinate system where y=0 is the top of the visible canvas and
+    // y=cssHeight is the bottom). Mixing viewport y with content y (which
+    // is offset by scrollY) was the cause of the long-standing
+    // "elements disappear before sliding off screen" bug.
     const scrollY = this.scrollY
-    const CULL_MARGIN = 96
-    const viewTop = scrollY - CULL_MARGIN
-    const viewBottom = scrollY + this.cssHeight + CULL_MARGIN
+    const CULL_MARGIN = 120
+    const viewportTop = -CULL_MARGIN
+    const viewportBottom = this.cssHeight + CULL_MARGIN
 
     const wave1: GlassElementConfig[] = []
     const wave2: GlassElementConfig[] = []
     for (const el of this.buttonConfigs) {
-      // Compute the element's effective y (after scroll).
+      // Compute the element's effective y in VIEWPORT coords (after scroll).
       const y = el.scroll ? el.rect.y - scrollY : el.rect.y
-      if (y + el.rect.h < viewTop || y > viewBottom) continue
+      if (y + el.rect.h < viewportTop || y > viewportBottom) continue
       if (el.kind === 'plain-rect' || el.kind === 'progressive-blur') {
         wave1.push(el)
       } else {
@@ -1791,13 +1811,14 @@ export class LiquidGlassRenderer {
         radii[3] * this.dpr
       )
       // Toggle knobs: animate refraction/blur/highlight/inner-shadow with
-      // pressProgress to faithfully match LiquidToggle.kt's `effects` block:
-      //   blur(8.dp * (1 - progress))
-      //   lens(5.dp * progress, 10.dp * progress)
-      //   highlight.alpha = progress
+      // pressProgress to faithfully match LiquidToggle.kt / LiquidSlider.kt:
+      //   blur(8.dp * (1 - progress))       → frosted at rest, clear when pressed
+      //   lens(H * progress, A * progress)  → no refraction at rest, full when pressed
+      //   highlight.alpha = progress         → no edge highlight at rest
       //   innerShadow(radius = 4.dp * progress, alpha = progress)
-      // When not pressed the knob shows the frosted blur (8dp) and no
-      // refraction; when pressed the blur clears and the glass lens grows.
+      // The white overlay (drawRect(White alpha = 1 - progress)) is drawn
+      // in a separate pass below — alpha 1.0 at rest (solid frosted white
+      // pebble) fading to 0 when pressed (revealing the glass refraction).
       let elRefractionHeight = el.refractionHeight
       let elRefractionAmount = el.refractionAmount
       let elBlurRadius = el.blurRadius
@@ -1811,13 +1832,16 @@ export class LiquidGlassRenderer {
         elRefractionHeight = el.refractionHeight * progress
         elRefractionAmount = el.refractionAmount * progress
         // Blur fades from 8dp → 0 as user presses (frosted → clear).
-        elBlurRadius = 8 * (1 - progress)  // 8dp frosted blur when not pressed
+        elBlurRadius = 8 * (1 - progress)
         // Highlight + inner shadow grow with press.
         elHighlightAlpha = (el.highlight?.alpha ?? 0) * progress
         elInnerShadowAlpha = (el.innerShadow?.alpha ?? 0) * progress
         elInnerShadowRadius = (el.innerShadow?.radius ?? 0) * progress
-        // Surface color fades slightly so the glass is always somewhat visible.
-        elSurfaceAlpha = el.surfaceColor[3] * (0.45 + 0.55 * (1 - progress))
+        // No surface color — the white overlay pass handles the frosted
+        // appearance. Keeping surfaceColor at 0 ensures the element pass
+        // shows the (blurred) backdrop, which is then covered by the
+        // white overlay at rest.
+        elSurfaceAlpha = 0
       }
       gl.uniform1f(this.uEl['uRefractionHeight'], elRefractionHeight * this.dpr)
       gl.uniform1f(this.uEl['uRefractionAmount'], elRefractionAmount * this.dpr)
@@ -1910,19 +1934,20 @@ export class LiquidGlassRenderer {
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
       }
 
-      // --- Toggle knob white overlay (faithful to LiquidToggle.kt) ---
+      // --- Toggle knob white overlay (faithful to LiquidToggle.kt /
+      // LiquidSlider.kt onDrawSurface) ---
       // The original draws `Color.White.copy(alpha = 1f - progress)` on
       // the knob via `onDrawSurface`. As the user presses (progress → 1),
       // the white overlay fades out, revealing the glass refraction.
       // We draw it AFTER the glass pass so it composites on top.
       //
-      // We cap the overlay alpha at 0.55 (instead of 1.0) so the liquid
-      // glass refraction is always partially visible — the knob reads as
-      // a glass capsule rather than a flat white disc. This deviates from
-      // the original (which is fully white at rest) per user request:
-      // "开关没有液态玻璃效果".
+      // FAITHFUL BEHAVIOR:
+      //   - At rest (progress=0): solid white (alpha=1) — knob looks like
+      //     a frosted white pebble. The 8dp blur underneath is hidden.
+      //   - Pressed (progress=1): transparent (alpha=0) — glass refraction
+      //     is fully visible.
       if (el.isToggleKnob && togglePressProgress < 0.999) {
-        const whiteAlpha = 0.55 * (1 - togglePressProgress)
+        const whiteAlpha = 1.0 * (1 - togglePressProgress)
         gl.useProgram(this.tintProgram)
         gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
         gl.enableVertexAttribArray(this.aPosLocTn)

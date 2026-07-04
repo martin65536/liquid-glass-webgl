@@ -105,14 +105,26 @@ export default function Page() {
     [destination]
   )
 
-  // Push toggle targets to the renderer whenever `state.toggleOn` changes
-  // (or when entering the Toggle destination). Both toggles share the same
-  // state, so both groups get the same target.
+  // Push toggle/slider targets to the renderer whenever the underlying
+  // state changes (or when entering the corresponding destination).
+  //   - Toggle destination: both toggles share `state.toggleOn`.
+  //   - Slider destination: both sliders share `state.sliderValue`.
+  // The renderer animates the fraction toward this target with a
+  // critically damped spring (faithful to DampedDragAnimation.kt).
   const toggleTargets = React.useMemo<Record<string, number>>(() => {
-    if (destination !== CatalogDestination.Toggle) return {} as Record<string, number>
-    const target = state.toggleOn ? 1 : 0
-    return { toggle1: target, toggle2: target }
-  }, [destination, state.toggleOn])
+    const targets: Record<string, number> = {}
+    if (destination === CatalogDestination.Toggle) {
+      const target = state.toggleOn ? 1 : 0
+      targets.toggle1 = target
+      targets.toggle2 = target
+    }
+    if (destination === CatalogDestination.Slider) {
+      const target = state.sliderValue / 100
+      targets.slider1 = target
+      targets.slider2 = target
+    }
+    return targets
+  }, [destination, state.toggleOn, state.sliderValue])
 
   return (
     <div

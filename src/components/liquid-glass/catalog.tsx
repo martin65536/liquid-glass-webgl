@@ -367,6 +367,9 @@ function makeBackButton(
   scroll = false
 ): { element: GlassElementConfig; interaction: ElementInteraction } {
   // Circular button: 40dp diameter, centered arrow_back icon (24dp).
+  // Per user request: "玻璃退出按钮不要有边缘高光" — no edge highlight
+  // on the glass back button. We pass `highlight: null` so the rim
+  // highlight pass is skipped entirely.
   const size = 40 * DP
   const iconSize = 24 * DP
   const element: GlassElementConfig = {
@@ -377,7 +380,7 @@ function makeBackButton(
     cornerRadius: size / 2, // circular
     tintColor: [0, 0, 0, 0],
     surfaceColor: [1, 1, 1, 0.3],
-    highlight: { ...DEFAULT_HIGHLIGHT },
+    highlight: null, // no edge highlight on the back button
     outerShadow: { ...DEFAULT_SHADOW, radius: 12 * DP, alpha: 0.08 },
     label: '', // no text label — icon replaces it
     labelColor: [0, 0, 0, 1],
@@ -399,9 +402,14 @@ function makeBackButton(
 /* ------------------------------------------------------------------ *
  * HOME — faithful to HomeContent.kt
  *
- * Layout: vertically scrollable Column with:
- *   - Title "Backdrop Catalog" (28sp, Medium, top padding 40dp)
- *   - Section subtitle (15sp, Medium, #0088FF) + list items (17sp, 16dp pad)
+ * Layout (matches the Kotlin source):
+ *   - Title "Backdrop Catalog" at top padding 40dp, 28sp Medium
+ *   - 16dp bottom padding for the title
+ *   - Each section:
+ *       * Subtitle (15sp Medium, blue #0088FF) with padding (16,24,16,8)
+ *       * List items (17sp Regular) — 48dp tall for proper touch target,
+ *         text vertically centered, left-padded 16dp
+ *   - 16dp gap between sections (verticalArrangement.spacedBy(16))
  *
  * The user requested a black background for the home page (otherwise the
  * black text is unreadable over a busy wallpaper). The page.tsx layer
@@ -411,24 +419,31 @@ function buildHome(W: number, onNavigate: (d: CatalogDestination) => void): Cata
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
+  // Title — 28sp Medium on black background, white text.
+  // Padding (16, 40, 16, 16) matches the original.
   let cursorY = 40
-  // Title — white on black background.
   elements.push(
     makeText(
       'home-title',
-      { x: 16, y: cursorY, w: W - 32, h: 40 },
+      { x: 16, y: cursorY, w: W - 32, h: 44 },
       'Backdrop Catalog',
       { color: [1, 1, 1, 1], fontSizePx: TITLE_FONT_SIZE_PX, fontWeight: 500, align: 'left', paddingPx: 16, halo: 'dark' }
     )
   )
-  cursorY += 60
+  // 16dp bottom padding for title + 16dp top padding before first subtitle
+  // (the original's verticalArrangement.spacedBy(16) provides this).
+  cursorY += 44 + 8
 
-  for (const section of HOME_SECTIONS) {
-    // Subtitle — accent blue on black.
+  for (let sIdx = 0; sIdx < HOME_SECTIONS.length; sIdx++) {
+    const section = HOME_SECTIONS[sIdx]
+    // Subtitle padding (16, 24, 16, 8) → top 24dp, bottom 8dp.
+    // We render the text in a 32dp-tall row (15sp text + vertical centering).
+    if (sIdx > 0) cursorY += 16 // verticalArrangement.spacedBy(16)
+    cursorY += 24 // top padding of subtitle
     elements.push(
       makeText(
         `subtitle-${section.title}`,
-        { x: 16, y: cursorY, w: W - 32, h: 32 },
+        { x: 16, y: cursorY, w: W - 32, h: 24 },
         section.title,
         {
           color: [0x40 / 255, 0xae / 255, 0xff / 255, 1],
@@ -440,12 +455,8 @@ function buildHome(W: number, onNavigate: (d: CatalogDestination) => void): Cata
         }
       )
     )
-    cursorY += 40
-    // List items — faithful to HomeContent.kt: just BasicText with
-    // clickable(onClick). On the black background we render these as
-    // 'text' kind elements with isInteractive=true so the renderer
-    // applies a subtle white tint overlay on press (matches the
-    // Material ripple indication of the original clickable modifier).
+    cursorY += 24 + 8 // text height + bottom padding
+    // List items — 48dp tall touch target, 17sp text, left-padded 16dp.
     // White on black.
     for (const item of section.items) {
       const id = `item-${item.dest}`
@@ -468,9 +479,10 @@ function buildHome(W: number, onNavigate: (d: CatalogDestination) => void): Cata
       interactions[id] = { onTap: () => onNavigate(item.dest) }
       cursorY += h
     }
-    cursorY += 8
   }
-  cursorY += 16
+  // 40dp bottom padding so the last item isn't flush against the canvas
+  // bottom edge — gives a comfortable scroll tail.
+  cursorY += 40
 
   return { elements, interactions, contentHeight: cursorY }
 }
@@ -551,15 +563,24 @@ function buildButtons(W: number, onBack: () => void): CatalogResult {
  *     the critically damped spring). On release, the target snaps to 0
  *     or 1 based on the current position (≥0.5 → on).
  *   - While pressed, the knob scales up to 1.5× (underdamped spring
- *     k=250, ζ=0.65 — tiny bounce on release), and a white overlay
- *     fades out (alpha = 1 - pressProgress), revealing the glass
- *     refraction. This matches `onDrawSurface = { drawRect(White, 1-progress) }`.
- *   - Track color is lerped between offColor and onColor by the
- *     animated fraction.
+ *     k=250, ζ=0.65 — tiny bounce on release).
  *
- * The animation state lives in the renderer (per-group ToggleGroupState).
- * The catalog layer just declares the structure + interaction handlers
- * that call renderer methods via rendererRef.
+ * KNOB VISUAL STATES (faithful to LiquidToggle.kt):
+ *   At rest (pressProgress = 0):
+ *     - blur(8dp) on the backdrop → frosted look
+ *     - lens(0, 0) → no refraction
+ *     - highlight.Ambient.alpha = 0 → no edge highlight
+ *     - innerShadow(radius=0, alpha=0) → no inner shadow
+ *     - onDrawSurface: drawRect(White alpha=1) → fully frosted white pebble
+ *   Pressed (pressProgress = 1):
+ *     - blur(0) → clear backdrop
+ *     - lens(5dp, 10dp) → glass refraction visible
+ *     - highlight.Ambient.alpha = 1 → subtle edge glow
+ *     - innerShadow(radius=4dp, alpha=1) → depth cue
+ *     - onDrawSurface: drawRect(White alpha=0) → no overlay, glass visible
+ *
+ * Track color is lerped between offColor and onColor by the
+ * animated fraction.
  * ------------------------------------------------------------------ */
 function buildToggle(
   W: number,
@@ -580,20 +601,24 @@ function buildToggle(
   const TOGGLE_KNOB_W = 40 * DP
   const TOGGLE_KNOB_H = 24 * DP
   const TOGGLE_DRAG = 20 * DP
-  // The knob's resting position at fraction=0 is `trackX + 2`.
-  // The renderer adds `fraction * TOGGLE_DRAG` to get the animated position.
-  // We don't read `state.toggleOn` for the position here — the renderer
-  // owns the animated fraction. The page.tsx layer pushes the target
-  // (0 or 1) to the renderer via `toggleTargets` prop.
+
+  // Page title
+  elements.push(
+    makeText(
+      'toggle-title',
+      { x: 16, y: 80, w: W - 32, h: 32 },
+      'Toggle',
+      { color: [0, 0, 0, 1], fontSizePx: 24, fontWeight: 500, align: 'left', paddingPx: 16, halo: 'dark' }
+    )
+  )
 
   // --- Toggle 1: on wallpaper ---
   const t1CenterX = W / 2
   const t1TrackX = t1CenterX - TOGGLE_W / 2
-  const t1TrackY = 120
+  const t1TrackY = 140
   const t1KnobX = t1TrackX + 2 // fraction=0 position
   const t1KnobY = t1TrackY + (TOGGLE_H - TOGGLE_KNOB_H) / 2
   // Track color is animated by the renderer via isToggleTrack marker.
-  // Pass a placeholder color here (offColor); the renderer lerps it.
   const t1TrackEl = makePlainRect(
     'toggle1-track',
     { x: t1TrackX, y: t1TrackY, w: TOGGLE_W, h: TOGGLE_H },
@@ -606,16 +631,23 @@ function buildToggle(
     onColor: [...TOGGLE_ACCENT, 1] as [number, number, number, number],
   }
   elements.push(t1TrackEl)
+  // Knob: at rest = solid frosted white; pressed = glass refraction.
+  // The renderer's isToggleKnob logic modulates blur/refraction/overlay
+  // by pressProgress. We declare the "pressed" lens params here:
+  //   refractionHeight = 5dp (matches LiquidToggle lens(5dp, 10dp))
+  //   refractionAmount = -10dp
+  // And the white overlay (alpha = 1 - pressProgress) is drawn by the
+  // renderer in the toggle-knob overlay pass.
   const t1KnobEl = makeGlassShape(
     'toggle1-knob',
     { x: t1KnobX, y: t1KnobY, w: TOGGLE_KNOB_W, h: TOGGLE_KNOB_H },
     {
       cornerRadius: TOGGLE_KNOB_H / 2,
-      refractionHeight: 5 * DP,
-      refractionAmount: -10 * DP,
-      blurRadius: 0,
+      refractionHeight: 5 * DP, // lens height when pressed
+      refractionAmount: -10 * DP, // lens amount when pressed
+      blurRadius: 8 * DP, // frosted blur at rest (renderer modulates by press)
       saturation: 1.5,
-      surfaceColor: [1, 1, 1, 1],
+      surfaceColor: [0, 0, 0, 0], // no surface — white overlay handles the rest
       highlight: { mode: 1, color: [1, 1, 1], angle: 45 * Math.PI / 180, falloff: 1.0, alpha: 1.0, widthDp: 0.5 / 1.5 },
       outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: 0, color: [0, 0, 0] },
       innerShadow: { radius: 4 * DP, alpha: 1, offsetX: 0, offsetY: 0 },
@@ -658,9 +690,9 @@ function buildToggle(
       cornerRadius: TOGGLE_KNOB_H / 2,
       refractionHeight: 5 * DP,
       refractionAmount: -10 * DP,
-      blurRadius: 0,
+      blurRadius: 8 * DP,
       saturation: 1.5,
-      surfaceColor: [1, 1, 1, 1],
+      surfaceColor: [0, 0, 0, 0],
       highlight: { mode: 1, color: [1, 1, 1], angle: 45 * Math.PI / 180, falloff: 1.0, alpha: 1.0, widthDp: 0.5 / 1.5 },
       outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: 0, color: [0, 0, 0] },
       innerShadow: { radius: 4 * DP, alpha: 1, offsetX: 0, offsetY: 0 },
@@ -675,16 +707,12 @@ function buildToggle(
   // Each toggle has its own groupId for animation, but both are pushed
   // the same target via `toggleTargets` from page.tsx.
   function makeToggleInteractions(groupId: string, dragWidth: number) {
-    // Track the drag start fraction and start X (in canvas-local px).
-    // These are captured in the closure when onDragStart fires.
     let dragStartFraction = 0
     let dragStartX = 0
     return {
-      // Tap (no drag) → flip the toggle.
       onTap: () => {
         setState((prev) => ({ toggleOn: !prev.toggleOn }))
       },
-      // Drag start → tell renderer to begin drag (press animation).
       onDragStart: (pos: { x: number; y: number }) => {
         const r = rendererRef?.current
         if (!r) return
@@ -692,13 +720,11 @@ function buildToggle(
         dragStartX = pos.x
         r.beginToggleDrag(groupId, dragStartFraction)
       },
-      // Drag move → update target fraction based on finger delta.
       onDrag: (pos: { x: number; y: number }) => {
         const r = rendererRef?.current
         if (!r) return
         r.dragToggle(groupId, dragStartFraction, pos.x, dragStartX, dragWidth)
       },
-      // Drag end → snap to 0 or 1, sync React state.
       onDragEnd: () => {
         const r = rendererRef?.current
         if (!r) return
@@ -709,7 +735,6 @@ function buildToggle(
     }
   }
 
-  // Both track and knob are interactive (tap and drag).
   interactions['toggle1-track'] = makeToggleInteractions('toggle1', TOGGLE_DRAG)
   interactions['toggle1-knob'] = makeToggleInteractions('toggle1', TOGGLE_DRAG)
   interactions['toggle2-track'] = makeToggleInteractions('toggle2', TOGGLE_DRAG)
@@ -720,13 +745,42 @@ function buildToggle(
 }
 
 /* ------------------------------------------------------------------ *
- * SLIDER — faithful to SliderContent.kt
+ * SLIDER — faithful to SliderContent.kt + LiquidSlider.kt
  *
  * Layout: centered Column with:
  *   1. Slider on wallpaper (full-width 6dp track + 40×24 knob)
  *   2. White rounded card (32dp radius) containing another slider
+ *
+ * KNOB VISUAL STATES (faithful to LiquidSlider.kt):
+ *   At rest (pressProgress = 0):
+ *     - blur(8dp) → frosted backdrop
+ *     - lens(0, 0) → no refraction
+ *     - highlight.Ambient.alpha = 0 → no edge highlight
+ *     - innerShadow(radius=0, alpha=0) → no inner shadow
+ *     - onDrawSurface: drawRect(White alpha=1) → solid frosted white pebble
+ *   Pressed (pressProgress = 1):
+ *     - blur(0) → clear backdrop
+ *     - lens(10dp, 14dp) → glass refraction visible (bigger lens than toggle)
+ *     - highlight.Ambient.alpha = 1 → subtle edge glow
+ *     - innerShadow(radius=4dp, alpha=1) → depth cue
+ *     - onDrawSurface: drawRect(White alpha=0) → no overlay, glass visible
+ *
+ * KNOB POSITION (faithful to LiquidSlider.kt graphicsLayer):
+ *   translationX = -knobW/2 + trackW * progress, clamped to
+ *   [-knobW/4, trackW - knobW*3/4]. So the knob goes "half off" the
+ *   track at both extremes (progress=0 and progress=1).
+ *
+ * We reuse the renderer's ToggleGroupState machinery for spring-animated
+ * position (groupId 'slider1' / 'slider2'). The page.tsx layer pushes
+ * the target fraction via `toggleTargets`.
  * ------------------------------------------------------------------ */
-function buildSlider(W: number, onBack: () => void, state: CatalogState, setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void): CatalogResult {
+function buildSlider(
+  W: number,
+  onBack: () => void,
+  state: CatalogState,
+  setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void,
+  rendererRef?: React.MutableRefObject<LiquidGlassRenderer | null>
+): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
@@ -739,44 +793,63 @@ function buildSlider(W: number, onBack: () => void, state: CatalogState, setStat
   const SLIDER_KNOB_W = 40 * DP
   const SLIDER_KNOB_H = 24 * DP
 
+  // Page title
+  elements.push(
+    makeText(
+      'slider-title',
+      { x: 16, y: 80, w: W - 32, h: 32 },
+      'Slider',
+      { color: [0, 0, 0, 1], fontSizePx: 24, fontWeight: 500, align: 'left', paddingPx: 16, halo: 'dark' }
+    )
+  )
+
   // --- Slider 1: on wallpaper ---
-  const s1TrackW = W - 2 * SLIDER_PAD
-  const s1Fraction = state.sliderValue / 100
   const s1TrackX = SLIDER_PAD
   const s1TrackY = 140
-  const s1FillW = s1TrackW * s1Fraction
-  const s1KnobX = SLIDER_PAD + s1FillW - SLIDER_KNOB_W / 2
+  const s1TrackW = W - 2 * SLIDER_PAD
+  // Knob base position (fraction=0): faithful to LiquidSlider.kt's
+  //   translationX = (-knobW/2 + trackW * progress)
+  //                  .fastCoerceIn(-knobW/4, trackW - knobW*3/4)
+  // At fraction=0, translationX = -knobW/4 (clamped), so knob left edge
+  // is at trackX - knobW/4 (knob is 1/4 off the left edge of the track).
+  // At fraction=1, knob left edge is at trackX + trackW - knobW*3/4
+  // (knob is 1/4 off the right edge).
+  // So dragWidth = trackW - knobW/2 (the knob center moves from
+  // trackX + knobW/4 to trackX + trackW - knobW/4).
+  const s1KnobBaseX = s1TrackX - SLIDER_KNOB_W / 4
   const s1KnobY = s1TrackY + (SLIDER_TRACK_H - SLIDER_KNOB_H) / 2
+  // Track (background, off color)
   elements.push(
     makePlainRect('slider1-track', { x: s1TrackX, y: s1TrackY, w: s1TrackW, h: SLIDER_TRACK_H }, SLIDER_TRACK, SLIDER_TRACK_H / 2)
   )
+  // Fill (accent color) — width lerps with the state fraction.
+  // The fill is drawn from trackX to trackX + trackW * fraction. At the
+  // extremes there's a small gap between the fill end and the knob center
+  // (knob is 1/4 off the track), which matches the original.
+  const s1Fraction = state.sliderValue / 100
+  const s1FillW = s1TrackW * s1Fraction
   elements.push(
     makePlainRect('slider1-fill', { x: s1TrackX, y: s1TrackY, w: Math.max(SLIDER_TRACK_H, s1FillW), h: SLIDER_TRACK_H }, [...SLIDER_ACCENT, 1], SLIDER_TRACK_H / 2)
   )
-  elements.push(
-    makeGlassShape(
-      'slider1-knob',
-      { x: s1KnobX, y: s1KnobY, w: SLIDER_KNOB_W, h: SLIDER_KNOB_H },
-      {
-        cornerRadius: SLIDER_KNOB_H / 2,
-        refractionHeight: 10 * DP,
-        refractionAmount: -14 * DP,
-        blurRadius: 0,
-        saturation: 1.5,
-        // Translucent white so the glass refraction is always visible
-        // (matches the visual feel of the original, which only goes
-        // fully opaque white while pressed).
-        surfaceColor: [1, 1, 1, 0.5],
-        highlight: { mode: 1, color: [1, 1, 1], angle: 45 * Math.PI / 180, falloff: 1.0, alpha: 1.0, widthDp: 0.5 / 1.5 },
-        outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: 0, color: [0, 0, 0] },
-        // Softer inner shadow — alpha=1 creates a harsh dark band at the
-        // knob edge (user-reported "黑边"). 0.35 keeps the depth cue
-        // without the visible dark fringe.
-        innerShadow: { radius: 4 * DP, alpha: 0.35, offsetX: 0, offsetY: 0 },
-        chromaticAberration: true,
-      }
-    )
+  // Knob — solid frosted white at rest, glass when pressed (renderer handles modulation).
+  const s1KnobEl = makeGlassShape(
+    'slider1-knob',
+    { x: s1KnobBaseX, y: s1KnobY, w: SLIDER_KNOB_W, h: SLIDER_KNOB_H },
+    {
+      cornerRadius: SLIDER_KNOB_H / 2,
+      refractionHeight: 10 * DP, // lens height when pressed (bigger than toggle)
+      refractionAmount: -14 * DP, // lens amount when pressed
+      blurRadius: 8 * DP, // frosted blur at rest (renderer modulates)
+      saturation: 1.5,
+      surfaceColor: [0, 0, 0, 0],
+      highlight: { mode: 1, color: [1, 1, 1], angle: 45 * Math.PI / 180, falloff: 1.0, alpha: 1.0, widthDp: 0.5 / 1.5 },
+      outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: 0, color: [0, 0, 0] },
+      innerShadow: { radius: 4 * DP, alpha: 1, offsetX: 0, offsetY: 0 },
+      chromaticAberration: true,
+    }
   )
+  s1KnobEl.isToggleKnob = { groupId: 'slider1', dragWidth: s1TrackW - SLIDER_KNOB_W / 2 }
+  elements.push(s1KnobEl)
 
   // --- White card with slider 2 ---
   const cardX = 24 * DP
@@ -789,63 +862,73 @@ function buildSlider(W: number, onBack: () => void, state: CatalogState, setStat
   const s2TrackX = cardX + SLIDER_PAD
   const s2TrackW = cardW - 2 * SLIDER_PAD
   const s2TrackY = cardY + cardH / 2 - SLIDER_TRACK_H / 2
-  const s2FillW = s2TrackW * s1Fraction
-  const s2KnobX = s2TrackX + s2FillW - SLIDER_KNOB_W / 2
+  const s2KnobBaseX = s2TrackX - SLIDER_KNOB_W / 4
   const s2KnobY = s2TrackY + (SLIDER_TRACK_H - SLIDER_KNOB_H) / 2
+  const s2FillW = s2TrackW * s1Fraction
   elements.push(
     makePlainRect('slider2-track', { x: s2TrackX, y: s2TrackY, w: s2TrackW, h: SLIDER_TRACK_H }, SLIDER_TRACK, SLIDER_TRACK_H / 2)
   )
   elements.push(
     makePlainRect('slider2-fill', { x: s2TrackX, y: s2TrackY, w: Math.max(SLIDER_TRACK_H, s2FillW), h: SLIDER_TRACK_H }, [...SLIDER_ACCENT, 1], SLIDER_TRACK_H / 2)
   )
-  elements.push(
-    makeGlassShape(
-      'slider2-knob',
-      { x: s2KnobX, y: s2KnobY, w: SLIDER_KNOB_W, h: SLIDER_KNOB_H },
-      {
-        cornerRadius: SLIDER_KNOB_H / 2,
-        refractionHeight: 10 * DP,
-        refractionAmount: -14 * DP,
-        blurRadius: 0,
-        saturation: 1.5,
-        surfaceColor: [1, 1, 1, 0.5],
-        highlight: { mode: 1, color: [1, 1, 1], angle: 45 * Math.PI / 180, falloff: 1.0, alpha: 1.0, widthDp: 0.5 / 1.5 },
-        outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: 0, color: [0, 0, 0] },
-        innerShadow: { radius: 4 * DP, alpha: 0.35, offsetX: 0, offsetY: 0 },
-        chromaticAberration: true,
-      }
-    )
+  const s2KnobEl = makeGlassShape(
+    'slider2-knob',
+    { x: s2KnobBaseX, y: s2KnobY, w: SLIDER_KNOB_W, h: SLIDER_KNOB_H },
+    {
+      cornerRadius: SLIDER_KNOB_H / 2,
+      refractionHeight: 10 * DP,
+      refractionAmount: -14 * DP,
+      blurRadius: 8 * DP,
+      saturation: 1.5,
+      surfaceColor: [0, 0, 0, 0],
+      highlight: { mode: 1, color: [1, 1, 1], angle: 45 * Math.PI / 180, falloff: 1.0, alpha: 1.0, widthDp: 0.5 / 1.5 },
+      outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: 0, color: [0, 0, 0] },
+      innerShadow: { radius: 4 * DP, alpha: 1, offsetX: 0, offsetY: 0 },
+      chromaticAberration: true,
+    }
   )
+  s2KnobEl.isToggleKnob = { groupId: 'slider2', dragWidth: s2TrackW - SLIDER_KNOB_W / 2 }
+  elements.push(s2KnobEl)
 
-  // Interactions
-  interactions['slider1-track'] = {
-    onTap: (pos) => {
-      const f = Math.max(0, Math.min(1, (pos.x - SLIDER_PAD) / s1TrackW))
-      setState({ sliderValue: Math.round(f * 100) })
-    },
+  // --- Interactions ---
+  // Tap on track → animate knob to tapped position.
+  // Drag on knob → knob follows finger; on release, snap state to nearest value.
+  function makeSliderTrackInteractions(groupId: string, trackX: number, trackW: number) {
+    return {
+      onTap: (pos: { x: number; y: number }) => {
+        const f = Math.max(0, Math.min(1, (pos.x - trackX) / trackW))
+        setState({ sliderValue: Math.round(f * 100) })
+      },
+    }
   }
-  interactions['slider1-knob'] = {
-    onDragStart: () => {},
-    onDrag: (pos) => {
-      const f = Math.max(0, Math.min(1, (pos.x - SLIDER_PAD) / s1TrackW))
-      setState({ sliderValue: Math.round(f * 100) })
-    },
-    onDragEnd: () => {},
+  function makeSliderKnobInteractions(groupId: string, trackX: number, trackW: number) {
+    let dragStartFraction = 0
+    let dragStartX = 0
+    return {
+      onDragStart: (pos: { x: number; y: number }) => {
+        const r = rendererRef?.current
+        if (!r) return
+        dragStartFraction = r.getToggleTarget(groupId)
+        dragStartX = pos.x
+        r.beginToggleDrag(groupId, dragStartFraction)
+      },
+      onDrag: (pos: { x: number; y: number }) => {
+        const r = rendererRef?.current
+        if (!r) return
+        r.dragToggle(groupId, dragStartFraction, pos.x, dragStartX, trackW)
+      },
+      onDragEnd: () => {
+        const r = rendererRef?.current
+        if (!r) return
+        const finalTarget = r.endToggleDrag(groupId)
+        setState({ sliderValue: Math.round(finalTarget * 100) })
+      },
+    }
   }
-  interactions['slider2-track'] = {
-    onTap: (pos) => {
-      const f = Math.max(0, Math.min(1, (pos.x - s2TrackX) / s2TrackW))
-      setState({ sliderValue: Math.round(f * 100) })
-    },
-  }
-  interactions['slider2-knob'] = {
-    onDragStart: () => {},
-    onDrag: (pos) => {
-      const f = Math.max(0, Math.min(1, (pos.x - s2TrackX) / s2TrackW))
-      setState({ sliderValue: Math.round(f * 100) })
-    },
-    onDragEnd: () => {},
-  }
+  interactions['slider1-track'] = makeSliderTrackInteractions('slider1', s1TrackX, s1TrackW)
+  interactions['slider1-knob'] = makeSliderKnobInteractions('slider1', s1TrackX, s1TrackW)
+  interactions['slider2-track'] = makeSliderTrackInteractions('slider2', s2TrackX, s2TrackW)
+  interactions['slider2-knob'] = makeSliderKnobInteractions('slider2', s2TrackX, s2TrackW)
 
   const contentHeight = cardY + cardH + 40
   return { elements, interactions, contentHeight }
@@ -1412,6 +1495,15 @@ function buildGlassPlayground(W: number, onBack: () => void, state: CatalogState
     )
     const knobX = trackX + fillW - SLIDER_KNOB_W / 2
     const knobY = labelY + (SLIDER_TRACK_H - SLIDER_KNOB_H) / 2
+    // Knob — same frosted-white-at-rest style as the main Slider page
+    // (solid white pebble at rest, glass refraction when pressed).
+    // We DON'T use isToggleKnob here (no spring animation) to keep the
+    // playground simple — the knob position is set directly from state.
+    // But we use the same surfaceColor=0 + blurRadius=8 + innerShadow
+    // combo so the visual style matches. The white overlay is drawn by
+    // the renderer's toggle-knob overlay pass ONLY when isToggleKnob is
+    // set, so we instead use surfaceColor=[1,1,1,1] to get the solid
+    // white appearance at rest (approximation).
     elements.push(
       makeGlassShape(
         `gp-knob-${s.key}`,
@@ -1420,12 +1512,17 @@ function buildGlassPlayground(W: number, onBack: () => void, state: CatalogState
           cornerRadius: SLIDER_KNOB_H / 2,
           refractionHeight: 10 * DP,
           refractionAmount: -14 * DP,
-          blurRadius: 0,
+          blurRadius: 8 * DP,
           saturation: 1.5,
-          surfaceColor: [1, 1, 1, 0.5],
+          // Solid white surface — approximates the frosted white pebble
+          // look of the main sliders (which use a separate white overlay
+          // pass driven by isToggleKnob). Without isToggleKnob we can't
+          // get the press-to-clear-glass transition, but the at-rest
+          // appearance matches.
+          surfaceColor: [1, 1, 1, 1],
           highlight: { mode: 1, color: [1, 1, 1], angle: 45 * Math.PI / 180, falloff: 1.0, alpha: 1.0, widthDp: 0.5 / 1.5 },
           outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: 0, color: [0, 0, 0] },
-          innerShadow: { radius: 4 * DP, alpha: 0.35, offsetX: 0, offsetY: 0 },
+          innerShadow: { radius: 4 * DP, alpha: 1, offsetX: 0, offsetY: 0 },
           chromaticAberration: true,
         }
       )
@@ -1677,7 +1774,7 @@ export function buildCatalog(
     case CatalogDestination.Toggle:
       return buildToggle(W, onBack, state, setState, rendererRef)
     case CatalogDestination.Slider:
-      return buildSlider(W, onBack, state, setState)
+      return buildSlider(W, onBack, state, setState, rendererRef)
     case CatalogDestination.BottomTabs:
       return buildBottomTabs(W, onBack, state, setState)
     case CatalogDestination.Dialog:
