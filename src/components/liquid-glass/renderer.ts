@@ -895,11 +895,16 @@ export class LiquidGlassRenderer {
         gl.drawArrays(gl.TRIANGLES, 0, 6)
 
         // b. Radial highlight at finger position
+        // Plus blend in Skia: result = S + D (premultiplied). The shader
+        // outputs the premultiplied contribution (color.rgb * color.a *
+        // intensity), so we use pure additive (ONE, ONE) here. Using
+        // (SRC_ALPHA, ONE) would re-multiply by src.a, squaring the alpha
+        // and making the glow ~50x dimmer (0.15² = 0.0225 — invisible).
         gl.useProgram(this.highlightProgram)
         gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
         gl.enableVertexAttribArray(this.aPosLocHl)
         gl.vertexAttribPointer(this.aPosLocHl, 2, gl.FLOAT, false, 0, 0)
-        gl.blendFunc(gl.SRC_ALPHA, gl.ONE)
+        gl.blendFunc(gl.ONE, gl.ONE)
         gl.uniform2f(this.uHl['uCanvasSize'], this.canvas.width, this.canvas.height)
         gl.uniform2f(this.uHl['uOffset'], sx * this.dpr, sy * this.dpr)
         gl.uniform2f(this.uHl['uSize'], sw * this.dpr, sh * this.dpr)
@@ -910,17 +915,23 @@ export class LiquidGlassRenderer {
           radii[2] * this.dpr,
           radii[3] * this.dpr
         )
-        gl.uniform4f(this.uHl['uColor'], 1, 1, 1, 0.15 * p)
+        // Alpha is doubled from the original 0.15 to 0.30 to make the
+        // ripple highlight visibly pronounced on bright wallpapers. The
+        // original AGSL value (0.15) is barely perceptible after a single
+        // premultiplied addition; 0.30 brings it in line with the visual
+        // weight seen in the catalog app.
+        gl.uniform4f(this.uHl['uColor'], 1, 1, 1, 0.30 * p)
         const minDim = Math.min(sw, sh) * this.dpr
         gl.uniform1f(this.uHl['uRadius'], minDim * 1.5)
-        // Position is in element-local CSS px relative to the (possibly
-        // translated/scaled) element rect. The dragX/dragY state is in
-        // the *original* element's local space — close enough for the
-        // press glow.
+        // Position: convert dragX/dragY (original-rect-local CSS px) to
+        // scaled-rect-local device px so the glow stays under the finger
+        // even when the rect grows/translates during press.
+        //   fingerCanvasCssX = dragX + el.rect.x
+        //   fingerScaledLocalDeviceX = (fingerCanvasCssX - sx) * dpr
         gl.uniform2f(
           this.uHl['uPosition'],
-          st.dragX * this.dpr,
-          st.dragY * this.dpr
+          (st.dragX + el.rect.x - sx) * this.dpr,
+          (st.dragY + el.rect.y - sy) * this.dpr
         )
         gl.drawArrays(gl.TRIANGLES, 0, 6)
         // Restore normal blending.

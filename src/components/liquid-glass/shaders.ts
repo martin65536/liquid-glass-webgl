@@ -570,6 +570,16 @@ void main() {
  * this reproduces the catalog's drag-follow press glow. Drawn ABOVE the
  * element pass and BELOW the foreground (label) pass, all clipped to the
  * element rect.
+ *
+ * BLEND CORRECTNESS: Skia's BlendMode.Plus is `result = S + D` where S
+ * is the source color in PREMULTIPLIED form. Compose stores
+ * `White(1.0).copy(alpha = a)` premultiplied as `(a, a, a, a)`, so the
+ * actual contribution to dst.rgb is `color.rgb * color.a * intensity`.
+ *
+ * To replicate in WebGL we output the premultiplied contribution as RGB
+ * and use blendFunc(ONE, ONE) (pure additive). Using (SRC_ALPHA, ONE)
+ * here would re-multiply by src.a, squaring the alpha and making the
+ * glow ~50x dimmer (e.g. 0.15² = 0.0225 — essentially invisible).
  * ------------------------------------------------------------------ */
 export const HIGHLIGHT_FRAGMENT_SHADER = /* glsl */ `
 precision highp float;
@@ -578,7 +588,7 @@ uniform vec2  uCanvasSize;
 uniform vec2  uOffset;       // element top-left in canvas px (top-left origin)
 uniform vec2  uSize;         // element size in canvas px
 uniform vec4  uCornerRadii;  // capsule radii (topLeft, topRight, bottomRight, bottomLeft) in px
-uniform vec4  uColor;        // rgba; usually white * (0.15 * progress)
+uniform vec4  uColor;        // rgba; usually white * (alpha = 0.15 * progress)
 uniform float uRadius;       // glow radius in canvas px (= minDim * 1.5)
 uniform vec2  uPosition;     // finger position in element-local px (top-left origin)
 
@@ -600,7 +610,11 @@ void main() {
     // intensity = 1 at dist <= radius*0.5, fading to 0 at dist >= radius.
     float dist = distance(localCoord, uPosition);
     float intensity = smoothstep(uRadius, uRadius * 0.5, dist);
-    gl_FragColor = vec4(uColor.rgb, 1.0) * intensity * uColor.a * clipAlpha;
+
+    // Premultiplied Plus-blend contribution. Renderer uses blendFunc(ONE, ONE)
+    // so result.rgb = contribution + dst.rgb (clamped to 1).
+    vec3 contribution = uColor.rgb * uColor.a * intensity * clipAlpha;
+    gl_FragColor = vec4(contribution, 1.0);
 }
 `
 
