@@ -166,40 +166,12 @@ float circleMap(float x) {
 }
 
 // 17-tap poisson disc for a smoother Gaussian-ish blur.
-// Tap positions are normalized (radius 1) - scaled by radius and the
-// canvas-to-UV factor at the call site.
-const int POISSON_TAPS = 17;
-const vec2 POISSON[17] = vec2[17](
-    vec2( 0.000000,  0.000000),
-    vec2( 0.536355,  0.000000),
-    vec2(-0.536355,  0.000000),
-    vec2( 0.166048,  0.510274),
-    vec2( 0.166048, -0.510274),
-    vec2(-0.166048,  0.510274),
-    vec2(-0.166048, -0.510274),
-    vec2( 0.654479,  0.364250),
-    vec2( 0.654479, -0.364250),
-    vec2(-0.654479,  0.364250),
-    vec2(-0.654479, -0.364250),
-    vec2( 0.873489,  0.117558),
-    vec2( 0.873489, -0.117558),
-    vec2(-0.873489,  0.117558),
-    vec2(-0.873489, -0.117558),
-    vec2( 0.348733,  0.835549),
-    vec2( 0.348733, -0.835549)
-);
-const float POISSON_W[17] = float[17](
-    1.0,
-    0.85, 0.85,
-    0.75, 0.75, 0.75, 0.75,
-    0.65, 0.65, 0.65, 0.65,
-    0.55, 0.55, 0.55, 0.55,
-    0.45, 0.45
-);
-
+// Inlined as individual texture2D calls (GLSL ES 1.00 does not support
+// array constructors). Each tap's offset is normalized (radius 1) and
+// scaled by pxToUv = canvasPxToUvScale() * radius at the call site.
+//
 // Sample the backdrop (wallpaper) at a canvas-pixel coordinate, with a
-// Gaussian-ish blur approximated by a 17-tap poisson disc. radius=0
-// falls back to a single tap.
+// Gaussian-ish blur. radius < 0.5 falls back to a single tap.
 vec4 sampleBackdrop(vec2 canvasPx, float radius) {
     vec2 uv = coverUv(canvasPx);
     if (radius < 0.5) {
@@ -208,14 +180,25 @@ vec4 sampleBackdrop(vec2 canvasPx, float radius) {
     vec2 pxToUv = canvasPxToUvScale() * radius;
     vec4 sum = vec4(0.0);
     float total = 0.0;
-    for (int i = 0; i < POISSON_TAPS; i++) {
-        vec2 off = POISSON[i] * pxToUv;
-        // Flip Y because UNPACK_FLIP_Y_WEBGL=true flips the texture on
-        // upload, but our poisson offsets are in canvas-pixel space
-        // (top-left origin) — so the Y mapping is consistent.
-        sum += texture2D(uBackdrop, uv + off) * POISSON_W[i];
-        total += POISSON_W[i];
-    }
+
+    sum += texture2D(uBackdrop, uv + vec2( 0.000000,  0.000000) * pxToUv) * 1.00; total += 1.00;
+    sum += texture2D(uBackdrop, uv + vec2( 0.536355,  0.000000) * pxToUv) * 0.85; total += 0.85;
+    sum += texture2D(uBackdrop, uv + vec2(-0.536355,  0.000000) * pxToUv) * 0.85; total += 0.85;
+    sum += texture2D(uBackdrop, uv + vec2( 0.166048,  0.510274) * pxToUv) * 0.75; total += 0.75;
+    sum += texture2D(uBackdrop, uv + vec2( 0.166048, -0.510274) * pxToUv) * 0.75; total += 0.75;
+    sum += texture2D(uBackdrop, uv + vec2(-0.166048,  0.510274) * pxToUv) * 0.75; total += 0.75;
+    sum += texture2D(uBackdrop, uv + vec2(-0.166048, -0.510274) * pxToUv) * 0.75; total += 0.75;
+    sum += texture2D(uBackdrop, uv + vec2( 0.654479,  0.364250) * pxToUv) * 0.65; total += 0.65;
+    sum += texture2D(uBackdrop, uv + vec2( 0.654479, -0.364250) * pxToUv) * 0.65; total += 0.65;
+    sum += texture2D(uBackdrop, uv + vec2(-0.654479,  0.364250) * pxToUv) * 0.65; total += 0.65;
+    sum += texture2D(uBackdrop, uv + vec2(-0.654479, -0.364250) * pxToUv) * 0.65; total += 0.65;
+    sum += texture2D(uBackdrop, uv + vec2( 0.873489,  0.117558) * pxToUv) * 0.55; total += 0.55;
+    sum += texture2D(uBackdrop, uv + vec2( 0.873489, -0.117558) * pxToUv) * 0.55; total += 0.55;
+    sum += texture2D(uBackdrop, uv + vec2(-0.873489,  0.117558) * pxToUv) * 0.55; total += 0.55;
+    sum += texture2D(uBackdrop, uv + vec2(-0.873489, -0.117558) * pxToUv) * 0.55; total += 0.55;
+    sum += texture2D(uBackdrop, uv + vec2( 0.348733,  0.835549) * pxToUv) * 0.45; total += 0.45;
+    sum += texture2D(uBackdrop, uv + vec2( 0.348733, -0.835549) * pxToUv) * 0.45; total += 0.45;
+
     return sum / total;
 }
 
