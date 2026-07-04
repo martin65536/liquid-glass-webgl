@@ -621,27 +621,23 @@ uniform float uTintIntensity;   // 0..1
 
 ${COVER_GLSL}
 
-// 9-tap poisson disc — offsets in canvas px.
-const vec2 POISSON_9[9] = vec2[9](
-    vec2( 0.0000,  0.0000),
-    vec2( 0.5000,  0.0000),
-    vec2(-0.5000,  0.0000),
-    vec2( 0.0000,  0.5000),
-    vec2( 0.0000, -0.5000),
-    vec2( 0.3536,  0.3536),
-    vec2(-0.3536,  0.3536),
-    vec2( 0.3536, -0.3536),
-    vec2(-0.3536, -0.3536)
-);
-
+// 9-tap poisson disc — offsets are inlined because GLSL ES 1.00 (WebGL 1)
+// does not support array constructors or const-array initializers.
+// The offsets are normalized (unit disc), multiplied by step (radius in UV).
 vec4 sampleBackdrop(vec2 canvasPx, float radius) {
     vec2 uvScale = canvasPxToUvScale();
     vec2 uv = coverUv(canvasPx);
-    vec2 step = radius * uvScale;
+    vec2 st = radius * uvScale;
     vec4 sum = vec4(0.0);
-    for (int i = 0; i < 9; i++) {
-        sum += texture2D(uBackdrop, uv + POISSON_9[i] * step);
-    }
+    sum += texture2D(uBackdrop, uv + vec2( 0.0000,  0.0000) * st);
+    sum += texture2D(uBackdrop, uv + vec2( 0.5000,  0.0000) * st);
+    sum += texture2D(uBackdrop, uv + vec2(-0.5000,  0.0000) * st);
+    sum += texture2D(uBackdrop, uv + vec2( 0.0000,  0.5000) * st);
+    sum += texture2D(uBackdrop, uv + vec2( 0.0000, -0.5000) * st);
+    sum += texture2D(uBackdrop, uv + vec2( 0.3536,  0.3536) * st);
+    sum += texture2D(uBackdrop, uv + vec2(-0.3536,  0.3536) * st);
+    sum += texture2D(uBackdrop, uv + vec2( 0.3536, -0.3536) * st);
+    sum += texture2D(uBackdrop, uv + vec2(-0.3536, -0.3536) * st);
     return sum / 9.0;
 }
 
