@@ -1,45 +1,35 @@
 'use client'
 
 import * as React from 'react'
-import { LiquidGlassRenderer, type GlassElement } from './renderer'
+import { LiquidGlassRenderer, type GlassButtonConfig } from './renderer'
 
 /* ------------------------------------------------------------------ *
- * LiquidGlassContext
+ * LiquidGlassCanvas
  *
- * Provides a way for <LiquidGlass> components to register themselves
- * with the singleton renderer. The provider hosts the WebGL canvas
- * that fills the phone frame.
+ * A self-contained WebGL canvas that renders a wallpaper + a single
+ * liquid-glass button. No DOM children — the canvas owns the entire
+ * visual surface (wallpaper, glass, label, chevron).
+ *
+ * Pass a `button` prop to control the button's position, size, and
+ * glass parameters. The label and chevron are rasterized on an
+ * offscreen 2D canvas and composited as a foreground texture pass.
  * ------------------------------------------------------------------ */
 
-interface LiquidGlassContextValue {
-  register: (el: GlassElement) => void
-  update: (el: GlassElement) => void
-  unregister: (id: string) => void
-  /** Notify the provider that layout may have changed (re-measure). */
-  requestMeasure: () => void
-}
-
-const LiquidGlassContext = React.createContext<LiquidGlassContextValue | null>(null)
-
-export interface LiquidGlassProviderProps {
-  children: React.ReactNode
+export interface LiquidGlassCanvasProps {
   wallpaperSrc: string
-  /** CSS size of the canvas. */
+  button: GlassButtonConfig | null
   className?: string
 }
 
-export function LiquidGlassProvider({
-  children,
+export function LiquidGlassCanvas({
   wallpaperSrc,
+  button,
   className,
-}: LiquidGlassProviderProps) {
+}: LiquidGlassCanvasProps) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
   const containerRef = React.useRef<HTMLDivElement>(null)
   const rendererRef = React.useRef<LiquidGlassRenderer | null>(null)
-  const elementsRef = React.useRef<Map<string, GlassElement>>(new Map())
-  const measureScheduledRef = React.useRef(false)
 
-  // Initialise the renderer once the canvas mounts.
   React.useEffect(() => {
     if (!canvasRef.current || !containerRef.current) return
     const renderer = new LiquidGlassRenderer(canvasRef.current)
@@ -48,11 +38,10 @@ export function LiquidGlassProvider({
 
     const resize = () => {
       const r = containerRef.current?.getBoundingClientRect()
-      if (r) {
-        canvasRef.current!.style.width = r.width + 'px'
-        canvasRef.current!.style.height = r.height + 'px'
-        renderer.resize(r.width, r.height)
-      }
+      if (!r) return
+      canvasRef.current!.style.width = r.width + 'px'
+      canvasRef.current!.style.height = r.height + 'px'
+      renderer.resize(r.width, r.height)
     }
     resize()
     const ro = new ResizeObserver(resize)
@@ -65,70 +54,21 @@ export function LiquidGlassProvider({
     }
   }, [wallpaperSrc])
 
-  const flush = React.useCallback(() => {
-    const r = rendererRef.current
-    if (!r) return
-    // Re-register all elements (renderer's setElement replaces by id).
-    elementsRef.current.forEach((el) => r.setElement(el))
-  }, [])
-
-  const scheduleMeasure = React.useCallback(() => {
-    if (measureScheduledRef.current) return
-    measureScheduledRef.current = true
-    requestAnimationFrame(() => {
-      measureScheduledRef.current = false
-      flush()
-    })
-  }, [flush])
-
-  const register = React.useCallback((el: GlassElement) => {
-    elementsRef.current.set(el.id, el)
-    rendererRef.current?.setElement(el)
-  }, [])
-
-  const update = React.useCallback((el: GlassElement) => {
-    elementsRef.current.set(el.id, el)
-    rendererRef.current?.setElement(el)
-  }, [])
-
-  const unregister = React.useCallback((id: string) => {
-    elementsRef.current.delete(id)
-    rendererRef.current?.removeElement(id)
-  }, [])
-
-  const value = React.useMemo<LiquidGlassContextValue>(
-    () => ({ register, update, unregister, requestMeasure: scheduleMeasure }),
-    [register, update, unregister, scheduleMeasure]
-  )
+  // Push the latest button config to the renderer.
+  React.useEffect(() => {
+    rendererRef.current?.setButton(button)
+  }, [button])
 
   return (
-    <LiquidGlassContext.Provider value={value}>
-      <div ref={containerRef} className={className} style={{ position: 'relative' }}>
-        {/*
-          WebGL canvas — renders the wallpaper (cover-fit) AND the glass
-          elements. The canvas is opaque, so there's no need for a CSS
-          wallpaper layer behind it. Children (text/icons) render above.
-        */}
-        <canvas
-          ref={canvasRef}
-          style={{
-            position: 'absolute',
-            inset: 0,
-            width: '100%',
-            height: '100%',
-            pointerEvents: 'none',
-            zIndex: 0,
-          }}
-        />
-        {/* Children render above the canvas (text/icons) */}
-        <div style={{ position: 'relative', zIndex: 10, width: '100%', height: '100%' }}>
-          {children}
-        </div>
-      </div>
-    </LiquidGlassContext.Provider>
+    <div ref={containerRef} className={className} style={{ position: 'relative' }}>
+      <canvas
+        ref={canvasRef}
+        style={{
+          display: 'block',
+          width: '100%',
+          height: '100%',
+        }}
+      />
+    </div>
   )
-}
-
-export function useLiquidGlass(): LiquidGlassContextValue | null {
-  return React.useContext(LiquidGlassContext)
 }

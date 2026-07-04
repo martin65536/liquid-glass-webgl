@@ -453,6 +453,36 @@ void main() {
 `
 
 /* ------------------------------------------------------------------ *
+ * Foreground (text/icon) pass — composites a pre-rendered RGBA texture
+ * (containing the button label and chevron) on top of the glass.
+ *
+ * The texture is produced by an offscreen 2D canvas in renderer.ts; we
+ * simply sample it and write through with premultiplied alpha blending.
+ * ------------------------------------------------------------------ */
+export const FOREGROUND_FRAGMENT_SHADER = /* glsl */ `
+precision highp float;
+
+uniform sampler2D uTexture;
+uniform vec2 uCanvasSize;
+uniform vec2 uOffset;   // foreground texture top-left in canvas px (top-left origin)
+uniform vec2 uSize;     // foreground texture size in canvas px
+
+void main() {
+    vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
+    vec2 localCoord = screenCoord - uOffset;
+    // Scissor to the foreground rectangle.
+    if (localCoord.x < 0.0 || localCoord.x > uSize.x ||
+        localCoord.y < 0.0 || localCoord.y > uSize.y) {
+        discard;
+    }
+    // UNPACK_FLIP_Y_WEBGL is true, so the texture is already top-left
+    // oriented — no Y flip needed here.
+    vec2 uv = localCoord / uSize;
+    gl_FragColor = texture2D(uTexture, uv);
+}
+`
+
+/* ------------------------------------------------------------------ *
  * Vertex shader — draws a fullscreen quad. Per-element scissor is
  * done in the fragment shader via discard.
  * ------------------------------------------------------------------ */
