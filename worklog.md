@@ -285,3 +285,40 @@ Stage Summary:
 - Slider can now be dragged from anywhere on the track (not just the small 40×24 knob), and the knob tracks the finger 1:1.
 - Blur quality improved from 17 taps to 43 taps with a 2-ring poisson disc, giving smoother Gaussian-like results for large blur radii.
 - Build succeeds, dev server starts, page loads with HTTP 200.
+
+---
+Task ID: stretch-rendering
+Agent: main
+Task: 详阅原版的拉伸渲染处理相关的代码，仔细认真地总结差异，然后修正。Faithful stretch rendering for buttons, toggles, sliders, bottom tabs.
+
+Work Log:
+- Read original InteractiveHighlight.kt, LiquidButton.kt, LiquidToggle.kt, LiquidSlider.kt, LiquidBottomTabs.kt, LiquidBottomTab.kt, DampedDragAnimation.kt.
+- Summarized all stretch/transform differences between original and my WebGL port.
+- Fixed button layerBlock trigger condition: removed `Math.abs(p) > 0.0001` guard so the stretch computation always runs when isInteractive (matches original which always applies layerBlock). Previously, translation would snap to 0 prematurely during release overshoot.
+- Fixed slider knob velocity divisor: was /50 (same as toggle), now /10 (faithful to LiquidSlider.kt line 200: `velocity / 10f`). Added `velocityDivisor` field to isToggleKnob config (50 for toggle, 10 for slider).
+- Added Bottom tabs container stretch: `scale = lerp(1, 1 + 16dp/width, pressProgress)` + panelOffset translation. New `isBottomTabContainer` marker.
+- Added Bottom tabs content stretch: `scale = lerp(1, 1.2, pressProgress)` + panelOffset translation. New `isBottomTabContent` marker. Faithful to LiquidBottomTab.kt graphicsLayer.
+- Added Bottom tabs indicator stretch: DampedDragAnimation with `pressedScale = 78/56 ≈ 1.393`, `velocity / 10` squash. Position = `fraction * tabWidth + panelOffset`. New `isBottomTabIndicator` marker.
+- Added panelOffset: `4dp * sign(fraction) * EaseOut(|fraction|)` during drag, springs to 0 on release with spring(1, 300) critically damped. New fields in ToggleGroupState: panelOffset/panelOffsetVelocity/targetPanelOffset.
+- Added tab drag API: setTabSelected / beginTabDrag / dragTab / endTabDrag / getTabFraction / getTabTarget. Reuses ToggleGroupState with pressedScale=78/56.
+- Modified ensureToggleState: only non-default pressedScale callers (tabs with 78/56) can overwrite an existing group's pressedScale. This prevents setToggleTarget (default 1.5) from clobbering tabs.
+- Modified setToggleTarget/beginToggleDrag: use `st.pressedScale` instead of hardcoded 1.5.
+- Added panelOffset spring to animation loop (critically damped, ω_n = sqrt(300)).
+- Modified catalog.tsx buildTabBar: container/indicator/content elements get new markers; tab drag interactions wired to container + indicator.
+- Added makeTabDragInteractions at module level (was inside buildToggle, unreachable from buildBottomTabs).
+- Added `rendererRef` parameter to buildBottomTabs (was missing).
+- Added `tabTargets` prop to LiquidGlassCanvas (separate from toggleTargets, uses setTabSelected with pressedScale=78/56).
+- Modified page.tsx: tabTargets useMemo pushes { tabIndex, tabsCount } for tabs3/tabs4 groups.
+- Modified context.tsx: added tabTargets prop + useEffect sync.
+
+Stage Summary:
+- Button stretch: always-on layerBlock (no threshold) — translation no longer snaps during release overshoot.
+- Toggle knob: velocity / 50 squash (unchanged, correct).
+- Slider knob: velocity / 10 squash (was /50 — now faithful to LiquidSlider.kt).
+- Bottom tabs container: 16dp/width press scale + panelOffset shift.
+- Bottom tabs content: 1.2x press scale + panelOffset shift.
+- Bottom tabs indicator: 78/56 pressedScale + velocity / 10 squash + panelOffset position.
+- panelOffset: 4dp*sign*EaseOut during drag, spring(1,300) back to 0 on release.
+- All stretch rendering now faithful to original Kotlin sources.
+- Build: ✓ Compiled successfully; dev server ✓ HTTP 200; tsc clean.
+- Committed and pushed to GitHub (ec15620).
