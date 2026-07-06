@@ -18,7 +18,7 @@ export const glassElementPassMethods = {
     curTex: WebGLTexture
   ) {
     const gl = this.gl
-    const { el, sx, sy, sw, sh, radii, togglePressProgress } = state
+    const { el, sx, sy, sw, sh, radii, togglePressProgress, layerScale } = state
 
     gl.useProgram(this.elementProgram)
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
@@ -60,19 +60,14 @@ export const glassElementPassMethods = {
     let elInnerShadowOffsetX = el.innerShadow ? el.innerShadow.offsetX : 0
     let elInnerShadowOffsetY = el.innerShadow ? el.innerShadow.offsetY : 0
     let elSurfaceAlpha = el.surfaceColor[3]
-    // Content scale: 1.0 by default (no compression). For toggle knobs,
-    // faithful to LiquidToggle.kt:
-    //   scale(lerp(2/3, 0.75, progress), lerp(0, 0.75, progress)) { drawBackdrop() }
-    // We use a single uniform scale = lerp(1, 0.75, progress). At rest
-    // (progress=0), scale=1 (the white overlay hides the glass anyway).
-    // When pressed (progress=1), scale=0.75 — the track content visible
-    // through the knob glass appears compressed inward, matching the
-    // original's "pixel shrink inward" effect on press.
-    // For slider knobs, LiquidSlider.kt uses lerp(2/3, 1, progress) —
-    // at rest compressed (overlay hides it), when pressed full scale.
-    // We use lerp(1, 1, progress) = 1 (no compression needed since the
-    // slider's pressed state shows full-scale content).
-    let elContentScale = 1.0
+    // Content scale (non-uniform, faithful to LiquidToggle.kt / LiquidSlider.kt):
+    //   scale(scaleX, scaleY) { drawBackdrop() }
+    // Toggle: X lerp(2/3, 0.75, p), Y lerp(0, 0.75, p)
+    // Slider: X lerp(2/3, 1, p),    Y lerp(0, 1, p)
+    // At rest Y=0 → degenerate (single horizontal line), but the white
+    // overlay (alpha=1) hides it. When pressed, scales to full.
+    let elContentScaleX = 1.0
+    let elContentScaleY = 1.0
     if (el.isToggleKnob) {
       const progress = togglePressProgress
       elRefractionHeight = el.refractionHeight * progress
@@ -88,19 +83,29 @@ export const glassElementPassMethods = {
       elInnerShadowOffsetX = (el.innerShadow?.offsetX ?? 0) * progress
       elInnerShadowOffsetY = (el.innerShadow?.offsetY ?? 0) * progress
       elSurfaceAlpha = 0
-      // Toggle: scale compresses to 0.75 when pressed (track content
-      // shrinks inward, matching the original's scale(0.75, 0.75)).
-      elContentScale = 1.0 + (0.75 - 1.0) * progress
+      // Faithful non-uniform content scale.
+      // Toggle:  X: 2/3 → 0.75, Y: 0 → 0.75
+      // Slider:  X: 2/3 → 1,    Y: 0 → 1
+      const isSlider = el.isToggleKnob.velocityDivisor === 10
+      const xEnd = isSlider ? 1.0 : 0.75
+      const yEnd = isSlider ? 1.0 : 0.75
+      elContentScaleX = (2.0 / 3.0) + (xEnd - 2.0 / 3.0) * progress
+      elContentScaleY = 0.0 + (yEnd - 0.0) * progress
     }
-    gl.uniform1f(this.uEl['uRefractionHeight'], elRefractionHeight * this.dpr)
-    gl.uniform1f(this.uEl['uRefractionAmount'], elRefractionAmount * this.dpr)
+    // Faithful to original: the graphicsLayer scales the ENTIRE layer
+    // (including refraction, blur) by (scaleX, scaleY). Since we render
+    // at scaled size, we must scale these params by layerScale so they
+    // stretch WITH the layer instead of staying "small" relative to it.
+    gl.uniform1f(this.uEl['uRefractionHeight'], elRefractionHeight * layerScale * this.dpr)
+    gl.uniform1f(this.uEl['uRefractionAmount'], elRefractionAmount * layerScale * this.dpr)
     gl.uniform1f(this.uEl['uDepthEffect'], el.depthEffect ? 1 : 0)
     gl.uniform1f(this.uEl['uChromaticAberration'], el.chromaticAberration ? 1 : 0)
-    gl.uniform1f(this.uEl['uBlurRadius'], elBlurRadius * this.dpr)
+    gl.uniform1f(this.uEl['uBlurRadius'], elBlurRadius * layerScale * this.dpr)
     gl.uniform1f(this.uEl['uSaturation'], el.saturation)
     gl.uniform1f(this.uEl['uBrightness'], el.brightness)
     gl.uniform1f(this.uEl['uContrast'], el.contrast)
-    gl.uniform1f(this.uEl['uContentScale'], elContentScale)
+    gl.uniform1f(this.uEl['uContentScaleX'], elContentScaleX)
+    gl.uniform1f(this.uEl['uContentScaleY'], elContentScaleY)
     gl.uniform4f(this.uEl['uTintColor'], el.tintColor[0], el.tintColor[1], el.tintColor[2], el.tintColor[3])
     gl.uniform4f(this.uEl['uSurfaceColor'], el.surfaceColor[0], el.surfaceColor[1], el.surfaceColor[2], elSurfaceAlpha)
 

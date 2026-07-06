@@ -33,14 +33,16 @@ ${ELEMENT_UTILS_GLSL}
 void main() {
     // gl_FragCoord origin is bottom-left in WebGL; flip to top-left.
     vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
-    // Content scale: when < 1.0, compress the backdrop UV toward the element
-    // center. Faithful to LiquidToggle.kt's scale(scaleX, scaleY) applied to
-    // the track backdrop — the track content appears to shrink inward when
-    // the knob is pressed.
+    // Content scale (non-uniform): when < 1.0, compress the backdrop UV toward
+    // the element center. Faithful to LiquidToggle.kt / LiquidSlider.kt:
+    //   scale(scaleX, scaleY) { drawBackdrop() }
+    // At rest (progress=0), Y scale = 0 → degenerate (single horizontal line),
+    // but the white overlay hides it. When pressed, scales to full.
+    vec2 contentScale = vec2(uContentScaleX, uContentScaleY);
     vec2 sampleCoord = screenCoord;
-    if (uContentScale < 0.999) {
+    if (uContentScaleX < 0.999 || uContentScaleY < 0.999) {
         vec2 elementCenter = uElementOffset + uElementSize * 0.5;
-        sampleCoord = elementCenter + (screenCoord - elementCenter) * uContentScale;
+        sampleCoord = elementCenter + (screenCoord - elementCenter) * contentScale;
     }
     vec2 localCoord = screenCoord - uElementOffset;
     vec2 halfSize = uElementSize * 0.5;
@@ -63,7 +65,7 @@ void main() {
 
     // --- 1. Backdrop sample (before refraction) -------------------
     // Use sampleCoord (content-scaled) so the backdrop shrinks inward when
-    // uContentScale < 1.0 (toggle knob press effect).
+    // uContentScaleX/Y < 1.0 (toggle/slider knob press effect).
     vec4 backdrop = sampleBackdrop(sampleCoord, uBlurRadius);
     vec3 color = applyColorControls(backdrop.rgb, uBrightness, uContrast, uSaturation);
     float alpha = backdrop.a;
@@ -89,13 +91,13 @@ void main() {
         if (gradLen > 1e-6) grad = gradSum / gradLen;
 
         vec2 refractedLocal = localCoord + d * grad;
-        // Apply content scale to the refracted sample too, so the lens
-        // refraction also sees the compressed backdrop.
+        // Apply non-uniform content scale to the refracted sample too, so
+        // the lens refraction also sees the compressed backdrop.
         vec2 refractedScreen = uElementOffset + refractedLocal;
         vec2 refractedSampleCoord = refractedScreen;
-        if (uContentScale < 0.999) {
+        if (uContentScaleX < 0.999 || uContentScaleY < 0.999) {
             vec2 elementCenter = uElementOffset + uElementSize * 0.5;
-            refractedSampleCoord = elementCenter + (refractedScreen - elementCenter) * uContentScale;
+            refractedSampleCoord = elementCenter + (refractedScreen - elementCenter) * contentScale;
         }
 
         if (uChromaticAberration > 0.5) {

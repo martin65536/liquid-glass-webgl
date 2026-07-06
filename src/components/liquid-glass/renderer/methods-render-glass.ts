@@ -17,6 +17,13 @@ export interface GlassRenderState {
   radii: [number, number, number, number] // CSS px
   togglePressProgress: number
   elHighlightAlpha: number
+  // Layer transform scale factors (from the layerBlock). Used to scale
+  // shader params (refraction, blur, shadow) so they stretch WITH the
+  // layer — faithful to the original which applies graphicsLayer AFTER
+  // the shader, causing the entire rendered layer to scale as a unit.
+  layerScaleX: number
+  layerScaleY: number
+  layerScale: number // min(scaleX, scaleY) — for isotropic params
 }
 
 declare module './index' {
@@ -219,6 +226,9 @@ export const glassRenderMethods = {
     const state: GlassRenderState = {
       el, st, isButton, p, sx, sy, sw, sh, radii, togglePressProgress,
       elHighlightAlpha: el.highlight ? el.highlight.alpha : 0,
+      layerScaleX: scaleX,
+      layerScaleY: scaleY,
+      layerScale: Math.min(scaleX, scaleY),
     }
 
     // --- Step 2a: Shadow pass (to otherFbo, on top of copied scene) ---
@@ -247,7 +257,7 @@ export const glassRenderMethods = {
 
   renderGlassShadowPass(this: LiquidGlassRenderer, state: GlassRenderState) {
     const gl = this.gl
-    const { el, sx, sy, sw, sh, radii } = state
+    const { el, sx, sy, sw, sh, radii, layerScale, layerScaleX, layerScaleY } = state
     if (!el.outerShadow || el.outerShadow.alpha <= 0.001 || el.outerShadow.radius <= 0.5) return
     gl.useProgram(this.shadowProgram)
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
@@ -265,11 +275,14 @@ export const glassRenderMethods = {
       radii[2] * this.dpr,
       radii[3] * this.dpr
     )
-    gl.uniform1f(this.uSh['uShadowRadius'], el.outerShadow.radius * this.dpr)
+    // Faithful to original: the graphicsLayer scales the ENTIRE layer
+    // (including shadow) by (scaleX, scaleY). So shadow radius scales
+    // by layerScale (isotropic approximation) and offsets scale anisotropically.
+    gl.uniform1f(this.uSh['uShadowRadius'], el.outerShadow.radius * layerScale * this.dpr)
     gl.uniform2f(
       this.uSh['uShadowOffset'],
-      el.outerShadow.offsetX * this.dpr,
-      el.outerShadow.offsetY * this.dpr
+      el.outerShadow.offsetX * layerScaleX * this.dpr,
+      el.outerShadow.offsetY * layerScaleY * this.dpr
     )
     gl.uniform4f(
       this.uSh['uShadowColor'],

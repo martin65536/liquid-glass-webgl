@@ -30,12 +30,12 @@ uniform float uHighlightBlur;     // px (BlurMaskFilter radius)
 uniform float uInnerShadowRadius;
 uniform float uInnerShadowAlpha;
 uniform vec2  uInnerShadowOffset;
-// Content scale: when < 1.0, the backdrop UV is scaled toward the element
-// center by this factor before sampling. Faithful to LiquidToggle.kt's
+// Content scale (non-uniform, faithful to LiquidToggle.kt / LiquidSlider.kt):
 //   scale(scaleX, scaleY) { drawBackdrop() }
-// where scaleX/Y lerp from (2/3, 0) at rest to (0.75, 0.75) when pressed.
-// We approximate by scaling the whole scene UV (which includes the track)
-// since the white overlay hides the glass at rest anyway. The visual
-// effect — track content appearing to shrink inward when pressed — matches.
-uniform float uContentScale;
+// Toggle: X lerp(2/3, 0.75, p), Y lerp(0, 0.75, p)
+// Slider: X lerp(2/3, 1, p),    Y lerp(0, 1, p)
+// At rest Y=0 → backdrop sampled from a single horizontal line (degenerate),
+// but the white overlay (alpha=1) hides it. When pressed, scales to full.
+uniform float uContentScaleX;
+uniform float uContentScaleY;
 `

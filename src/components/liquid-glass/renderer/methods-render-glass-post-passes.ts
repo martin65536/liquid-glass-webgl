@@ -55,8 +55,15 @@ export const glassPostPassMethods = {
       gl.uniform4f(this.uHl['uColor'], 1, 1, 1, 0.15 * p)
       const minDim = Math.min(sw, sh) * this.dpr
       gl.uniform1f(this.uHl['uRadius'], minDim * 1.5)
-      const px = Math.max(0, Math.min(sw, st.dragX + el.rect.x - sx)) * this.dpr
-      const py = Math.max(0, Math.min(sh, st.dragY + el.rect.y - sy)) * this.dpr
+      // Faithful to original: the press glow position is at the finger's
+      // position in ORIGINAL-local coords (st.dragX/Y, relative to the
+      // element's original top-left). The graphicsLayer then scales this
+      // position by (scaleX, scaleY). In our scaled shader, the equivalent
+      // position in scaled-local coords is (st.dragX * scaleX, st.dragY * scaleY).
+      // This keeps the glow "attached" to the same spot on the element as
+      // it stretches, matching the original behavior.
+      const px = Math.max(0, Math.min(sw, st.dragX * state.layerScaleX)) * this.dpr
+      const py = Math.max(0, Math.min(sh, st.dragY * state.layerScaleY)) * this.dpr
       gl.uniform2f(this.uHl['uPosition'], px, py)
       gl.drawArrays(gl.TRIANGLES, 0, 6)
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)

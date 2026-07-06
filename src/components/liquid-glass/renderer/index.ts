@@ -186,7 +186,7 @@ export class LiquidGlassRenderer {
       'uHighlightAngle', 'uHighlightFalloff', 'uHighlightAlpha', 'uHighlightMode',
       'uHighlightStrokeWidth', 'uHighlightBlur',
       'uInnerShadowRadius', 'uInnerShadowAlpha', 'uInnerShadowOffset',
-      'uContentScale',
+      'uContentScaleX', 'uContentScaleY',
     ]
     for (const n of elNames) this.uEl[n] = gl.getUniformLocation(this.elementProgram, n)
     const shNames = [
