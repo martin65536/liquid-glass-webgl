@@ -52,3 +52,6 @@ prompt
 server.log
 # Skills directory
 /skills/
+# Large binary tools — too big for GitHub (>100MB), kept locally only
+/tools/jadx.zip
+/tools/jadx/lib/jadx-1.5.0-all.jar
