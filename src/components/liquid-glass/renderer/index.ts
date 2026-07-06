@@ -264,6 +264,9 @@ import { elementMethods } from './methods-elements'
 import { animationMethods } from './methods-animation'
 import { rasterMethods } from './methods-raster'
 import { renderMethods } from './methods-render'
+import { glassRenderMethods } from './methods-render-glass'
+import { glassElementPassMethods } from './methods-render-glass-element-pass'
+import { glassPostPassMethods } from './methods-render-glass-post-passes'
 
 Object.assign(
   LiquidGlassRenderer.prototype,
@@ -275,7 +278,10 @@ Object.assign(
   elementMethods,
   animationMethods,
   rasterMethods,
-  renderMethods
+  renderMethods,
+  glassRenderMethods,
+  glassElementPassMethods,
+  glassPostPassMethods
 )
 
 // Re-export all public types so callers can `import type { GlassElementConfig, ... } from './renderer'`.
