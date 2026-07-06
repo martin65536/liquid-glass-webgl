@@ -175,6 +175,14 @@ export interface GlassElementConfig extends GlassButtonConfig {
     groupId: string
     /** How far the knob moves from fraction=0 to fraction=1, in CSS px. */
     dragWidth: number
+    /**
+     * Velocity divisor for the squash-and-stretch effect.
+     * Faithful to original:
+     *   - LiquidToggle.kt: velocity / 50
+     *   - LiquidSlider.kt: velocity / 10
+     * Defaults to 50 (toggle). Slider sets 10.
+     */
+    velocityDivisor?: number
   }
   /**
    * If set, this element is a toggle track. Its color is lerped between
@@ -186,6 +194,31 @@ export interface GlassElementConfig extends GlassButtonConfig {
     offColor: [number, number, number, number]
     onColor: [number, number, number, number]
   }
+  /**
+   * Bottom tabs container — scales up on press (16dp/width).
+   * Faithful to LiquidBottomTabs.kt container layerBlock:
+   *   scale = lerp(1, 1 + 16dp/width, pressProgress)
+   * Also shifts by panelOffset during drag.
+   */
+  isBottomTabContainer?: { groupId: string }
+  /**
+   * Bottom tabs content (text/icon) — scales up to 1.2 on press.
+   * Faithful to LiquidBottomTab.kt graphicsLayer:
+   *   scale = lerp(1, 1.2, pressProgress)
+   * Also shifts by panelOffset during drag.
+   */
+  isBottomTabContent?: { groupId: string }
+  /**
+   * Bottom tabs indicator — DampedDragAnimation with pressedScale=78/56.
+   * Faithful to LiquidBottomTabs.kt indicator layerBlock:
+   *   scaleX = dampedDragAnimation.scaleX  (spring 0.6, 250, 1→78/56)
+   *   scaleY = dampedDragAnimation.scaleY  (spring 0.7, 250, 1→78/56)
+   *   velocity = dampedDragAnimation.velocity / 10  (not 50!)
+   *   scaleX /= 1 - clamp(vel*0.75, -0.2, 0.2)
+   *   scaleY *= 1 - clamp(vel*0.25, -0.2, 0.2)
+   * Position: translationX = fraction * dragWidth + panelOffset
+   */
+  isBottomTabIndicator?: { groupId: string; dragWidth: number }
 }
 
 /* ------------------------------------------------------------------ *
@@ -268,6 +301,20 @@ interface ToggleGroupState {
   // Last fraction value seen by the velocity tracker (for computing Δfraction/Δt).
   lastFractionForVelocity: number
   lastFractionTime: number
+
+  // pressedScale: target scale when pressed. 1.5 for toggle knob,
+  // 78/56 ≈ 1.393 for bottom tabs indicator.
+  // Set when the toggle group is first created (via ensureToggleState).
+  pressedScale: number
+
+  // Bottom tabs panelOffset (drag-driven horizontal shift of the whole bar).
+  // Faithful to LiquidBottomTabs.kt:
+  //   panelOffset = 4dp * sign(fraction) * EaseOut(|fraction|)
+  //   offsetAnimation snaps to value+dragAmount during drag,
+  //   animates to 0 on release with spring(1f, 300f) — critically damped.
+  panelOffset: number
+  panelOffsetVelocity: number
+  targetPanelOffset: number
 }
 
 /* ------------------------------------------------------------------ *
@@ -291,6 +338,11 @@ interface ToggleGroupState {
  *   x(t) = target + (x0-target)·e^(-ω_n·t)
  *                 + (v0 + ω_n·(x0-target))·t·e^(-ω_n·t)
  * ------------------------------------------------------------------ */
+
+// CSS pixels per density-independent pixel. The catalog uses DP=1
+// (CSS px ARE dp), so 4dp = 4 CSS px. Matching the catalog's DP constant.
+const DP = 1
+
 const SPRING_K = 300
 const SPRING_DAMPING_RATIO = 0.5
 const SPRING_OMEGA_N = Math.sqrt(SPRING_K) // ≈ 17.3205 (m = 1)
@@ -874,7 +926,11 @@ export class LiquidGlassRenderer {
    * ------------------------------------------------------------------ */
 
   /** Ensure a toggle group state exists, initialized to the given fraction. */
-  private ensureToggleState(groupId: string, initialFraction: number): ToggleGroupState {
+  private ensureToggleState(
+    groupId: string,
+    initialFraction: number,
+    pressedScale = 1.5
+  ): ToggleGroupState {
     let st = this.toggleStates.get(groupId)
     if (!st) {
       st = {
@@ -896,8 +952,18 @@ export class LiquidGlassRenderer {
         isDragging: false,
         lastFractionForVelocity: initialFraction,
         lastFractionTime: 0,
+        pressedScale,
+        panelOffset: 0,
+        panelOffsetVelocity: 0,
+        targetPanelOffset: 0,
       }
       this.toggleStates.set(groupId, st)
+    } else if (pressedScale !== 1.5) {
+      // Only non-default pressedScale callers (i.e. bottom tabs with 78/56)
+      // may overwrite an existing group's pressedScale. This ensures tabs
+      // always get 78/56 even if setToggleTarget created the group first
+      // via page.tsx toggleTargets sync.
+      st.pressedScale = pressedScale
     }
     return st
   }
@@ -927,23 +993,23 @@ export class LiquidGlassRenderer {
     // (handled in the animation loop).
     if (st.targetPress === 0) {
       st.targetPress = 1
-      st.targetScaleX = 1.5
-      st.targetScaleY = 1.5
+      st.targetScaleX = st.pressedScale
+      st.targetScaleY = st.pressedScale
     }
     this.startAnimation()
   }
 
   /**
    * Begin a finger drag on a toggle group. Sets isDragging=true and
-   * starts the press animation (scale → 1.5, white overlay fades in).
+   * starts the press animation (scale → pressedScale, white overlay fades in).
    * The startFraction is recorded so drag deltas can be added to it.
    */
   beginToggleDrag(groupId: string, startFraction: number) {
     const st = this.ensureToggleState(groupId, startFraction)
     st.isDragging = true
     st.targetPress = 1
-    st.targetScaleX = 1.5
-    st.targetScaleY = 1.5
+    st.targetScaleX = st.pressedScale
+    st.targetScaleY = st.pressedScale
     this.startAnimation()
   }
 
@@ -1023,6 +1089,137 @@ export class LiquidGlassRenderer {
 
   /** Read the current target fraction (0..1) for a toggle group. */
   getToggleTarget(groupId: string): number {
+    return this.toggleStates.get(groupId)?.targetFraction ?? 0
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Bottom tabs API — faithful to LiquidBottomTabs.kt + DampedDragAnimation.
+   *
+   * The indicator uses DampedDragAnimation with:
+   *   pressedScale = 78/56 ≈ 1.393
+   *   velocity divisor = 10 (not 50 like toggle)
+   *   valueRange = 0..(tabsCount-1)
+   *
+   * The whole bar shifts by panelOffset during drag:
+   *   panelOffset = 4dp * sign(fraction) * EaseOut(|fraction|)
+   *   fraction = offsetAnimation / maxWidth, clamped [-1, 1]
+   *   offsetAnimation snaps during drag, springs to 0 on release.
+   * ------------------------------------------------------------------ */
+
+  /** The pressed scale for bottom tabs indicator (78f/56f in Kotlin). */
+  static readonly TAB_PRESSED_SCALE = 78 / 56
+
+  /**
+   * Set the tab indicator's target index. Animates with critically
+   * damped spring. Also triggers a quick press-and-release cycle.
+   */
+  setTabSelected(groupId: string, tabIndex: number, tabsCount: number) {
+    const st = this.ensureToggleState(
+      groupId,
+      tabIndex,
+      LiquidGlassRenderer.TAB_PRESSED_SCALE
+    )
+    if (st.isDragging) return
+    if (st.targetFraction === tabIndex) return
+    st.targetFraction = tabIndex
+    if (st.targetPress === 0) {
+      st.targetPress = 1
+      st.targetScaleX = st.pressedScale
+      st.targetScaleY = st.pressedScale
+    }
+    this.startAnimation()
+  }
+
+  /**
+   * Begin a finger drag on the tab indicator. Sets isDragging=true and
+   * starts the press animation (scale → 78/56).
+   */
+  beginTabDrag(groupId: string, startTabIndex: number, tabsCount: number) {
+    const st = this.ensureToggleState(
+      groupId,
+      startTabIndex,
+      LiquidGlassRenderer.TAB_PRESSED_SCALE
+    )
+    st.isDragging = true
+    st.targetPress = 1
+    st.targetScaleX = st.pressedScale
+    st.targetScaleY = st.pressedScale
+    this.startAnimation()
+  }
+
+  /**
+   * Update the tab indicator's target based on finger movement.
+   * newTarget = startTabIndex + (currentX - startX) / tabWidth, clamped to [0, tabsCount-1].
+   * Also updates panelOffset: 4dp * sign(fraction) * EaseOut(|fraction|).
+   */
+  dragTab(
+    groupId: string,
+    startTabIndex: number,
+    currentX: number,
+    startX: number,
+    tabWidth: number,
+    tabsCount: number
+  ) {
+    const st = this.ensureToggleState(
+      groupId,
+      startTabIndex,
+      LiquidGlassRenderer.TAB_PRESSED_SCALE
+    )
+    if (!st.isDragging) return
+    const delta = (currentX - startX) / Math.max(1, tabWidth)
+    const newTarget = Math.max(0, Math.min(tabsCount - 1, startTabIndex + delta))
+    // Velocity tracking.
+    const now = performance.now() / 1000
+    if (st.lastFractionTime > 0) {
+      const dt = now - st.lastFractionTime
+      if (dt > 0.001) {
+        const dv = (newTarget - st.lastFractionForVelocity) / dt
+        st.targetVelocity = Math.max(-10, Math.min(10, dv))
+      }
+    }
+    st.lastFractionForVelocity = newTarget
+    st.lastFractionTime = now
+    st.targetFraction = newTarget
+
+    // panelOffset: 4dp * sign(fraction) * EaseOut(|fraction|)
+    // fraction = offsetAnimation / maxWidth, clamped [-1, 1]
+    // During drag, offsetAnimation ≈ (currentX - startX).
+    const maxWidth = tabWidth * tabsCount
+    const offsetFraction = Math.max(-1, Math.min(1, (currentX - startX) / Math.max(1, maxWidth)))
+    // EaseOut transform: t → 1 - (1-t)^2 (Compose EaseOut is quadratic).
+    const easeOut = 1 - Math.pow(1 - Math.abs(offsetFraction), 2)
+    st.targetPanelOffset = 4 * DP * Math.sign(offsetFraction) * easeOut
+
+    this.startAnimation()
+  }
+
+  /**
+   * End a finger drag. Snaps to nearest tab index. Returns the snapped index.
+   * panelOffset springs back to 0 (spring(1f, 300f) — critically damped).
+   */
+  endTabDrag(groupId: string, tabsCount: number): number {
+    const st = this.toggleStates.get(groupId)
+    if (!st) return 0
+    st.isDragging = false
+    const finalTarget = Math.round(st.targetFraction)
+    const clamped = Math.max(0, Math.min(tabsCount - 1, finalTarget))
+    st.targetFraction = clamped
+    st.targetVelocity = 0
+    st.targetPanelOffset = 0
+    st.lastFractionTime = 0
+    // Don't release press here — auto-release will fire when fraction
+    // settles near clamped target.
+    this.startAnimation()
+    return clamped
+  }
+
+  /** Read the current animated tab fraction (0..tabsCount-1). */
+  getTabFraction(groupId: string): number {
+    return this.toggleStates.get(groupId)?.fraction ?? 0
+  }
+
+  /** Read the current target tab index. */
+  getTabTarget(groupId: string): number {
     return this.toggleStates.get(groupId)?.targetFraction ?? 0
   }
 
@@ -1426,6 +1623,30 @@ export class LiquidGlassRenderer {
         } else {
           tg.velocity = tg.targetVelocity
           tg.velocityVelocity = 0
+        }
+
+        // PanelOffset: critically damped (spring(1f, 300f)).
+        // Faithful to LiquidBottomTabs.kt offsetAnimation:
+        //   offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f))
+        // Only used by bottom tabs; for toggle/slider it stays 0.
+        const poDelta = Math.abs(tg.targetPanelOffset - tg.panelOffset)
+        if (
+          poDelta > SPRING_THRESHOLD ||
+          Math.abs(tg.panelOffsetVelocity) > SPRING_THRESHOLD
+        ) {
+          const r = springStepCritical(
+            tg.panelOffset,
+            tg.panelOffsetVelocity,
+            tg.targetPanelOffset,
+            dt,
+            Math.sqrt(300) // ω_n = sqrt(k) = sqrt(300) ≈ 17.32
+          )
+          tg.panelOffset = r.current
+          tg.panelOffsetVelocity = r.velocity
+          stillAnimating = true
+        } else {
+          tg.panelOffset = tg.targetPanelOffset
+          tg.panelOffsetVelocity = 0
         }
       }
 
@@ -1933,13 +2154,20 @@ export class LiquidGlassRenderer {
       const p = st?.pressProgress ?? 0
 
       // --- Compute press transform (button only) ---
+      // Faithful to LiquidButton.kt layerBlock — ALWAYS runs when isInteractive,
+      // even if pressProgress≈0 (at rest, scale=1, translation=0 naturally).
+      // The original Compose layerBlock is applied unconditionally; we must
+      // not short-circuit on pressProgress threshold or the translation will
+      // snap to 0 prematurely during release-overshoot (pressProgress may be
+      // slightly negative due to underdamped spring while offset is still
+      // animating back to start).
       const PRESS_SCALE_RATIO = 4 / 48
       let scale = 1
       let translationX = 0
       let translationY = 0
       let scaleX = 1
       let scaleY = 1
-      if (isButton && el.isInteractive && st && Math.abs(p) > 0.0001) {
+      if (isButton && el.isInteractive && st) {
         const width = el.rect.w
         const height = el.rect.h
         const maxDim = Math.max(width, height)
@@ -1984,13 +2212,13 @@ export class LiquidGlassRenderer {
           toggleScaleX = tg.scaleX
           toggleScaleY = tg.scaleY
           togglePressProgress = tg.pressProgress
-          // Velocity-driven squash-and-stretch (faithful to LiquidToggle.kt layerBlock).
-          //   velocity = dampedDragAnimation.velocity / 50
+          // Velocity-driven squash-and-stretch (faithful to LiquidToggle.kt / LiquidSlider.kt layerBlock).
+          //   velocity = dampedDragAnimation.velocity / divisor
           //   scaleX /= 1 - clamp(velocity * 0.75, -0.2, 0.2)
           //   scaleY *= 1 - clamp(velocity * 0.25, -0.2, 0.2)
-          // Positive velocity (dragging right) → scaleX shrinks, scaleY grows (vertical stretch).
-          // Negative velocity (dragging left) → scaleX grows, scaleY shrinks (horizontal stretch).
-          const vel = tg.velocity / 50
+          // Divisor: 50 for toggle knob, 10 for slider knob (faithful to original).
+          const divisor = el.isToggleKnob.velocityDivisor ?? 50
+          const vel = tg.velocity / divisor
           const velX = Math.max(-0.2, Math.min(0.2, vel * 0.75))
           const velY = Math.max(-0.2, Math.min(0.2, vel * 0.25))
           toggleScaleX = toggleScaleX / (1 - velX)
@@ -1999,6 +2227,64 @@ export class LiquidGlassRenderer {
       }
       scaleX *= toggleScaleX
       scaleY *= toggleScaleY
+
+      // --- Bottom tabs container transform (faithful to LiquidBottomTabs.kt container layerBlock) ---
+      //   val scale = lerp(1f, 1f + 16f.dp.toPx() / size.width, progress)
+      //   scaleX = scaleY = scale
+      //   translationX = panelOffset (whole bar shifts during drag)
+      if (el.isBottomTabContainer) {
+        const tg = this.toggleStates.get(el.isBottomTabContainer.groupId)
+        if (tg) {
+          const containerScale = 1 + (16 * DP) / el.rect.w * tg.pressProgress
+          scaleX *= containerScale
+          scaleY *= containerScale
+          translationX += tg.panelOffset
+        }
+      }
+
+      // --- Bottom tabs content transform (faithful to LiquidBottomTab.kt graphicsLayer) ---
+      //   val scale = lerp(1f, 1.2f, dampedDragAnimation.pressProgress)
+      //   scaleX = scaleY = scale
+      //   translationX = panelOffset (content shifts with the bar)
+      if (el.isBottomTabContent) {
+        const tg = this.toggleStates.get(el.isBottomTabContent.groupId)
+        if (tg) {
+          const contentScale = 1 + 0.2 * tg.pressProgress
+          scaleX *= contentScale
+          scaleY *= contentScale
+          translationX += tg.panelOffset
+        }
+      }
+
+      // --- Bottom tabs indicator transform (faithful to LiquidBottomTabs.kt indicator layerBlock) ---
+      //   translationX = dampedDragAnimation.value * tabWidth + panelOffset
+      //   scaleX = dampedDragAnimation.scaleX  (spring 0.6, 250, 1→78/56)
+      //   scaleY = dampedDragAnimation.scaleY  (spring 0.7, 250, 1→78/56)
+      //   velocity = dampedDragAnimation.velocity / 10  (NOT 50 like toggle!)
+      //   scaleX /= 1 - clamp(velocity * 0.75, -0.2, 0.2)
+      //   scaleY *= 1 - clamp(velocity * 0.25, -0.2, 0.2)
+      if (el.isBottomTabIndicator) {
+        const tg = this.toggleStates.get(el.isBottomTabIndicator.groupId)
+        if (tg) {
+          // Position: indicator slides between tabs + panelOffset.
+          toggleXOffset += tg.fraction * el.isBottomTabIndicator.dragWidth
+          toggleXOffset += tg.panelOffset
+          // Scale from DampedDragAnimation (1 → 78/56 on press).
+          const indScaleX = tg.scaleX
+          const indScaleY = tg.scaleY
+          // Velocity squash — divisor is 10 (not 50 like toggle knob).
+          const vel = tg.velocity / 10
+          const velX = Math.max(-0.2, Math.min(0.2, vel * 0.75))
+          const velY = Math.max(-0.2, Math.min(0.2, vel * 0.25))
+          const finalIndScaleX = indScaleX / (1 - velX)
+          const finalIndScaleY = indScaleY * (1 - velY)
+          scaleX *= finalIndScaleX
+          scaleY *= finalIndScaleY
+          // Drive white overlay alpha + surface color by pressProgress
+          // (faithful to indicator onDrawSurface).
+          togglePressProgress = Math.max(togglePressProgress, tg.pressProgress)
+        }
+      }
 
       const baseR = effRect(el)
       const cx = baseR.x + baseR.w / 2 + translationX + toggleXOffset

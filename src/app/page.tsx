@@ -149,6 +149,17 @@ export default function Page() {
     return targets
   }, [destination, state.toggleOn, state.sliderValue])
 
+  // Tab targets use a separate prop because they need setTabSelected
+  // (which sets pressedScale=78/56, not toggle's 1.5).
+  const tabTargets = React.useMemo<Record<string, { tabIndex: number; tabsCount: number }>>(() => {
+    const targets: Record<string, { tabIndex: number; tabsCount: number }> = {}
+    if (destination === CatalogDestination.BottomTabs) {
+      targets.tabs3 = { tabIndex: state.selectedTab, tabsCount: 3 }
+      targets.tabs4 = { tabIndex: state.selectedTab2, tabsCount: 4 }
+    }
+    return targets
+  }, [destination, state.selectedTab, state.selectedTab2])
+
   return (
     <div
       className="min-h-screen w-full flex items-center justify-center"
@@ -173,6 +184,7 @@ export default function Page() {
           scrollResetToken={destination}
           backgroundColor={backgroundColor}
           toggleTargets={toggleTargets}
+          tabTargets={tabTargets}
           rendererRef={rendererRef}
           className="w-full h-full"
         />

@@ -451,6 +451,59 @@ function makePlainRect(
   }
 }
 
+/**
+ * Tab drag interactions — faithful to LiquidBottomTabs.kt's
+ * dampedDragAnimation gesture handling.
+ *
+ * The original uses DampedDragAnimation with:
+ *   valueRange = 0..(tabsCount-1)
+ *   pressedScale = 78/56
+ *   onDrag → updateValue(targetValue + dragAmount.x / tabWidth)
+ *   onDragStopped → snap to nearest tab, animateToValue
+ *
+ * We reuse the renderer's toggle-group state (which supports custom
+ * pressedScale via ensureToggleState) through the tab-specific API:
+ *   beginTabDrag / dragTab / endTabDrag.
+ */
+function makeTabDragInteractions(
+  groupId: string,
+  tabWidth: number,
+  tabsCount: number,
+  onSelect: (i: number) => void,
+  rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> | null
+): ElementInteraction {
+  let dragStartTab = 0
+  let dragStartX = 0
+  let didDrag = false
+  return {
+    onTap: () => {
+      // Tap on container/indicator: no-op (tab taps are handled by tab-text interactions).
+    },
+    onDragStart: (pos: { x: number; y: number }) => {
+      const r = rendererRef?.current
+      if (!r) return
+      dragStartTab = r.getTabTarget(groupId)
+      dragStartX = pos.x
+      didDrag = false
+      r.beginTabDrag(groupId, dragStartTab, tabsCount)
+    },
+    onDrag: (pos: { x: number; y: number }) => {
+      const r = rendererRef?.current
+      if (!r) return
+      if (Math.abs(pos.x - dragStartX) > 3) didDrag = true
+      r.dragTab(groupId, dragStartTab, pos.x, dragStartX, tabWidth, tabsCount)
+    },
+    onDragEnd: () => {
+      const r = rendererRef?.current
+      if (!r) return
+      const finalTab = r.endTabDrag(groupId, tabsCount)
+      if (didDrag) {
+        onSelect(finalTab)
+      }
+    },
+  }
+}
+
 function makeGlassShape(
   id: string,
   rect: { x: number; y: number; w: number; h: number },
@@ -1202,7 +1255,7 @@ function buildSlider(
       chromaticAberration: true,
     }
   )
-  s1KnobEl.isToggleKnob = { groupId: 'slider1', dragWidth: s1TrackW - SLIDER_KNOB_W / 2 }
+  s1KnobEl.isToggleKnob = { groupId: 'slider1', dragWidth: s1TrackW - SLIDER_KNOB_W / 2, velocityDivisor: 10 }
   elements.push(s1KnobEl)
 
   // --- White card with slider 2 (faithful to SliderContent.kt) ---
@@ -1263,7 +1316,7 @@ function buildSlider(
       chromaticAberration: true,
     }
   )
-  s2KnobEl.isToggleKnob = { groupId: 'slider2', dragWidth: s2TrackW - SLIDER_KNOB_W / 2 }
+  s2KnobEl.isToggleKnob = { groupId: 'slider2', dragWidth: s2TrackW - SLIDER_KNOB_W / 2, velocityDivisor: 10 }
   elements.push(s2KnobEl)
 
   // --- Interactions ---
@@ -1350,7 +1403,7 @@ function buildSlider(
  *   2. 4-tab bar
  * Each tab shows a flight icon + "Tab N" label.
  * ------------------------------------------------------------------ */
-function buildBottomTabs(W: number, H: number, onBack: () => void, state: CatalogState, setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void, palette: ThemePalette = LIGHT_PALETTE): CatalogResult {
+function buildBottomTabs(W: number, H: number, onBack: () => void, state: CatalogState, setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void, rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> | null = null, palette: ThemePalette = LIGHT_PALETTE): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
@@ -1371,65 +1424,80 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
     const TAB_W = TABS_W / tabsCount
     const tabsX = TABS_PAD
     const TABS_H = 64 * DP
-    // Glass container
-    elements.push(
-      makeGlassShape(
-        `${idPrefix}-container`,
-        { x: tabsX, y, w: TABS_W, h: TABS_H },
-        {
-          cornerRadius: TABS_H / 2,
-          refractionHeight: 24 * DP,
-          refractionAmount: -24 * DP,
-          blurRadius: 8 * DP,
-          saturation: 1.5,
-          surfaceColor: containerColor,
-          highlight: { ...DEFAULT_HIGHLIGHT },
-          outerShadow: null,
-        }
-      )
+    // Glass container (Layer 1) — scales up on press (16dp/width).
+    // Faithful to LiquidBottomTabs.kt container layerBlock.
+    const containerEl = makeGlassShape(
+      `${idPrefix}-container`,
+      { x: tabsX, y, w: TABS_W, h: TABS_H },
+      {
+        cornerRadius: TABS_H / 2,
+        refractionHeight: 24 * DP,
+        refractionAmount: -24 * DP,
+        blurRadius: 8 * DP,
+        saturation: 1.5,
+        surfaceColor: containerColor,
+        highlight: { ...DEFAULT_HIGHLIGHT },
+        outerShadow: null,
+      }
     )
-    // Selected indicator (slides between tab positions)
+    containerEl.isBottomTabContainer = { groupId: idPrefix }
+    elements.push(containerEl)
+
+    // Selected indicator (Layer 3) — slides between tab positions.
+    // DampedDragAnimation with pressedScale=78/56, velocity/10.
+    // Faithful to LiquidBottomTabs.kt indicator layerBlock.
+    // Initial position based on selectedTab (renderer animates from here).
     const indicatorX = tabsX + TAB_W * selectedTab + 4
     const indicatorW = TAB_W - 8
-    elements.push(
-      makeGlassShape(
-        `${idPrefix}-indicator`,
-        { x: indicatorX, y: y + 4, w: indicatorW, h: TABS_H - 8 },
-        {
-          cornerRadius: (TABS_H - 8) / 2,
-          refractionHeight: 10 * DP,
-          refractionAmount: -14 * DP,
-          blurRadius: 2 * DP,
-          saturation: 1.5,
-          surfaceColor: [1, 1, 1, 0.3],
-          highlight: { ...DEFAULT_HIGHLIGHT },
-          outerShadow: null,
-          innerShadow: { radius: 4 * DP, alpha: 1, offsetX: 0, offsetY: 0 },
-          chromaticAberration: true,
-        }
-      )
+    const indicatorEl = makeGlassShape(
+      `${idPrefix}-indicator`,
+      { x: indicatorX, y: y + 4, w: indicatorW, h: TABS_H - 8 },
+      {
+        cornerRadius: (TABS_H - 8) / 2,
+        refractionHeight: 10 * DP,
+        refractionAmount: -14 * DP,
+        blurRadius: 2 * DP,
+        saturation: 1.5,
+        surfaceColor: [1, 1, 1, 0.3],
+        highlight: { ...DEFAULT_HIGHLIGHT },
+        outerShadow: null,
+        innerShadow: { radius: 4 * DP, alpha: 1, offsetX: 0, offsetY: 0 },
+        chromaticAberration: true,
+      }
     )
-    // Tab labels with icons
+    indicatorEl.isBottomTabIndicator = { groupId: idPrefix, dragWidth: TAB_W }
+    elements.push(indicatorEl)
+
+    // Tab labels with icons (Layer 2 content — scales up to 1.2 on press).
+    // Faithful to LiquidBottomTab.kt graphicsLayer: scale = lerp(1, 1.2, pressProgress).
     for (let i = 0; i < tabsCount; i++) {
       const id = `${idPrefix}-tab-${i}`
-      elements.push(
-        makeText(
-          id,
-          { x: tabsX + TAB_W * i, y, w: TAB_W, h: TABS_H },
-          `Tab ${i + 1}`,
-          {
-            color: palette.tabsContentColor,
-            fontSizePx: 12,
-            fontWeight: 400,
-            align: 'center',
-            paddingPx: 0,
-            halo: palette.tabsTextHalo,
-            icon: { path: FLIGHT_ICON_PATH, size: 24, color: iconColor },
-          }
-        )
+      const tabEl = makeText(
+        id,
+        { x: tabsX + TAB_W * i, y, w: TAB_W, h: TABS_H },
+        `Tab ${i + 1}`,
+        {
+          color: palette.tabsContentColor,
+          fontSizePx: 12,
+          fontWeight: 400,
+          align: 'center',
+          paddingPx: 0,
+          halo: palette.tabsTextHalo,
+          icon: { path: FLIGHT_ICON_PATH, size: 24, color: iconColor },
+        }
       )
+      tabEl.isBottomTabContent = { groupId: idPrefix }
+      elements.push(tabEl)
       interactions[id] = { onTap: () => onSelect(i) }
     }
+
+    // Tab drag interactions — drag anywhere on container/indicator/content
+    // to slide the indicator. Faithful to LiquidBottomTabs.kt gesture:
+    //   onDrag → updateValue(targetValue + dragAmount.x / tabWidth)
+    //   onDragStopped → snap to nearest tab, animateToValue
+    const dragInteractions = makeTabDragInteractions(idPrefix, TAB_W, tabsCount, onSelect, rendererRef)
+    interactions[`${idPrefix}-container`] = dragInteractions
+    interactions[`${idPrefix}-indicator`] = dragInteractions
   }
 
   // 2 tab bars with 32dp Column spacing (faithful to BottomTabsContent.kt)
@@ -2315,7 +2383,7 @@ export function buildCatalog(
       result = buildSlider(W, H, onBack, state, setState, rendererRef, palette)
       break
     case CatalogDestination.BottomTabs:
-      result = buildBottomTabs(W, H, onBack, state, setState, palette)
+      result = buildBottomTabs(W, H, onBack, state, setState, rendererRef, palette)
       break
     case CatalogDestination.Dialog:
       result = buildDialog(W, H, onBack, palette)

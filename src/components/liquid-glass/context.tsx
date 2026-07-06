@@ -46,6 +46,9 @@ export interface LiquidGlassCanvasProps {
   /** Map of toggle groupId → target fraction (0 or 1). The canvas syncs
    *  these to the renderer whenever the map changes (programmatic toggle). */
   toggleTargets?: Record<string, number>
+  /** Map of tab groupId → { tabIndex, tabsCount }. The canvas syncs these
+   *  to the renderer via setTabSelected (which uses pressedScale=78/56). */
+  tabTargets?: Record<string, { tabIndex: number; tabsCount: number }>
   /** Ref that will be populated with the renderer instance once created.
    *  Allows the parent (e.g. catalog builders) to call renderer methods
    *  like setToggleTarget / beginToggleDrag / dragToggle / endToggleDrag. */
@@ -78,6 +81,7 @@ export function LiquidGlassCanvas({
   scrollResetToken,
   backgroundColor = null,
   toggleTargets,
+  tabTargets,
   rendererRef,
   className,
 }: LiquidGlassCanvasProps) {
@@ -186,6 +190,17 @@ export function LiquidGlassCanvas({
       r.setToggleTarget(groupId, target)
     }
   }, [toggleTargets])
+
+  // Sync tabTargets → renderer (programmatic tab selection, e.g. via tap).
+  // Uses setTabSelected which sets pressedScale=78/56 (vs toggle's 1.5).
+  React.useEffect(() => {
+    if (!tabTargets) return
+    const r = rendererRefInternal.current
+    if (!r) return
+    for (const [groupId, { tabIndex, tabsCount }] of Object.entries(tabTargets)) {
+      r.setTabSelected(groupId, tabIndex, tabsCount)
+    }
+  }, [tabTargets])
 
   // --- Pointer handlers ---------------------------------------------
   const localPos = (e: React.PointerEvent<HTMLCanvasElement>) => {
