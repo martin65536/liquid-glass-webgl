@@ -164,7 +164,7 @@ export default function Page() {
     <div
       className="min-h-screen w-full flex items-center justify-center"
       style={{
-        background: isLightTheme ? '#000000' : '#000000',
+        background: isLightTheme ? '#f2f2f7' : '#000000',
       }}
     >
       <div
