@@ -102,40 +102,18 @@ void main() {
             float dispersionIntensity = 1.0 * ((centeredCoord.x * centeredCoord.y) / (halfSize.x * halfSize.y));
             vec2 dispersedCoord = d * grad * dispersionIntensity;
 
-            vec3 dispColor = vec3(0.0);
-            float dispAlpha = 0.0;
+            // PERFORMANCE: Reduced from 7-path (ROYGBV) to 3-path (RGB).
+            // The original 7-path dispersion was visually indistinguishable
+            // from 3-path on most content, but cost 7x the texture samples.
+            // 3-path RGB: red shifts +dispersedCoord, green shifts 0,
+            // blue shifts -dispersedCoord. This gives the same chromatic
+            // aberration fringe effect at 3/7 the cost.
+            vec4 redC   = sampleBackdrop(refractedSampleCoord + dispersedCoord, uBlurRadius);
+            vec4 greenC = sampleBackdrop(refractedSampleCoord,                  uBlurRadius);
+            vec4 blueC  = sampleBackdrop(refractedSampleCoord - dispersedCoord, uBlurRadius);
 
-            vec4 redC    = sampleBackdrop(refractedSampleCoord + dispersedCoord,               uBlurRadius);
-            dispColor.r += redC.r / 3.5;
-            dispAlpha   += redC.a / 7.0;
-
-            vec4 orangeC = sampleBackdrop(refractedSampleCoord + dispersedCoord * (2.0 / 3.0), uBlurRadius);
-            dispColor.r += orangeC.r / 3.5;
-            dispColor.g += orangeC.g / 7.0;
-            dispAlpha   += orangeC.a / 7.0;
-
-            vec4 yellowC = sampleBackdrop(refractedSampleCoord + dispersedCoord * (1.0 / 3.0), uBlurRadius);
-            dispColor.r += yellowC.r / 3.5;
-            dispColor.g += yellowC.g / 3.5;
-            dispAlpha   += yellowC.a / 7.0;
-
-            vec4 greenC  = sampleBackdrop(refractedSampleCoord,                               uBlurRadius);
-            dispColor.g += greenC.g / 3.5;
-            dispAlpha   += greenC.a / 7.0;
-
-            vec4 cyanC   = sampleBackdrop(refractedSampleCoord - dispersedCoord * (1.0 / 3.0), uBlurRadius);
-            dispColor.g += cyanC.g / 3.5;
-            dispColor.b += cyanC.b / 3.0;
-            dispAlpha   += cyanC.a / 7.0;
-
-            vec4 blueC   = sampleBackdrop(refractedSampleCoord - dispersedCoord * (2.0 / 3.0), uBlurRadius);
-            dispColor.b += blueC.b / 3.0;
-            dispAlpha   += blueC.a / 7.0;
-
-            vec4 purpleC = sampleBackdrop(refractedSampleCoord - dispersedCoord,               uBlurRadius);
-            dispColor.r += purpleC.r / 7.0;
-            dispColor.b += purpleC.b / 3.0;
-            dispAlpha   += purpleC.a / 7.0;
+            vec3 dispColor = vec3(redC.r, greenC.g, blueC.b);
+            float dispAlpha = (redC.a + greenC.a + blueC.a) / 3.0;
 
             color = applyColorControls(dispColor, uBrightness, uContrast, uSaturation);
             alpha = dispAlpha;

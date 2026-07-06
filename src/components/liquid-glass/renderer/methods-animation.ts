@@ -288,6 +288,7 @@ export const animationMethods = {
   },
 
   requestRender(this: LiquidGlassRenderer) {
+    this.needsRedraw = true
     if (this.rafId !== null) return
     this.rafId = requestAnimationFrame(() => {
       this.rafId = null

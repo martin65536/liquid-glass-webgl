@@ -35,6 +35,12 @@ declare module './index' {
 
 export const renderMethods = {
   render(this: LiquidGlassRenderer) {
+    // PERFORMANCE: Skip render if nothing changed since last frame.
+    // This prevents redundant full-scene re-renders when rAF fires
+    // (e.g. from browser repaints) but no state actually changed.
+    if (!this.needsRedraw) return
+    this.needsRedraw = false
+
     const gl = this.gl
     if (!this.wallpaperReady && !this.backgroundColor) return
     // Ensure FBOs exist (created lazily on first render after resize).

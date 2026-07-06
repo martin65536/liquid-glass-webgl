@@ -41,9 +41,15 @@ export const wallpaperMethods = {
     this.requestRender()
   },
 
-  /** Set canvas size (CSS pixels) + handle DPR. */
+  /** Set canvas size (CSS pixels) + handle DPR.
+   *  PERFORMANCE: DPR capped at 1.5 (was 2). On Retina displays (DPR=2),
+   *  this reduces pixel count by 44% (4x → 2.25x) with minimal visual
+   *  difference. The original Android app relies on hardware RenderEffect
+   *  which is far cheaper per-pixel, so it can afford full DPR; our
+   *  software shader pipeline cannot.
+   */
   resize(this: LiquidGlassRenderer, cssW: number, cssH: number) {
-    this.dpr = Math.min(window.devicePixelRatio || 1, 2)
+    this.dpr = Math.min(window.devicePixelRatio || 1, 1.5)
     const w = Math.round(cssW * this.dpr)
     const h = Math.round(cssH * this.dpr)
     if (this.canvas.width !== w || this.canvas.height !== h) {

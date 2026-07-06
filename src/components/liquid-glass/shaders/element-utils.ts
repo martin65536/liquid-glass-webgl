@@ -1,7 +1,15 @@
 /* ------------------------------------------------------------------ *
  * Element shader utilities — GLSL helper functions used by the element
- * fragment shader: backdrop sampling (43-tap poisson disc), color
+ * fragment shader: backdrop sampling (9-tap poisson disc), color
  * controls (saturation/brightness/contrast), HSV conversion + Hue blend.
+ *
+ * PERFORMANCE: Reduced from 43 taps to 9 taps. The original 43-tap disc
+ * was overkill and caused severe overheating on mobile GPUs. 9 taps with
+ * well-chosen weights gives a visually similar Gaussian-ish result at
+ * ~5x less fillrate cost. For large blur radii (8-16dp), the result is
+ * slightly less smooth but acceptable — matching Skia's RenderEffect
+ * exactly would require separable two-pass blur which isn't possible in
+ * a single-pass WebGL 1 setup.
  * ------------------------------------------------------------------ */
 export const ELEMENT_UTILS_GLSL = /* glsl */ `
 float circleMap(float x) {
@@ -17,14 +25,15 @@ vec2 sceneUv(vec2 canvasPx) {
     return vec2(canvasPx.x / uCanvasSize.x, 1.0 - canvasPx.y / uCanvasSize.y);
 }
 
-// 43-tap poisson disc for a smoother Gaussian-ish blur.
-// Two rings: an inner ring (~0.5 radius) for high-frequency detail, and
-// an outer ring (~1.0 radius) for the main blur. This gives a much
-// smoother result than the previous 17-tap disc, especially for larger
-// blur radii (8-16dp), and is closer to Skia's RenderEffect Gaussian.
+// 9-tap poisson disc blur — good balance of quality vs performance.
+// 1 center tap + 8-ring taps at radius 1.0, with Gaussian-ish weights.
+// Total weight = 1.0 (normalized). radius < 0.5 falls back to single tap.
 //
-// Sample the scene texture at a canvas-pixel coordinate, with a
-// Gaussian-ish blur. radius < 0.5 falls back to a single tap.
+// Weight distribution (approximates Gaussian with σ ≈ 0.5):
+//   center: 0.25
+//   4 cardinal (distance 1.0): 0.12 each = 0.48
+//   4 diagonal (distance 0.707): 0.0675 each = 0.27
+//   total = 1.0
 vec4 sampleBackdrop(vec2 canvasPx, float radius) {
     vec2 uv = sceneUv(canvasPx);
     if (radius < 0.5) {
@@ -34,58 +43,20 @@ vec4 sampleBackdrop(vec2 canvasPx, float radius) {
     vec4 sum = vec4(0.0);
     float total = 0.0;
 
-    // Inner ring (~0.5 radius) — 12 taps, weight 1.4 (high weight, small offset)
-    sum += texture2D(uBackdrop, uv + vec2( 0.000000,  0.000000) * pxToUv) * 1.40; total += 1.40;
-    sum += texture2D(uBackdrop, uv + vec2( 0.250000,  0.000000) * pxToUv) * 1.30; total += 1.30;
-    sum += texture2D(uBackdrop, uv + vec2(-0.250000,  0.000000) * pxToUv) * 1.30; total += 1.30;
-    sum += texture2D(uBackdrop, uv + vec2( 0.000000,  0.250000) * pxToUv) * 1.30; total += 1.30;
-    sum += texture2D(uBackdrop, uv + vec2( 0.000000, -0.250000) * pxToUv) * 1.30; total += 1.30;
-    sum += texture2D(uBackdrop, uv + vec2( 0.177000,  0.177000) * pxToUv) * 1.20; total += 1.20;
-    sum += texture2D(uBackdrop, uv + vec2( 0.177000, -0.177000) * pxToUv) * 1.20; total += 1.20;
-    sum += texture2D(uBackdrop, uv + vec2(-0.177000,  0.177000) * pxToUv) * 1.20; total += 1.20;
-    sum += texture2D(uBackdrop, uv + vec2(-0.177000, -0.177000) * pxToUv) * 1.20; total += 1.20;
-    sum += texture2D(uBackdrop, uv + vec2( 0.400000,  0.100000) * pxToUv) * 1.10; total += 1.10;
-    sum += texture2D(uBackdrop, uv + vec2(-0.400000,  0.100000) * pxToUv) * 1.10; total += 1.10;
-    sum += texture2D(uBackdrop, uv + vec2( 0.100000,  0.400000) * pxToUv) * 1.10; total += 1.10;
-    sum += texture2D(uBackdrop, uv + vec2( 0.100000, -0.400000) * pxToUv) * 1.10; total += 1.10;
+    // Center tap (highest weight)
+    sum += texture2D(uBackdrop, uv) * 0.25; total += 0.25;
 
-    // Outer ring (~1.0 radius) — 32 taps, weight decaying from 0.9 to 0.4
-    sum += texture2D(uBackdrop, uv + vec2( 0.998000,  0.000000) * pxToUv) * 0.85; total += 0.85;
-    sum += texture2D(uBackdrop, uv + vec2(-0.998000,  0.000000) * pxToUv) * 0.85; total += 0.85;
-    sum += texture2D(uBackdrop, uv + vec2( 0.000000,  0.998000) * pxToUv) * 0.85; total += 0.85;
-    sum += texture2D(uBackdrop, uv + vec2( 0.000000, -0.998000) * pxToUv) * 0.85; total += 0.85;
-    sum += texture2D(uBackdrop, uv + vec2( 0.900000,  0.430000) * pxToUv) * 0.80; total += 0.80;
-    sum += texture2D(uBackdrop, uv + vec2( 0.900000, -0.430000) * pxToUv) * 0.80; total += 0.80;
-    sum += texture2D(uBackdrop, uv + vec2(-0.900000,  0.430000) * pxToUv) * 0.80; total += 0.80;
-    sum += texture2D(uBackdrop, uv + vec2(-0.900000, -0.430000) * pxToUv) * 0.80; total += 0.80;
-    sum += texture2D(uBackdrop, uv + vec2( 0.430000,  0.900000) * pxToUv) * 0.80; total += 0.80;
-    sum += texture2D(uBackdrop, uv + vec2( 0.430000, -0.900000) * pxToUv) * 0.80; total += 0.80;
-    sum += texture2D(uBackdrop, uv + vec2(-0.430000,  0.900000) * pxToUv) * 0.80; total += 0.80;
-    sum += texture2D(uBackdrop, uv + vec2(-0.430000, -0.900000) * pxToUv) * 0.80; total += 0.80;
-    sum += texture2D(uBackdrop, uv + vec2( 0.770000,  0.640000) * pxToUv) * 0.70; total += 0.70;
-    sum += texture2D(uBackdrop, uv + vec2( 0.770000, -0.640000) * pxToUv) * 0.70; total += 0.70;
-    sum += texture2D(uBackdrop, uv + vec2(-0.770000,  0.640000) * pxToUv) * 0.70; total += 0.70;
-    sum += texture2D(uBackdrop, uv + vec2(-0.770000, -0.640000) * pxToUv) * 0.70; total += 0.70;
-    sum += texture2D(uBackdrop, uv + vec2( 0.640000,  0.770000) * pxToUv) * 0.70; total += 0.70;
-    sum += texture2D(uBackdrop, uv + vec2( 0.640000, -0.770000) * pxToUv) * 0.70; total += 0.70;
-    sum += texture2D(uBackdrop, uv + vec2(-0.640000,  0.770000) * pxToUv) * 0.70; total += 0.70;
-    sum += texture2D(uBackdrop, uv + vec2(-0.640000, -0.770000) * pxToUv) * 0.70; total += 0.70;
-    sum += texture2D(uBackdrop, uv + vec2( 0.980000,  0.200000) * pxToUv) * 0.60; total += 0.60;
-    sum += texture2D(uBackdrop, uv + vec2( 0.980000, -0.200000) * pxToUv) * 0.60; total += 0.60;
-    sum += texture2D(uBackdrop, uv + vec2(-0.980000,  0.200000) * pxToUv) * 0.60; total += 0.60;
-    sum += texture2D(uBackdrop, uv + vec2(-0.980000, -0.200000) * pxToUv) * 0.60; total += 0.60;
-    sum += texture2D(uBackdrop, uv + vec2( 0.200000,  0.980000) * pxToUv) * 0.60; total += 0.60;
-    sum += texture2D(uBackdrop, uv + vec2( 0.200000, -0.980000) * pxToUv) * 0.60; total += 0.60;
-    sum += texture2D(uBackdrop, uv + vec2(-0.200000,  0.980000) * pxToUv) * 0.60; total += 0.60;
-    sum += texture2D(uBackdrop, uv + vec2(-0.200000, -0.980000) * pxToUv) * 0.60; total += 0.60;
-    sum += texture2D(uBackdrop, uv + vec2( 0.560000,  0.835000) * pxToUv) * 0.50; total += 0.50;
-    sum += texture2D(uBackdrop, uv + vec2( 0.560000, -0.835000) * pxToUv) * 0.50; total += 0.50;
-    sum += texture2D(uBackdrop, uv + vec2(-0.560000,  0.835000) * pxToUv) * 0.50; total += 0.50;
-    sum += texture2D(uBackdrop, uv + vec2(-0.560000, -0.835000) * pxToUv) * 0.50; total += 0.50;
-    sum += texture2D(uBackdrop, uv + vec2( 0.835000,  0.560000) * pxToUv) * 0.50; total += 0.50;
-    sum += texture2D(uBackdrop, uv + vec2( 0.835000, -0.560000) * pxToUv) * 0.50; total += 0.50;
-    sum += texture2D(uBackdrop, uv + vec2(-0.835000,  0.560000) * pxToUv) * 0.50; total += 0.50;
-    sum += texture2D(uBackdrop, uv + vec2(-0.835000, -0.560000) * pxToUv) * 0.50; total += 0.50;
+    // 4 cardinal directions at radius 1.0
+    sum += texture2D(uBackdrop, uv + vec2( 1.000,  0.000) * pxToUv) * 0.12; total += 0.12;
+    sum += texture2D(uBackdrop, uv + vec2(-1.000,  0.000) * pxToUv) * 0.12; total += 0.12;
+    sum += texture2D(uBackdrop, uv + vec2( 0.000,  1.000) * pxToUv) * 0.12; total += 0.12;
+    sum += texture2D(uBackdrop, uv + vec2( 0.000, -1.000) * pxToUv) * 0.12; total += 0.12;
+
+    // 4 diagonal directions at radius ~0.707 (corner of unit square)
+    sum += texture2D(uBackdrop, uv + vec2( 0.707,  0.707) * pxToUv) * 0.0675; total += 0.0675;
+    sum += texture2D(uBackdrop, uv + vec2( 0.707, -0.707) * pxToUv) * 0.0675; total += 0.0675;
+    sum += texture2D(uBackdrop, uv + vec2(-0.707,  0.707) * pxToUv) * 0.0675; total += 0.0675;
+    sum += texture2D(uBackdrop, uv + vec2(-0.707, -0.707) * pxToUv) * 0.0675; total += 0.0675;
 
     return sum / total;
 }

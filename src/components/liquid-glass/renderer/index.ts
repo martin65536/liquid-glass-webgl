@@ -72,6 +72,10 @@ export class LiquidGlassRenderer {
   cssHeight = 0
   wheelTarget: HTMLElement | null = null
   backgroundColor: [number, number, number] | null = null
+  /** PERFORMANCE: Dirty flag — set by any state change that requires a redraw.
+   *  render() checks this and early-exits if false, avoiding redundant
+   *  full-scene re-render when requestAnimationFrame fires but nothing changed. */
+  needsRedraw = true
 
   // --- Scene FBO ping-pong infrastructure ---
   // See render() for the full ping-pong pipeline description.
