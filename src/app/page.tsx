@@ -164,8 +164,7 @@ export default function Page() {
     <div
       className="min-h-screen w-full flex items-center justify-center"
       style={{
-        background:
-          'radial-gradient(120% 120% at 50% 0%, #1b1d24 0%, #0b0c10 60%, #050507 100%)',
+        background: isLightTheme ? '#000000' : '#000000',
       }}
     >
       <div
