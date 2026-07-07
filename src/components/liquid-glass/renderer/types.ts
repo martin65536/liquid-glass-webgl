@@ -274,7 +274,17 @@ export interface GlassElementConfig extends GlassButtonConfig {
    *   scale = lerp(1, 1.2, pressProgress)
    * Also shifts by panelOffset during drag.
    */
-  isBottomTabContent?: { groupId: string }
+  isBottomTabContent?: {
+    groupId: string
+    /** Container center (the scale origin for the whole bar). Tab content
+     *  scales around this point, not its own center — faithful to the
+     *  original where container is the parent and its transform applies
+     *  uniformly to all children. */
+    containerCenterX?: number
+    containerCenterY?: number
+    /** Container width (for computing the layerBlock scale). */
+    containerWidth?: number
+  }
   /**
    * Bottom tabs indicator — DampedDragAnimation with pressedScale=78/56.
    * Faithful to LiquidBottomTabs.kt indicator layerBlock:

@@ -1642,7 +1642,16 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
           icon: { path: FLIGHT_ICON_PATH, size: 24, color: iconColor },
         }
       )
-      tabEl.isBottomTabContent = { groupId: idPrefix }
+      tabEl.isBottomTabContent = {
+        groupId: idPrefix,
+        // Container center = scale origin for the whole bar. Tab content
+        // scales around this point (not its own center), matching the
+        // original where container is the parent and its transform applies
+        // uniformly to all children.
+        containerCenterX: containerX + containerW / 2,
+        containerCenterY: y + CONTAINER_H / 2,
+        containerWidth: containerW,
+      }
       elements.push(tabEl)
       // Each tab gets tap (select) + drag (slide indicator). Hit-test: the
       // indicator (topmost) has no interactions, so taps fall through to tabs.

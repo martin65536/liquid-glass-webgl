@@ -255,30 +255,31 @@ export const renderMethods = {
     // --- text ---
     if (el.kind === 'text') {
       this.bindFBO(curFbo)
-      // Compute the effective draw rect for bottom-tab content: the tab
-      // content scales with the container's layerBlock scale (same as the
-      // container glass) + panelOffset translation. It does NOT have its own
-      // 1.2x scale — the container's layerBlock applies to the whole Row.
+      // Compute the effective draw rect for bottom-tab content. The
+      // container is the PARENT of tab-content, so the container's scale
+      // must apply around the CONTAINER center (not each tab's own center).
+      // We transform the tab's position by: scale around container center,
+      // then translate by panelOffset.
       let drawRect = r
       let fgScaleX = 1
       let fgScaleY = 1
       if (el.isBottomTabContent) {
         const tg = this.toggleStates.get(el.isBottomTabContent.groupId)
         if (tg) {
-          // Container scale = lerp(1, 1+16dp/width, pressProgress).
-          // el.rect.w is the tab width; container width = tab width * tabsCount.
-          // We don't have tabsCount here, but the container element's rect.w
-          // is the full bar width — approximate using el.rect.w * 4 (tabsCount
-          // is 3 or 4, close enough for the small 16dp/width term).
-          const containerW = el.rect.w * 4
+          const containerW = el.isBottomTabContent.containerWidth ?? (el.rect.w * 4)
           const containerScale = 1 + (16 * DP) / containerW * tg.pressProgress
+          const cx0 = el.isBottomTabContent.containerCenterX ?? (el.rect.x + el.rect.w / 2)
+          const cy0 = el.isBottomTabContent.containerCenterY ?? (el.rect.y + el.rect.h / 2)
           fgScaleX = containerScale
           fgScaleY = containerScale
-          const sw = el.rect.w * fgScaleX
-          const sh = el.rect.h * fgScaleY
-          const cx = el.rect.x + el.rect.w / 2 + tg.panelOffset
-          const cy = el.rect.y + el.rect.h / 2
-          drawRect = { x: cx - sw / 2, y: cy - sh / 2, w: sw, h: sh }
+          // Scale tab center around container center, then add panelOffset.
+          const tabCx = el.rect.x + el.rect.w / 2
+          const tabCy = el.rect.y + el.rect.h / 2
+          const newCx = cx0 + (tabCx - cx0) * containerScale + tg.panelOffset
+          const newCy = cy0 + (tabCy - cy0) * containerScale
+          const sw = el.rect.w * containerScale
+          const sh = el.rect.h * containerScale
+          drawRect = { x: newCx - sw / 2, y: newCy - sh / 2, w: sw, h: sh }
         }
       }
       // Press tint overlay for interactive text items (e.g. home list
