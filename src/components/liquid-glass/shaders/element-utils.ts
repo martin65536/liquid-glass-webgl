@@ -212,6 +212,21 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     // 4. Composite scene over wallpaper inside the inset capsule (SrcOver).
     float a = scene.a * mask;
     vec3 resultRgb = mix(wp.rgb, scene.rgb, a);
+
+    // 5. Mini-glass rim highlight — Highlight.Default.copy(alpha=progress).
+    //    A thin white stroke on the mini-glass capsule edge, press-modulated.
+    //    Drawn here (inside the indicator's element shader) so it's clipped by
+    //    the indicator's capsule SDF (the main shader discards sd > 0.5).
+    //    Plus blend (additive white), ~0.5dp stroke.
+    float highlightAlpha = uIndicatorPressProgress;
+    if (highlightAlpha > 0.001) {
+        // Stroke centered on capsuleSd=0, width ~1px (0.5dp * 2).
+        float strokeW = 1.0 * uContainerScale;
+        // Band: capsuleSd in [-strokeW, strokeW], peak at 0.
+        float band = 1.0 - smoothstep(0.0, strokeW, abs(capsuleSd));
+        resultRgb += vec3(1.0) * band * highlightAlpha * 0.5;
+    }
+
     return vec4(resultRgb, 1.0);
 }
 

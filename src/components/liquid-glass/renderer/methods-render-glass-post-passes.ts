@@ -260,58 +260,8 @@ export const glassPostPassMethods = {
 
     // --- Step 2g: Mini-glass rim highlight (bottom-tab indicator only) ---
     // The mini-glass (tabsBackdrop capsule inside the indicator) has its own
-    // Highlight.Default.copy(alpha=progress), drawn as a rim highlight on the
-    // mini-glass capsule shape. Clipped to the indicator's rect via scissor
-    // so the highlight doesn't bleed outside the indicator.
-    if (el.isBottomTabIndicator && el.highlight && togglePressProgress > 0.001) {
-      const tg = this.toggleStates.get(el.isBottomTabIndicator.groupId)
-      const cr = el.isBottomTabIndicator.containerRect
-      const ccx = el.isBottomTabIndicator.containerCenterX ?? 0
-      const ccy = el.isBottomTabIndicator.containerCenterY ?? 0
-      const cw = el.isBottomTabIndicator.containerWidth ?? cr.w
-      if (cr && tg) {
-        const containerScale = 1 + (16 * DP) / cw * tg.pressProgress
-        const panelOffset = tg.panelOffset
-        // mini-glass center (scaled around container center + panelOffset)
-        const mgCx = ccx + (cr.x + cr.w / 2 - ccx) * containerScale + panelOffset
-        const mgCy = ccy + (cr.y + cr.h / 2 - ccy) * containerScale
-        const mgW = cr.w * containerScale
-        const mgH = cr.h * containerScale
-        const mgR = (cr.h / 2) * containerScale // capsule radius
-        // Clip to the indicator's rect so the highlight stays inside.
-        gl.enable(gl.SCISSOR_TEST)
-        gl.scissor(
-          Math.floor(sx * this.dpr),
-          Math.floor((this.canvas.height - (sy + sh) * this.dpr)),
-          Math.ceil(sw * this.dpr),
-          Math.ceil(sh * this.dpr)
-        )
-        gl.useProgram(this.rimHighlightProgram)
-        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
-        gl.enableVertexAttribArray(this.aPosLocRm)
-        gl.vertexAttribPointer(this.aPosLocRm, 2, gl.FLOAT, false, 0, 0)
-        // Default mode → Plus blend
-        gl.blendFunc(gl.ONE, gl.ONE)
-        gl.uniform2f(this.uRm['uCanvasSize'], this.canvas.width, this.canvas.height)
-        gl.uniform2f(this.uRm['uOffset'], (mgCx - mgW / 2) * this.dpr, (mgCy - mgH / 2) * this.dpr)
-        gl.uniform2f(this.uRm['uSize'], mgW * this.dpr, mgH * this.dpr)
-        gl.uniform4f(this.uRm['uCornerRadii'], mgR * this.dpr, mgR * this.dpr, mgR * this.dpr, mgR * this.dpr)
-        // Original-space uniforms (mini-glass has no graphicsLayer scale of its own)
-        gl.uniform2f(this.uRm['uOriginalSize'], mgW * this.dpr, mgH * this.dpr)
-        gl.uniform1f(this.uRm['uOriginalCornerRadius'], mgR * this.dpr)
-        gl.uniform2f(this.uRm['uLayerScale'], 1, 1)
-        gl.uniform4f(this.uRm['uHighlightColor'], el.highlight.color[0], el.highlight.color[1], el.highlight.color[2], 1.0)
-        gl.uniform1f(this.uRm['uHighlightAngle'], el.highlight.angle)
-        gl.uniform1f(this.uRm['uHighlightFalloff'], el.highlight.falloff)
-        gl.uniform1f(this.uRm['uHighlightAlpha'], el.highlight.alpha * togglePressProgress)
-        gl.uniform1f(this.uRm['uHighlightMode'], el.highlight.mode)
-        const widthPx = el.highlight.widthDp * this.dpr
-        gl.uniform1f(this.uRm['uHighlightStrokeWidth'], Math.ceil(widthPx) * 2)
-        gl.uniform1f(this.uRm['uHighlightBlur'], widthPx * 0.5)
-        gl.drawArrays(gl.TRIANGLES, 0, 6)
-        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-        gl.disable(gl.SCISSOR_TEST)
-      }
-    }
+    // Highlight.Default.copy(alpha=progress). This is drawn INSIDE the
+    // indicator's element shader (sampleIndicatorBackdrop) so it's clipped by
+    // the indicator's capsule SDF — no separate pass needed here.
   },
 }
