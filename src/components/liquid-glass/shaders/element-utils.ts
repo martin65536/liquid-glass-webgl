@@ -186,14 +186,16 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
         wp = sum / total;
     }
 
-    // 2. Inset capsule SDF — container rect shrunk 4dp (uInsetPx) on each side,
-    //    then scaled by (1 + 0.2*press) and shifted by panelOffset — matching
-    //    the original's hidden Row (translationX = panelOffset) and tab content
-    //    scale (LocalLiquidBottomTabScale lerp(1, 1.2, pressProgress)).
+    // 2. tabsBackdrop capsule SDF — the hidden Row's 56dp glass capsule
+    //    (same height as the indicator, full TABS_W width). Scaled by
+    //    (1 + 0.2*press) and shifted by panelOffset — matching the original's
+    //    hidden Row (translationX = panelOffset) and tab content scale
+    //    (LocalLiquidBottomTabScale lerp(1, 1.2, pressProgress)).
+    //    No inset — uContainerRect already holds the 56dp tabsBackdrop rect.
     float pressScale = 1.0 + 0.2 * uIndicatorPressProgress;
     vec2 capsuleCenter = uContainerRect.xy + vec2(uIndicatorPanelOffset, 0.0);
-    vec2 capsuleHalf = max((uContainerRect.zw - vec2(uInsetPx)) * pressScale, vec2(0.0));
-    float cr = max((uContainerCornerRadius - uInsetPx) * pressScale, 0.0);
+    vec2 capsuleHalf = max(uContainerRect.zw * pressScale, vec2(0.0));
+    float cr = max(uContainerCornerRadius * pressScale, 0.0);
     vec2 capsuleLocal = canvasPx - capsuleCenter;
     vec2 cq = abs(capsuleLocal) - capsuleHalf + vec2(cr);
     float capsuleSd = length(max(cq, vec2(0.0))) + min(max(cq.x, cq.y), 0.0) - cr;

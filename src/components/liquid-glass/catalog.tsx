@@ -1746,9 +1746,12 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
       // The indicator samples wallpaper (outer) + the scene FBO (container
       // glass + content) composited inside an inset capsule SDF.
       accentColor: [...accentT] as [number, number, number],
-      // containerRect = the FULL container bar. The shader shrinks it 4dp
-      // on each side to form the inset capsule SDF for the second layer.
-      containerRect: { x: containerX, y, w: containerW, h: CONTAINER_H },
+      // containerRect = the tabsBackdrop capsule (hidden Row's 56dp glass),
+      // NOT the 64dp container. Faithful to LiquidBottomTabs.kt: the hidden
+      // Row is height(56dp) centered in the 64dp container (4dp padding top
+      // and bottom). Width = full TABS_W. The indicator refracts this 56dp
+      // capsule via CombinedBackdrop(wallpaper, tabsBackdrop).
+      containerRect: { x: containerX, y: glassY, w: containerW, h: GLASS_H },
       // Container center + width — the indicator scales around the container
       // center (like tab-content), matching the original parent-child transform.
       containerCenterX: containerX + containerW / 2,
