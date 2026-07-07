@@ -683,6 +683,17 @@ function applyVerticalCenter(
     // Back button and theme button stay at top corners (not shifted).
     if (el.id === '__back__' || el.id === '__theme__') continue
     el.rect = { ...el.rect, y: el.rect.y + yOffset }
+    // Faithful fix: toggle knobs store the TRACK's original screen
+    // position separately in `isToggleKnob.trackOriginalY` (used by the
+    // renderer to compute the scaled track rect inside the knob's
+    // CombinedBackdrop). Since the track element's rect.y was just
+    // shifted by yOffset, we must shift trackOriginalY by the same
+    // amount — otherwise the scaled track rect would be at the wrong Y
+    // (off by yOffset * (1 - trackScaleY)), causing "no track visible
+    // inside the knob" after vertical centering.
+    if (el.isToggleKnob && el.isToggleKnob.trackOriginalY != null) {
+      el.isToggleKnob.trackOriginalY += yOffset
+    }
   }
   return contentHeight + yOffset
 }

@@ -370,3 +370,34 @@ Stage Summary:
 - All 3 toggle glass rendering differences vs original LiquidToggle.kt fixed.
 - Build: ✓ Compiled successfully; dev server ✓ HTTP 200; tsc clean (no TS errors in src/).
 - No VLM verification done (per user instruction).
+
+---
+Task ID: toggle-track-not-visible
+Agent: main
+Task: 现在knob里没有track了 — fix toggle knob missing track content inside its glass body.
+
+Work Log:
+- Re-read original LiquidToggle.kt — confirmed CombinedBackdrop structure: knob samples (outer backdrop, scaled trackBackdrop). The trackBackdrop is captured at the TRACK Box's FIXED screen position, and the scale pivots around the KNOB's center. Formula: scaled_track.center = knob.center + (track.center - knob.center) * scale.
+- Read web catalog.tsx buildToggle — confirmed trackOriginalX/Y are set correctly at build time (t1TrackX, t1TrackY=0).
+- Read web applyVerticalCenter — found the bug: it shifts `el.rect.y` by yOffset for all elements, but does NOT shift `el.isToggleKnob.trackOriginalY`. So after vertical centering, the knob's rect.y is shifted but its trackOriginalY still points to the pre-shift track position (y=0).
+- Traced the consequence in methods-render-glass-element-pass.ts:
+    knobCenterY = (sy + sh/2) * dpr  // correctly uses shifted sy
+    trackOrigCenterY = (trackOriginalY + trackH/2) * dpr  // uses UNshifted trackOriginalY=0
+    trackCenterY = knobCenterY + (trackOrigCenterY - knobCenterY) * trackScaleY
+                 = knobCenterY + (0 - knobCenterY) * 0.75   [at progress=1]
+                 = knobCenterY * 0.25
+  → scaled track center is at 25% of knobCenterY, i.e. WAY ABOVE the knob.
+  → track rect (halfH ~10.5dp) is entirely outside the knob's bounds (knob at ~yOffset + 14dp).
+  → GLSL `if (sd > 0.5) discard` clips the knob's shape, so no track pixels are composited inside.
+  → Symptom: "knob里没有track" — no track visible inside the knob. ✓ matches user report.
+- Fix: in applyVerticalCenter, after shifting el.rect.y, also shift el.isToggleKnob.trackOriginalY by the same yOffset. This keeps the knob's trackOriginalY in sync with the track element's actual (shifted) rect.y.
+- Verified trackOriginalX is NOT affected: applyVerticalCenter only shifts Y, never X. The track's X is fixed (no horizontal centering), and the knob's X is driven by translationX (toggleXOffset) at render time, not by mutating rect.x. So trackOriginalX is always correct.
+
+Files modified:
+- src/components/liquid-glass/catalog.tsx — applyVerticalCenter now also shifts isToggleKnob.trackOriginalY.
+
+Stage Summary:
+- Toggle knob now correctly shows the scaled track color rect inside its glass body when pressed, even after vertical centering shifts the toggle's Y position.
+- Slider knobs are unaffected (they don't set trackOriginalY and don't use the CombinedBackdrop path).
+- tsc clean (no new errors in src/).
+- No testing performed (per user instruction).
