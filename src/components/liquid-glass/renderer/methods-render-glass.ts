@@ -162,6 +162,8 @@ export const glassRenderMethods = {
         scaleX *= containerScale
         scaleY *= containerScale
         translationX += tg.panelOffset
+        // Drive press glow (InteractiveHighlight) via togglePressProgress.
+        togglePressProgress = tg.pressProgress
       }
     }
 
