@@ -119,6 +119,16 @@ export const renderMethods = {
       curTex = result.curTex
       otherFbo = result.otherFbo
       otherTex = result.otherTex
+
+      // After the container glass is rendered (before tab-content), snapshot
+      // the scene (wallpaper + glass, no text) into tabsBackdropFbo. The
+      // indicator samples this to avoid the white/black tab text bleeding through.
+      if (el.isBottomTabContainer && this.tabsBackdropFbo && this.tabsBackdropTex) {
+        this.bindFBO(this.tabsBackdropFbo)
+        this.drawCopy(curTex)
+        // Re-bind curFbo for continued rendering (tab-content draws on top).
+        this.bindFBO(curFbo)
+      }
     }
 
     // --- Final: blit curFbo → default framebuffer (visible canvas) ---

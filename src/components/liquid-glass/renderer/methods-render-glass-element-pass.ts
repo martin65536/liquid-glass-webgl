@@ -322,6 +322,14 @@ export const glassElementPassMethods = {
         gl.uniform4f(this.uEl[`uTabContentRects[${i}]`], 0, 0, 0, 0)
       }
       gl.uniform1f(this.uEl['uTabContentCount'], boundCount)
+      // Bind the glass-layer snapshot (wallpaper+glass, no tab text) to TEXTURE11.
+      // The indicator samples this instead of the live scene so no white/black
+      // tab text bleeds through — the blue tint is drawn via fgTexture on top.
+      if (this.tabsBackdropTex) {
+        gl.activeTexture(gl.TEXTURE11)
+        gl.bindTexture(gl.TEXTURE_2D, this.tabsBackdropTex)
+        gl.uniform1i(this.uEl['uTabsGlassLayer'], 11)
+      }
     } else {
       gl.uniform1f(this.uEl['uIndicatorPressProgress'], 0)
       gl.uniform1f(this.uEl['uIndicatorPanelOffset'], 0)

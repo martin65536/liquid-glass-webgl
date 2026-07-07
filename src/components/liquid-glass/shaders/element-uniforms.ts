@@ -95,4 +95,5 @@ uniform sampler2D uTabContentTex6;
 uniform sampler2D uTabContentTex7;
 uniform vec4  uTabContentRects[8];   // (centerX, centerY, halfW, halfH) per tab, canvas px (dpr-scaled)
 uniform float uTabContentCount;      // number of valid tab rects (0..8)
+uniform sampler2D uTabsGlassLayer;   // scene snapshot BEFORE tab-content (wallpaper+glass only, no text)
 `

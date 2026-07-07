@@ -204,14 +204,17 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     float capsuleSd = length(max(cq, vec2(0.0))) + min(max(cq.x, cq.y), 0.0) - cr;
     float mask = 1.0 - smoothstep(-radius, radius, capsuleSd);
 
-    // 3. Sample the scene FBO (container glass + tab content) — also shifted
-    //    by panelOffset so the refracted content tracks the bar's drag motion.
+    // 3. Sample the GLASS LAYER FBO (wallpaper + container glass, NO tab text).
+    //    This is a snapshot taken after the container glass is rendered but
+    //    before tab-content is drawn — so it has no white/black text to bleed
+    //    through. The blue tab text is drawn on top via fgTexture (step 4).
     vec2 sceneUv2 = sceneUv(canvasPx - vec2(uIndicatorPanelOffset, 0.0));
-    vec4 scene = texture2D(uBackdrop, sceneUv2);
+    vec4 scene = texture2D(uTabsGlassLayer, sceneUv2);
 
-    // 4. Tint only the tab content (icons/labels) blue. Use each tab's
-    //    fgTexture (icon+label alpha mask) to REPLACE the scene's white/black
-    //    text with blue. step() gives a hard 0/1 mask — no mix, no white edges.
+    // 4. Draw blue tab-content (icons/labels) on top of the glass layer.
+    //    Use each tab's fgTexture alpha as a hard mask (step) — pixels inside
+    //    the icon/label shape become blue, everything else stays the glass
+    //    layer's natural color. No white edges (hard replace, no mix).
     float tabMask = 0.0;
     for (int i = 0; i < 8; i++) {
         if (float(i) >= uTabContentCount) break;
@@ -236,7 +239,7 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
             }
         }
     }
-    // Hard replace: tabMask > 0.5 → blue, else scene. No white edges.
+    // Hard replace: tabMask > 0.5 → blue icon/label, else glass layer color.
     vec3 sceneColor = mix(scene.rgb, uIndicatorAccent.rgb, step(0.5, tabMask));
 
     // 5. Composite scene over wallpaper inside the inset capsule (SrcOver).
