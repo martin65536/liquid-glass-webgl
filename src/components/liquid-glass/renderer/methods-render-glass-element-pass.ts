@@ -35,6 +35,11 @@ export const glassElementPassMethods = {
     // The knob samples the wallpaper (unscaled) + composited scaled track color
     // instead of the scene, matching the original where the knob's backdrop
     // is a CombinedBackdrop of (wallpaper, scaled trackBackdrop).
+    //
+    // For toggles on a solid-color card (t2 in ToggleContent.kt), the outer
+    // backdrop is a CanvasBackdrop (card color), NOT the wallpaper. In that
+    // case, solidBackdropColor is set and the shader uses it instead of the
+    // wallpaper texture.
     if (this.wallpaperTexture) {
       gl.activeTexture(gl.TEXTURE1)
       gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture)
@@ -86,6 +91,8 @@ export const glassElementPassMethods = {
     // (wallpaper, scaled trackBackdrop) — only the track color is scaled,
     // not the wallpaper.
     let useToggleBackdrop = 0.0
+    let useSolidBackdrop = 0.0
+    let solidR = 1, solidG = 1, solidB = 1, solidA = 1
     let trackColorR = 0, trackColorG = 0, trackColorB = 0, trackColorA = 0
     let trackCenterX = 0, trackCenterY = 0, trackHalfW = 0, trackHalfH = 0
     let trackCornerRadius = 0
@@ -113,22 +120,26 @@ export const glassElementPassMethods = {
       elContentScaleX = (2.0 / 3.0) + (xEnd - 2.0 / 3.0) * progress
       elContentScaleY = 0.0 + (yEnd - 0.0) * progress
 
-      // --- CombinedBackdrop: wallpaper (unscaled) + scaled track color ---
+      // --- CombinedBackdrop: outer backdrop + scaled track color ---
       // Faithful to LiquidToggle.kt:
       //   backdrop = rememberCombinedBackdrop(
-      //     backdrop,                                            // wallpaper
+      //     backdrop,                                            // outer
       //     rememberBackdrop(trackBackdrop) { drawBackdrop ->   // track color
       //       val scaleX = lerp(2f / 3f, 0.75f, progress)
       //       val scaleY = lerp(0f, 0.75f, progress)
       //       scale(scaleX, scaleY) { drawBackdrop() }
       //     }
       //   )
-      // The scale's pivot is the knob's center. The track color rect
-      // (size = trackW × trackH, corner radius = trackH/2 for Capsule)
-      // is scaled by (scaleX, scaleY) around the knob's center.
       //
-      // For toggle knobs with trackColorOff/On, we enable the CombinedBackdrop
-      // path and compute the scaled track rect + lerped color.
+      // OUTER BACKDROP:
+      //   - For t1 (on wallpaper): outer = LayerBackdrop (wallpaper) → sample uWallpaperSampler
+      //   - For t2 (on card):      outer = CanvasBackdrop (card color) → use solidBackdropColor
+      //
+      // SCALED TRACK CONTENT:
+      //   - Captured at TRACK's original screen position (FIXED, does not move with knob)
+      //   - Scale pivot = KNOB's current center (moves with knob via toggleXOffset)
+      //   - Resulting center: knob_center + (track_center - knob_center) * scale
+      //   - The scaled track content moves PARTIALLY with the knob (rate = 1 - scale)
       if (el.isToggleKnob.trackColorOff && el.isToggleKnob.trackColorOn && el.isToggleKnob.trackW && el.isToggleKnob.trackH) {
         const tg = this.toggleStates.get(el.isToggleKnob.groupId)
         const fraction = tg ? tg.fraction : 0
@@ -139,17 +150,33 @@ export const glassElementPassMethods = {
         trackColorG = off[1] + (on[1] - off[1]) * fraction
         trackColorB = off[2] + (on[2] - off[2]) * fraction
         trackColorA = off[3] + (on[3] - off[3]) * fraction
-        // Scaled track rect: centered at knob's center, size = (trackW * scaleX, trackH * scaleY)
-        // The knob's center in canvas px (dpr-scaled) is:
-        //   (sx + sw/2, sy + sh/2) * dpr
+
+        // Knob's current screen center (includes toggleXOffset + translationX):
+        //   cx = el.rect.x + el.rect.w/2 + translationX + toggleXOffset
+        //   sx = cx - sw/2; knobCenterX = sx + sw/2 = cx
         const knobCenterX = (sx + sw / 2) * this.dpr
         const knobCenterY = (sy + sh / 2) * this.dpr
+
+        // Track's ORIGINAL screen center (FIXED, does not move with knob):
+        //   trackOriginalX/Y is the track's top-left in CSS px.
+        //   track center = trackOriginalX + trackW/2, trackOriginalY + trackH/2
+        const trackOrigX = el.isToggleKnob.trackOriginalX ?? el.rect.x
+        const trackOrigY = el.isToggleKnob.trackOriginalY ?? el.rect.y
+        const trackOrigCenterX = (trackOrigX + el.isToggleKnob.trackW / 2) * this.dpr
+        const trackOrigCenterY = (trackOrigY + el.isToggleKnob.trackH / 2) * this.dpr
+
+        // Scale factors (same as elContentScaleX/Y above, but explicit for clarity)
         const trackScaleX = (2.0 / 3.0) + (xEnd - 2.0 / 3.0) * progress
         const trackScaleY = 0.0 + (yEnd - 0.0) * progress
+
+        // Scaled track center = knob_center + (track_orig_center - knob_center) * scale
+        // Faithful to: scale(scaleX, scaleY, pivot = knob.center) applied to
+        // track content at its original screen position.
+        trackCenterX = knobCenterX + (trackOrigCenterX - knobCenterX) * trackScaleX
+        trackCenterY = knobCenterY + (trackOrigCenterY - knobCenterY) * trackScaleY
+
         const trackW = el.isToggleKnob.trackW * this.dpr
         const trackH = el.isToggleKnob.trackH * this.dpr
-        trackCenterX = knobCenterX
-        trackCenterY = knobCenterY
         trackHalfW = (trackW * trackScaleX) * 0.5
         trackHalfH = (trackH * trackScaleY) * 0.5
         // Capsule corner radius = trackH/2, scaled by min(scaleX, scaleY)
@@ -157,14 +184,26 @@ export const glassElementPassMethods = {
         // but for visual purposes we use the min-scaled radius)
         trackCornerRadius = (trackH * 0.5) * Math.min(trackScaleX, trackScaleY)
         useToggleBackdrop = 1.0
+
+        // Solid backdrop color (t2 case): if set, the shader uses this color
+        // instead of sampling the wallpaper texture for the outer backdrop.
+        if (el.isToggleKnob.solidBackdropColor) {
+          const sd = el.isToggleKnob.solidBackdropColor
+          solidR = sd[0]; solidG = sd[1]; solidB = sd[2]; solidA = sd[3]
+          useSolidBackdrop = 1.0
+        }
+
         // When using the CombinedBackdrop path, disable the content-scale
-        // on the scene sample (we sample wallpaper at full scale instead).
+        // on the scene sample (we sample wallpaper/solid color at full scale
+        // instead, plus the track color at its own scaled position).
         elContentScaleX = 1.0
         elContentScaleY = 1.0
       }
     }
     // Set the CombinedBackdrop uniforms (no-ops for non-toggle elements).
     gl.uniform1f(this.uEl['uUseToggleBackdrop'], useToggleBackdrop)
+    gl.uniform1f(this.uEl['uUseSolidBackdrop'], useSolidBackdrop)
+    gl.uniform4f(this.uEl['uSolidBackdropColor'], solidR, solidG, solidB, solidA)
     gl.uniform4f(this.uEl['uTrackColor'], trackColorR, trackColorG, trackColorB, trackColorA)
     gl.uniform4f(this.uEl['uTrackRect'], trackCenterX, trackCenterY, trackHalfW, trackHalfH)
     gl.uniform1f(this.uEl['uTrackCornerRadius'], trackCornerRadius)

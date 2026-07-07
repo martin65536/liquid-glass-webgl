@@ -63,25 +63,36 @@ vec4 sampleBackdrop(vec2 canvasPx, float radius) {
 
 // --- Toggle knob CombinedBackdrop sampling (faithful to LiquidToggle.kt) ---
 // The knob's backdrop is a CombinedBackdrop of:
-//   1. Outer wallpaper backdrop (unscaled)
+//   1. Outer backdrop:
+//      - LayerBackdrop (wallpaper) for t1 → sample uWallpaperSampler
+//      - CanvasBackdrop (solid color) for t2 → use uSolidBackdropColor
 //   2. Scaled trackBackdrop (track color rect, clipped to Capsule, scaled
 //      by lerp(2/3, 0.75, pressProgress) x lerp(0, 0.75, pressProgress)
 //      around the knob's center)
 //
-// This function samples the wallpaper texture (uWallpaperSampler) with blur,
+// This function samples the outer backdrop (wallpaper OR solid color) with blur,
 // then composites the scaled track color on top using a rounded-rect SDF
 // at the uTrackRect position (center + half-size + corner radius).
 //
 // The track color SDF is also blurred by approximating the blur as a
 // smoothstep over uBlurRadius — this matches the original where the blur
-// effect is applied to the CombinedBackdrop (wallpaper + track color).
+// effect is applied to the CombinedBackdrop (outer + track color).
 vec4 sampleToggleBackdrop(vec2 canvasPx, float radius) {
-    // 1. Sample wallpaper (unscaled) with blur.
-    vec2 uv = sceneUv(canvasPx);
+    // 1. Sample outer backdrop with blur.
     vec4 wp;
-    if (radius < 0.5) {
+    if (uUseSolidBackdrop > 0.5) {
+        // CanvasBackdrop case (t2): solid color fills the entire knob area.
+        // Faithful to: rememberCanvasBackdrop { drawRect(backgroundColor) }
+        // The drawRect fills the DrawScope (knob's bounds) with the color,
+        // so every pixel of the knob's backdrop is the solid color.
+        wp = uSolidBackdropColor;
+    } else if (radius < 0.5) {
+        // LayerBackdrop case (t1): sample wallpaper texture unscaled.
+        vec2 uv = sceneUv(canvasPx);
         wp = texture2D(uWallpaperSampler, uv);
     } else {
+        // LayerBackdrop case (t1) with blur: 9-tap poisson disc on wallpaper.
+        vec2 uv = sceneUv(canvasPx);
         vec2 pxToUv = radius / uCanvasSize;
         vec4 sum = vec4(0.0);
         float total = 0.0;
@@ -117,7 +128,7 @@ vec4 sampleToggleBackdrop(vec2 canvasPx, float radius) {
         // Blur the edge by uBlurRadius (approximate Gaussian edge feather).
         // Inside (trackSd < -radius) → mask=1; outside (trackSd > radius) → mask=0.
         float mask = 1.0 - smoothstep(-radius, radius, trackSd);
-        // Composite: srcOver (track color over wallpaper).
+        // Composite: srcOver (track color over outer backdrop).
         float a = mask * uTrackColor.a;
         wp.rgb = mix(wp.rgb, uTrackColor.rgb, a);
         wp.a = mix(wp.a, 1.0, a);

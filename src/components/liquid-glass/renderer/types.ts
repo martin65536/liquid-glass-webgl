@@ -186,6 +186,33 @@ export interface GlassElementConfig extends GlassButtonConfig {
     trackW?: number
     /** Track's original height in CSS px (e.g. 28dp for toggle). */
     trackH?: number
+    /**
+     * Track's original screen position (top-left, in CSS px). This is the
+     * FIXED position where the trackBackdrop is captured — NOT the knob's
+     * current position.
+     *
+     * Faithful to LiquidToggle.kt:
+     *   rememberBackdrop(trackBackdrop) { drawBackdrop ->
+     *     scale(scaleX, scaleY) { drawBackdrop() }  // pivot = knob.center
+     *   }
+     * The track content is at its original screen position, and the scale
+     * pivots around the KNOB's center. So the scaled track center is at:
+     *   knob_center + (track_center - knob_center) * scale
+     * The scaled track content moves PARTIALLY with the knob (at rate
+     * `1 - scale`), NOT fully with the knob.
+     */
+    trackOriginalX?: number
+    trackOriginalY?: number
+    /**
+     * Solid backdrop color (RGBA 0..1) — used when the outer backdrop is a
+     * CanvasBackdrop (e.g. toggle inside a solid-color card). Faithful to
+     * ToggleContent.kt's t2 which uses:
+     *   rememberCanvasBackdrop { drawRect(backgroundColor) }
+     * When set, the knob samples this solid color instead of the wallpaper
+     * texture for the outer backdrop portion of the CombinedBackdrop.
+     * When unset, samples the wallpaper texture (LayerBackdrop case).
+     */
+    solidBackdropColor?: [number, number, number, number]
   }
   /**
    * If set, this element is a toggle track. Its color is lerped between

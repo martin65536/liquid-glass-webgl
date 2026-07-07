@@ -322,3 +322,51 @@ Stage Summary:
 - All stretch rendering now faithful to original Kotlin sources.
 - Build: ✓ Compiled successfully; dev server ✓ HTTP 200; tsc clean.
 - Committed and pushed to GitHub (ec15620).
+
+---
+Task ID: toggle-glass-fix
+Agent: main
+Task: Fix Toggle glass rendering — 3 differences vs original LiquidToggle.kt
+
+Work Log:
+- Re-read original `LiquidToggle.kt` (track + knob anatomy, CombinedBackdrop, onDrawSurface).
+- Re-read original `LayerBackdrop.kt`, `CombinedBackdrop.kt`, `Backdrop.kt`, `CanvasBackdrop.kt`, `LayerBackdropModifier.kt` to fully understand how `rememberCombinedBackdrop(backdrop, rememberBackdrop(trackBackdrop) { scale(...) })` actually works:
+  - `trackBackdrop` captures the track Box's drawn content (the colored rect) at the TRACK's FIXED screen position.
+  - `rememberBackdrop(trackBackdrop) { drawBackdrop -> scale(scaleX, scaleY) { drawBackdrop() } }` wraps it with a scale transform.
+  - The scale's pivot is the DrawScope's `center` — i.e., the KNOB's current center (moves with knob via translationX).
+  - The captured content is drawn at its track-screen position via `translate(-offset)`, then the outer scale pivots around knob.center.
+  - Result: scaled track center = knob.center + (track.center - knob.center) * scale → moves PARTIALLY with knob (rate 1 - scale).
+  - For t1 (on wallpaper): outer = LayerBackdrop (wallpaper texture).
+  - For t2 (on card): outer = `rememberCanvasBackdrop { drawRect(backgroundColor) }` — solid card color, NOT wallpaper.
+- Identified 3 web bugs:
+
+  Bug 1 (trackBackdrop movement):
+  - Web: `trackCenterX = knobCenterX` → scaled track center moves FULLY with knob (rate 1).
+  - Original: scaled track center moves PARTIALLY (rate 1 - scale ≈ 1/3 at rest, 1/4 pressed).
+  - Fix: compute `trackCenterX = knobCenterX + (trackOriginalCenterX - knobCenterX) * scaleX` (and Y). Added `trackOriginalX/Y` to `isToggleKnob` config; passed from catalog.tsx.
+
+  Bug 2 (knob Backdrop missing card color for t2):
+  - Web: shader always samples `uWallpaperSampler` for the outer backdrop, for BOTH t1 and t2.
+  - Original: t1 samples wallpaper (LayerBackdrop); t2 samples solid card color (CanvasBackdrop).
+  - Fix: added `solidBackdropColor` field to `isToggleKnob`. When set (t2 case), shader uses `uSolidBackdropColor` instead of sampling `uWallpaperSampler`. Added `uUseSolidBackdrop` + `uSolidBackdropColor` uniforms; branched `sampleToggleBackdrop()` GLSL function.
+
+  Bug 3 (knob red at rest):
+  - Web: `methods-render-glass-post-passes.ts` line 92 had `gl.uniform4f(this.uTn['uColor'], 1, 0, 0, whiteAlpha)` — RED (1,0,0) — leftover DEBUG code!
+  - Original: `onDrawSurface = { drawRect(Color.White.copy(alpha = 1f - progress)) }` → WHITE (1,1,1).
+  - Fix: changed `(1, 0, 0, whiteAlpha)` → `(1, 1, 1, whiteAlpha)`.
+
+- Bonus fix: pre-existing TS error on `trackColorOff: [...TOGGLE_TRACK_T, 1] as [number, number, number, number]`. `TOGGLE_TRACK_T` is already RGBA (4 elements), so `[...TOGGLE_TRACK_T, 1]` was 5 elements. Changed to `trackColorOff: TOGGLE_TRACK_T` (no spread, no extra alpha). Faithful to `Color(0xFF787878).copy(0.2f)` = RGBA(120,120,120,0.2).
+
+Files modified:
+- src/components/liquid-glass/renderer/types.ts — added `trackOriginalX/Y` + `solidBackdropColor` to isToggleKnob interface.
+- src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts — recompute trackCenterX/Y with partial-movement formula; add solid backdrop path.
+- src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts — red → white for knob overlay.
+- src/components/liquid-glass/renderer/index.ts — register `uUseSolidBackdrop` + `uSolidBackdropColor` uniform locations.
+- src/components/liquid-glass/shaders/element-uniforms.ts — declare `uUseSolidBackdrop` + `uSolidBackdropColor`.
+- src/components/liquid-glass/shaders/element-utils.ts — `sampleToggleBackdrop()` branches on `uUseSolidBackdrop` (solid color vs wallpaper texture).
+- src/components/liquid-glass/catalog.tsx — pass `trackOriginalX/Y` for both toggles; pass `solidBackdropColor: cardBg` for t2; fix trackColorOff type bug.
+
+Stage Summary:
+- All 3 toggle glass rendering differences vs original LiquidToggle.kt fixed.
+- Build: ✓ Compiled successfully; dev server ✓ HTTP 200; tsc clean (no TS errors in src/).
+- No VLM verification done (per user instruction).

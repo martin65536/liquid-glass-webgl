@@ -187,7 +187,8 @@ export class LiquidGlassRenderer {
       'uHighlightStrokeWidth', 'uHighlightBlur',
       'uInnerShadowRadius', 'uInnerShadowAlpha', 'uInnerShadowOffset',
       'uContentScaleX', 'uContentScaleY',
-      'uUseToggleBackdrop', 'uTrackColor', 'uTrackRect', 'uTrackCornerRadius',
+      'uUseToggleBackdrop', 'uUseSolidBackdrop', 'uSolidBackdropColor',
+      'uTrackColor', 'uTrackRect', 'uTrackCornerRadius',
     ]
     for (const n of elNames) this.uEl[n] = gl.getUniformLocation(this.elementProgram, n)
     const shNames = [

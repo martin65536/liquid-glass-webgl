@@ -41,11 +41,19 @@ uniform float uContentScaleX;
 uniform float uContentScaleY;
 // --- Toggle knob CombinedBackdrop effect (faithful to LiquidToggle.kt) ---
 // The knob's backdrop is a CombinedBackdrop of:
-//   1. Outer wallpaper backdrop (unscaled)
+//   1. Outer backdrop (LayerBackdrop wallpaper OR CanvasBackdrop solid color)
 //   2. Scaled trackBackdrop (track color rect, scaled by lerp(2/3,0.75) x lerp(0,0.75))
-// uUseToggleBackdrop = 1.0 → sample wallpaper (unscaled) + composite scaled track color
+// uUseToggleBackdrop = 1.0 → sample outer backdrop + composite scaled track color
 // uUseToggleBackdrop = 0.0 → sample scene (uBackdrop) as before
+//
+// uUseSolidBackdrop = 1.0 → outer backdrop is solid color (uSolidBackdropColor)
+// uUseSolidBackdrop = 0.0 → outer backdrop is wallpaper texture (uWallpaperSampler)
+// Faithful to ToggleContent.kt:
+//   - t1 (on wallpaper): backdrop = LayerBackdrop → sample wallpaper texture
+//   - t2 (on card):      backdrop = rememberCanvasBackdrop { drawRect(color) } → solid color
 uniform float uUseToggleBackdrop;
+uniform float uUseSolidBackdrop;
+uniform vec4  uSolidBackdropColor;  // rgba 0..1; used when uUseSolidBackdrop = 1.0
 uniform vec4  uTrackColor;        // rgba 0..1; alpha 0 = no track color
 uniform vec4  uTrackRect;         // (centerX, centerY, halfW, halfH) in canvas px (dpr-scaled)
 uniform float uTrackCornerRadius; // canvas px (dpr-scaled)

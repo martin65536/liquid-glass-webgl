@@ -88,8 +88,11 @@ export const glassPostPassMethods = {
         radii[2] * this.dpr,
         radii[3] * this.dpr
       )
-      // DEBUG: use red instead of white to verify overlay is drawn
-      gl.uniform4f(this.uTn['uColor'], 1, 0, 0, whiteAlpha)
+      // Faithful to LiquidToggle.kt onDrawSurface:
+      //   drawRect(Color.White.copy(alpha = 1f - progress))
+      // Solid white pebble at rest (alpha=1), fading to transparent when
+      // pressed (alpha=0) to reveal the glass refraction beneath.
+      gl.uniform4f(this.uTn['uColor'], 1, 1, 1, whiteAlpha)
       gl.drawArrays(gl.TRIANGLES, 0, 6)
     }
 

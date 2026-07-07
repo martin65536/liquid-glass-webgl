@@ -1036,12 +1036,23 @@ function buildToggle(
     dragWidth: TOGGLE_DRAG,
     // CombinedBackdrop track color info (faithful to LiquidToggle.kt):
     //   backdrop = rememberCombinedBackdrop(backdrop, scaled trackBackdrop)
+    //   - backdrop = LayerBackdrop (wallpaper) for t1
+    //   - trackBackdrop captured at the TRACK's original screen position (FIXED)
     // The knob samples wallpaper (unscaled) + scaled track color rect.
     // Track color lerps between trackColor (off) and accentColor (on).
-    trackColorOff: [...TOGGLE_TRACK_T, 1] as [number, number, number, number],
+    //   trackColor   = Color(0xFF787878).copy(0.2f) → RGBA(120,120,120,0.2)
+    //   accentColor  = Color(0xFF34C759)            → RGBA(52,199,89,1.0)
+    trackColorOff: TOGGLE_TRACK_T,
     trackColorOn: [...TOGGLE_ACCENT_T, 1] as [number, number, number, number],
     trackW: TOGGLE_W,
     trackH: TOGGLE_H,
+    // Track's original screen position (FIXED — does NOT move with knob).
+    // Faithful to: trackBackdrop is captured at the track Box's position.
+    // The scale's pivot is the knob's current center, so the scaled track
+    // content moves PARTIALLY with the knob (rate = 1 - scale).
+    trackOriginalX: t1TrackX,
+    trackOriginalY: t1TrackY,
+    // No solidBackdropColor → samples wallpaper texture (LayerBackdrop case).
   }
   elements.push(t1KnobEl)
 
@@ -1113,12 +1124,25 @@ function buildToggle(
     dragWidth: TOGGLE_DRAG,
     // CombinedBackdrop track color info (faithful to LiquidToggle.kt):
     //   backdrop = rememberCombinedBackdrop(backdrop, scaled trackBackdrop)
-    // The knob samples wallpaper (unscaled) + scaled track color rect.
+    //   - backdrop = rememberCanvasBackdrop { drawRect(backgroundColor) }
+    //     → solid card color (NOT wallpaper) for t2
+    //   - trackBackdrop captured at the TRACK's original screen position (FIXED)
+    // The knob samples card color (solid) + scaled track color rect.
     // Track color lerps between trackColor (off) and accentColor (on).
-    trackColorOff: [...TOGGLE_TRACK_T, 1] as [number, number, number, number],
+    //   trackColor   = Color(0xFF787878).copy(0.2f) → RGBA(120,120,120,0.2)
+    //   accentColor  = Color(0xFF34C759)            → RGBA(52,199,89,1.0)
+    trackColorOff: TOGGLE_TRACK_T,
     trackColorOn: [...TOGGLE_ACCENT_T, 1] as [number, number, number, number],
     trackW: TOGGLE_W,
     trackH: TOGGLE_H,
+    // Track's original screen position (FIXED — does NOT move with knob).
+    trackOriginalX: t2TrackX,
+    trackOriginalY: t2TrackY,
+    // Solid backdrop color: the card's background color (faithful to
+    // ToggleContent.kt's `rememberCanvasBackdrop { drawRect(backgroundColor) }`).
+    // When set, the shader uses this color instead of sampling the wallpaper
+    // texture for the outer backdrop portion of the CombinedBackdrop.
+    solidBackdropColor: cardBg,
   }
   elements.push(t2KnobEl)
 
