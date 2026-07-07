@@ -244,7 +244,12 @@ export const glassRenderMethods = {
 
     const state: GlassRenderState = {
       el, st, isButton, p, sx, sy, sw, sh, radii, togglePressProgress,
-      elHighlightAlpha: el.highlight ? el.highlight.alpha : 0,
+      // For toggle knobs + bottom-tab indicators, the highlight alpha is
+      // modulated by pressProgress (faithful to Highlight.Default.copy(alpha=progress)).
+      // At rest (progress=0) the alpha should be 0 — so we initialize to 0
+      // here, and renderGlassElementPass overrides it to alpha*progress when
+      // progress > 0. For non-toggle elements, use the static highlight alpha.
+      elHighlightAlpha: (el.isToggleKnob || el.isBottomTabIndicator) ? 0 : (el.highlight ? el.highlight.alpha : 0),
       layerScaleX: scaleX,
       layerScaleY: scaleY,
       layerScale: Math.min(scaleX, scaleY),
