@@ -114,7 +114,7 @@ export const renderMethods = {
       if (this.renderNonGlassElement(el, r, st, curFbo)) continue
 
       // --- Glass elements (button / glass-shape): ping-pong ---
-      const result = this.renderGlassElement(el, st, curFbo, curTex, otherFbo, otherTex)
+      const result = this.renderGlassElement(el, st, curFbo, curTex, otherFbo, otherTex, r)
       curFbo = result.curFbo
       curTex = result.curTex
       otherFbo = result.otherFbo

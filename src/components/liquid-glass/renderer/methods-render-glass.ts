@@ -65,7 +65,8 @@ export const glassRenderMethods = {
     curFbo: WebGLFramebuffer,
     curTex: WebGLTexture,
     otherFbo: WebGLFramebuffer,
-    otherTex: WebGLTexture
+    otherTex: WebGLTexture,
+    r: { x: number; y: number; w: number; h: number }
   ): {
     curFbo: WebGLFramebuffer
     curTex: WebGLTexture
@@ -246,15 +247,15 @@ export const glassRenderMethods = {
       const pivotX = el.isBottomTabIndicator.containerCenterX
       const pivotY = el.isBottomTabIndicator.containerCenterY
       // indicator center (before container scale, but after toggle offset + panelOffset)
-      const indCenterX = el.rect.x + el.rect.w / 2 + translationX + toggleXOffset
-      const indCenterY = el.rect.y + el.rect.h / 2 + translationY
+      const indCenterX = r.x + el.rect.w / 2 + translationX + toggleXOffset
+      const indCenterY = r.y + el.rect.h / 2 + translationY
       // Scale around container center: the indicator's offset from the
       // container center grows by containerScale.
       cx = pivotX + (indCenterX - pivotX) * containerScale
       cy = pivotY + (indCenterY - pivotY) * containerScale
     } else {
-      cx = el.rect.x + el.rect.w / 2 + translationX + toggleXOffset
-      cy = el.rect.y + el.rect.h / 2 + translationY
+      cx = r.x + el.rect.w / 2 + translationX + toggleXOffset
+      cy = r.y + el.rect.h / 2 + translationY
     }
     const sw = el.rect.w * scaleX
     const sh = el.rect.h * scaleY
