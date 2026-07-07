@@ -1670,14 +1670,17 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
     const indicatorW = tabW - 2 * GLASS_PAD // (tabW - 8dp), 4dp inset each side
     const indicatorEl = makeGlassShape(
       `${idPrefix}-indicator`,
-      // Indicator glass x = glassX (aligned with tab 0's left edge).
-      // The renderer adds translationX = fraction * tabW, so at fraction=0
-      // the indicator aligns with tab 0, at fraction=1 with tab 1, etc.
-      // The indicator is narrower than a tab (tabW - 8dp) with 4dp inset on
-      // each side, faithful to the original's padding(horizontal=4dp).
-      // Previously x was glassX + GLASS_PAD (offset 4px right) which misaligned
-      // the indicator with the tab slots.
-      { x: glassX, y: glassY, w: indicatorW, h: GLASS_H },
+      // Indicator glass x = glassX + GLASS_PAD (4dp inset from tab slot left).
+      // Faithful to LiquidBottomTabs.kt: indicator Box has padding(horizontal=4dp),
+      // so the glass is inset 4dp on each side WITHIN the tab slot. The renderer
+      // adds translationX = fraction * tabW, so:
+      //   fraction=0 → indicator x = glassX+4, centered in tab 0 (4dp gap each side)
+      //   fraction=last → indicator x = glassX+4+(tabsCount-1)*tabW, centered in last tab
+      // This gives symmetric 4dp gaps on left and right of each tab slot, matching
+      // the original. The indicator right edge at the last tab = glassX+glassW-4,
+      // which is 4dp inside the tab content right edge (symmetric with the 4dp left
+      // gap at tab 0).
+      { x: glassX + GLASS_PAD, y: glassY, w: indicatorW, h: GLASS_H },
       {
         cornerRadius: glassR,
         refractionHeight: 10 * DP,
