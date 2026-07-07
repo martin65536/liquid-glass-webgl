@@ -168,6 +168,14 @@ uniform vec2  uLayerScale;          // (scaleX, scaleY) from graphicsLayer
 
 ${SDF_GLSL}
 
+// erf approximation (Abramowitz & Stegun 7.1.26) — for Gaussian edge profile.
+// Used by the stroke mask to model BlurMaskFilter(Blur.NORMAL) convolution.
+float erfApprox(float x) {
+    float t = 1.0 / (1.0 + 0.3275911 * abs(x));
+    float y = 1.0 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * exp(-x * x);
+    return sign(x) * y;
+}
+
 void main() {
     vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
     // elementCenter is the SAME for scaled and original rects (scaling is
@@ -185,33 +193,39 @@ void main() {
     float sd = sdRoundedRect(centeredOrig, origHalfSize, origRadius);
 
     // Outside the shape — nothing to add (the stroke's outward half is clipped).
-    // Strict discard at sd > 0 (no outward bleed) — the original HighlightModifier
-    // calls canvas.clipOutline(outline) before drawing the stroke, which removes
-    // the outward half of the stroke entirely.
     if (sd > 0.0) {
         discard;
     }
 
-    // Stroke mask — strokeWidth + blur are in ORIGINAL px (faithful to original:
-    // Highlight.width is a Dp value, drawn at original size, then graphicsLayer
-    // scales the stroke along with the layer). No layerScale multiplication
-    // needed here because the SDF is already in original space.
+    // Stroke mask — faithful to BlurMaskFilter(radius, Blur.NORMAL).
     //
-    // Original paint setup (HighlightModifier.kt):
+    // Original (HighlightModifier.kt):
     //   paint.style = Stroke
     //   paint.strokeWidth = ceil(width.toPx()) * 2     // full stroke, centered on edge
     //   paint.blur(blurRadius.toPx())                   // BlurMaskFilter, Blur.NORMAL
     //   canvas.clipOutline(outline)                     // clip to inside the shape
     //   canvas.drawOutline(outline, paint)              // stroke centered on edge
+    //
+    // BlurMaskFilter(NORMAL) convolves a solid stroke mask with a Gaussian
+    // kernel (sigma = radius/3). For a 2px stroke centered on the edge (sd=0),
+    // the convolved alpha profile is an erfc-like curve with peak ≈ 0.5 at
+    // the edge, fading over ~3σ ≈ radius px. The clip removes the outer half
+    // (sd > 0), leaving the inner half with peak 0.5 at the edge.
+    //
+    // Previously a smoothstep triangle peaking at 1.0 was used — twice the
+    // correct 0.5 (too bright) and too thin. We now model the convolved
+    // stroke as the difference of two erf edges (inner + outer stroke edges),
+    // giving a true Gaussian profile with peak 0.5.
+    float sigma = max(uHighlightBlur / 3.0, 0.5);
     float strokeInner = -uHighlightStrokeWidth * 0.5;
-    float strokeMask = smoothstep(strokeInner - uHighlightBlur, strokeInner, sd);
-    float edgeFade = 1.0 - smoothstep(strokeInner, 0.0, sd);
-    strokeMask *= edgeFade;
+    float strokeOuter = uHighlightStrokeWidth * 0.5;
+    float invSqrt2 = 0.70710678;
+    float innerTerm = 0.5 * (1.0 + erfApprox((sd - strokeInner) * invSqrt2 / sigma));
+    float outerTerm = 0.5 * (1.0 + erfApprox((sd - strokeOuter) * invSqrt2 / sigma));
+    float strokeMask = innerTerm - outerTerm;
 
     if (uHighlightMode < 0.5) {
         // Default — shader returns color * intensity, Plus blend.
-        // Output rgb = color * intensity * mask * alpha. Renderer uses
-        // gl.blendFunc(ONE, ONE) so result = src + dst (clamped).
         float gradRadius = min(origRadius * 1.5, min(origHalfSize.x, origHalfSize.y));
         vec2 grad = gradSdRoundedRect(centeredOrig, origHalfSize, gradRadius);
         vec2 normal = vec2(cos(uHighlightAngle), sin(uHighlightAngle));
@@ -221,9 +235,6 @@ void main() {
         gl_FragColor = vec4(c, 1.0);
     } else if (uHighlightMode < 1.5) {
         // Ambient — shader returns half4(t,t,t,1.0)*intensity, SrcOver blend.
-        // src.rgb = t*intensity, src.a = intensity. With SrcOver:
-        // result = src.rgb*src.a + dst*(1-src.a) = t*i^2 + dst*(1-i).
-        // We output (t*i, t*i, t*i, i) and let the renderer use SrcOver blend.
         float gradRadius = min(origRadius * 1.5, min(origHalfSize.x, origHalfSize.y));
         vec2 grad = gradSdRoundedRect(centeredOrig, origHalfSize, gradRadius);
         vec2 normal = vec2(cos(uHighlightAngle), sin(uHighlightAngle));
