@@ -1654,22 +1654,24 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
     //     .drawBackdrop(...).height(56dp).fillMaxWidth(1/tabsCount))
     //
     //   - BoxWithConstraints maxWidth = TABS_W (= W - 2*36dp)
-    //   - tabWidth = (maxWidth - 8dp) / tabsCount   [container padding(4dp)*2]
-    //   - indicator Box width = fillMaxWidth(1/tabsCount) = TABS_W / tabsCount
-    //   - indicator glass width = Box width - 2*4dp padding = TABS_W/tabsCount - 8dp
+    //   - padding(horizontal=4dp) is OUTSIDE fillMaxWidth → shrinks available
+    //     width to (maxWidth - 8dp) BEFORE fillMaxWidth applies.
+    //   - tabWidth = (maxWidth - 8dp) / tabsCount
+    //   - indicator Box width = fillMaxWidth(1/tabsCount) of (maxWidth-8dp)
+    //                          = (maxWidth - 8dp) / tabsCount = tabWidth
+    //   - indicator glass width = tabWidth (drawBackdrop paints the full Box)
     //   - indicator glass x (fraction=0) = TABS_PAD + 4dp (BoxWithConstraints pad + indicator pad)
-    //   - translationX = fraction * tabWidth (renderer adds via toggleXOffset)
+    //   - translationX = fraction * tabWidth
     //
-    // Note: indicator Box width (TABS_W/tabsCount) ≠ tabWidth ((TABS_W-8)/tabsCount).
-    // The indicator glass is TABS_W/tabsCount - 8dp wide; tab items are tabWidth wide.
-    // The translation uses tabWidth so the indicator aligns with tab item centers.
-    const indicatorBoxW = TABS_W / tabsCount // fillMaxWidth(1/tabsCount) of BoxWithConstraints
-    const indicatorW = indicatorBoxW - 2 * GLASS_PAD // minus 4dp padding each side
+    // The indicator glass is exactly tabWidth wide (same as each tab item),
+    // and slides by fraction*tabWidth — so it perfectly aligns with tab items.
+    // At fraction=tabsCount-1, the indicator right edge = TABS_PAD+4 + tabsCount*tabWidth
+    // = TABS_PAD+4 + (TABS_W-8) = glassX + glassW = tab content right edge. ✓
     const indicatorEl = makeGlassShape(
       `${idPrefix}-indicator`,
-      // Indicator glass x = TABS_PAD + 4dp (BoxWithConstraints pad + indicator pad).
-      // The renderer adds fraction * tabW via toggleXOffset (isBottomTabIndicator.dragWidth).
-      { x: TABS_PAD + GLASS_PAD, y: glassY, w: indicatorW, h: GLASS_H },
+      // Indicator glass x = TABS_PAD + 4dp. The renderer adds fraction*tabW
+      // via toggleXOffset (isBottomTabIndicator.dragWidth = tabW).
+      { x: TABS_PAD + GLASS_PAD, y: glassY, w: tabW, h: GLASS_H },
       {
         cornerRadius: glassR,
         refractionHeight: 10 * DP,
