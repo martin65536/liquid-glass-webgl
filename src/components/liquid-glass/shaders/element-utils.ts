@@ -199,15 +199,20 @@ vec4 sampleToggleBackdrop(vec2 canvasPx, float radius) {
 vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     // Faithful to LiquidBottomTabs.kt indicator's CombinedBackdrop:
     //   backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop)
-    //   - backdrop = outer LayerBackdrop (wallpaper, pre-draw) → uWallpaperSampler
-    //   - tabsBackdrop = hidden Row (alpha=0) capturing container glass +
-    //     tab content with ColorFilter.tint(accentColor) → uTabsBackdropSampler
+    //   - backdrop = outer LayerBackdrop (wallpaper) — the MAIN backdrop
+    //   - tabsBackdrop = hidden Row (alpha=0) capturing container+tabs with
+    //     ColorFilter.tint(accentColor) — a SUBTLE secondary layer
     //
-    // The tabsBackdrop is clipped to the container capsule shape, so it only
-    // has content inside the capsule. We composite: wallpaper (everywhere) +
-    // tabsBackdrop (inside container capsule SDF).
+    // The indicator is primarily a glass element refracting the wallpaper
+    // (like a toggle knob). The tabsBackdrop adds a faint blue tint inside
+    // the container capsule — it should NOT flood the container with blue.
+    // The original's tint is gentle (HSV tint preserves brightness), and the
+    // hidden Row's glass refracts mostly wallpaper, so the net effect is a
+    // subtle blue cast, not a solid blue fill.
 
     // 1. Sample wallpaper (outer LayerBackdrop) via coverUv (cover-fit).
+    //    This is the PRIMARY backdrop — the indicator is mostly transparent
+    //    glass refracting the wallpaper.
     vec4 wp;
     if (radius < 0.5) {
         vec2 uv = coverUv(canvasPx);
@@ -229,10 +234,13 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
         wp = sum / total;
     }
 
-    // 2. Composite tabsBackdrop (tinted scene) inside the container capsule.
-    //    The tabsBackdrop FBO contains the full scene (container+tabs) with
-    //    ColorFilter.tint(accentColor) applied. We mask it to the container
-    //    capsule SDF so it only appears where the hidden Row would be clipped.
+    // 2. Apply a FAINT blue tint inside the container capsule, faithful to
+    //    the tabsBackdrop's ColorFilter.tint(accentColor). The tint is subtle:
+    //    HSV tint (take H+S from accent, keep V) preserves brightness, so it
+    //    only shifts the hue gently. We further reduce the intensity so the
+    //    container doesn't look flooded with blue — the original's hidden Row
+    //    is at alpha=0 and its glass refracts mostly wallpaper, making the net
+    //    blue cast very gentle.
     vec2 containerCenter = uContainerRect.xy;
     vec2 containerHalf = uContainerRect.zw;
     vec2 containerLocal = canvasPx - containerCenter;
@@ -241,13 +249,11 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     float containerSd = length(max(cq, vec2(0.0))) + min(max(cq.x, cq.y), 0.0) - cr;
     float containerMask = 1.0 - smoothstep(-1.0, 1.0, containerSd);
 
-    // Sample tabsBackdrop FBO (tinted scene). sceneUv: FBO is canvas-sized.
-    vec2 tbUv = sceneUv(canvasPx);
-    vec4 tabsBackdrop = texture2D(uTabsBackdropSampler, tbUv);
+    // blendHue: take accent's H+S, keep wallpaper's V. Then mix at low alpha.
+    vec3 tinted = blendHue(wp.rgb, uIndicatorAccent.rgb);
+    float tintAlpha = containerMask * 0.15;  // very faint
+    vec3 resultRgb = mix(wp.rgb, tinted, tintAlpha);
 
-    // SrcOver composite: tabsBackdrop over wallpaper, masked to capsule.
-    float a = tabsBackdrop.a * containerMask;
-    vec3 resultRgb = mix(wp.rgb, tabsBackdrop.rgb, a);
     return vec4(resultRgb, 1.0);
 }
 
