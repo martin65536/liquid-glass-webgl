@@ -89,13 +89,11 @@ export const glassElementPassMethods = {
     let elInnerShadowOffsetX = el.innerShadow ? el.innerShadow.offsetX : 0
     let elInnerShadowOffsetY = el.innerShadow ? el.innerShadow.offsetY : 0
     let elSurfaceAlpha = el.surfaceColor[3]
-    // Bottom tab indicator: highlight is always visible (alpha = el.highlight.alpha,
-    // NOT modulated by pressProgress). The original's Highlight.Default.copy(alpha=progress)
-    // fades in on press, but the original also has a persistent white rim from the
-    // glass edge AA + containerColor surface. We keep the full alpha for a visible
-    // white glow at rest, matching the original's visual appearance.
+    // Bottom tab indicator: highlight alpha modulated by pressProgress
+    // (faithful to LiquidBottomTabs.kt: highlight = Highlight.Default.copy(alpha=progress)).
+    // At rest (progress=0) → no edge highlight; pressed (progress=1) → full.
     if (el.isBottomTabIndicator) {
-      elHighlightAlpha = el.highlight?.alpha ?? 0
+      elHighlightAlpha = (el.highlight?.alpha ?? 0) * togglePressProgress
     }
     // Content scale (non-uniform, faithful to LiquidToggle.kt / LiquidSlider.kt):
     //   scale(scaleX, scaleY) { drawBackdrop() }
