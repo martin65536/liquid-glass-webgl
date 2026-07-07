@@ -24,15 +24,11 @@ export const glassPostPassMethods = {
     const layerScaleX = state.layerScaleX
     const layerScaleY = state.layerScaleY
 
-    // --- Step 2c: Press glow (button + bottom-tab indicator) ---
-    // Faithful to InteractiveHighlight.kt: a flat white Plus-blend overlay
-    // + a radial white glow at the finger position. For buttons, p = st.pressProgress.
-    // For the bottom-tab indicator, use togglePressProgress (the indicator's own
-    // press animation). The glow position is the indicator center (no finger
-    // tracking — the original's InteractiveHighlight position follows the
-    // indicator via the position lambda).
-    const glowP = isButton ? p : (el.isBottomTabIndicator ? togglePressProgress : 0)
-    if ((isButton || el.isBottomTabIndicator) && glowP > 0.001) {
+    // --- Step 2c: Press glow (button only) ---
+    // The original InteractiveHighlight (flat white + radial glow) is applied
+    // to the CONTAINER, not the indicator. The container's press glow is
+    // handled separately. Here we only draw it for buttons.
+    if (isButton && el.isInteractive && st && p > 0.001) {
       // a. Flat white overlay
       gl.useProgram(this.tintProgram)
       gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
@@ -52,10 +48,10 @@ export const glassPostPassMethods = {
       gl.uniform2f(this.uTn['uOriginalSize'], origSizeX, origSizeY)
       gl.uniform1f(this.uTn['uOriginalCornerRadius'], origRadius)
       gl.uniform2f(this.uTn['uLayerScale'], layerScaleX, layerScaleY)
-      gl.uniform4f(this.uTn['uColor'], 1, 1, 1, 0.08 * glowP)
+      gl.uniform4f(this.uTn['uColor'], 1, 1, 1, 0.08 * p)
       gl.drawArrays(gl.TRIANGLES, 0, 6)
 
-      // b. Radial highlight at finger position (button) or indicator center.
+      // b. Radial highlight at finger position
       gl.useProgram(this.highlightProgram)
       gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
       gl.enableVertexAttribArray(this.aPosLocHl)
@@ -74,21 +70,11 @@ export const glassPostPassMethods = {
       gl.uniform2f(this.uHl['uOriginalSize'], origSizeX, origSizeY)
       gl.uniform1f(this.uHl['uOriginalCornerRadius'], origRadius)
       gl.uniform2f(this.uHl['uLayerScale'], layerScaleX, layerScaleY)
-      gl.uniform4f(this.uHl['uColor'], 1, 1, 1, 0.15 * glowP)
+      gl.uniform4f(this.uHl['uColor'], 1, 1, 1, 0.15 * p)
       const minDim = Math.min(sw, sh) * this.dpr
       gl.uniform1f(this.uHl['uRadius'], minDim * 1.5)
-      // Position: for buttons, the finger position (st.dragX/Y). For the
-      // indicator, the center of the indicator (no finger tracking — the
-      // original's InteractiveHighlight position lambda returns the indicator
-      // center).
-      let px: number, py: number
-      if (el.isBottomTabIndicator) {
-        px = (sw / 2) * this.dpr
-        py = (sh / 2) * this.dpr
-      } else {
-        px = Math.max(0, Math.min(sw, (st?.dragX ?? 0) * state.layerScaleX)) * this.dpr
-        py = Math.max(0, Math.min(sh, (st?.dragY ?? 0) * state.layerScaleY)) * this.dpr
-      }
+      const px = Math.max(0, Math.min(sw, st.dragX * state.layerScaleX)) * this.dpr
+      const py = Math.max(0, Math.min(sh, st.dragY * state.layerScaleY)) * this.dpr
       gl.uniform2f(this.uHl['uPosition'], px, py)
       gl.drawArrays(gl.TRIANGLES, 0, 6)
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
