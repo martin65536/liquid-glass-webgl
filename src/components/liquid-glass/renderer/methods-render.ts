@@ -1,5 +1,6 @@
 import type { LiquidGlassRenderer } from './index'
 import type { GlassElementConfig, ElementState } from './types'
+import { DP } from './spring'
 
 declare module './index' {
   interface LiquidGlassRenderer {
