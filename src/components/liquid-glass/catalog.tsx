@@ -1613,18 +1613,25 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
         cornerRadius: glassR,
         refractionHeight: 10 * DP,
         refractionAmount: -14 * DP,
-        blurRadius: 2 * DP,
-        saturation: 1.5,
-        // Accent tint approximates the hidden ColorFilter.tint(accentColor) layer
-        // that the original indicator refracts via CombinedBackdrop.
-        tintColor: [accentT[0], accentT[1], accentT[2], 0.3],
+        // Faithful to original: indicator has NO blur and NO vibrancy (only
+        // lens when pressed). The original indicator's effects block contains
+        // ONLY lens — no vibrancy(), no blur(). Having vibrancy+blur made it
+        // look like a flat frosted rectangle instead of transparent glass.
+        blurRadius: 0,
+        saturation: 1.0,
+        // No tint — the original indicator's blue comes from refracting a hidden
+        // ColorFilter.tint(accentColor) content layer via CombinedBackdrop,
+        // which we don't have. Using a surface tint made it look like a flat
+        // blue rectangle. Instead, the indicator shows the container glass
+        // through it naturally, with the onDrawSurface dim overlay providing
+        // depth. This looks more like glass than a solid tinted shape.
+        tintColor: [0, 0, 0, 0],
         surfaceColor: [0, 0, 0, 0],
         highlight: { ...DEFAULT_HIGHLIGHT },
         // Shadow(alpha=progress) — faithful to Shadow.Default: radius=24dp, color=Black(0.1),
         // offset=(0, radius/6=4dp). Renderer modulates alpha by pressProgress.
         outerShadow: { radius: 24 * DP, alpha: 0.1, offsetX: 0, offsetY: (24 / 6) * DP, color: [0, 0, 0] },
         // InnerShadow(radius=8dp*progress, alpha=progress) — color=Black(0.15), offset=(0, radius).
-        // Renderer modulates radius + alpha by pressProgress.
         innerShadow: { radius: 8 * DP, alpha: 0.15, offsetX: 0, offsetY: 8 * DP },
         chromaticAberration: true,
       }
