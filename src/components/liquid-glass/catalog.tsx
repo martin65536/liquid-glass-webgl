@@ -703,6 +703,15 @@ function applyVerticalCenter(
     if (el.isToggleKnob && el.isToggleKnob.trackOriginalY != null) {
       el.isToggleKnob.trackOriginalY += yOffset
     }
+    // Bottom tab indicator stores the CONTAINER rect separately for its
+    // CombinedBackdrop (the blue tint overlay covers the container area).
+    // Shift it by the same yOffset so the container SDF stays aligned.
+    if (el.isBottomTabIndicator && el.isBottomTabIndicator.containerRect) {
+      el.isBottomTabIndicator.containerRect = {
+        ...el.isBottomTabIndicator.containerRect,
+        y: el.isBottomTabIndicator.containerRect.y + yOffset,
+      }
+    }
   }
   return contentHeight + yOffset
 }
@@ -1712,9 +1721,13 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
       // CombinedBackdrop: faithful to LiquidBottomTabs.kt indicator's
       //   rememberCombinedBackdrop(backdrop, tabsBackdrop)
       // where tabsBackdrop is a hidden Row with ColorFilter.tint(accentColor).
-      // The indicator refracts wallpaper + blue-tinted tab content.
+      // The indicator refracts wallpaper + blue-tinted container area.
       accentColor: [...accentT] as [number, number, number],
       containerColor: [...containerColor] as [number, number, number, number],
+      // containerRect = the FULL container bar (not just the indicator),
+      // so the blue tint covers the entire container area, matching the
+      // original where tabsBackdrop is the full container capsule tinted blue.
+      containerRect: { x: containerX, y, w: containerW, h: CONTAINER_H },
     }
     // Indicator is decorative — no interactions. It sits on top in z-order
     // so it refracts + tints the tab content beneath, but taps fall through

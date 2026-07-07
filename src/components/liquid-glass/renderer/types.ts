@@ -305,6 +305,11 @@ export interface GlassElementConfig extends GlassButtonConfig {
     /** Container color (for the blue-tinted capsule shape). Faithful to
      *  LiquidBottomTabs.kt container onDrawSurface = drawRect(containerColor). */
     containerColor?: [number, number, number, number]
+    /** Container rect (full container bar position/size). The indicator's
+     *  CombinedBackdrop overlays the blue tint inside the CONTAINER capsule
+     *  (not just the indicator), matching the original where tabsBackdrop
+     *  covers the entire container area. */
+    containerRect?: { x: number; y: number; w: number; h: number }
   }
 }
 

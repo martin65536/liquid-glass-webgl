@@ -222,6 +222,10 @@ export const glassElementPassMethods = {
     //   innerShadow: InnerShadow(radius=8dp*progress, alpha=progress)
     // The indicator is NOT a toggle knob, so the isToggleKnob block above
     // doesn't run — we apply the same progress modulation here.
+    let useIndicatorBackdrop = 0.0
+    let containerRectX = 0, containerRectY = 0, containerHalfW = 0, containerHalfH = 0
+    let containerCornerRadius = 0
+    let indicatorAccentR = 0, indicatorAccentG = 0, indicatorAccentB = 0, indicatorAccentA = 0
     if (el.isBottomTabIndicator) {
       const progress = togglePressProgress
       elRefractionHeight = el.refractionHeight * progress
@@ -236,44 +240,30 @@ export const glassElementPassMethods = {
       // The original indicator's backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop)
       //   - backdrop = outer LayerBackdrop (wallpaper)
       //   - tabsBackdrop = hidden Row (alpha=0) with ColorFilter.tint(accentColor)
-      //     → captures blue-tinted tab content + container glass
-      // The indicator refracts wallpaper + blue-tinted content.
+      //     → captures blue-tinted container area (wallpaper+container+content, all blue)
+      // The indicator refracts wallpaper + blue-tinted container layer.
       //
-      // We approximate using the toggle knob's CombinedBackdrop path:
-      //   - outer backdrop = wallpaper (sampled via uWallpaperSampler, like t1)
-      //   - "track color" = blue-tinted containerColor (accentColor mixed with
-      //     containerColor to simulate the ColorFilter.tint effect)
-      //   - "track rect" = the indicator's own capsule shape (so the blue tint
-      //     fills the indicator area, matching the original where tabsBackdrop
-      //     is the full container capsule tinted blue)
-      if (el.isBottomTabIndicator.accentColor && el.isBottomTabIndicator.containerColor) {
+      // We use a dedicated shader path (uIndicatorBackdrop) that:
+      //   1. Samples wallpaper via coverUv (outer backdrop)
+      //   2. Inside the CONTAINER capsule SDF, overlays accentColor at
+      //      containerColor alpha (simulating the tinted tabsBackdrop)
+      // The container rect is the FULL container bar (not just the indicator),
+      // matching the original where tabsBackdrop covers the entire container.
+      if (el.isBottomTabIndicator.accentColor && el.isBottomTabIndicator.containerColor &&
+          el.isBottomTabIndicator.containerRect) {
         const ac = el.isBottomTabIndicator.accentColor
         const cc = el.isBottomTabIndicator.containerColor
-        // ColorFilter.tint(accent) replaces all opaque pixels with accentColor.
-        // The hidden layer = container glass (containerColor) + tab content,
-        // all tinted to accentColor. We approximate as accentColor at the
-        // container's alpha (containerColor.a), since the tint replaces color
-        // but preserves alpha.
-        trackColorR = ac[0]
-        trackColorG = ac[1]
-        trackColorB = ac[2]
-        trackColorA = cc[3] // container alpha (e.g. 0.4)
-
-        // Track rect = indicator's own capsule (centered on the indicator).
-        // The blue tint fills the entire indicator area.
-        const knobCenterX = (sx + sw / 2) * this.dpr
-        const knobCenterY = (sy + sh / 2) * this.dpr
-        trackCenterX = knobCenterX
-        trackCenterY = knobCenterY
-        trackHalfW = (sw * this.dpr) * 0.5
-        trackHalfH = (sh * this.dpr) * 0.5
-        trackCornerRadius = el.cornerRadius * this.dpr
-        useToggleBackdrop = 1.0
-
-        // When using CombinedBackdrop, disable content-scale on the scene
-        // sample (we sample wallpaper + blue capsule instead).
-        elContentScaleX = 1.0
-        elContentScaleY = 1.0
+        const cr = el.isBottomTabIndicator.containerRect
+        indicatorAccentR = ac[0]
+        indicatorAccentG = ac[1]
+        indicatorAccentB = ac[2]
+        indicatorAccentA = cc[3] // container alpha (e.g. 0.4)
+        containerRectX = (cr.x + cr.w / 2) * this.dpr
+        containerRectY = (cr.y + cr.h / 2) * this.dpr
+        containerHalfW = (cr.w / 2) * this.dpr
+        containerHalfH = (cr.h / 2) * this.dpr
+        containerCornerRadius = (cr.h / 2) * this.dpr // capsule = height/2
+        useIndicatorBackdrop = 1.0
       }
     }
     // Set the CombinedBackdrop uniforms (no-ops for non-toggle elements).
@@ -283,6 +273,11 @@ export const glassElementPassMethods = {
     gl.uniform4f(this.uEl['uTrackColor'], trackColorR, trackColorG, trackColorB, trackColorA)
     gl.uniform4f(this.uEl['uTrackRect'], trackCenterX, trackCenterY, trackHalfW, trackHalfH)
     gl.uniform1f(this.uEl['uTrackCornerRadius'], trackCornerRadius)
+    // Indicator CombinedBackdrop uniforms.
+    gl.uniform1f(this.uEl['uIndicatorBackdrop'], useIndicatorBackdrop)
+    gl.uniform4f(this.uEl['uContainerRect'], containerRectX, containerRectY, containerHalfW, containerHalfH)
+    gl.uniform1f(this.uEl['uContainerCornerRadius'], containerCornerRadius)
+    gl.uniform4f(this.uEl['uIndicatorAccent'], indicatorAccentR, indicatorAccentG, indicatorAccentB, indicatorAccentA)
     // Refraction params in ORIGINAL px (NOT scaled by layerScale).
     // Faithful to the original: the AGSL shader receives the original element
     // size and refraction params, computes refraction in original space, THEN

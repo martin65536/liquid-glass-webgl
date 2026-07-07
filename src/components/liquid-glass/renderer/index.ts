@@ -190,6 +190,7 @@ export class LiquidGlassRenderer {
       'uUseToggleBackdrop', 'uUseSolidBackdrop', 'uSolidBackdropColor',
       'uTrackColor', 'uTrackRect', 'uTrackCornerRadius',
       'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale',
+      'uIndicatorBackdrop', 'uContainerRect', 'uContainerCornerRadius', 'uIndicatorAccent',
     ]
     for (const n of elNames) this.uEl[n] = gl.getUniformLocation(this.elementProgram, n)
     const shNames = [

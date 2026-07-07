@@ -67,4 +67,15 @@ uniform vec4  uSolidBackdropColor;  // rgba 0..1; used when uUseSolidBackdrop = 
 uniform vec4  uTrackColor;        // rgba 0..1; alpha 0 = no track color
 uniform vec4  uTrackRect;         // (centerX, centerY, halfW, halfH) in canvas px (dpr-scaled)
 uniform float uTrackCornerRadius; // canvas px (dpr-scaled)
+// --- Bottom tab indicator CombinedBackdrop (faithful to LiquidBottomTabs.kt) ---
+// The indicator's backdrop = CombinedBackdrop(wallpaper, tabsBackdrop) where
+// tabsBackdrop is a hidden Row with ColorFilter.tint(accentColor). The blue-
+// tinted layer covers the CONTAINER capsule area (not just the indicator).
+// uIndicatorBackdrop = 1.0 → apply the CombinedBackdrop: sample wallpaper,
+// then inside uContainerRect (container capsule SDF) overlay a blue tint
+// (accentColor at containerColor alpha) to simulate the tinted tabsBackdrop.
+uniform float uIndicatorBackdrop;    // 0 or 1
+uniform vec4  uContainerRect;        // (centerX, centerY, halfW, halfH) in canvas px (dpr-scaled)
+uniform float uContainerCornerRadius; // canvas px (dpr-scaled)
+uniform vec4  uIndicatorAccent;      // (r, g, b, containerAlpha) — accentColor + container alpha
 `

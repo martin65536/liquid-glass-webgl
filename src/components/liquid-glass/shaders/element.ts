@@ -82,12 +82,14 @@ void main() {
     // Use sampleCoord (content-scaled) so the backdrop shrinks inward when
     // uContentScaleX/Y < 1.0 (toggle/slider knob press effect).
     vec4 backdrop;
-    if (uUseToggleBackdrop > 0.5) {
+    if (uIndicatorBackdrop > 0.5) {
+        // Bottom tab indicator CombinedBackdrop (faithful to LiquidBottomTabs.kt):
+        //   backdrop = CombinedBackdrop(wallpaper, blue-tinted-tabsBackdrop)
+        // Sample wallpaper + overlay blue tint inside container capsule.
+        backdrop = sampleIndicatorBackdrop(screenCoord, uBlurRadius);
+    } else if (uUseToggleBackdrop > 0.5) {
         // Toggle knob CombinedBackdrop (faithful to LiquidToggle.kt):
         //   backdrop = wallpaper (unscaled) + scaled track color rect
-        // The wallpaper is sampled at screenCoord (NOT content-scaled),
-        // and the track color is composited on top using a rounded-rect
-        // SDF at the scaled track rect position.
         backdrop = sampleToggleBackdrop(screenCoord, uBlurRadius);
     } else {
         backdrop = sampleBackdrop(sampleCoord, uBlurRadius);
@@ -131,7 +133,7 @@ void main() {
         vec2 refractedOffsetScreen = refractedOffsetOrig * layerScale;
         vec2 refractedScreen = screenCoord + refractedOffsetScreen;
         vec2 refractedSampleCoord = refractedScreen;
-        if (uUseToggleBackdrop < 0.5 &&
+        if (uIndicatorBackdrop < 0.5 && uUseToggleBackdrop < 0.5 &&
             (uContentScaleX < 0.999 || uContentScaleY < 0.999)) {
             refractedSampleCoord = elementCenter + (refractedScreen - elementCenter) * contentScale;
         }
@@ -145,7 +147,11 @@ void main() {
 
             // PERFORMANCE: Reduced from 7-path (ROYGBV) to 3-path (RGB).
             vec4 redC, greenC, blueC;
-            if (uUseToggleBackdrop > 0.5) {
+            if (uIndicatorBackdrop > 0.5) {
+                redC   = sampleIndicatorBackdrop(refractedScreen + dispersedOffsetScreen, uBlurRadius);
+                greenC = sampleIndicatorBackdrop(refractedScreen,                        uBlurRadius);
+                blueC  = sampleIndicatorBackdrop(refractedScreen - dispersedOffsetScreen, uBlurRadius);
+            } else if (uUseToggleBackdrop > 0.5) {
                 redC   = sampleToggleBackdrop(refractedScreen + dispersedOffsetScreen, uBlurRadius);
                 greenC = sampleToggleBackdrop(refractedScreen,                        uBlurRadius);
                 blueC  = sampleToggleBackdrop(refractedScreen - dispersedOffsetScreen, uBlurRadius);
@@ -162,7 +168,9 @@ void main() {
             alpha = dispAlpha;
         } else {
             vec4 refracted;
-            if (uUseToggleBackdrop > 0.5) {
+            if (uIndicatorBackdrop > 0.5) {
+                refracted = sampleIndicatorBackdrop(refractedScreen, uBlurRadius);
+            } else if (uUseToggleBackdrop > 0.5) {
                 refracted = sampleToggleBackdrop(refractedScreen, uBlurRadius);
             } else {
                 refracted = sampleBackdrop(refractedSampleCoord, uBlurRadius);
