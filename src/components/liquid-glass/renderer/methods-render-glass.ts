@@ -177,9 +177,9 @@ export const glassRenderMethods = {
       if (tg) {
         // Container press scale (same as isBottomTabContainer above) — the
         // tab content is a child of the container, so it scales with it.
-        // We need the container's width to compute the scale; approximate
-        // using this element's rect.w * tabsCount (container ≈ tabsCount * tabW).
         // Faithful to: scale = lerp(1, 1 + 16dp/containerWidth, pressProgress).
+        // The container width is the full bar width (containerW = TABS_W),
+        // which is tabsCount * tabW. We approximate using el.rect.w * tabsCount.
         const containerW = el.rect.w * 4 // approximate (tabsCount is 3 or 4, close enough)
         const containerScale = 1 + (16 * DP) / containerW * tg.pressProgress
         scaleX *= containerScale

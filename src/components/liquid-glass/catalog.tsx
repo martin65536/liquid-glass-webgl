@@ -1540,34 +1540,54 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
   const accentT = palette.tabsAccent
 
   // --- Bottom tabs geometry (faithful to LiquidBottomTabs.kt) ---
-  // BoxWithConstraints → maxWidth = TABS_W
+  // BoxWithConstraints → maxWidth = TABS_W (= W - 2*36dp horizontal padding)
   //   tabWidth = (maxWidth - 8dp) / tabsCount     [the 8dp is 4dp padding each side]
-  // Container Row: height=64dp, fillMaxWidth, padding(4dp)
-  //   → glass capsule: 56dp tall, (TABS_W - 8dp) wide, cornerRadius = 28dp
-  // Indicator Box: height=56dp, fillMaxWidth(1/tabsCount), padding(horizontal=4dp)
-  //   → glass capsule: 56dp tall, (tabWidth - 8dp) wide, cornerRadius = 28dp
-  //   → translationX = value * tabWidth + panelOffset
+  //
+  // Container Row: height(64dp).fillMaxWidth().padding(4dp)
+  //   → drawBackdrop paints the FULL 64dp × TABS_W area (padding only shrinks
+  //     child content, not the glass). Glass capsule: 64dp tall, TABS_W wide,
+  //     cornerRadius = 32dp (= 64/2, capsule).
+  //   → Tab content sits inside padding(4dp) → 56dp × (TABS_W - 8dp) region.
+  //
+  // Indicator Box: height(56dp).fillMaxWidth(1/tabsCount).padding(horizontal=4dp)
+  //   → drawBackdrop paints 56dp × tabWidth (padding only shrinks child).
+  //     But padding(horizontal=4dp) shrinks the WIDTH: the Box's content area
+  //     is (tabW - 8dp) wide, and fillMaxWidth(1/tabsCount) fills the parent's
+  //     content width. The indicator glass ends up tabW wide × 56dp tall.
+  //   → Actually: the indicator's drawBackdrop size = the Box's measured size
+  //     = 56dp × (tabW - 8dp) because padding(horizontal=4dp) is OUTSIDE
+  //     drawBackdrop in the modifier chain, shrinking the available width
+  //     before fillMaxWidth. So indicator glass = (tabW - 8dp) × 56dp.
+  //   → translationX = dampedDragAnimation.value * tabWidth + panelOffset
   const CONTAINER_H = 64 * DP
-  const GLASS_H = 56 * DP
+  const GLASS_H = 56 * DP // indicator height + tab content height
   const GLASS_PAD = 4 * DP
+  // Container glass: full TABS_W wide, 64dp tall, starting at TABS_PAD.
+  const containerX = TABS_PAD
+  const containerW = TABS_W
+  const containerR = CONTAINER_H / 2 // Capsule = 64/2 = 32dp
+  // Tab content + indicator region: inside padding(4dp) → 56dp tall, (TABS_W-8) wide.
   const glassX = TABS_PAD + GLASS_PAD
   const glassW = TABS_W - 2 * GLASS_PAD
-  const glassR = GLASS_H / 2 // Capsule = height/2 = 28dp
+  const glassR = GLASS_H / 2 // 56/2 = 28dp
 
   function buildTabBar(idPrefix: string, tabsCount: number, selectedTab: number, onSelect: (i: number) => void, y: number) {
     const tabW = glassW / tabsCount
-    const glassY = y + GLASS_PAD
+    const glassY = y + GLASS_PAD // tab content + indicator Y (inside container padding)
 
-    // === Layer 1: Container (visible glass bar) ===
+    // === Layer 1: Container (visible glass bar, 64dp tall) ===
     // Faithful to LiquidBottomTabs.kt container Row:
-    //   drawBackdrop(backdrop, Capsule, vibrancy + blur(8dp) + lens(24dp,24dp),
-    //     layerBlock = { scale = lerp(1, 1+16dp/width, pressProgress) },
-    //     onDrawSurface = { drawRect(containerColor) })
+    //   height(64dp).fillMaxWidth().padding(4dp)
+    //   drawBackdrop paints the FULL 64dp × TABS_W area (padding only shrinks
+    //   child content, not the glass). Glass capsule: 64dp tall, TABS_W wide.
+    //   effects = vibrancy + blur(8dp) + lens(24dp,24dp)
+    //   layerBlock = { scale = lerp(1, 1+16dp/width, pressProgress) }
+    //   onDrawSurface = { drawRect(containerColor) }
     const containerEl = makeGlassShape(
       `${idPrefix}-container`,
-      { x: glassX, y: glassY, w: glassW, h: GLASS_H },
+      { x: containerX, y, w: containerW, h: CONTAINER_H },
       {
-        cornerRadius: glassR,
+        cornerRadius: containerR, // 32dp capsule
         refractionHeight: 24 * DP,
         refractionAmount: -24 * DP,
         blurRadius: 8 * DP,
@@ -1582,27 +1602,18 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
 
     // === Layer 2: Selected indicator (glass capsule that slides between tabs) ===
     // Faithful to LiquidBottomTabs.kt indicator Box:
-    //   drawBackdrop(rememberCombinedBackdrop(backdrop, tabsBackdrop), Capsule,
-    //     effects = { lens(10dp*progress, 14dp*progress, chromaticAberration=true) },
-    //     highlight = { Highlight.Default.copy(alpha=progress) },  ← alpha=0 at rest!
-    //     shadow = { Shadow(alpha=progress) },            // Shadow.Default: radius=24dp, color=Black(0.1)
-    //     innerShadow = { InnerShadow(radius=8dp*progress, alpha=progress) },
-    //     layerBlock = { scaleX/Y = dampedDragAnimation.scaleX/Y + velocity/10 squash },
-    //     onDrawSurface = { drawRect(dimColor 0.1, alpha=1-progress) + drawRect(Black 0.03*progress) })
-    //   height=56dp, fillMaxWidth(1/tabsCount), padding(horizontal=4dp)
-    //   → visual width = tabW - 8dp (4dp padding each side)
+    //   height(56dp).fillMaxWidth(1/tabsCount).padding(horizontal=4dp)
+    //   → indicator glass: 56dp tall, (tabW - 8dp) wide, centered in the tab slot.
     //   → translationX = dampedDragAnimation.value * tabWidth + panelOffset
     //
-    // INDICATOR LAYER: the original indicator's backdrop is
-    //   rememberCombinedBackdrop(backdrop, tabsBackdrop)
-    // where `backdrop` is the outer LayerBackdrop (wallpaper) and `tabsBackdrop`
-    // is a HIDDEN Row (alpha=0) with ColorFilter.tint(accentColor) — so the
-    // indicator refracts wallpaper + blue-tinted tab content, giving it a
-    // subtle blue glass appearance. We don't have the hidden tinted layer, so
-    // the indicator samples the wallpaper + container glass (scene) like a
-    // normal glass element. This is an approximation — the blue tint is
-    // missing, but the glass refraction shape is correct.
-    const indicatorW = tabW - 2 * GLASS_PAD // faithful: fillMaxWidth(1/tabsCount) + padding(4dp) each side
+    // INDICATOR BACKDROP: rememberCombinedBackdrop(backdrop, tabsBackdrop).
+    //   - backdrop = outer LayerBackdrop (wallpaper)
+    //   - tabsBackdrop = hidden Row (alpha=0) with ColorFilter.tint(accentColor)
+    //     → the indicator refracts wallpaper + blue-tinted tab content.
+    //   We approximate the blue tint by giving the indicator a subtle blue
+    //   surface tint (accentColor at low alpha). The selected tab's icon/text
+    //   is rendered blue separately (see tab items below).
+    const indicatorW = tabW - 2 * GLASS_PAD // (tabW - 8dp), centered in tab slot
     const indicatorEl = makeGlassShape(
       `${idPrefix}-indicator`,
       { x: glassX + GLASS_PAD, y: glassY, w: indicatorW, h: GLASS_H },
@@ -1615,14 +1626,14 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
         // ONLY lens — no vibrancy(), no blur().
         blurRadius: 0,
         saturation: 1.0,
-        tintColor: [0, 0, 0, 0],
+        // Subtle blue tint to approximate the CombinedBackdrop blue appearance.
+        // The original gets blue from refracting a hidden ColorFilter.tint(accent)
+        // content layer; we approximate with a low-alpha accent surface tint.
+        tintColor: [accentT[0], accentT[1], accentT[2], 0.15],
         surfaceColor: [0, 0, 0, 0],
         // Faithful to original: highlight = Highlight.Default.copy(alpha=progress).
         // alpha=0 at rest (no edge highlight), full when pressed. The renderer
-        // modulates this by pressProgress (elHighlightAlpha = highlight.alpha * progress
-        // for toggle knobs / indicators). So we pass alpha=1.0 and let the
-        // renderer scale it — previously alpha was 1.0 constant which drew a
-        // bright edge highlight at rest (wrong).
+        // modulates this by pressProgress.
         highlight: { ...DEFAULT_HIGHLIGHT, alpha: 1.0 },
         // Shadow(alpha=progress) — faithful to Shadow.Default: radius=24dp, color=Black(0.1),
         // offset=(0, radius/6=4dp). Renderer modulates alpha by pressProgress.
@@ -1654,18 +1665,30 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
     const dragInteractions = makeTabDragInteractions(idPrefix, tabW, tabsCount, onSelect, rendererRef)
     for (let i = 0; i < tabsCount; i++) {
       const id = `${idPrefix}-tab-${i}`
+      // Faithful to LiquidBottomTabs.kt: the selected tab's icon+text appear
+      // BLUE because the indicator refracts a hidden ColorFilter.tint(accentColor)
+      // content layer. We render the selected tab's icon+text in accentColor
+      // (blue) directly to approximate this — the indicator sits over the
+      // selected tab, so the blue content shows through the indicator glass.
+      const isSelected = i === selectedTab
+      const tabContentColor = isSelected
+        ? [accentT[0], accentT[1], accentT[2], 1] as [number, number, number, number]
+        : palette.tabsContentColor
+      const tabIconColor = isSelected
+        ? [accentT[0], accentT[1], accentT[2], 1] as [number, number, number, number]
+        : iconColor
       const tabEl = makeText(
         id,
         { x: glassX + tabW * i, y: glassY, w: tabW, h: GLASS_H },
         `Tab ${i + 1}`,
         {
-          color: palette.tabsContentColor,
+          color: tabContentColor,
           fontSizePx: 12,
           fontWeight: 400,
           align: 'center',
           paddingPx: 0,
           halo: palette.tabsTextHalo,
-          icon: { path: FLIGHT_ICON_PATH, size: 24, color: iconColor },
+          icon: { path: FLIGHT_ICON_PATH, size: 24, color: tabIconColor },
         }
       )
       tabEl.isBottomTabContent = { groupId: idPrefix }
