@@ -1,5 +1,6 @@
 import type { LiquidGlassRenderer } from './index'
 import type { GlassElementConfig, ElementState } from './types'
+import { DP } from './spring'
 
 declare module './index' {
   interface LiquidGlassRenderer {
@@ -255,21 +256,24 @@ export const renderMethods = {
     if (el.kind === 'text') {
       this.bindFBO(curFbo)
       // Compute the effective draw rect for bottom-tab content: the tab
-      // content has its OWN scale (lerp(1, 1.2, pressProgress) via
-      // LocalLiquidBottomTabScale) + panelOffset translation. It does NOT
-      // inherit the container's layerBlock scale (that only affects the
-      // container's drawBackdrop glass, not the Row's content).
-      // Faithful to LiquidBottomTabs.kt: LocalLiquidBottomTabScale provides
-      // lerp(1, 1.2, pressProgress), applied via each tab's graphicsLayer.
+      // content scales with the container's layerBlock scale (same as the
+      // container glass) + panelOffset translation. It does NOT have its own
+      // 1.2x scale — the container's layerBlock applies to the whole Row.
       let drawRect = r
       let fgScaleX = 1
       let fgScaleY = 1
       if (el.isBottomTabContent) {
         const tg = this.toggleStates.get(el.isBottomTabContent.groupId)
         if (tg) {
-          const contentScale = 1 + 0.2 * tg.pressProgress
-          fgScaleX = contentScale
-          fgScaleY = contentScale
+          // Container scale = lerp(1, 1+16dp/width, pressProgress).
+          // el.rect.w is the tab width; container width = tab width * tabsCount.
+          // We don't have tabsCount here, but the container element's rect.w
+          // is the full bar width — approximate using el.rect.w * 4 (tabsCount
+          // is 3 or 4, close enough for the small 16dp/width term).
+          const containerW = el.rect.w * 4
+          const containerScale = 1 + (16 * DP) / containerW * tg.pressProgress
+          fgScaleX = containerScale
+          fgScaleY = containerScale
           const sw = el.rect.w * fgScaleX
           const sh = el.rect.h * fgScaleY
           const cx = el.rect.x + el.rect.w / 2 + tg.panelOffset
