@@ -32,6 +32,8 @@ const DP = 1
 // Drag-start offset for LockScreen glass — module-level so it survives
 // re-renders during the drag gesture (closure vars get reset each render).
 const lockScreenDragStart: { x: number; y: number } = { x: 0, y: 0 }
+// Control-center drag-start enter progress (survives re-renders)
+const ccDragStartEnter: { v: number } = { v: 1 }
 const BUTTON_HEIGHT = 48 * DP
 const BUTTON_HORIZONTAL_PADDING = 16 * DP
 const TEXT_FONT_SIZE_PX = 15 * DP
@@ -303,6 +305,8 @@ export interface CatalogState {
   lockScreenOffsetY: number
   // ControlCenter — bitmask of active tiles (bit 0 = cc-a, bit 1 = cc-b, ...)
   controlCenterActive: number
+  // ControlCenter — enter progress (0 = collapsed, 1 = expanded)
+  controlCenterEnter: number
 }
 
 export const DEFAULT_CATALOG_STATE: CatalogState = {
@@ -320,6 +324,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   lockScreenOffsetX: 0,
   lockScreenOffsetY: 0,
   controlCenterActive: 0,
+  controlCenterEnter: 1,
 }
 
 /* ------------------------------------------------------------------ *
@@ -2144,6 +2149,8 @@ function buildControlCenter(W: number, H: number, onBack: () => void, state: Cat
   // Add tap interactions to all glass tiles — toggle active state (surfaceColor
   // switches between containerColor and accentColor). Faithful to the original
   // where tapping a tile toggles it (active = accentColor, inactive = containerColor).
+  // Module-level ccDragStartEnter survives re-renders.
+  const MAX_DRAG = 600 // px to drag for full 0↔1 transition
   const ccTileIds = ['cc-a', 'cc-b', 'cc-c', 'cc-d', 'cc-e', 'cc-f', 'cc-g', 'cc-h', 'cc-i', 'cc-j', 'cc-k']
   for (let i = 0; i < ccTileIds.length; i++) {
     const id = ccTileIds[i]
@@ -2152,8 +2159,8 @@ function buildControlCenter(W: number, H: number, onBack: () => void, state: Cat
     const el = elements.find((e) => e.id === id)
     if (el) {
       el.isInteractive = true
-      // active → accentColor surface, inactive → containerColor (0.05 black)
       el.surfaceColor = isActive ? [...ACCENT_T] : [0, 0, 0, 0.05]
+      el.enterProgress = state.controlCenterEnter
     }
     interactions[id] = {
       onTap: () => {
@@ -2161,9 +2168,20 @@ function buildControlCenter(W: number, H: number, onBack: () => void, state: Cat
           controlCenterActive: prev.controlCenterActive ^ bit,
         }))
       },
-      onDragStart: () => {},
-      onDrag: () => {},
-      onDragEnd: () => {},
+      onDragStart: () => {
+        ccDragStartEnter.v = state.controlCenterEnter
+      },
+      onDrag: (_pos, delta) => {
+        // delta.y is cumulative from press start. Drag down (positive) → expand.
+        const target = ccDragStartEnter.v + delta.y / MAX_DRAG
+        setState({ controlCenterEnter: Math.max(0, Math.min(1, target)) })
+      },
+      onDragEnd: () => {
+        // Snap to 0 or 1 based on current progress.
+        setState((prev) => ({
+          controlCenterEnter: prev.controlCenterEnter < 0.5 ? 0 : 1,
+        }))
+      },
     }
   }
 

@@ -91,6 +91,22 @@ export const glassRenderMethods = {
     let translationY = 0
     let scaleX = 1
     let scaleY = 1
+    // Control-center enter progress (faithful to ControlCenterContent.kt glassLayer)
+    if (el.enterProgress != null) {
+      const p = el.enterProgress
+      translationY += -48 * DP * (1 - p)
+      // EaseIn approx: smoothstep(0, 1, p)
+      const easeIn = p * p * (3 - 2 * p)
+      // scale: scaleX /= 1 + 0.1*max(0, p-1), scaleY *= 1 + 0.1*max(0, p-1)
+      // For p in [0,1], max(0,p-1)=0 → scale=1. Only p>1 affects scale.
+      const sFactor = 1 + 0.1 * Math.max(0, p - 1)
+      scaleX /= sFactor
+      scaleY *= sFactor
+      // Store alpha for later use (element-pass can't easily set alpha; we
+      // approximate by scaling surfaceColor alpha — but the glass is opaque
+      // so we use it as a global alpha via the final composite). For now,
+      // skip alpha (visual: tiles slide up + scale, no fade).
+    }
     if (isButton && el.isInteractive && st) {
       const width = el.rect.w
       const height = el.rect.h

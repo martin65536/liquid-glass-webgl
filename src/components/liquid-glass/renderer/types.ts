@@ -338,6 +338,16 @@ export interface GlassElementConfig extends GlassButtonConfig {
     refractionHeight: number
     lightAngle: number
   }
+  /**
+   * Control-center enter progress (0 = collapsed, 1 = expanded).
+   * Faithful to ControlCenterContent.kt glassLayer:
+   *   translationY = -48dp * (1 - progress)
+   *   alpha = EaseIn.transform(progress)  (approx smoothstep)
+   *   scaleX /= 1 + 0.1 * max(0, progress - 1)
+   *   scaleY *= 1 + 0.1 * max(0, progress - 1)
+   * Applied in renderGlassElement when set.
+   */
+  enterProgress?: number
 }
 
 /* Per-element interaction state — mirrors InteractiveHighlight.kt. */
