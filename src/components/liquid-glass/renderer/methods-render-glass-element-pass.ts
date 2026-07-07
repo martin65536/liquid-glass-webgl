@@ -231,6 +231,50 @@ export const glassElementPassMethods = {
       elInnerShadowRadius = (el.innerShadow?.radius ?? 0) * progress
       elInnerShadowOffsetX = (el.innerShadow?.offsetX ?? 0) * progress
       elInnerShadowOffsetY = (el.innerShadow?.offsetY ?? 0) * progress
+
+      // --- CombinedBackdrop (faithful to LiquidBottomTabs.kt indicator) ---
+      // The original indicator's backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop)
+      //   - backdrop = outer LayerBackdrop (wallpaper)
+      //   - tabsBackdrop = hidden Row (alpha=0) with ColorFilter.tint(accentColor)
+      //     → captures blue-tinted tab content + container glass
+      // The indicator refracts wallpaper + blue-tinted content.
+      //
+      // We approximate using the toggle knob's CombinedBackdrop path:
+      //   - outer backdrop = wallpaper (sampled via uWallpaperSampler, like t1)
+      //   - "track color" = blue-tinted containerColor (accentColor mixed with
+      //     containerColor to simulate the ColorFilter.tint effect)
+      //   - "track rect" = the indicator's own capsule shape (so the blue tint
+      //     fills the indicator area, matching the original where tabsBackdrop
+      //     is the full container capsule tinted blue)
+      if (el.isBottomTabIndicator.accentColor && el.isBottomTabIndicator.containerColor) {
+        const ac = el.isBottomTabIndicator.accentColor
+        const cc = el.isBottomTabIndicator.containerColor
+        // ColorFilter.tint(accent) replaces all opaque pixels with accentColor.
+        // The hidden layer = container glass (containerColor) + tab content,
+        // all tinted to accentColor. We approximate as accentColor at the
+        // container's alpha (containerColor.a), since the tint replaces color
+        // but preserves alpha.
+        trackColorR = ac[0]
+        trackColorG = ac[1]
+        trackColorB = ac[2]
+        trackColorA = cc[3] // container alpha (e.g. 0.4)
+
+        // Track rect = indicator's own capsule (centered on the indicator).
+        // The blue tint fills the entire indicator area.
+        const knobCenterX = (sx + sw / 2) * this.dpr
+        const knobCenterY = (sy + sh / 2) * this.dpr
+        trackCenterX = knobCenterX
+        trackCenterY = knobCenterY
+        trackHalfW = (sw * this.dpr) * 0.5
+        trackHalfH = (sh * this.dpr) * 0.5
+        trackCornerRadius = el.cornerRadius * this.dpr
+        useToggleBackdrop = 1.0
+
+        // When using CombinedBackdrop, disable content-scale on the scene
+        // sample (we sample wallpaper + blue capsule instead).
+        elContentScaleX = 1.0
+        elContentScaleY = 1.0
+      }
     }
     // Set the CombinedBackdrop uniforms (no-ops for non-toggle elements).
     gl.uniform1f(this.uEl['uUseToggleBackdrop'], useToggleBackdrop)

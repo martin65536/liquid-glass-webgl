@@ -1709,6 +1709,12 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
       groupId: idPrefix,
       dragWidth: tabW,
       dimColor: palette.backIconColor,
+      // CombinedBackdrop: faithful to LiquidBottomTabs.kt indicator's
+      //   rememberCombinedBackdrop(backdrop, tabsBackdrop)
+      // where tabsBackdrop is a hidden Row with ColorFilter.tint(accentColor).
+      // The indicator refracts wallpaper + blue-tinted tab content.
+      accentColor: [...accentT] as [number, number, number],
+      containerColor: [...containerColor] as [number, number, number, number],
     }
     // Indicator is decorative — no interactions. It sits on top in z-order
     // so it refracts + tints the tab content beneath, but taps fall through

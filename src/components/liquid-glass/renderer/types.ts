@@ -294,6 +294,17 @@ export interface GlassElementConfig extends GlassButtonConfig {
      *    drawRect(Color.Black.copy(alpha = 0.03f * progress))
      *  The renderer draws both overlays in the post-pass, modulated by pressProgress. */
     dimColor?: [number, number, number, number]
+    /** CombinedBackdrop accent color (blue). Faithful to LiquidBottomTabs.kt:
+     *  the indicator's backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop)
+     *  where tabsBackdrop is a hidden Row with ColorFilter.tint(accentColor).
+     *  The indicator refracts wallpaper + blue-tinted tab content.
+     *  We approximate by sampling wallpaper + compositing a blue-tinted capsule
+     *  (container shape tinted with accentColor), similar to the toggle knob's
+     *  CombinedBackdrop path. */
+    accentColor?: [number, number, number]
+    /** Container color (for the blue-tinted capsule shape). Faithful to
+     *  LiquidBottomTabs.kt container onDrawSurface = drawRect(containerColor). */
+    containerColor?: [number, number, number, number]
   }
 }
 
