@@ -125,9 +125,15 @@ export const renderMethods = {
       // indicator samples this to avoid the white/black tab text bleeding through.
       if (el.isBottomTabContainer && this.tabsBackdropFbo && this.tabsBackdropTex) {
         this.bindFBO(this.tabsBackdropFbo)
+        // Clear to transparent first (avoid stale black from previous frames).
+        this.gl.clearColor(0, 0, 0, 0)
+        this.gl.clear(this.gl.COLOR_BUFFER_BIT)
         this.drawCopy(curTex)
         // Re-bind curFbo for continued rendering (tab-content draws on top).
         this.bindFBO(curFbo)
+        // drawCopy disables blend; re-enable for subsequent tab-content rendering.
+        this.gl.enable(this.gl.BLEND)
+        this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA)
       }
     }
 
