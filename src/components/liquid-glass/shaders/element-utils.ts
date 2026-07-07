@@ -162,33 +162,40 @@ vec4 sampleToggleBackdrop(vec2 canvasPx, float radius) {
 //      inside the container, the content detail is lost — matching the original
 //      where ColorFilter.tint replaces all colors with accentColor.
 vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
-    // 1. Sample wallpaper (outer backdrop).
-    vec4 wp;
+    // 1. Sample the SCENE (current FBO = wallpaper + container glass + tab content).
+    // Faithful to the original's CombinedBackdrop(backdrop, tabsBackdrop):
+    //   - backdrop = outer LayerBackdrop (wallpaper + everything rendered so far)
+    //   - tabsBackdrop = hidden tinted layer (container+content, ColorFilter.tint(accent))
+    // The scene already contains the container glass + tab content (icons/text),
+    // so sampling it gives us the actual content to refract — not just flat color.
+    vec4 scene;
     if (radius < 0.5) {
-        vec2 uv = coverUv(canvasPx);
-        wp = texture2D(uWallpaperSampler, uv);
+        vec2 uv = sceneUv(canvasPx);
+        scene = texture2D(uBackdrop, uv);
     } else {
-        vec2 uv = coverUv(canvasPx);
-        vec2 pxToUv = radius * canvasPxToUvScale();
+        vec2 uv = sceneUv(canvasPx);
+        vec2 pxToUv = radius / uCanvasSize;
         vec4 sum = vec4(0.0);
         float total = 0.0;
-        sum += texture2D(uWallpaperSampler, uv) * 0.25; total += 0.25;
-        sum += texture2D(uWallpaperSampler, uv + vec2( 1.000,  0.000) * pxToUv) * 0.12; total += 0.12;
-        sum += texture2D(uWallpaperSampler, uv + vec2(-1.000,  0.000) * pxToUv) * 0.12; total += 0.12;
-        sum += texture2D(uWallpaperSampler, uv + vec2( 0.000,  1.000) * pxToUv) * 0.12; total += 0.12;
-        sum += texture2D(uWallpaperSampler, uv + vec2( 0.000, -1.000) * pxToUv) * 0.12; total += 0.12;
-        sum += texture2D(uWallpaperSampler, uv + vec2( 0.707,  0.707) * pxToUv) * 0.0675; total += 0.0675;
-        sum += texture2D(uWallpaperSampler, uv + vec2( 0.707, -0.707) * pxToUv) * 0.0675; total += 0.0675;
-        sum += texture2D(uWallpaperSampler, uv + vec2(-0.707,  0.707) * pxToUv) * 0.0675; total += 0.0675;
-        sum += texture2D(uWallpaperSampler, uv + vec2(-0.707, -0.707) * pxToUv) * 0.0675; total += 0.0675;
-        wp = sum / total;
+        sum += texture2D(uBackdrop, uv) * 0.25; total += 0.25;
+        sum += texture2D(uBackdrop, uv + vec2( 1.000,  0.000) * pxToUv) * 0.12; total += 0.12;
+        sum += texture2D(uBackdrop, uv + vec2(-1.000,  0.000) * pxToUv) * 0.12; total += 0.12;
+        sum += texture2D(uBackdrop, uv + vec2( 0.000,  1.000) * pxToUv) * 0.12; total += 0.12;
+        sum += texture2D(uBackdrop, uv + vec2( 0.000, -1.000) * pxToUv) * 0.12; total += 0.12;
+        sum += texture2D(uBackdrop, uv + vec2( 0.707,  0.707) * pxToUv) * 0.0675; total += 0.0675;
+        sum += texture2D(uBackdrop, uv + vec2( 0.707, -0.707) * pxToUv) * 0.0675; total += 0.0675;
+        sum += texture2D(uBackdrop, uv + vec2(-0.707,  0.707) * pxToUv) * 0.0675; total += 0.0675;
+        sum += texture2D(uBackdrop, uv + vec2(-0.707, -0.707) * pxToUv) * 0.0675; total += 0.0675;
+        scene = sum / total;
     }
 
-    // 2. Inside the container capsule, overlay the blue tint (tabsBackdrop).
-    //    Faithful to ColorFilter.tint(accent): all opaque pixels become
-    //    accentColor. The container glass (containerColor) is semi-transparent,
-    //    so the tinted layer is accentColor at containerColor.alpha.
-    //    CombinedBackdrop = wallpaper THEN tinted layer (SrcOver).
+    // 2. Inside the container capsule, apply ColorFilter.tint(accentColor).
+    // Faithful to the hidden Row's ColorFilter.tint(accentColor): all opaque
+    // pixels become accentColor (tint replaces hue+saturation, keeps value).
+    // The tabsBackdrop = the scene (container+content) with tint applied.
+    // CombinedBackdrop = backdrop (scene) THEN tabsBackdrop (tinted scene)
+    // → inside the container, the indicator refracts the TINTED scene (blue);
+    //   outside the container, it refracts the plain scene (wallpaper).
     vec2 containerCenter = uContainerRect.xy;
     vec2 containerHalf = uContainerRect.zw;
     vec2 containerLocal = canvasPx - containerCenter;
@@ -197,11 +204,21 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     float containerSd = length(max(cq, vec2(0.0))) + min(max(cq.x, cq.y), 0.0) - cr;
     // Smooth edge for the container capsule (1px AA).
     float containerMask = 1.0 - smoothstep(-1.0, 1.0, containerSd);
-    // Composite: accentColor at containerAlpha over wallpaper (SrcOver).
-    float tintAlpha = containerMask * uIndicatorAccent.a;
-    wp.rgb = mix(wp.rgb, uIndicatorAccent.rgb, tintAlpha);
-    wp.a = mix(wp.a, 1.0, tintAlpha);
-    return wp;
+
+    // ColorFilter.tint(accent): for opaque pixels, replace color with accentColor.
+    // Skia's ColorFilter.tint keeps SRC_OVER: result = accent * src.a + dst * (1-src.a).
+    // For the scene pixel (premultiplied not assumed), tint replaces
+    // the RGB with accentColor where scene.a > 0, preserving the scene's alpha
+    // (so transparent areas stay transparent, opaque areas become blue).
+    vec3 tintedRgb = uIndicatorAccent.rgb;
+    float tintAlpha = containerMask * scene.a;
+    vec4 tinted = vec4(tintedRgb, tintAlpha);
+
+    // CombinedBackdrop = scene (outer) THEN tinted (inner, SrcOver).
+    vec4 result = scene;
+    result.rgb = mix(result.rgb, tinted.rgb, tinted.a);
+    result.a = mix(result.a, 1.0, tinted.a);
+    return result;
 }
 
 // colorControls — exact port of ColorFilter.kt colorControlsColorFilter.
