@@ -122,11 +122,19 @@ export default function Page() {
     [destination, W, H, state, setState, onNavigate, onBack, isLightTheme, toggleTheme]
   )
 
-  // Home page: original Android app uses the wallpaper as the background
-  // (no special override) — text color flips between Black (light) and
-  // White (dark). Faithful to HomeContent.kt.
-  // We pass `null` so the renderer draws the wallpaper.
-  const backgroundColor = null
+  // Home page background: faithful to the original Android app.
+  // HomeContent.kt does NOT wrap content in BackdropDemoScaffold, so the
+  // Home page shows the Activity's `windowBackground` directly (no wallpaper):
+  //   - Light theme: themes.xml → @android:color/white  → #FFFFFF
+  //   - Dark  theme: values-night/themes.xml → @android:color/black → #000000
+  // Other destinations (Toggle/Slider/...) DO wrap in BackdropDemoScaffold
+  // and thus show the wallpaper image — pass `null` to use the wallpaper.
+  const backgroundColor: [number, number, number] | null =
+    destination === CatalogDestination.Home
+      ? isLightTheme
+        ? [1, 1, 1]    // #FFFFFF
+        : [0, 0, 0]    // #000000
+      : null
 
   // Push toggle/slider targets to the renderer whenever the underlying
   // state changes (or when entering the corresponding destination).
@@ -164,7 +172,9 @@ export default function Page() {
     <div
       className="min-h-screen w-full flex items-center justify-center"
       style={{
-        background: isLightTheme ? '#000000' : '#000000',
+        // Outer page background follows the Android windowBackground
+        // (white in light theme, black in dark theme) — themes.xml.
+        background: isLightTheme ? '#FFFFFF' : '#000000',
       }}
     >
       <div
