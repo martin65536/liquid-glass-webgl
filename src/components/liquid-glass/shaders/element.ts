@@ -100,7 +100,7 @@ void main() {
             color = mix(color, uSurfaceColor.rgb, uSurfaceColor.a);
         }
 
-        gl_FragColor = vec4(color, sdfMask);
+        gl_FragColor = vec4(color, sdfMask * uEnterAlpha);
         return;
     }
 
@@ -262,6 +262,6 @@ void main() {
     // matching the original which renders AA at original resolution then scales.
     float edgeAlpha = 1.0 - smoothstep(-0.5, 0.5, sd);
 
-    gl_FragColor = vec4(color, alpha * edgeAlpha);
+    gl_FragColor = vec4(color, alpha * edgeAlpha * uEnterAlpha);
 }
 `

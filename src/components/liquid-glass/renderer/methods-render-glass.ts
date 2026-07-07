@@ -17,6 +17,9 @@ export interface GlassRenderState {
   radii: [number, number, number, number] // CSS px — SCALED corner radii (for shadow pass)
   togglePressProgress: number
   elHighlightAlpha: number
+  // Global element alpha (from enterProgress / ControlCenter). Multiplies the
+  // final fragment alpha so the whole glass element fades in/out.
+  enterAlpha: number
   // Layer transform scale factors (from the layerBlock). Used to scale
   // shader params (refraction, blur, shadow) so they stretch WITH the
   // layer — faithful to the original which applies graphicsLayer AFTER
@@ -305,6 +308,7 @@ export const glassRenderMethods = {
       // here, and renderGlassElementPass overrides it to alpha*progress when
       // progress > 0. For non-toggle elements, use the static highlight alpha.
       elHighlightAlpha: (el.isToggleKnob || el.isBottomTabIndicator) ? 0 : (el.highlight ? el.highlight.alpha : 0),
+      enterAlpha: el.enterProgress != null ? el.enterProgress * el.enterProgress * (3 - 2 * el.enterProgress) : 1,
       layerScaleX: scaleX,
       layerScaleY: scaleY,
       layerScale: Math.min(scaleX, scaleY),

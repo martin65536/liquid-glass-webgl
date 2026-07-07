@@ -2033,6 +2033,12 @@ function buildControlCenter(W: number, H: number, onBack: () => void, state: Cat
   const twoSpan = itemSize * 2 + itemSpacing
   const iconColor: [number, number, number, number] = [1, 1, 1, 1]
 
+  // Background dim overlay — faithful to ControlCenterContent.kt's backdrop:
+  //   drawRect(dimColor * progress) where dimColor = Black(0.4).
+  // Fades in as the control center collapses (enterProgress → 0).
+  const dimAlpha = (1 - state.controlCenterEnter) * 0.4
+  elements.push(makePlainRect('cc-dim', { x: 0, y: 0, w: W, h: Math.max(H, 800) }, [0, 0, 0, dimAlpha], 0))
+
   const startY = 0 // applyVerticalCenter shifts this
   // Row 1: [2-span with 3 inner items] [2-span empty]
   let cursorY = startY
@@ -2146,38 +2152,25 @@ function buildControlCenter(W: number, H: number, onBack: () => void, state: Cat
 
   cursorY += twoSpan + itemSpacing
 
-  // Add tap interactions to all glass tiles — toggle active state (surfaceColor
-  // switches between containerColor and accentColor). Faithful to the original
-  // where tapping a tile toggles it (active = accentColor, inactive = containerColor).
-  // Module-level ccDragStartEnter survives re-renders.
+  // Add drag interactions to all glass tiles — vertical drag controls the
+  // control center's enter progress (expand/collapse). No tap toggle.
   const MAX_DRAG = 600 // px to drag for full 0↔1 transition
   const ccTileIds = ['cc-a', 'cc-b', 'cc-c', 'cc-d', 'cc-e', 'cc-f', 'cc-g', 'cc-h', 'cc-i', 'cc-j', 'cc-k']
-  for (let i = 0; i < ccTileIds.length; i++) {
-    const id = ccTileIds[i]
-    const bit = 1 << i
-    const isActive = (state.controlCenterActive & bit) !== 0
+  for (const id of ccTileIds) {
     const el = elements.find((e) => e.id === id)
     if (el) {
       el.isInteractive = true
-      el.surfaceColor = isActive ? [...ACCENT_T] : [0, 0, 0, 0.05]
       el.enterProgress = state.controlCenterEnter
     }
     interactions[id] = {
-      onTap: () => {
-        setState((prev) => ({
-          controlCenterActive: prev.controlCenterActive ^ bit,
-        }))
-      },
       onDragStart: () => {
         ccDragStartEnter.v = state.controlCenterEnter
       },
       onDrag: (_pos, delta) => {
-        // delta.y is cumulative from press start. Drag down (positive) → expand.
         const target = ccDragStartEnter.v + delta.y / MAX_DRAG
         setState({ controlCenterEnter: Math.max(0, Math.min(1, target)) })
       },
       onDragEnd: () => {
-        // Snap to 0 or 1 based on current progress.
         setState((prev) => ({
           controlCenterEnter: prev.controlCenterEnter < 0.5 ? 0 : 1,
         }))

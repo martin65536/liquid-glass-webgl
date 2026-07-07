@@ -398,11 +398,12 @@ export const glassElementPassMethods = {
       gl.uniform1f(this.uEl['uUseSdfTexture'], 1.0)
       gl.uniform2f(this.uEl['uSdfTexSize'], this.sdfTextureSize[0], this.sdfTextureSize[1])
       gl.uniform1f(this.uEl['uSdfLightAngle'], el.isSdfTexture.lightAngle)
-      // Override refractionHeight for the SDF path.
       gl.uniform1f(this.uEl['uRefractionHeight'], el.isSdfTexture.refractionHeight * this.dpr)
     } else {
       gl.uniform1f(this.uEl['uUseSdfTexture'], 0.0)
     }
+    // Global enter alpha (ControlCenter enter progress)
+    gl.uniform1f(this.uEl['uEnterAlpha'], state.enterAlpha)
 
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 

@@ -101,4 +101,5 @@ uniform sampler2D uSdfTexSampler;   // clock_sdf texture (R=SDF, GB=normal, A=sh
 uniform float uUseSdfTexture;       // 0 or 1
 uniform vec2  uSdfTexSize;          // texture natural dimensions (px)
 uniform float uSdfLightAngle;       // bevel light angle (degrees)
+uniform float uEnterAlpha;          // global element alpha (enterProgress, 0..1)
 `
