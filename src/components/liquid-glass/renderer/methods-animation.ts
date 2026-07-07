@@ -120,6 +120,13 @@ export const animationMethods = {
           tg.targetPress = 0
           tg.targetScaleX = 1
           tg.targetScaleY = 1
+          // CRITICAL: ensure the animation loop continues so the scale spring
+          // actually animates from 1.5→1. Without this, if all other springs
+          // (fraction, press) have settled in this frame, stillAnimating would
+          // be false and the RAF loop would stop — freezing scale at 1.5.
+          // The scale spring needs subsequent frames to animate to the new
+          // target (1). startAnimation() is a no-op if already running.
+          this.startAnimation()
         }
 
         // Fraction: critically damped (spring(1f, 1000f)).
