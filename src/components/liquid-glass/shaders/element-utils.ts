@@ -209,45 +209,17 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     vec2 sceneUv2 = sceneUv(canvasPx - vec2(uIndicatorPanelOffset, 0.0));
     vec4 scene = texture2D(uBackdrop, sceneUv2);
 
-    // 4. Tint only the tab content (icons/labels) blue. Use each tab's
-    //    fgTexture (icon+label alpha mask) to determine which pixels are
-    //    opaque content → blue. Container glass stays its natural color.
-    //    The tab rects scale around the container center + shift by panelOffset
-    //    (same transform as the mini-glass capsule), so the tint tracks the
-    //    container's press scale + drag motion.
-    float tabMask = 0.0;
-    for (int i = 0; i < 8; i++) {
-        if (float(i) >= uTabContentCount) break;
-        vec4 r = uTabContentRects[i];
-        if (r.z > 0.5 && r.w > 0.5) {
-            // Scale the tab rect around the container center + panelOffset.
-            vec2 scaledCenter = uContainerCenter + (r.xy - uContainerCenter) * uContainerScale
-                              + vec2(uIndicatorPanelOffset, 0.0);
-            vec2 scaledHalf = r.zw * uContainerScale;
-            // canvasPx relative to scaled tab rect top-left, normalized 0..1.
-            vec2 localPx = canvasPx - (scaledCenter - scaledHalf);
-            vec2 uv = localPx / (scaledHalf * 2.0);
-            if (all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0)))) {
-                float a = 0.0;
-                if (i == 0) a = texture2D(uTabContentTex0, uv).a;
-                else if (i == 1) a = texture2D(uTabContentTex1, uv).a;
-                else if (i == 2) a = texture2D(uTabContentTex2, uv).a;
-                else if (i == 3) a = texture2D(uTabContentTex3, uv).a;
-                else if (i == 4) a = texture2D(uTabContentTex4, uv).a;
-                else if (i == 5) a = texture2D(uTabContentTex5, uv).a;
-                else if (i == 6) a = texture2D(uTabContentTex6, uv).a;
-                else if (i == 7) a = texture2D(uTabContentTex7, uv).a;
-                tabMask = max(tabMask, a);
-            }
-        }
-    }
-    // In tab-content pixels (tabMask > 0), use accentColor directly — do NOT
-    // mix with the scene's white/black text. This prevents the white icon/label
-    // from showing through; only blue is visible where the tab content is.
+    // 4. Tint only the tab content (icons/labels) blue. The scene FBO contains
+    //    the tab text/icon in contentColor (black in light theme, white in dark).
+    //    Detect these high-contrast pixels by luminance and replace with blue.
+    //    Container glass (mid-luminance, refracted wallpaper) stays natural.
+    //    No fgTexture needed — uses the scene's own pixel values, so it's
+    //    perfectly aligned with the rendered text.
+    float lum = dot(scene.rgb, vec3(0.299, 0.587, 0.114));
+    // tab-content is near-black (light theme) or near-white (dark theme).
+    float tabMask = smoothstep(0.85, 1.0, lum) + smoothstep(0.15, 0.0, lum);
+    tabMask = clamp(tabMask, 0.0, 1.0);
     vec3 sceneColor = mix(scene.rgb, uIndicatorAccent.rgb, tabMask);
-    // Force fully opaque blue where tabMask is high (avoid white bleed from
-    // the scene's contentColor through partial-alpha edges).
-    sceneColor = mix(sceneColor, uIndicatorAccent.rgb, step(0.5, tabMask));
 
     // 5. Composite scene over wallpaper inside the inset capsule (SrcOver).
     float a = scene.a * mask;
