@@ -9,54 +9,62 @@ export const SHADOW_FRAGMENT_SHADER = /* glsl */ `
 precision highp float;
 
 uniform vec2  uCanvasSize;
-uniform vec2  uElementOffset;
-uniform vec2  uElementSize;
-uniform vec4  uCornerRadii;
-uniform float uShadowRadius;
-uniform vec2  uShadowOffset;  // CSS-space (offsetX, offsetY); +Y = downward
-uniform vec4  uShadowColor;   // rgba
+uniform vec2  uElementOffset;   // SCALED rect top-left (where the quad is drawn)
+uniform vec2  uElementSize;     // SCALED size (includes graphicsLayer scale)
+uniform vec4  uCornerRadii;     // SCALED corner radii
+uniform float uShadowRadius;    // ORIGINAL px (NOT scaled — faithful to BlurMaskFilter at original size)
+uniform vec2  uShadowOffset;    // ORIGINAL px (offsetX, offsetY; +Y = downward)
+uniform vec4  uShadowColor;     // rgba
+// --- ORIGINAL-SPACE SDF (faithful to graphicsLayer { scaleX, scaleY }) ---
+// Same approach as the element shader: compute the shadow SDF in ORIGINAL
+// space (shape is a correct capsule, not stretched), then the graphicsLayer
+// scales the entire shadow layer by (scaleX, scaleY). The shadow offset is
+// in ORIGINAL px; we multiply by uLayerScale to map it to screen space for
+// the SDF evaluation (offset_screen = offset_orig * layerScale). The shadow
+// radius (blur sigma) stays in ORIGINAL px because the Gaussian falloff is
+// computed in original space — the graphicsLayer then stretches the blurred
+// result, which is the faithful behavior (BlurMaskFilter blurs at original
+// resolution, then graphicsLayer scales the blurred pixels).
+uniform vec2  uOriginalSize;        // element size in px (ORIGINAL, unscaled)
+uniform float uOriginalCornerRadius; // corner radius in px (ORIGINAL, unscaled)
+uniform vec2  uLayerScale;          // (scaleX, scaleY) from graphicsLayer
 
 ${SDF_GLSL}
 
 void main() {
     // Flip gl_FragCoord (bottom-left origin) to top-left origin, so +Y
-    // points downward — matching CSS convention. Therefore uShadowOffset
-    // can be passed through verbatim: positive offsetY (downward in CSS)
-    // moves the shadow center DOWNWARD on screen.
+    // points downward — matching CSS convention.
     vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
-    vec2 localCoord = screenCoord - uElementOffset;
-    vec2 halfSize = uElementSize * 0.5;
-    vec2 centeredCoord = localCoord - halfSize;
+    // elementCenter is the SAME for scaled and original rects (scaling is
+    // around the center), so uElementOffset + uElementSize*0.5 gives the
+    // correct center.
+    vec2 elementCenter = uElementOffset + uElementSize * 0.5;
+    vec2 centeredScreen = screenCoord - elementCenter;
+    // Map to ORIGINAL space (guard against divide-by-zero).
+    vec2 layerScale = max(uLayerScale, vec2(1e-4));
+    vec2 centeredOrig = centeredScreen / layerScale;
 
-    float radius = radiusAt(centeredCoord, uCornerRadii);
-    // SDF of the shape offset by shadow offset. Evaluating the SDF at
-    // (P - offset) gives the distance from P to a shape centered at offset.
-    vec2 shadowCentered = centeredCoord - uShadowOffset;
-    float sd = sdRoundedRect(shadowCentered, halfSize, radius);
+    vec2 origHalfSize = uOriginalSize * 0.5;
+    float origRadius = uOriginalCornerRadius;
+
+    // Shadow offset: defined in ORIGINAL px, applied in screen space.
+    // The original draws the shadow at original size with this offset, then
+    // graphicsLayer scales the whole layer — so the offset effectively
+    // becomes offset_orig * layerScale in screen space. We map it back to
+    // original space for the SDF: offset_orig = offset_screen / layerScale,
+    // which cancels — so we use uShadowOffset directly in original space.
+    vec2 shadowCenteredOrig = centeredOrig - uShadowOffset;
+    float sd = sdRoundedRect(shadowCenteredOrig, origHalfSize, origRadius);
     // SDF of the element itself (not offset) — used to mask the shadow
     // inside the element so it doesn't bleed through the AA edge.
-    float elementSd = sdRoundedRect(centeredCoord, halfSize, radius);
+    float elementSd = sdRoundedRect(centeredOrig, origHalfSize, origRadius);
 
-    // Shadow intensity: falloff from the shadow shape's edge.
-    //
-    // FAITHFUL TO BlurMaskFilter(radius, Blur.NORMAL):
-    //   The original Android shadow uses BlurMaskFilter with Blur.NORMAL,
-    //   which convolves a solid mask with a Gaussian-like kernel. For a
-    //   step mask (alpha 1 inside, 0 outside), the result is an erfc-like
-    //   profile: peak alpha ≈ 0.5 at the edge, fading to 0 over ~radius
-    //   pixels. The inside stays ≈ 1 but is cut out by Clear blend.
-    //
-    //   Our Gaussian approximation exp(-sd²/2σ²) has peak 1.0 — TWICE
-    //   the correct 0.5. Without the 0.5 factor the shadow is 2× too
-    //   dark at the edge, which looks "heavy" compared to the original.
-    //
-    // sigma = radius/3 matches the BlurMaskFilter spread (the blur
-    // extends to ~3σ ≈ radius pixels from the edge).
+    // Shadow intensity: Gaussian falloff from the shadow shape's edge.
+    // uShadowRadius is in ORIGINAL px (faithful to BlurMaskFilter at original
+    // size). sigma = radius/3 matches the BlurMaskFilter spread.
     float sigma = max(uShadowRadius / 3.0, 1.0);
     float shadow = 0.5 * exp(-sd * sd / (2.0 * sigma * sigma));
     // Mask out the shadow inside the element (the element covers it).
-    // Using a smoothstep over elementSd avoids a hard edge that would
-    // otherwise show through the element's own AA edge.
     shadow *= smoothstep(-1.0, 1.0, elementSd);
 
     gl_FragColor = vec4(uShadowColor.rgb, uShadowColor.a * shadow);

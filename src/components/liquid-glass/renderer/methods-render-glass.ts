@@ -270,7 +270,7 @@ export const glassRenderMethods = {
 
   renderGlassShadowPass(this: LiquidGlassRenderer, state: GlassRenderState) {
     const gl = this.gl
-    const { el, sx, sy, sw, sh, radii, layerScale, layerScaleX, layerScaleY } = state
+    const { el, sx, sy, sw, sh, radii } = state
     if (!el.outerShadow || el.outerShadow.alpha <= 0.001 || el.outerShadow.radius <= 0.5) return
     gl.useProgram(this.shadowProgram)
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
@@ -288,14 +288,24 @@ export const glassRenderMethods = {
       radii[2] * this.dpr,
       radii[3] * this.dpr
     )
-    // Faithful to original: the graphicsLayer scales the ENTIRE layer
-    // (including shadow) by (scaleX, scaleY). So shadow radius scales
-    // by layerScale (isotropic approximation) and offsets scale anisotropically.
-    gl.uniform1f(this.uSh['uShadowRadius'], el.outerShadow.radius * layerScale * this.dpr)
+    // ORIGINAL-space SDF uniforms — the shadow shader now computes its SDF
+    // in original space (faithful to graphicsLayer { scaleX, scaleY } post-
+    // scaling), so the shadow capsule shape stays correct when the element
+    // is stretched. See shadow.ts for the full rationale.
+    gl.uniform2f(this.uSh['uOriginalSize'], state.origW * this.dpr, state.origH * this.dpr)
+    gl.uniform1f(this.uSh['uOriginalCornerRadius'], state.origCornerRadius * this.dpr)
+    gl.uniform2f(this.uSh['uLayerScale'], state.layerScaleX, state.layerScaleY)
+    // Shadow radius + offset in ORIGINAL px (NOT scaled by layerScale).
+    // Faithful to original: BlurMaskFilter blurs the shadow at original size,
+    // then graphicsLayer scales the entire shadow layer — so the blur sigma
+    // and offset are defined at original resolution and stretched with the
+    // layer. The shader's original-space SDF already models this, so we pass
+    // the unscaled values here.
+    gl.uniform1f(this.uSh['uShadowRadius'], el.outerShadow.radius * this.dpr)
     gl.uniform2f(
       this.uSh['uShadowOffset'],
-      el.outerShadow.offsetX * layerScaleX * this.dpr,
-      el.outerShadow.offsetY * layerScaleY * this.dpr
+      el.outerShadow.offsetX * this.dpr,
+      el.outerShadow.offsetY * this.dpr
     )
     gl.uniform4f(
       this.uSh['uShadowColor'],
