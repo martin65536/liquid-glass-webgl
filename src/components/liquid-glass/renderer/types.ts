@@ -153,6 +153,15 @@ export interface GlassElementConfig extends GlassButtonConfig {
    */
   scroll?: boolean
   /**
+   * Touch hit-test rect (optional). When set, pointer hit-testing uses this
+   * rect instead of `rect` — expanding the touch target without changing the
+   * visual size. Used by slider tracks (visually 6dp tall, but touch target
+   * is expanded to ~48dp for usability). The rect is in CSS px (same as rect,
+   * canvas-relative, top-left origin). Renderer hit-test accounts for scrollY
+   * the same way as `rect` (if `scroll` is true, y is section-relative).
+   */
+  hitRect?: { x: number; y: number; w: number; h: number }
+  /**
    * If set, this element is a toggle knob. The renderer maintains an
    * animated `fraction` (0..1) per groupId and applies:
    *   - x-offset = fraction * dragWidth (knob slides between off/on)

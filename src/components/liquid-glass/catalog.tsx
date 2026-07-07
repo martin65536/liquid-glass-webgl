@@ -1291,9 +1291,12 @@ function buildSlider(
   const s1KnobBaseX = s1TrackX - SLIDER_KNOB_W / 4
   const s1KnobY = s1TrackY + (SLIDER_TRACK_H - SLIDER_KNOB_H) / 2
   // Track (background, off color)
-  elements.push(
-    makePlainRect('slider1-track', { x: s1TrackX, y: s1TrackY, w: s1TrackW, h: SLIDER_TRACK_H }, SLIDER_TRACK_T, SLIDER_TRACK_H / 2)
-  )
+  const s1TrackEl = makePlainRect('slider1-track', { x: s1TrackX, y: s1TrackY, w: s1TrackW, h: SLIDER_TRACK_H }, SLIDER_TRACK_T, SLIDER_TRACK_H / 2)
+  // Expanded touch target: visually 6dp tall, but touchable over a 48dp band
+  // centered on the track (faithful to Material touch-target guidelines).
+  const SLIDER_HIT_H = 48 * DP
+  s1TrackEl.hitRect = { x: s1TrackX, y: s1TrackY + (SLIDER_TRACK_H - SLIDER_HIT_H) / 2, w: s1TrackW, h: SLIDER_HIT_H }
+  elements.push(s1TrackEl)
   // Fill (accent color) — width lerps with the state fraction.
   // The fill is drawn from trackX to trackX + trackW * fraction. At the
   // extremes there's a small gap between the fill end and the knob center
@@ -1359,9 +1362,9 @@ function buildSlider(
   const s2KnobBaseX = s2TrackX - SLIDER_KNOB_W / 4
   const s2KnobY = s2TrackY + (SLIDER_TRACK_H - SLIDER_KNOB_H) / 2
   const s2FillW = s2TrackW * s1Fraction
-  elements.push(
-    makePlainRect('slider2-track', { x: s2TrackX, y: s2TrackY, w: s2TrackW, h: SLIDER_TRACK_H }, SLIDER_TRACK_T, SLIDER_TRACK_H / 2)
-  )
+  const s2TrackEl = makePlainRect('slider2-track', { x: s2TrackX, y: s2TrackY, w: s2TrackW, h: SLIDER_TRACK_H }, SLIDER_TRACK_T, SLIDER_TRACK_H / 2)
+  s2TrackEl.hitRect = { x: s2TrackX, y: s2TrackY + (SLIDER_TRACK_H - SLIDER_HIT_H) / 2, w: s2TrackW, h: SLIDER_HIT_H }
+  elements.push(s2TrackEl)
   elements.push(
     makePlainRect('slider2-fill', { x: s2TrackX, y: s2TrackY, w: Math.max(SLIDER_TRACK_H, s2FillW), h: SLIDER_TRACK_H }, [...SLIDER_ACCENT_T, 1], SLIDER_TRACK_H / 2)
   )

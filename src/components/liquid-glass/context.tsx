@@ -247,12 +247,15 @@ export function LiquidGlassCanvas({
       let hit: GlassElementConfig | null = null
       for (let i = els.length - 1; i >= 0; i--) {
         const el = els[i]
-        const visibleY = el.scroll ? el.rect.y - scrollY : el.rect.y
+        // Use hitRect (expanded touch target) if set, else fall back to rect.
+        // This lets slider tracks (visually 6dp tall) have a ~48dp touch target.
+        const hr = el.hitRect ?? el.rect
+        const visibleHY = el.scroll ? hr.y - scrollY : hr.y
         if (
-          x >= el.rect.x &&
-          x <= el.rect.x + el.rect.w &&
-          y >= visibleY &&
-          y <= visibleY + el.rect.h
+          x >= hr.x &&
+          x <= hr.x + hr.w &&
+          y >= visibleHY &&
+          y <= visibleHY + hr.h
         ) {
           const hasInteraction = !!interactions0?.[el.id]
           if (!hasInteraction && !el.isInteractive) {
