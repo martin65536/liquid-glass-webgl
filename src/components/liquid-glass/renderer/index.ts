@@ -13,6 +13,7 @@ import {
   WALLPAPER_FRAGMENT_SHADER,
   COPY_FRAGMENT_SHADER,
   SOLID_FILL_FRAGMENT_SHADER,
+  SCENE_TINT_FRAGMENT_SHADER,
 } from '../shaders'
 import { createProgram } from './gl-utils'
 import type {
@@ -55,6 +56,7 @@ export class LiquidGlassRenderer {
   progressiveBlurProgram: WebGLProgram
   copyProgram: WebGLProgram
   solidFillProgram: WebGLProgram
+  sceneTintProgram: WebGLProgram
   quadBuffer: WebGLBuffer
   wallpaperTexture: WebGLTexture | null = null
   wallpaperReady = false
@@ -86,6 +88,18 @@ export class LiquidGlassRenderer {
   fboW = 0
   fboH = 0
 
+  // --- tabsBackdrop FBO (indicator's hidden tinted layer) ---
+  // Faithful to LiquidBottomTabs.kt: the indicator's backdrop is
+  //   rememberCombinedBackdrop(backdrop, tabsBackdrop)
+  // where tabsBackdrop is a HIDDEN Row (alpha=0) that captures the container
+  // glass + tab content with ColorFilter.tint(accentColor). We render the
+  // current scene (container+tabs already drawn) into this FBO, apply a blue
+  // tint pass, then the indicator shader samples it as the second backdrop
+  // layer (composited over wallpaper).
+  tabsBackdropFbo: WebGLFramebuffer | null = null
+  tabsBackdropTex: WebGLTexture | null = null
+  tabsBackdropDirty = true
+
   // Offscreen 2D canvas for the foreground (label + chevron). Reused
   // across buttons — we re-rasterize + re-upload per button per frame.
   fgCanvas: HTMLCanvasElement
@@ -106,6 +120,7 @@ export class LiquidGlassRenderer {
   aPosLocPb: number
   aPosLocCp: number
   aPosLocSf: number
+  aPosLocSt: number
 
   // Program uniform locations (cached)
   uEl: Record<string, WebGLUniformLocation | null> = {}
@@ -119,6 +134,7 @@ export class LiquidGlassRenderer {
   uPb: Record<string, WebGLUniformLocation | null> = {}
   uCp: Record<string, WebGLUniformLocation | null> = {}
   uSf: Record<string, WebGLUniformLocation | null> = {}
+  uSt: Record<string, WebGLUniformLocation | null> = {}
 
   /** The pressed scale for bottom tabs indicator (78f/56f in Kotlin). */
   static readonly TAB_PRESSED_SCALE = 78 / 56
@@ -145,6 +161,7 @@ export class LiquidGlassRenderer {
     this.progressiveBlurProgram = createProgram(gl, VERTEX_SHADER, PROGRESSIVE_BLUR_FRAGMENT_SHADER)
     this.copyProgram = createProgram(gl, VERTEX_SHADER, COPY_FRAGMENT_SHADER)
     this.solidFillProgram = createProgram(gl, VERTEX_SHADER, SOLID_FILL_FRAGMENT_SHADER)
+    this.sceneTintProgram = createProgram(gl, VERTEX_SHADER, SCENE_TINT_FRAGMENT_SHADER)
 
     // Fullscreen quad
     this.quadBuffer = gl.createBuffer()!
@@ -166,6 +183,7 @@ export class LiquidGlassRenderer {
     this.aPosLocPb = gl.getAttribLocation(this.progressiveBlurProgram, 'aPos')
     this.aPosLocCp = gl.getAttribLocation(this.copyProgram, 'aPos')
     this.aPosLocSf = gl.getAttribLocation(this.solidFillProgram, 'aPos')
+    this.aPosLocSt = gl.getAttribLocation(this.sceneTintProgram, 'aPos')
 
     // Offscreen 2D canvas for the foreground texture.
     this.fgCanvas = typeof document !== 'undefined' ? document.createElement('canvas') : (null as any)
@@ -179,7 +197,7 @@ export class LiquidGlassRenderer {
   cacheUniforms() {
     const gl = this.gl
     const elNames = [
-      'uBackdrop', 'uWallpaperSampler', 'uCanvasSize', 'uWallpaperSize', 'uElementOffset', 'uElementSize',
+      'uBackdrop', 'uWallpaperSampler', 'uTabsBackdropSampler', 'uCanvasSize', 'uWallpaperSize', 'uElementOffset', 'uElementSize',
       'uCornerRadii', 'uRefractionHeight', 'uRefractionAmount', 'uDepthEffect',
       'uChromaticAberration', 'uBlurRadius', 'uSaturation', 'uBrightness',
       'uContrast', 'uTintColor', 'uSurfaceColor', 'uHighlightColor',
@@ -229,6 +247,8 @@ export class LiquidGlassRenderer {
     for (const n of cpNames) this.uCp[n] = gl.getUniformLocation(this.copyProgram, n)
     const sfNames = ['uColor']
     for (const n of sfNames) this.uSf[n] = gl.getUniformLocation(this.solidFillProgram, n)
+    const stNames = ['uTexture', 'uCanvasSize', 'uTintColor']
+    for (const n of stNames) this.uSt[n] = gl.getUniformLocation(this.sceneTintProgram, n)
   }
 
   dispose() {
@@ -246,6 +266,10 @@ export class LiquidGlassRenderer {
     if (this.fboBTex) gl.deleteTexture(this.fboBTex)
     this.fboA = this.fboB = null
     this.fboATex = this.fboBTex = null
+    if (this.tabsBackdropFbo) gl.deleteFramebuffer(this.tabsBackdropFbo)
+    if (this.tabsBackdropTex) gl.deleteTexture(this.tabsBackdropTex)
+    this.tabsBackdropFbo = null
+    this.tabsBackdropTex = null
     gl.deleteProgram(this.elementProgram)
     gl.deleteProgram(this.shadowProgram)
     gl.deleteProgram(this.wallpaperProgram)
@@ -257,6 +281,7 @@ export class LiquidGlassRenderer {
     gl.deleteProgram(this.progressiveBlurProgram)
     gl.deleteProgram(this.copyProgram)
     gl.deleteProgram(this.solidFillProgram)
+    gl.deleteProgram(this.sceneTintProgram)
     gl.deleteBuffer(this.quadBuffer)
   }
 }

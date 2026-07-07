@@ -46,6 +46,16 @@ export const glassElementPassMethods = {
       gl.uniform1i(this.uEl['uWallpaperSampler'], 1)
     }
 
+    // Bind tabsBackdrop FBO texture to TEXTURE2 for the indicator's
+    // CombinedBackdrop (faithful to LiquidBottomTabs.kt). The indicator
+    // samples wallpaper (TEXTURE1) + tinted scene (TEXTURE2) composited
+    // inside the container capsule SDF.
+    if (this.tabsBackdropTex) {
+      gl.activeTexture(gl.TEXTURE2)
+      gl.bindTexture(gl.TEXTURE_2D, this.tabsBackdropTex)
+      gl.uniform1i(this.uEl['uTabsBackdropSampler'], 2)
+    }
+
     gl.uniform2f(this.uEl['uCanvasSize'], this.canvas.width, this.canvas.height)
     gl.uniform2f(this.uEl['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
     gl.uniform2f(this.uEl['uElementOffset'], sx * this.dpr, sy * this.dpr)

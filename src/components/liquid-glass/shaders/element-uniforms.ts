@@ -6,6 +6,7 @@
 export const ELEMENT_UNIFORMS_GLSL = /* glsl */ `
 uniform sampler2D uBackdrop;
 uniform sampler2D uWallpaperSampler;  // wallpaper texture (unscaled backdrop for toggle knobs)
+uniform sampler2D uTabsBackdropSampler;  // tabsBackdrop FBO (tinted scene for indicator CombinedBackdrop)
 uniform vec2  uCanvasSize;        // canvas size in px
 uniform vec2  uWallpaperSize;     // UNUSED — kept for uniform-set compatibility
 uniform vec2  uElementOffset;     // element top-left in canvas px (SCALED rect — where the quad is drawn)

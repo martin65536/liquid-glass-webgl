@@ -199,69 +199,55 @@ vec4 sampleToggleBackdrop(vec2 canvasPx, float radius) {
 vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     // Faithful to LiquidBottomTabs.kt indicator's CombinedBackdrop:
     //   backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop)
-    //   - backdrop = outer LayerBackdrop (wallpaper, pre-draw)
-    //   - tabsBackdrop = hidden Row (alpha=0) that captures:
-    //       container glass (vibrancy+blur+lens, scaled by pressProgress) +
-    //       tab content (icons+labels) + onDrawSurface(containerColor) +
-    //       ColorFilter.tint(accentColor)  ← blue tint over everything
+    //   - backdrop = outer LayerBackdrop (wallpaper, pre-draw) → uWallpaperSampler
+    //   - tabsBackdrop = hidden Row (alpha=0) capturing container glass +
+    //     tab content with ColorFilter.tint(accentColor) → uTabsBackdropSampler
     //
-    // So the indicator refracts: wallpaper + [scaled container glass + tab
-    // content, all blue-tinted with containerColor overlay].
-    //
-    // We approximate by sampling the SCENE FBO (uBackdrop) — which already
-    // contains the drawn container glass + tab content — instead of raw
-    // wallpaper. This shows the actual container+tabs (with their glass
-    // refraction) through the indicator, not just a flat color. Then we apply
-    // the ColorFilter.tint(accentColor) + containerColor overlay inside the
-    // container capsule SDF to match the hidden tinted layer.
+    // The tabsBackdrop is clipped to the container capsule shape, so it only
+    // has content inside the capsule. We composite: wallpaper (everywhere) +
+    // tabsBackdrop (inside container capsule SDF).
 
-    // 1. Sample the SCENE (uBackdrop) — contains wallpaper + container glass
-    //    + tab content already drawn. Use sceneUv (scene FBO is canvas-sized,
-    //    no cover-fit needed — it's the rendered framebuffer).
-    vec4 scene;
+    // 1. Sample wallpaper (outer LayerBackdrop) via coverUv (cover-fit).
+    vec4 wp;
     if (radius < 0.5) {
-        vec2 uv = sceneUv(canvasPx);
-        scene = texture2D(uBackdrop, uv);
+        vec2 uv = coverUv(canvasPx);
+        wp = texture2D(uWallpaperSampler, uv);
     } else {
-        vec2 uv = sceneUv(canvasPx);
-        vec2 pxToUv = radius / uCanvasSize;
+        vec2 uv = coverUv(canvasPx);
+        vec2 pxToUv = radius * canvasPxToUvScale();
         vec4 sum = vec4(0.0);
         float total = 0.0;
-        sum += texture2D(uBackdrop, uv) * 0.25; total += 0.25;
-        sum += texture2D(uBackdrop, uv + vec2( 1.000,  0.000) * pxToUv) * 0.12; total += 0.12;
-        sum += texture2D(uBackdrop, uv + vec2(-1.000,  0.000) * pxToUv) * 0.12; total += 0.12;
-        sum += texture2D(uBackdrop, uv + vec2( 0.000,  1.000) * pxToUv) * 0.12; total += 0.12;
-        sum += texture2D(uBackdrop, uv + vec2( 0.000, -1.000) * pxToUv) * 0.12; total += 0.12;
-        sum += texture2D(uBackdrop, uv + vec2( 0.707,  0.707) * pxToUv) * 0.0675; total += 0.0675;
-        sum += texture2D(uBackdrop, uv + vec2( 0.707, -0.707) * pxToUv) * 0.0675; total += 0.0675;
-        sum += texture2D(uBackdrop, uv + vec2(-0.707,  0.707) * pxToUv) * 0.0675; total += 0.0675;
-        sum += texture2D(uBackdrop, uv + vec2(-0.707, -0.707) * pxToUv) * 0.0675; total += 0.0675;
-        scene = sum / total;
+        sum += texture2D(uWallpaperSampler, uv) * 0.25; total += 0.25;
+        sum += texture2D(uWallpaperSampler, uv + vec2( 1.000,  0.000) * pxToUv) * 0.12; total += 0.12;
+        sum += texture2D(uWallpaperSampler, uv + vec2(-1.000,  0.000) * pxToUv) * 0.12; total += 0.12;
+        sum += texture2D(uWallpaperSampler, uv + vec2( 0.000,  1.000) * pxToUv) * 0.12; total += 0.12;
+        sum += texture2D(uWallpaperSampler, uv + vec2( 0.000, -1.000) * pxToUv) * 0.12; total += 0.12;
+        sum += texture2D(uWallpaperSampler, uv + vec2( 0.707,  0.707) * pxToUv) * 0.0675; total += 0.0675;
+        sum += texture2D(uWallpaperSampler, uv + vec2( 0.707, -0.707) * pxToUv) * 0.0675; total += 0.0675;
+        sum += texture2D(uWallpaperSampler, uv + vec2(-0.707,  0.707) * pxToUv) * 0.0675; total += 0.0675;
+        sum += texture2D(uWallpaperSampler, uv + vec2(-0.707, -0.707) * pxToUv) * 0.0675; total += 0.0675;
+        wp = sum / total;
     }
 
-    // 2. Inside the container capsule, apply the hidden tinted layer:
-    //    onDrawSurface = drawRect(containerColor) + ColorFilter.tint(accentColor).
-    //    The container capsule SDF determines where the tint applies.
+    // 2. Composite tabsBackdrop (tinted scene) inside the container capsule.
+    //    The tabsBackdrop FBO contains the full scene (container+tabs) with
+    //    ColorFilter.tint(accentColor) applied. We mask it to the container
+    //    capsule SDF so it only appears where the hidden Row would be clipped.
     vec2 containerCenter = uContainerRect.xy;
     vec2 containerHalf = uContainerRect.zw;
     vec2 containerLocal = canvasPx - containerCenter;
     float cr = uContainerCornerRadius;
     vec2 cq = abs(containerLocal) - containerHalf + vec2(cr);
     float containerSd = length(max(cq, vec2(0.0))) + min(max(cq.x, cq.y), 0.0) - cr;
-    // Smooth edge for the container capsule (1px AA).
     float containerMask = 1.0 - smoothstep(-1.0, 1.0, containerSd);
 
-    // Apply containerColor overlay (onDrawSurface = drawRect(containerColor)).
-    // uIndicatorAccent.a = containerColor alpha (e.g. 0.4).
-    vec3 withContainer = mix(scene.rgb, uIndicatorAccent.rgb, uIndicatorAccent.a * containerMask);
+    // Sample tabsBackdrop FBO (tinted scene). sceneUv: FBO is canvas-sized.
+    vec2 tbUv = sceneUv(canvasPx);
+    vec4 tabsBackdrop = texture2D(uTabsBackdropSampler, tbUv);
 
-    // ColorFilter.tint(accentColor): replace hue+saturation with accent, keep value.
-    // Skia tint: convert to HSV, take accent's H+S, keep dst's V.
-    // This gives the blue-tinted glass+content appearance.
-    vec3 tinted = blendHue(withContainer, uIndicatorAccent.rgb);
-    // Apply only inside the container capsule.
-    vec3 resultRgb = mix(scene.rgb, tinted, containerMask);
-
+    // SrcOver composite: tabsBackdrop over wallpaper, masked to capsule.
+    float a = tabsBackdrop.a * containerMask;
+    vec3 resultRgb = mix(wp.rgb, tabsBackdrop.rgb, a);
     return vec4(resultRgb, 1.0);
 }
 

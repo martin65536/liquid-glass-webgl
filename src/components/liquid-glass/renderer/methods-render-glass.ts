@@ -234,6 +234,32 @@ export const glassRenderMethods = {
       cornerRadius, cornerRadius, cornerRadius, cornerRadius,
     ]
 
+    // --- tabsBackdrop FBO pass (bottom-tab indicator only) ---
+    // Faithful to LiquidBottomTabs.kt: the indicator's backdrop is
+    //   rememberCombinedBackdrop(backdrop, tabsBackdrop)
+    // where tabsBackdrop is a HIDDEN Row capturing container glass + tab
+    // content with ColorFilter.tint(accentColor). We capture the current
+    // scene (container + tabs already drawn) into tabsBackdropFbo with a
+    // blue tint applied, so the indicator shader can sample it as the second
+    // backdrop layer (composited over wallpaper).
+    if (el.isBottomTabIndicator && el.isBottomTabIndicator.accentColor && this.tabsBackdropFbo && this.tabsBackdropTex) {
+      const gl2 = this.gl
+      this.bindFBO(this.tabsBackdropFbo)
+      gl2.useProgram(this.sceneTintProgram)
+      gl2.bindBuffer(gl2.ARRAY_BUFFER, this.quadBuffer)
+      gl2.enableVertexAttribArray(this.aPosLocSt)
+      gl2.vertexAttribPointer(this.aPosLocSt, 2, gl2.FLOAT, false, 0, 0)
+      gl2.activeTexture(gl2.TEXTURE0)
+      gl2.bindTexture(gl2.TEXTURE_2D, curTex)
+      gl2.uniform1i(this.uSt['uTexture'], 0)
+      gl2.uniform2f(this.uSt['uCanvasSize'], this.fboW, this.fboH)
+      const ac = el.isBottomTabIndicator.accentColor
+      gl2.uniform3f(this.uSt['uTintColor'], ac[0], ac[1], ac[2])
+      gl2.disable(gl2.BLEND)
+      gl2.drawArrays(gl2.TRIANGLES, 0, 6)
+      this.tabsBackdropDirty = false
+    }
+
     // --- Step 1: Blit curFbo → otherFbo ---
     this.bindFBO(otherFbo)
     this.drawCopy(curTex)

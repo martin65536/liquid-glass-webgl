@@ -48,6 +48,13 @@ export const fboMethods = {
     this.fboATex = a.tex
     this.fboB = b.fb
     this.fboBTex = b.tex
+    // tabsBackdrop FBO (indicator's hidden tinted layer) — same size as scene.
+    if (this.tabsBackdropFbo) gl.deleteFramebuffer(this.tabsBackdropFbo)
+    if (this.tabsBackdropTex) gl.deleteTexture(this.tabsBackdropTex)
+    const tb = this.createFBO(w, h)
+    this.tabsBackdropFbo = tb.fb
+    this.tabsBackdropTex = tb.tex
+    this.tabsBackdropDirty = true
     this.fboW = w
     this.fboH = h
   },
