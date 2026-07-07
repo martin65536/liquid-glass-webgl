@@ -117,6 +117,11 @@ export const toggleMethods = {
       st.targetScaleX = st.pressedScale
       st.targetScaleY = st.pressedScale
     }
+    // Faithful to animateToValue: if there's residual velocity, decay it to 0
+    // (the original does velocityAnimation.animateTo(0f, velocityAnimationSpec)).
+    if (st.velocity !== 0) {
+      st.targetVelocity = 0
+    }
     this.startAnimation()
   },
 
@@ -196,7 +201,11 @@ export const toggleMethods = {
     st.isDragging = false
     const finalTarget = st.targetFraction >= 0.5 ? 1 : 0
     st.targetFraction = finalTarget
-    st.targetVelocity = 0
+    // Do NOT zero targetVelocity here — the original release() lets the
+    // velocity spring (spring(0.5, 300) underdamped) decay naturally. The
+    // velocity captured during the drag continues to drive squash-stretch
+    // during the snap-to-0/1 animation, giving the toggle its bounce.
+    // Zeroing it here kills the elastic feel.
     st.lastFractionTime = 0
     // Don't release press here — auto-release will fire when fraction
     // settles near finalTarget.
@@ -219,7 +228,9 @@ export const toggleMethods = {
     st.isDragging = false
     // NO snap — keep the continuous targetFraction as-is.
     const finalTarget = st.targetFraction
-    st.targetVelocity = 0
+    // Do NOT zero targetVelocity — let the velocity spring decay naturally
+    // (faithful to original release()). The drag velocity continues to drive
+    // squash-stretch as the knob settles, giving the elastic feel.
     st.lastFractionTime = 0
     // Don't release press here — auto-release will fire when fraction
     // settles near finalTarget.

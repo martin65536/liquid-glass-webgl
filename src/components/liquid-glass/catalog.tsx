@@ -1409,14 +1409,18 @@ function buildSlider(
   const SLIDER_DRAG_W1 = s1TrackW - SLIDER_KNOB_W / 2
   const SLIDER_DRAG_W2 = s2TrackW - SLIDER_KNOB_W / 2
   function makeSliderTrackInteractions(groupId: string, trackX: number, trackW: number, dragW: number) {
-    // Track drag uses ABSOLUTE positioning: the knob jumps to the finger
-    // position on press and follows it (like a tap, but continuous). This
-    // matches the original LiquidSlider.kt track tap-to-position behavior,
-    // extended to drag so the user doesn't have to hit the small knob.
-    // Faithful to original: fraction = (pos.x - trackX) / trackW (progress),
-    // same formula as onTap.
+    // Track drag uses RELATIVE positioning (faithful to LiquidSlider.kt):
+    //   onDrag → updateValue(targetValue + dragAmount.x / trackWidth * range)
+    // The knob does NOT jump to the finger on press — it stays at its current
+    // position and follows the finger's RELATIVE movement. This matches the
+    // original where tapping the track is a separate gesture (animateToValue)
+    // but dragging the track moves the knob relatively.
+    // Tap on track → animate knob to tapped position (absolute, like original
+    //   detectTapGestures → animateToValue).
     // NO setState during drag — the fill width is driven by the renderer's
     // isSliderFill (reads sf.fraction every frame). State is synced on dragEnd.
+    let dragStartFraction = 0
+    let dragStartX = 0
     const fractionAt = (pos: { x: number; y: number }) =>
       Math.max(0, Math.min(1, (pos.x - trackX) / trackW))
     return {
@@ -1426,17 +1430,16 @@ function buildSlider(
       onDragStart: (pos: { x: number; y: number }) => {
         const r = rendererRef?.current
         if (!r) return
-        // Jump the knob to the finger position immediately (absolute).
-        const f = fractionAt(pos)
-        r.beginToggleDrag(groupId, f)
-        r.setSliderDragPosition(groupId, f)
+        // Relative: start from the knob's CURRENT visual position (not jump).
+        dragStartFraction = r.getToggleFraction(groupId)
+        dragStartX = pos.x
+        r.beginToggleDrag(groupId, dragStartFraction)
       },
       onDrag: (pos: { x: number; y: number }) => {
         const r = rendererRef?.current
         if (!r) return
-        // Absolute: knob follows finger position (no relative offset).
-        const f = fractionAt(pos)
-        r.setSliderDragPosition(groupId, f)
+        // Relative: knob follows finger delta, not absolute position.
+        r.dragToggle(groupId, dragStartFraction, pos.x, dragStartX, dragW)
       },
       onDragEnd: () => {
         const r = rendererRef?.current
@@ -1550,6 +1553,7 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
     //   layerBlock: scaleX/Y = dampedDragAnimation.scaleX/Y + velocity/10 squash
     const indicatorX = tabsX + TAB_W * selectedTab + 4
     const indicatorW = TAB_W - 8
+    const accentT = palette.tabsAccent
     const indicatorEl = makeGlassShape(
       `${idPrefix}-indicator`,
       { x: indicatorX, y: y + 4, w: indicatorW, h: TABS_H - 8 },
@@ -1559,16 +1563,15 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
         refractionAmount: -14 * DP,
         blurRadius: 2 * DP,
         saturation: 1.5,
-        surfaceColor: [1, 1, 1, 0.3],
+        // Faithful to original: the indicator refracts the hidden tinted
+        // content layer (ColorFilter.tint(accentColor)) via CombinedBackdrop,
+        // giving it a blue appearance. Since we don't have a separate hidden
+        // layer, we approximate by tinting the indicator surface with the
+        // accent color at low alpha.
+        tintColor: [accentT[0], accentT[1], accentT[2], 0.15],
+        surfaceColor: [0, 0, 0, 0],
         highlight: { ...DEFAULT_HIGHLIGHT },
-        // Faithful to Shadow(alpha=progress) — renderer modulates alpha by
-        // pressProgress (like toggle knob shadow). Default Shadow radius=24dp,
-        // but the original Shadow(alpha=progress) uses Shadow.Default which
-        // has radius=24dp, color=Black(0.1). We use a smaller 8dp radius for
-        // the indicator since it's a small element.
         outerShadow: { radius: 8 * DP, alpha: 0.1, offsetX: 0, offsetY: (8 / 6) * DP, color: [0, 0, 0] },
-        // Faithful to InnerShadow(radius=8dp*progress, alpha=progress).
-        // Renderer modulates radius + alpha by pressProgress (like toggle knob).
         innerShadow: { radius: 8 * DP, alpha: 1, offsetX: 0, offsetY: 8 * DP },
         chromaticAberration: true,
       }
