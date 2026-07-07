@@ -401,3 +401,74 @@ Stage Summary:
 - Slider knobs are unaffected (they don't set trackOriginalY and don't use the CombinedBackdrop path).
 - tsc clean (no new errors in src/).
 - No testing performed (per user instruction).
+
+---
+Task ID: toggle-stretch-rendering-fix
+Agent: main
+Task: 详阅原版的拉伸渲染处理相关的代码，仔细认真地总结差异（原版不是你的实现里这种只改宽高），然后修正你做的相关部分（注意采样layer和区域不要错了）。
+
+Work Log:
+- 详阅原版 Android 拉伸渲染相关代码：
+  - LiquidToggle.kt (lines 145-200) — knob 的 `drawBackdrop` 配置：CombinedBackdrop(outer, wrapped track) + layerBlock
+  - LiquidSlider.kt (lines 154-208) — slider knob 同构，仅 innerScale 终值不同 (1.0 vs 0.75)
+  - LayerBackdrop.kt (lines 46-68) — `drawBackdrop` 应用 `inverseTransform(layerBlock)` + `translate(-offset)` 后 `drawLayer(graphicsLayer)`
+  - InverseLayerScope.kt (lines 96-129) — `inverseTransformAtTopLeft`: `scale(1/scaleX, 1/scaleY, Offset.Zero)`，枢轴是 **top-left** 不是 center！
+  - CombinedBackdrop.kt — `Combined2Backdrops.drawBackdrop` 顺序调用 backdrop1 (outer) 然后 backdrop2 (wrapped track)，layerBlock 透传给两者
+  - Backdrop.kt (`rememberBackdrop` wrapper) — `onDraw { with(backdrop) { drawBackdrop(...) } }`，外层包一个 `scale(scaleX, scaleY) { drawBackdrop() }` 即内层 scale
+  - DrawBackdropModifier.kt (lines 59-64, 254-283) — 外层 `Modifier.graphicsLayer(layerBlock)` 包整个 drawScope；recordBackdropBlock 把 layerBlock 透传给 backdrop.drawBackdrop
+  - DampedDragAnimation.kt — scaleX/scaleY/velocity/pressProgress 各自独立的 spring
+
+- 总结原版 5 层变换链（innermost → outermost）：
+  1. Track 内容记录在 track 的 GraphicsLayer，(0,0,trackW,trackH) 彩色胶囊
+  2. LayerBackdrop.drawBackdrop 应用 **外层 layerBlock 的逆变换** `scale(1/outerScaleX, 1/outerScaleY, pivot=Offset.Zero)` — top-left 枢轴！抵消外层 graphicsLayer 缩放，使 track 只受内层 scale 影响。**关键**：枢轴是 top-left 不是 center → track 内容向左上角收缩，中心点偏移 `trackW/2 * (1 - 1/outerScaleX)`
+  3. translate(-offset) — offset = knob 在 track 局部坐标里的位置 = (knobX - trackX, knobY - trackY)，平移后 track 在 knob 局部坐标里是 (trackX - knobX, trackY - knobY)
+  4. 内层 scale(scaleX_inner, scaleY_inner, pivot=DrawScope.center=knob.center) — toggle: X 2/3→0.75, Y 0→0.75
+  5. 外层 graphicsLayer(layerBlock) — scale(outerScaleX, outerScaleY, pivot=knob.center) + translationX，knob 本体 1→1.5 放大 + 速度 squash/stretch
+
+- 推导最终公式（device px）：
+  ```
+  trackCenter_screen = knobCenter_screen
+                     + (trackOrigCenter - knobCenter_unscaled) * innerScale * outerScale
+                     - trackSize/2 * (outerScale - 1) * innerScale
+  trackSize_screen   = trackSize * innerScale   // 1/outerScale * outerScale 抵消
+  ```
+  - Term 2: (trackOrigCenter - knobCenter_unscaled) 是未缩放的 track-knob 偏移；内层 scale 缩小此偏移（track 向 knob 中心移动）；外层 scale 再放大此偏移（因为整个 knob layer 都被缩放）
+  - Term 3: -trackSize/2 * (outerScale - 1) * innerScale 是 inverse-outer-scale 在 top-left（非 center）导致的偏移；track 内容向 top-left 收缩，中心左移 trackW/2 * (1 - 1/outerScaleX)；经过内层 scale 和外层 scale 后变成 -trackW/2 * (outerScale - 1) * innerScale
+
+- 数值验证（toggle pressed, fraction=1, outerScale=1.5, innerScale=0.75, trackW=64, trackH=28, knob 中心从 22 移到 42，track 中心 32）：
+  - 正确: trackCenterX = 42 + (32-22)×0.75×1.5 − 64/2×(1.5-1)×0.75 = 42 + 11.25 − 6 = **47.25**
+  - 旧实现: trackCenterX = 42 + (32-42)×0.75 = 42 − 7.5 = **34.5** ← 偏左 12.75dp
+  - Y 轴: 正确 = 14 − 28/2×(1.5-1)×0.75 = **8.75**（向上偏 5.25dp）；旧实现 = 14（无偏移，错误）
+
+- 阅读 web 当前实现：
+  - methods-render-glass.ts — 计算 knob 的 `sx/sy/sw/sh`（含外层 scale + translationX + toggleXOffset）和 `layerScaleX/Y`（外层 scale 因子）
+  - methods-render-glass-element-pass.ts — 旧公式 `trackCenter = knobCenter + (trackOrigCenter - knobCenter) * trackScaleX`，缺少 `* outerScale` 和 `- trackW/2 * (outerScale - 1) * trackScaleX` 两项
+  - shaders/element-utils.ts — `sampleToggleBackdrop()` 用 `uTrackRect` (centerX, centerY, halfW, halfH) 做 SDF 合成；公式错误导致 SDF 位置错误
+
+- 修正 methods-render-glass-element-pass.ts：
+  - 新增 `knobCenterXUnscaled = (el.rect.x + el.rect.w/2) * dpr` 和 `knobCenterYUnscaled = (el.rect.y + el.rect.h/2) * dpr` — knob 未缩放中心（CSS px → device px）
+  - 从 `state.layerScaleX/Y` 读取 `outerScaleX/Y` — knob 外层 scale（含 DampedDragAnimation.scaleX/Y + 速度 squash/stretch）
+  - 应用正确公式：
+    ```js
+    trackCenterX = knobCenterX
+      + (trackOrigCenterX - knobCenterXUnscaled) * trackScaleX * outerScaleX
+      - trackW * 0.5 * (outerScaleX - 1) * trackScaleX
+    trackCenterY = knobCenterY
+      + (trackOrigCenterY - knobCenterYUnscaled) * trackScaleY * outerScaleY
+      - trackH * 0.5 * (outerScaleY - 1) * trackScaleY
+    ```
+  - trackHalfW/H 保持不变（size 只乘 innerScale，1/outerScale * outerScale 抵消）
+  - 详细注释了 5 步变换链和公式推导过程
+
+Files modified:
+- src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts — 修正 trackCenterX/Y 公式，新增 knobCenterXUnscaled/Y 和 outerScaleX/Y，完整注释原版 5 步变换链
+
+Stage Summary:
+- Toggle knob 的拉伸渲染现在忠实于原版 Android 的 5 层变换链：
+  1. inverse-outer-scale at top-left（抵消外层缩放，但导致中心偏移）
+  2. translate to knob layer coords
+  3. inner scale at knob center（用户可见的 track 缩放）
+  4. outer graphicsLayer scale at knob center + translationX（knob 本体放大）
+- 修正后 track 矩形位置在 pressed 状态下向右上方偏移（X +12.75dp, Y -5.25dp），匹配原版 inverse-outer-scale 在 top-left 的行为
+- tsc 无新错误（src/ 目录无错误），dev server HTTP 200，编译通过
+- 未做 VLM 验证（按用户要求）

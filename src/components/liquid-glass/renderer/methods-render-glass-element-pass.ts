@@ -121,25 +121,47 @@ export const glassElementPassMethods = {
       elContentScaleY = 0.0 + (yEnd - 0.0) * progress
 
       // --- CombinedBackdrop: outer backdrop + scaled track color ---
-      // Faithful to LiquidToggle.kt:
+      // Faithful to LiquidToggle.kt + LayerBackdrop.kt + InverseLayerScope.kt:
       //   backdrop = rememberCombinedBackdrop(
       //     backdrop,                                            // outer
       //     rememberBackdrop(trackBackdrop) { drawBackdrop ->   // track color
       //       val scaleX = lerp(2f / 3f, 0.75f, progress)
       //       val scaleY = lerp(0f, 0.75f, progress)
-      //       scale(scaleX, scaleY) { drawBackdrop() }
+      //       scale(scaleX, scaleY) { drawBackdrop() }         // INNER scale, pivot=knob.center
       //     }
       //   )
+      //
+      // The full transform chain (innermost → outermost) is:
+      //   1. Track content recorded at (0,0,trackW,trackH) in track's local coords
+      //   2. LayerBackdrop.drawBackdrop applies INVERSE of outer layerBlock:
+      //        scale(1/outerScaleX, 1/outerScaleY, pivot=Offset.Zero)  // TOP-LEFT pivot!
+      //      This cancels the outer graphicsLayer's scale so the track content
+      //      is only affected by the INNER scale, not double-scaled by outer.
+      //      IMPORTANT: pivot is top-left, NOT knob.center → track content
+      //      shrinks toward top-left, shifting its center by
+      //      trackW/2 * (1 - 1/outerScaleX) in X (and similarly in Y).
+      //   3. translate(-offset) where offset = knob.pos in track's local coords
+      //      → track content moves to (trackX - knobX, trackY - knobY) in knob layer coords
+      //   4. INNER scale(scaleX_inner, scaleY_inner, pivot=DrawScope.center=knob.center)
+      //   5. OUTER graphicsLayer: scale(outerScaleX, outerScaleY, pivot=knob.center) + translationX
       //
       // OUTER BACKDROP:
       //   - For t1 (on wallpaper): outer = LayerBackdrop (wallpaper) → sample uWallpaperSampler
       //   - For t2 (on card):      outer = CanvasBackdrop (card color) → use solidBackdropColor
       //
-      // SCALED TRACK CONTENT:
-      //   - Captured at TRACK's original screen position (FIXED, does not move with knob)
-      //   - Scale pivot = KNOB's current center (moves with knob via toggleXOffset)
-      //   - Resulting center: knob_center + (track_center - knob_center) * scale
-      //   - The scaled track content moves PARTIALLY with the knob (rate = 1 - scale)
+      // DERIVED FORMULA (device px):
+      //   trackCenter_screen = knobCenter_screen
+      //                      + (trackOrigCenter - knobCenter_unscaled) * innerScale * outerScale
+      //                      - trackSize/2 * (outerScale - 1) * innerScale
+      //   trackSize_screen   = trackSize * innerScale   (1/outerScale * outerScale cancels)
+      //
+      // Where:
+      //   - knobCenter_screen  = knob's center INCLUDING outer translation (outer scale at
+      //                          knob.center doesn't move the center, only translation does)
+      //   - knobCenter_unscaled = knob's center EXCLUDING outer translation (just el.rect center)
+      //   - trackOrigCenter    = track's original center (FIXED, never moves)
+      //   - The 2nd term is the inner-scaled offset, further amplified by outer scale
+      //   - The 3rd term is the shift from inverse-outer-scale at top-left (not center)
       if (el.isToggleKnob.trackColorOff && el.isToggleKnob.trackColorOn && el.isToggleKnob.trackW && el.isToggleKnob.trackH) {
         const tg = this.toggleStates.get(el.isToggleKnob.groupId)
         const fraction = tg ? tg.fraction : 0
@@ -154,8 +176,16 @@ export const glassElementPassMethods = {
         // Knob's current screen center (includes toggleXOffset + translationX):
         //   cx = el.rect.x + el.rect.w/2 + translationX + toggleXOffset
         //   sx = cx - sw/2; knobCenterX = sx + sw/2 = cx
+        // This is knobCenter_screen — the SCALED+TRANSLATED center in device px.
         const knobCenterX = (sx + sw / 2) * this.dpr
         const knobCenterY = (sy + sh / 2) * this.dpr
+
+        // Knob's UNSCALED center (just el.rect center, NO outer translation).
+        // This is knobCenter_unscaled — the knob's center in CSS px before any
+        // outer graphicsLayer translation. Needed because trackOrigCenter is
+        // also unscaled, and we want the offset between them in CSS px.
+        const knobCenterXUnscaled = (el.rect.x + el.rect.w / 2) * this.dpr
+        const knobCenterYUnscaled = (el.rect.y + el.rect.h / 2) * this.dpr
 
         // Track's ORIGINAL screen center (FIXED, does not move with knob):
         //   trackOriginalX/Y is the track's top-left in CSS px.
@@ -169,14 +199,37 @@ export const glassElementPassMethods = {
         const trackScaleX = (2.0 / 3.0) + (xEnd - 2.0 / 3.0) * progress
         const trackScaleY = 0.0 + (yEnd - 0.0) * progress
 
-        // Scaled track center = knob_center + (track_orig_center - knob_center) * scale
-        // Faithful to: scale(scaleX, scaleY, pivot = knob.center) applied to
-        // track content at its original screen position.
-        trackCenterX = knobCenterX + (trackOrigCenterX - knobCenterX) * trackScaleX
-        trackCenterY = knobCenterY + (trackOrigCenterY - knobCenterY) * trackScaleY
+        // Outer scale factors (from the knob's layerBlock — DampedDragAnimation.scaleX/Y
+        // + velocity squash/stretch). This is layerScaleX/Y in the render state.
+        const outerScaleX = state.layerScaleX
+        const outerScaleY = state.layerScaleY
 
         const trackW = el.isToggleKnob.trackW * this.dpr
         const trackH = el.isToggleKnob.trackH * this.dpr
+
+        // Scaled track center (faithful to the full 5-step transform chain):
+        //   trackCenter_screen = knobCenter_screen
+        //                      + (trackOrigCenter - knobCenter_unscaled) * innerScale * outerScale
+        //                      - trackSize/2 * (outerScale - 1) * innerScale
+        //
+        // Term 2: (trackOrigCenter - knobCenter_unscaled) is the unscaled offset
+        //   between track and knob. Inner scale shrinks this offset (track moves
+        //   toward knob center). Outer scale then amplifies the offset (because
+        //   the entire knob layer, including the offset, is scaled).
+        //
+        // Term 3: -trackSize/2 * (outerScale - 1) * innerScale is the shift from
+        //   the inverse-outer-scale at top-left (not center). The track content
+        //   shrinks toward top-left, so its center shifts left by
+        //   trackW/2 * (1 - 1/outerScaleX). After inner scale and outer scale,
+        //   this becomes -trackW/2 * (outerScale - 1) * innerScale.
+        trackCenterX = knobCenterX
+          + (trackOrigCenterX - knobCenterXUnscaled) * trackScaleX * outerScaleX
+          - trackW * 0.5 * (outerScaleX - 1) * trackScaleX
+        trackCenterY = knobCenterY
+          + (trackOrigCenterY - knobCenterYUnscaled) * trackScaleY * outerScaleY
+          - trackH * 0.5 * (outerScaleY - 1) * trackScaleY
+
+        // Track size: 1/outerScale (inverse) * outerScale cancels → just innerScale.
         trackHalfW = (trackW * trackScaleX) * 0.5
         trackHalfH = (trackH * trackScaleY) * 0.5
         // Capsule corner radius = trackH/2, scaled by min(scaleX, scaleY)
