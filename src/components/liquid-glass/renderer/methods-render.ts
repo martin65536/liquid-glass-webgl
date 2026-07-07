@@ -1,6 +1,5 @@
 import type { LiquidGlassRenderer } from './index'
 import type { GlassElementConfig, ElementState } from './types'
-import { DP } from './spring'
 
 declare module './index' {
   interface LiquidGlassRenderer {
@@ -255,31 +254,27 @@ export const renderMethods = {
     // --- text ---
     if (el.kind === 'text') {
       this.bindFBO(curFbo)
-      // Compute the effective draw rect for bottom-tab content. The
-      // container is the PARENT of tab-content, so the container's scale
-      // must apply around the CONTAINER center (not each tab's own center).
-      // We transform the tab's position by: scale around container center,
-      // then translate by panelOffset.
+      // Compute the effective draw rect for bottom-tab content.
+      // Faithful to LiquidBottomTabs.kt:
+      //   - Row graphicsLayer { translationX = panelOffset } → whole bar shifts
+      //   - Each tab's graphicsLayer { scale = lerp(1, 1.2, pressProgress) }
+      //     → each tab scales around its OWN center
+      // The container's layerBlock scale only affects the glass, not content.
       let drawRect = r
       let fgScaleX = 1
       let fgScaleY = 1
       if (el.isBottomTabContent) {
         const tg = this.toggleStates.get(el.isBottomTabContent.groupId)
         if (tg) {
-          const containerW = el.isBottomTabContent.containerWidth ?? (el.rect.w * 4)
-          const containerScale = 1 + (16 * DP) / containerW * tg.pressProgress
-          const cx0 = el.isBottomTabContent.containerCenterX ?? (el.rect.x + el.rect.w / 2)
-          const cy0 = el.isBottomTabContent.containerCenterY ?? (el.rect.y + el.rect.h / 2)
-          fgScaleX = containerScale
-          fgScaleY = containerScale
-          // Scale tab center around container center, then add panelOffset.
-          const tabCx = el.rect.x + el.rect.w / 2
-          const tabCy = el.rect.y + el.rect.h / 2
-          const newCx = cx0 + (tabCx - cx0) * containerScale + tg.panelOffset
-          const newCy = cy0 + (tabCy - cy0) * containerScale
-          const sw = el.rect.w * containerScale
-          const sh = el.rect.h * containerScale
-          drawRect = { x: newCx - sw / 2, y: newCy - sh / 2, w: sw, h: sh }
+          const contentScale = 1 + 0.2 * tg.pressProgress
+          fgScaleX = contentScale
+          fgScaleY = contentScale
+          const sw = el.rect.w * contentScale
+          const sh = el.rect.h * contentScale
+          // Each tab scales around its own center; whole bar shifts by panelOffset.
+          const cx = el.rect.x + el.rect.w / 2 + tg.panelOffset
+          const cy = el.rect.y + el.rect.h / 2
+          drawRect = { x: cx - sw / 2, y: cy - sh / 2, w: sw, h: sh }
         }
       }
       // Press tint overlay for interactive text items (e.g. home list
