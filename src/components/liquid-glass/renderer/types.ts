@@ -323,6 +323,11 @@ export interface GlassElementConfig extends GlassButtonConfig {
     containerCenterY?: number
     /** Container width (for computing the layerBlock scale). */
     containerWidth?: number
+    /** Tab content element IDs (for looking up fgTextures to use as blue-tint
+     *  masks). Only the opaque icon/label pixels become blue. */
+    tabContentIds?: string[]
+    /** Tab content rects (for positioning the fgTexture samples). */
+    tabContentRects?: { x: number; y: number; w: number; h: number }[]
   }
 }
 

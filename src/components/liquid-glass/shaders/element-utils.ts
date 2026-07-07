@@ -209,11 +209,40 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     vec2 sceneUv2 = sceneUv(canvasPx - vec2(uIndicatorPanelOffset, 0.0));
     vec4 scene = texture2D(uBackdrop, sceneUv2);
 
-    // 4. Composite scene over wallpaper inside the inset capsule (SrcOver).
-    float a = scene.a * mask;
-    vec3 resultRgb = mix(wp.rgb, scene.rgb, a);
+    // 4. Tint only the tab content (icons/labels) blue. Use each tab's
+    //    fgTexture (icon+label alpha mask) to determine which pixels are
+    //    opaque content → blue. Container glass stays its natural color.
+    //    Faithful to ColorFilter.tint(accentColor) on the opaque tab content.
+    float tabMask = 0.0;
+    // Loop up to 8 tabs — sample each fgTexture at the tab's rect UV.
+    for (int i = 0; i < 8; i++) {
+        if (float(i) >= uTabContentCount) break;
+        vec4 r = uTabContentRects[i];
+        if (r.z > 0.5 && r.w > 0.5) {
+            // canvasPx relative to tab rect top-left, normalized 0..1.
+            vec2 localPx = canvasPx - (r.xy - r.zw);
+            vec2 uv = localPx / (r.zw * 2.0);
+            if (all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0)))) {
+                float a = 0.0;
+                if (i == 0) a = texture2D(uTabContentTex0, uv).a;
+                else if (i == 1) a = texture2D(uTabContentTex1, uv).a;
+                else if (i == 2) a = texture2D(uTabContentTex2, uv).a;
+                else if (i == 3) a = texture2D(uTabContentTex3, uv).a;
+                else if (i == 4) a = texture2D(uTabContentTex4, uv).a;
+                else if (i == 5) a = texture2D(uTabContentTex5, uv).a;
+                else if (i == 6) a = texture2D(uTabContentTex6, uv).a;
+                else if (i == 7) a = texture2D(uTabContentTex7, uv).a;
+                tabMask = max(tabMask, a);
+            }
+        }
+    }
+    vec3 sceneColor = mix(scene.rgb, uIndicatorAccent.rgb, tabMask);
 
-    // 5. Mini-glass rim highlight — Highlight.Default.copy(alpha=progress).
+    // 5. Composite scene over wallpaper inside the inset capsule (SrcOver).
+    float a = scene.a * mask;
+    vec3 resultRgb = mix(wp.rgb, sceneColor, a);
+
+    // 6. Mini-glass rim highlight — Highlight.Default.copy(alpha=progress).
     //    A thin white stroke on the mini-glass capsule edge, press-modulated.
     //    Drawn here (inside the indicator's element shader) so it's clipped by
     //    the indicator's capsule SDF (the main shader discards sd > 0.5).

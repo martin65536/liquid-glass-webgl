@@ -723,6 +723,12 @@ function applyVerticalCenter(
     if (el.isBottomTabIndicator && el.isBottomTabIndicator.containerCenterY != null) {
       el.isBottomTabIndicator.containerCenterY += yOffset
     }
+    // Shift tab content rects (for blue tint mask) by yOffset too.
+    if (el.isBottomTabIndicator && el.isBottomTabIndicator.tabContentRects) {
+      el.isBottomTabIndicator.tabContentRects = el.isBottomTabIndicator.tabContentRects.map(r => ({
+        ...r, y: r.y + yOffset,
+      }))
+    }
   }
   return contentHeight + yOffset
 }
@@ -1758,6 +1764,16 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
       containerCenterX: containerX + containerW / 2,
       containerCenterY: y + CONTAINER_H / 2,
       containerWidth: containerW,
+      // Tab content IDs + rects — for the blue tint mask. The renderer looks
+      // up each tab's fgTexture (icon+label alpha) and uses it to tint only
+      // the opaque icon/label pixels blue inside the indicator.
+      tabContentIds: Array.from({ length: tabsCount }, (_, i) => `${idPrefix}-tab-${i}`),
+      tabContentRects: Array.from({ length: tabsCount }, (_, i) => ({
+        x: glassX + tabW * i,
+        y: glassY,
+        w: tabW,
+        h: GLASS_H,
+      })),
     }
     // Indicator is decorative — no interactions. It sits on top in z-order
     // so it refracts + tints the tab content beneath, but taps fall through

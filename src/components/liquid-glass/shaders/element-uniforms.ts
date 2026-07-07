@@ -83,4 +83,16 @@ uniform float uIndicatorPressProgress; // 0..1 press progress (for 2nd-layer sca
 uniform float uIndicatorPanelOffset; // panel offset in device px (2nd-layer x translation)
 uniform vec2  uContainerCenter;      // container center (scale origin) in canvas px (dpr-scaled)
 uniform float uContainerScale;       // container layerBlock scale (1 + 16dp/width * pressProgress)
+// Tab content fgTextures (icon+label alpha masks) for blue tint. Up to 8 tabs.
+// Only opaque icon/label pixels become blue — the container glass stays natural.
+uniform sampler2D uTabContentTex0;
+uniform sampler2D uTabContentTex1;
+uniform sampler2D uTabContentTex2;
+uniform sampler2D uTabContentTex3;
+uniform sampler2D uTabContentTex4;
+uniform sampler2D uTabContentTex5;
+uniform sampler2D uTabContentTex6;
+uniform sampler2D uTabContentTex7;
+uniform vec4  uTabContentRects[8];   // (centerX, centerY, halfW, halfH) per tab, canvas px (dpr-scaled)
+uniform float uTabContentCount;      // number of valid tab rects (0..8)
 `

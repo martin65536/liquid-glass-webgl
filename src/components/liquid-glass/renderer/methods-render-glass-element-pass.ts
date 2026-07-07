@@ -294,11 +294,40 @@ export const glassElementPassMethods = {
       const cScale = tg ? 1 + (16 * DP) / cw * tg.pressProgress : 1
       gl.uniform2f(this.uEl['uContainerCenter'], ccx * this.dpr, ccy * this.dpr)
       gl.uniform1f(this.uEl['uContainerScale'], cScale)
+      // Bind tab content fgTextures (icon+label alpha masks) to TEXTURE3..10
+      // for the blue tint. Only opaque icon/label pixels become blue.
+      const ids = el.isBottomTabIndicator.tabContentIds ?? []
+      const rects = el.isBottomTabIndicator.tabContentRects ?? []
+      const n = Math.min(ids.length, rects.length, 8)
+      let boundCount = 0
+      for (let i = 0; i < 8; i++) {
+        if (i < n) {
+          const tex = this.fgTextures.get(ids[i])
+          if (tex) {
+            gl.activeTexture(gl.TEXTURE3 + boundCount)
+            gl.bindTexture(gl.TEXTURE_2D, tex)
+            gl.uniform1i(this.uEl[`uTabContentTex${boundCount}`], 3 + boundCount)
+            const r = rects[i]
+            gl.uniform4f(this.uEl[`uTabContentRects[${boundCount}]`],
+              (r.x + r.w / 2) * this.dpr,
+              (r.y + r.h / 2) * this.dpr,
+              (r.w / 2) * this.dpr,
+              (r.h / 2) * this.dpr)
+            boundCount++
+          }
+        }
+      }
+      // Clear unused slots (rect = 0 so shader skips them).
+      for (let i = boundCount; i < 8; i++) {
+        gl.uniform4f(this.uEl[`uTabContentRects[${i}]`], 0, 0, 0, 0)
+      }
+      gl.uniform1f(this.uEl['uTabContentCount'], boundCount)
     } else {
       gl.uniform1f(this.uEl['uIndicatorPressProgress'], 0)
       gl.uniform1f(this.uEl['uIndicatorPanelOffset'], 0)
       gl.uniform2f(this.uEl['uContainerCenter'], 0, 0)
       gl.uniform1f(this.uEl['uContainerScale'], 1)
+      gl.uniform1f(this.uEl['uTabContentCount'], 0)
     }
     // Refraction params in ORIGINAL px (NOT scaled by layerScale).
     // Faithful to the original: the AGSL shader receives the original element
