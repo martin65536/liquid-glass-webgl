@@ -112,20 +112,26 @@ export const animationMethods = {
       for (const tg of this.toggleStates.values()) {
         // Auto-release press when fraction has nearly settled (mirrors the
         // original `release()` which awaits `value` near `targetValue`).
+        // BUT: only release scale when velocity has also decayed. The original
+        // calls updateVelocity() during the value spring's update callback,
+        // so velocity naturally → 0 as the value settles. We don't have that
+        // callback, so we explicitly wait for velocity to decay before
+        // releasing the scale. This prevents the knob from staying stretched
+        // (squash-stretch from velocity) while the scale springs back to 1 —
+        // the velocity must decay first so the knob returns to its correct
+        // shape before shrinking.
         if (
           tg.targetPress === 1 &&
           !tg.isDragging &&
-          Math.abs(tg.targetFraction - tg.fraction) < 0.02
+          Math.abs(tg.targetFraction - tg.fraction) < 0.02 &&
+          Math.abs(tg.velocity) < 0.1
         ) {
           tg.targetPress = 0
           tg.targetScaleX = 1
           tg.targetScaleY = 1
           // CRITICAL: ensure the animation loop continues so the scale spring
-          // actually animates from 1.5→1. Without this, if all other springs
-          // (fraction, press) have settled in this frame, stillAnimating would
-          // be false and the RAF loop would stop — freezing scale at 1.5.
-          // The scale spring needs subsequent frames to animate to the new
-          // target (1). startAnimation() is a no-op if already running.
+          // actually animates from 1.5→1. startAnimation() is a no-op if
+          // already running.
           this.startAnimation()
         }
 
