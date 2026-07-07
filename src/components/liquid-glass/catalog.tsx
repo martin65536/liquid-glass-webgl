@@ -169,7 +169,7 @@ const LIGHT_PALETTE: ThemePalette = {
 
 const DARK_PALETTE: ThemePalette = {
   homeContentColor: [1, 1, 1, 1],
-  homeSubtitleColor: [0x00 / 255, 0x91 / 255, 0xff / 255, 1],
+  homeSubtitleColor: [0x00 / 255, 0x88 / 255, 0xff / 255, 1],
   homeTextHalo: 'light',
 
   toggleAccent: [0x30 / 255, 0xd1 / 255, 0x58 / 255],

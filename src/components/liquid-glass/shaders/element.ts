@@ -44,21 +44,34 @@ void main() {
         vec2 elementCenter = uElementOffset + uElementSize * 0.5;
         sampleCoord = elementCenter + (screenCoord - elementCenter) * contentScale;
     }
-    vec2 localCoord = screenCoord - uElementOffset;
-    vec2 halfSize = uElementSize * 0.5;
-    // Faithful to AGSL: centeredCoord = (coord + offset) - halfSize.
-    // offset is the lens-center shift (0,0 for the catalog buttons since
-    // blur with TileMode.Clamp doesn't add padding). We bake offset = 0
-    // in directly to keep the uniform set small.
-    vec2 centeredCoord = localCoord - halfSize;
 
-    // Faithful to AGSL: radiusAt is called with the raw local coord, NOT
-    // the centered coord. (For uniform radii this is moot, but we match
-    // the original to avoid surprises with non-uniform radii later.)
-    float radius = radiusAt(localCoord, uCornerRadii);
-    float sd = sdRoundedRect(centeredCoord, halfSize, radius);
+    // --- ORIGINAL-SPACE SDF (faithful to graphicsLayer { scaleX, scaleY }) ---
+    // The original applies the refraction shader at the ORIGINAL element size,
+    // THEN scales the entire rendered layer by (scaleX, scaleY). To replicate
+    // this in a single-pass shader, we:
+    //   1. Compute the centered coord in SCREEN space (relative to element center)
+    //   2. Divide by uLayerScale to map back to ORIGINAL space
+    //   3. Compute SDF/refraction in ORIGINAL space (shape is correct, not stretched)
+    //   4. Map the refraction offset back to SCREEN space for backdrop sampling
+    //      (offset_screen = offset_orig * uLayerScale)
+    //
+    // elementCenter is the SAME for scaled and original rects (scaling is around
+    // the center), so uElementOffset + uElementSize*0.5 gives the correct center.
+    vec2 elementCenter = uElementOffset + uElementSize * 0.5;
+    vec2 centeredScreen = screenCoord - elementCenter;
+    // Map to original space (guard against divide-by-zero).
+    vec2 layerScale = max(uLayerScale, vec2(1e-4));
+    vec2 centeredOrig = centeredScreen / layerScale;
+
+    vec2 origHalfSize = uOriginalSize * 0.5;
+    float origRadius = uOriginalCornerRadius;
+
+    // SDF in ORIGINAL space — shape is a correct (unscaled) rounded rect.
+    float sd = sdRoundedRect(centeredOrig, origHalfSize, origRadius);
 
     // Outside the shape — fully transparent (clip).
+    // sd is in original px; 0.5px threshold in original space = 0.5*layerScale
+    // screen px (matches original which clips at original resolution then scales).
     if (sd > 0.5) {
         discard;
     }
@@ -82,56 +95,62 @@ void main() {
 
     // --- 2. Lens refraction (SDF + circleMap) ---------------------
     // Faithful port of RoundedRectRefractionWithDispersionShaderString.
+    // SDF/grad computed in ORIGINAL space; uRefractionHeight/Amount are in
+    // original px (NOT scaled by layerScale — the original AGSL shader receives
+    // the original size and the graphicsLayer scales the OUTPUT, not the params).
     // Early-out: if we're deeper than refractionHeight from the edge,
     // skip refraction entirely (the lens doesn't reach here).
     if (uRefractionHeight > 0.5 && (-sd) < uRefractionHeight) {
         float sdClamped = min(sd, 0.0);
         float d = circleMap(1.0 - (-sdClamped) / uRefractionHeight) * uRefractionAmount;
 
-        float gradRadius = min(radius * 1.5, min(halfSize.x, halfSize.y));
-        vec2 grad = gradSdRoundedRect(centeredCoord, halfSize, gradRadius);
+        float gradRadius = min(origRadius * 1.5, min(origHalfSize.x, origHalfSize.y));
+        vec2 grad = gradSdRoundedRect(centeredOrig, origHalfSize, gradRadius);
         // AGSL: normalize(grad + depthEffect * normalize(centeredCoord))
         vec2 depthVec = vec2(0.0);
         if (uDepthEffect > 0.5) {
-            float dirLen = length(centeredCoord);
-            if (dirLen > 1e-6) depthVec = centeredCoord / dirLen;
+            float dirLen = length(centeredOrig);
+            if (dirLen > 1e-6) depthVec = centeredOrig / dirLen;
         }
         vec2 gradSum = grad + uDepthEffect * depthVec;
         float gradLen = length(gradSum);
         if (gradLen > 1e-6) grad = gradSum / gradLen;
 
-        vec2 refractedLocal = localCoord + d * grad;
-        // For toggle knobs with CombinedBackdrop: the refraction samples
-        // the wallpaper (unscaled) + scaled track color, NOT the content-
-        // scaled scene. Faithful to the original where the lens refracts
-        // the CombinedBackdrop (wallpaper + scaled track color).
-        vec2 refractedScreen = uElementOffset + refractedLocal;
+        // Refraction offset in ORIGINAL space, then map to SCREEN space.
+        //   offset_orig = d * grad          (original px)
+        //   offset_screen = offset_orig * layerScale  (screen px, for sampling)
+        // Faithful to: AGSL computes offset in original space, then graphicsLayer
+        // scales the rendered output — so a pixel at original position p samples
+        // the backdrop at p + offset_orig, and the result appears at screen
+        // position center + p*layerScale. The backdrop sample position in screen
+        // space is therefore center + (p + offset_orig)*layerScale
+        // = screenCoord + offset_orig * layerScale.
+        vec2 refractedOffsetOrig = d * grad;
+        vec2 refractedOffsetScreen = refractedOffsetOrig * layerScale;
+        vec2 refractedScreen = screenCoord + refractedOffsetScreen;
         vec2 refractedSampleCoord = refractedScreen;
         if (uUseToggleBackdrop < 0.5 &&
             (uContentScaleX < 0.999 || uContentScaleY < 0.999)) {
-            vec2 elementCenter = uElementOffset + uElementSize * 0.5;
             refractedSampleCoord = elementCenter + (refractedScreen - elementCenter) * contentScale;
         }
 
         if (uChromaticAberration > 0.5) {
-            float dispersionIntensity = 1.0 * ((centeredCoord.x * centeredCoord.y) / (halfSize.x * halfSize.y));
-            vec2 dispersedCoord = d * grad * dispersionIntensity;
+            // Dispersion intensity in original space (faithful to AGSL which
+            // uses centeredCoord * centeredCoord / (halfSize * halfSize)).
+            float dispersionIntensity = 1.0 * ((centeredOrig.x * centeredOrig.y) / (origHalfSize.x * origHalfSize.y));
+            vec2 dispersedOffsetOrig = refractedOffsetOrig * dispersionIntensity;
+            vec2 dispersedOffsetScreen = dispersedOffsetOrig * layerScale;
 
             // PERFORMANCE: Reduced from 7-path (ROYGBV) to 3-path (RGB).
-            // The original 7-path dispersion was visually indistinguishable
-            // from 3-path on most content, but cost 7x the texture samples.
-            // 3-path RGB: red shifts +dispersedCoord, green shifts 0,
-            // blue shifts -dispersedCoord. This gives the same chromatic
-            // aberration fringe effect at 3/7 the cost.
             vec4 redC, greenC, blueC;
             if (uUseToggleBackdrop > 0.5) {
-                redC   = sampleToggleBackdrop(refractedScreen + dispersedCoord, uBlurRadius);
-                greenC = sampleToggleBackdrop(refractedScreen,                  uBlurRadius);
-                blueC  = sampleToggleBackdrop(refractedScreen - dispersedCoord, uBlurRadius);
+                redC   = sampleToggleBackdrop(refractedScreen + dispersedOffsetScreen, uBlurRadius);
+                greenC = sampleToggleBackdrop(refractedScreen,                        uBlurRadius);
+                blueC  = sampleToggleBackdrop(refractedScreen - dispersedOffsetScreen, uBlurRadius);
             } else {
-                redC   = sampleBackdrop(refractedSampleCoord + dispersedCoord, uBlurRadius);
-                greenC = sampleBackdrop(refractedSampleCoord,                  uBlurRadius);
-                blueC  = sampleBackdrop(refractedSampleCoord - dispersedCoord, uBlurRadius);
+                redC   = sampleBackdrop(refractedSampleCoord + dispersedOffsetScreen, uBlurRadius);
+                greenC = sampleBackdrop(refractedSampleCoord,                        uBlurRadius);
+                blueC  = sampleBackdrop(refractedSampleCoord - dispersedOffsetScreen, uBlurRadius);
             }
 
             vec3 dispColor = vec3(redC.r, greenC.g, blueC.b);
@@ -178,9 +197,12 @@ void main() {
 
     // --- 6. Inner shadow ------------------------------------------
     // Offset inward SDF, darken where inside the offset band.
+    // Computed in ORIGINAL space (uInnerShadowRadius/Offset are in original px,
+    // faithful to LiquidToggle.kt: InnerShadow(radius = 4dp * progress) — the
+    // graphicsLayer then scales the result).
     if (uInnerShadowAlpha > 0.001 && uInnerShadowRadius > 0.5) {
-        vec2 innerCentered = centeredCoord - uInnerShadowOffset;
-        float innerSd = sdRoundedRect(innerCentered, halfSize, radius);
+        vec2 innerCenteredOrig = centeredOrig - uInnerShadowOffset;
+        float innerSd = sdRoundedRect(innerCenteredOrig, origHalfSize, origRadius);
         // innerSd > 0 means we're "inside" the offset shape (closer to edge)
         float band = smoothstep(uInnerShadowRadius, 0.0, innerSd);
         // Only darken the outer band (between offset shape and real edge)
@@ -189,6 +211,9 @@ void main() {
     }
 
     // --- 7. Edge anti-aliasing -----------------------------------
+    // sd is in ORIGINAL px. smoothstep(-0.5, 0.5, sd) gives 0.5 original-px AA,
+    // which becomes 0.5*layerScale screen px after graphicsLayer scaling —
+    // matching the original which renders AA at original resolution then scales.
     float edgeAlpha = 1.0 - smoothstep(-0.5, 0.5, sd);
 
     gl_FragColor = vec4(color, alpha * edgeAlpha);

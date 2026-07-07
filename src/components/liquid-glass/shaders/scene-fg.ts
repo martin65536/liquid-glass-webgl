@@ -12,10 +12,20 @@ precision highp float;
 
 uniform sampler2D uTexture;
 uniform vec2 uCanvasSize;
-uniform vec2 uOffset;   // foreground texture top-left in canvas px (top-left origin)
-uniform vec2 uSize;     // foreground texture size in canvas px
-uniform vec4 uCornerRadii;  // capsule radii (topLeft, topRight, bottomRight, bottomLeft) in px
+uniform vec2 uOffset;   // foreground texture top-left in canvas px (top-left origin) — SCALED rect
+uniform vec2 uSize;     // foreground texture size in canvas px — SCALED
+uniform vec4 uCornerRadii;  // capsule radii (topLeft, topRight, bottomRight, bottomLeft) in px — SCALED
 uniform float uAlpha;   // global alpha multiplier (used for press fade)
+// --- ORIGINAL-SPACE SDF clip (faithful to graphicsLayer { scaleX, scaleY }) ---
+// The original wraps everything (text included) in a graphicsLayer clipped to
+// the capsule shape, THEN scales the layer. So the clip shape is the ORIGINAL
+// capsule, not the stretched one. We compute the clip SDF in original space so
+// a stretched button keeps correct capsule clipping (no corner bleed). The
+// texture UV still uses the scaled rect (uOffset/uSize) since the foreground
+// texture is rendered at the element's scaled on-screen size.
+uniform vec2  uOriginalSize;        // element size in px (ORIGINAL, unscaled)
+uniform float uOriginalCornerRadius; // corner radius in px (ORIGINAL, unscaled)
+uniform vec2  uLayerScale;          // (scaleX, scaleY) from graphicsLayer
 
 ${SDF_GLSL}
 
@@ -24,20 +34,22 @@ void main() {
     // Flip Y to get top-left origin (matching CSS / 2D canvas convention).
     vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
     vec2 localCoord = screenCoord - uOffset;
-    // Scissor to the foreground rectangle.
+    // Scissor to the (scaled) foreground rectangle.
     if (localCoord.x < 0.0 || localCoord.x > uSize.x ||
         localCoord.y < 0.0 || localCoord.y > uSize.y) {
         discard;
     }
 
-    // --- Capsule clip (matches outermost graphicsLayer { clip = true; shape = Capsule })
-    // The original Compose modifier chain wraps EVERYTHING (text included) in
-    // a graphicsLayer clipped to the capsule shape. Without this, text halos
-    // and shadow blur bleed into the AABB corners outside the capsule.
-    vec2 halfSize = uSize * 0.5;
-    vec2 centeredCoord = localCoord - halfSize;
-    float radius = radiusAt(localCoord, uCornerRadii);
-    float sd = sdRoundedRect(centeredCoord, halfSize, radius);
+    // --- Capsule clip in ORIGINAL space (faithful to graphicsLayer clip) ---
+    // elementCenter is the SAME for scaled and original rects (scaling is
+    // around the center). Map screen coord → original space for the SDF so
+    // the clip shape is the original capsule, not the stretched one.
+    vec2 elementCenter = uOffset + uSize * 0.5;
+    vec2 centeredScreen = screenCoord - elementCenter;
+    vec2 layerScale = max(uLayerScale, vec2(1e-4));
+    vec2 centeredOrig = centeredScreen / layerScale;
+    vec2 origHalfSize = uOriginalSize * 0.5;
+    float sd = sdRoundedRect(centeredOrig, origHalfSize, uOriginalCornerRadius);
     if (sd > 0.5) discard;
     float clipAlpha = 1.0 - smoothstep(-0.5, 0.5, sd);
 

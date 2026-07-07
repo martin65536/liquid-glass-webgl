@@ -189,6 +189,7 @@ export class LiquidGlassRenderer {
       'uContentScaleX', 'uContentScaleY',
       'uUseToggleBackdrop', 'uUseSolidBackdrop', 'uSolidBackdropColor',
       'uTrackColor', 'uTrackRect', 'uTrackCornerRadius',
+      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale',
     ]
     for (const n of elNames) this.uEl[n] = gl.getUniformLocation(this.elementProgram, n)
     const shNames = [
@@ -198,17 +199,21 @@ export class LiquidGlassRenderer {
     for (const n of shNames) this.uSh[n] = gl.getUniformLocation(this.shadowProgram, n)
     const wpNames = ['uBackdrop', 'uCanvasSize', 'uWallpaperSize']
     for (const n of wpNames) this.uWp[n] = gl.getUniformLocation(this.wallpaperProgram, n)
-    const fgNames = ['uTexture', 'uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uAlpha']
+    const fgNames = ['uTexture', 'uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uAlpha',
+      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale']
     for (const n of fgNames) this.uFg[n] = gl.getUniformLocation(this.foregroundProgram, n)
-    const hlNames = ['uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uColor', 'uRadius', 'uPosition']
+    const hlNames = ['uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uColor', 'uRadius', 'uPosition',
+      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale']
     for (const n of hlNames) this.uHl[n] = gl.getUniformLocation(this.highlightProgram, n)
-    const tnNames = ['uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uColor']
+    const tnNames = ['uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uColor',
+      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale']
     for (const n of tnNames) this.uTn[n] = gl.getUniformLocation(this.tintProgram, n)
     const rmNames = [
       'uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii',
       'uHighlightColor', 'uHighlightAngle', 'uHighlightFalloff',
       'uHighlightAlpha', 'uHighlightMode', 'uHighlightStrokeWidth',
       'uHighlightBlur',
+      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale',
     ]
     for (const n of rmNames) this.uRm[n] = gl.getUniformLocation(this.rimHighlightProgram, n)
     const prNames = ['uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uColor']

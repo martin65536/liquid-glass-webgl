@@ -56,6 +56,24 @@ export const elementMethods = {
           (prevBtnIcon.path !== nextBtnIcon.path ||
            prevBtnIcon.size !== nextBtnIcon.size ||
            !eq4(prevBtnIcon.color, nextBtnIcon.color)))
+      // Text-element visual props (content is checked separately below, but
+      // color/halo/font/align/wrap/padding ALL affect the rasterized glyph
+      // texture, so they must trigger a re-raster when they change. This is
+      // the bug that caused home-page text not to flip color on theme switch:
+      // makeText stores its color in text.color, but the old dirty-check only
+      // compared labelColor (which makeText always sets to [0,0,0,1]) — so
+      // the element was never marked dirty and the old text texture stayed.)
+      const pt = prev.text
+      const nt = next.text
+      const textPropsChanged = !!pt !== !!nt || (pt && nt && (
+        !eq4(pt.color, nt.color) ||
+        pt.halo !== nt.halo ||
+        pt.fontSizePx !== nt.fontSizePx ||
+        pt.fontWeight !== nt.fontWeight ||
+        pt.align !== nt.align ||
+        pt.wrap !== nt.wrap ||
+        pt.paddingPx !== nt.paddingPx
+      ))
       if (
         prev.label !== next.label ||
         !eq4(prev.labelColor, next.labelColor) ||
@@ -66,7 +84,8 @@ export const elementMethods = {
         (next.text && !prev.text) ||
         (!next.text && prev.text) ||
         textIconChanged ||
-        btnIconChanged
+        btnIconChanged ||
+        textPropsChanged
       ) {
         this.fgDirtyIds.add(next.id)
       }

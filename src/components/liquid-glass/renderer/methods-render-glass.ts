@@ -10,11 +10,11 @@ export interface GlassRenderState {
   st: ElementState | undefined
   isButton: boolean
   p: number // press progress
-  sx: number // screen x (CSS px)
-  sy: number // screen y (CSS px)
-  sw: number // screen width (CSS px)
-  sh: number // screen height (CSS px)
-  radii: [number, number, number, number] // CSS px
+  sx: number // screen x (CSS px) — SCALED rect top-left
+  sy: number // screen y (CSS px) — SCALED rect top-left
+  sw: number // screen width (CSS px) — SCALED (includes graphicsLayer scaleX)
+  sh: number // screen height (CSS px) — SCALED (includes graphicsLayer scaleY)
+  radii: [number, number, number, number] // CSS px — SCALED corner radii (for shadow pass)
   togglePressProgress: number
   elHighlightAlpha: number
   // Layer transform scale factors (from the layerBlock). Used to scale
@@ -24,6 +24,12 @@ export interface GlassRenderState {
   layerScaleX: number
   layerScaleY: number
   layerScale: number // min(scaleX, scaleY) — for isotropic params
+  // ORIGINAL (unscaled) element geometry — for the element-pass shader which
+  // computes SDF/refraction in original space then maps to screen (faithful
+  // to graphicsLayer post-scaling). See element.ts.
+  origW: number
+  origH: number
+  origCornerRadius: number
 }
 
 declare module './index' {
@@ -229,6 +235,13 @@ export const glassRenderMethods = {
       layerScaleX: scaleX,
       layerScaleY: scaleY,
       layerScale: Math.min(scaleX, scaleY),
+      // ORIGINAL geometry (unscaled) for the element-pass SDF. The shader
+      // computes SDF/refraction in original space, then maps the refraction
+      // offset to screen space via uLayerScale — faithful to the original
+      // which shades at original size then scales via graphicsLayer.
+      origW: el.rect.w,
+      origH: el.rect.h,
+      origCornerRadius: el.cornerRadius,
     }
 
     // --- Step 2a: Shadow pass (to otherFbo, on top of copied scene) ---

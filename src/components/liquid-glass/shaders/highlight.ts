@@ -33,12 +33,21 @@ export const HIGHLIGHT_FRAGMENT_SHADER = /* glsl */ `
 precision highp float;
 
 uniform vec2  uCanvasSize;
-uniform vec2  uOffset;       // element top-left in canvas px (top-left origin)
-uniform vec2  uSize;         // element size in canvas px
-uniform vec4  uCornerRadii;  // capsule radii (topLeft, topRight, bottomRight, bottomLeft) in px
+uniform vec2  uOffset;       // element top-left in canvas px (top-left origin) — SCALED rect
+uniform vec2  uSize;         // element size in canvas px — SCALED
+uniform vec4  uCornerRadii;  // capsule radii (topLeft, topRight, bottomRight, bottomLeft) in px — SCALED
 uniform vec4  uColor;        // rgba; usually white * (alpha = 0.15 * progress)
-uniform float uRadius;       // glow radius in canvas px (= minDim * 1.5)
-uniform vec2  uPosition;     // finger position in element-local px (top-left origin)
+uniform float uRadius;       // glow radius in canvas px (= minDim * 1.5, SCALED space)
+uniform vec2  uPosition;     // finger position in element-local px (top-left origin, SCALED space)
+// --- ORIGINAL-SPACE SDF clip (faithful to graphicsLayer { scaleX, scaleY }) ---
+// The press glow (InteractiveHighlight) is drawn INSIDE the graphicsLayer, so
+// it is clipped to the ORIGINAL capsule shape, then scaled with the layer.
+// The glow position + radius are in SCALED space (they track the finger in
+// screen px), but the clip SDF is in original space so the capsule clip stays
+// correct when the button is stretched.
+uniform vec2  uOriginalSize;
+uniform float uOriginalCornerRadius;
+uniform vec2  uLayerScale;
 
 ${SDF_GLSL}
 
@@ -46,16 +55,19 @@ void main() {
     vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
     vec2 localCoord = screenCoord - uOffset;
 
-    // --- Capsule clip (matches outermost graphicsLayer { clip = true; shape = Capsule })
-    vec2 halfSize = uSize * 0.5;
-    vec2 centeredCoord = localCoord - halfSize;
-    float radius = radiusAt(localCoord, uCornerRadii);
-    float sd = sdRoundedRect(centeredCoord, halfSize, radius);
+    // --- Capsule clip in ORIGINAL space (faithful to graphicsLayer clip) ---
+    vec2 elementCenter = uOffset + uSize * 0.5;
+    vec2 centeredScreen = screenCoord - elementCenter;
+    vec2 layerScale = max(uLayerScale, vec2(1e-4));
+    vec2 centeredOrig = centeredScreen / layerScale;
+    vec2 origHalfSize = uOriginalSize * 0.5;
+    float sd = sdRoundedRect(centeredOrig, origHalfSize, uOriginalCornerRadius);
     if (sd > 0.5) discard;
     float clipAlpha = 1.0 - smoothstep(-0.5, 0.5, sd);
 
     // Faithful AGSL port: smoothstep(radius, radius*0.5, dist) means
     // intensity = 1 at dist <= radius*0.5, fading to 0 at dist >= radius.
+    // dist + uPosition are in SCALED local space (finger tracks screen px).
     float dist = distance(localCoord, uPosition);
     float intensity = smoothstep(uRadius, uRadius * 0.5, dist);
 
@@ -85,17 +97,25 @@ uniform vec2  uOffset;
 uniform vec2  uSize;
 uniform vec4  uCornerRadii;
 uniform vec4  uColor;
+// --- ORIGINAL-SPACE SDF clip (faithful to graphicsLayer { scaleX, scaleY }) ---
+// The white overlay (onDrawSurface drawRect) is drawn INSIDE the graphicsLayer,
+// so it is clipped to the ORIGINAL capsule shape, then scaled with the layer.
+// Computing the clip SDF in original space keeps the capsule clip correct when
+// the button is stretched (no corner bleed, no stretched-clip artifacts).
+uniform vec2  uOriginalSize;
+uniform float uOriginalCornerRadius;
+uniform vec2  uLayerScale;
 
 ${SDF_GLSL}
 
 void main() {
     vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
-    vec2 localCoord = screenCoord - uOffset;
-    vec2 halfSize = uSize * 0.5;
-    vec2 centeredCoord = localCoord - halfSize;
-
-    float radius = radiusAt(localCoord, uCornerRadii);
-    float sd = sdRoundedRect(centeredCoord, halfSize, radius);
+    vec2 elementCenter = uOffset + uSize * 0.5;
+    vec2 centeredScreen = screenCoord - elementCenter;
+    vec2 layerScale = max(uLayerScale, vec2(1e-4));
+    vec2 centeredOrig = centeredScreen / layerScale;
+    vec2 origHalfSize = uOriginalSize * 0.5;
+    float sd = sdRoundedRect(centeredOrig, origHalfSize, uOriginalCornerRadius);
     if (sd > 0.5) discard;
     float clipAlpha = 1.0 - smoothstep(-0.5, 0.5, sd);
 
@@ -126,9 +146,9 @@ export const RIM_HIGHLIGHT_FRAGMENT_SHADER = /* glsl */ `
 precision highp float;
 
 uniform vec2  uCanvasSize;
-uniform vec2  uOffset;          // element top-left in canvas px (top-left origin)
-uniform vec2  uSize;            // element size in canvas px
-uniform vec4  uCornerRadii;     // (topLeft, topRight, bottomRight, bottomLeft) in px
+uniform vec2  uOffset;          // element top-left in canvas px (top-left origin) — SCALED rect
+uniform vec2  uSize;            // element size in canvas px — SCALED (includes graphicsLayer scale)
+uniform vec4  uCornerRadii;     // (topLeft, topRight, bottomRight, bottomLeft) in px — SCALED
 uniform vec4  uHighlightColor;  // rgb + 1.0
 uniform float uHighlightAngle;  // radians
 uniform float uHighlightFalloff;
@@ -136,17 +156,33 @@ uniform float uHighlightAlpha;
 uniform float uHighlightMode;     // 0=Default, 1=Ambient, 2=Plain
 uniform float uHighlightStrokeWidth;
 uniform float uHighlightBlur;
+// --- ORIGINAL-SPACE SDF (faithful to graphicsLayer { scaleX, scaleY }) ---
+// Same approach as the element shader: compute SDF/stroke in ORIGINAL space
+// (shape is correct, not stretched), so the highlight clip + stroke remain a
+// correct capsule shape that is then scaled by graphicsLayer. Without this,
+// a horizontally-stretched button would stretch the highlight clip too,
+// making the stroke band uneven. See element.ts for the full rationale.
+uniform vec2  uOriginalSize;        // element size in px (ORIGINAL, unscaled)
+uniform float uOriginalCornerRadius; // corner radius in px (ORIGINAL, unscaled)
+uniform vec2  uLayerScale;          // (scaleX, scaleY) from graphicsLayer
 
 ${SDF_GLSL}
 
 void main() {
     vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
-    vec2 localCoord = screenCoord - uOffset;
-    vec2 halfSize = uSize * 0.5;
-    vec2 centeredCoord = localCoord - halfSize;
+    // elementCenter is the SAME for scaled and original rects (scaling is
+    // around the center), so uOffset + uSize*0.5 gives the correct center.
+    vec2 elementCenter = uOffset + uSize * 0.5;
+    vec2 centeredScreen = screenCoord - elementCenter;
+    // Map to ORIGINAL space (guard against divide-by-zero).
+    vec2 layerScale = max(uLayerScale, vec2(1e-4));
+    vec2 centeredOrig = centeredScreen / layerScale;
 
-    float radius = radiusAt(localCoord, uCornerRadii);
-    float sd = sdRoundedRect(centeredCoord, halfSize, radius);
+    vec2 origHalfSize = uOriginalSize * 0.5;
+    float origRadius = uOriginalCornerRadius;
+
+    // SDF in ORIGINAL space — shape is a correct (unscaled) rounded rect.
+    float sd = sdRoundedRect(centeredOrig, origHalfSize, origRadius);
 
     // Outside the shape — nothing to add (the stroke's outward half is clipped).
     // Strict discard at sd > 0 (no outward bleed) — the original HighlightModifier
@@ -156,8 +192,10 @@ void main() {
         discard;
     }
 
-    // Stroke mask — approximates Android's stroke + BlurMaskFilter convolved
-    // with clipOutline (clip to inside the shape).
+    // Stroke mask — strokeWidth + blur are in ORIGINAL px (faithful to original:
+    // Highlight.width is a Dp value, drawn at original size, then graphicsLayer
+    // scales the stroke along with the layer). No layerScale multiplication
+    // needed here because the SDF is already in original space.
     //
     // Original paint setup (HighlightModifier.kt):
     //   paint.style = Stroke
@@ -165,19 +203,6 @@ void main() {
     //   paint.blur(blurRadius.toPx())                   // BlurMaskFilter, Blur.NORMAL
     //   canvas.clipOutline(outline)                     // clip to inside the shape
     //   canvas.drawOutline(outline, paint)              // stroke centered on edge
-    //
-    // The clip removes the outer half of the stroke (sd > 0). The visible
-    // inside half (sd ∈ [-strokeWidth/2, 0]) is then softened by the blur
-    // mask filter, which spreads alpha over ~±radius from each edge of
-    // the stroke. The result is roughly a TRIANGULAR profile:
-    //   - peak (alpha ≈ 1) near sd = -strokeWidth/2 (inner edge of stroke)
-    //   - fade to 0 at sd = -strokeWidth/2 - blur   (blur spread inward)
-    //   - fade to 0 at sd = 0                         (shape edge, clip)
-    //
-    // We approximate this as:
-    //   strokeMask = smoothstep(-W/2 - blur, -W/2, sd)   // blur fade-in
-    //              * (1 - smoothstep(-W/2, 0, sd))       // triangle fade-out toward edge
-    // where W = strokeWidth. This gives a triangular peak at sd = -W/2.
     float strokeInner = -uHighlightStrokeWidth * 0.5;
     float strokeMask = smoothstep(strokeInner - uHighlightBlur, strokeInner, sd);
     float edgeFade = 1.0 - smoothstep(strokeInner, 0.0, sd);
@@ -187,8 +212,8 @@ void main() {
         // Default — shader returns color * intensity, Plus blend.
         // Output rgb = color * intensity * mask * alpha. Renderer uses
         // gl.blendFunc(ONE, ONE) so result = src + dst (clamped).
-        float gradRadius = min(radius * 1.5, min(halfSize.x, halfSize.y));
-        vec2 grad = gradSdRoundedRect(centeredCoord, halfSize, gradRadius);
+        float gradRadius = min(origRadius * 1.5, min(origHalfSize.x, origHalfSize.y));
+        vec2 grad = gradSdRoundedRect(centeredOrig, origHalfSize, gradRadius);
         vec2 normal = vec2(cos(uHighlightAngle), sin(uHighlightAngle));
         float d = dot(grad, normal);
         float intensity = pow(abs(d), uHighlightFalloff);
@@ -199,8 +224,8 @@ void main() {
         // src.rgb = t*intensity, src.a = intensity. With SrcOver:
         // result = src.rgb*src.a + dst*(1-src.a) = t*i^2 + dst*(1-i).
         // We output (t*i, t*i, t*i, i) and let the renderer use SrcOver blend.
-        float gradRadius = min(radius * 1.5, min(halfSize.x, halfSize.y));
-        vec2 grad = gradSdRoundedRect(centeredCoord, halfSize, gradRadius);
+        float gradRadius = min(origRadius * 1.5, min(origHalfSize.x, origHalfSize.y));
+        vec2 grad = gradSdRoundedRect(centeredOrig, origHalfSize, gradRadius);
         vec2 normal = vec2(cos(uHighlightAngle), sin(uHighlightAngle));
         float d = dot(grad, normal);
         float intensity = pow(abs(d), uHighlightFalloff);

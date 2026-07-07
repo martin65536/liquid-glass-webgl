@@ -15,6 +15,15 @@ export const glassPostPassMethods = {
     const gl = this.gl
     const { el, st, isButton, p, sx, sy, sw, sh, radii, togglePressProgress, elHighlightAlpha } = state
 
+    // Original-space SDF uniforms — shared by all post-pass shaders so their
+    // capsule clip is computed in ORIGINAL space (faithful to graphicsLayer
+    // { scaleX, scaleY } post-scaling). See element.ts / highlight.ts.
+    const origSizeX = state.origW * this.dpr
+    const origSizeY = state.origH * this.dpr
+    const origRadius = state.origCornerRadius * this.dpr
+    const layerScaleX = state.layerScaleX
+    const layerScaleY = state.layerScaleY
+
     // --- Step 2c: Press glow (button only) ---
     if (isButton && el.isInteractive && st && p > 0.001) {
       // a. Flat white overlay
@@ -33,6 +42,9 @@ export const glassPostPassMethods = {
         radii[2] * this.dpr,
         radii[3] * this.dpr
       )
+      gl.uniform2f(this.uTn['uOriginalSize'], origSizeX, origSizeY)
+      gl.uniform1f(this.uTn['uOriginalCornerRadius'], origRadius)
+      gl.uniform2f(this.uTn['uLayerScale'], layerScaleX, layerScaleY)
       gl.uniform4f(this.uTn['uColor'], 1, 1, 1, 0.08 * p)
       gl.drawArrays(gl.TRIANGLES, 0, 6)
 
@@ -52,6 +64,9 @@ export const glassPostPassMethods = {
         radii[2] * this.dpr,
         radii[3] * this.dpr
       )
+      gl.uniform2f(this.uHl['uOriginalSize'], origSizeX, origSizeY)
+      gl.uniform1f(this.uHl['uOriginalCornerRadius'], origRadius)
+      gl.uniform2f(this.uHl['uLayerScale'], layerScaleX, layerScaleY)
       gl.uniform4f(this.uHl['uColor'], 1, 1, 1, 0.15 * p)
       const minDim = Math.min(sw, sh) * this.dpr
       gl.uniform1f(this.uHl['uRadius'], minDim * 1.5)
@@ -88,6 +103,9 @@ export const glassPostPassMethods = {
         radii[2] * this.dpr,
         radii[3] * this.dpr
       )
+      gl.uniform2f(this.uTn['uOriginalSize'], origSizeX, origSizeY)
+      gl.uniform1f(this.uTn['uOriginalCornerRadius'], origRadius)
+      gl.uniform2f(this.uTn['uLayerScale'], layerScaleX, layerScaleY)
       // Faithful to LiquidToggle.kt onDrawSurface:
       //   drawRect(Color.White.copy(alpha = 1f - progress))
       // Solid white pebble at rest (alpha=1), fading to transparent when
@@ -119,6 +137,9 @@ export const glassPostPassMethods = {
           radii[2] * this.dpr,
           radii[3] * this.dpr
         )
+        gl.uniform2f(this.uFg['uOriginalSize'], origSizeX, origSizeY)
+        gl.uniform1f(this.uFg['uOriginalCornerRadius'], origRadius)
+        gl.uniform2f(this.uFg['uLayerScale'], layerScaleX, layerScaleY)
         gl.uniform1f(this.uFg['uAlpha'], 1.0 - 0.15 * p)
         gl.drawArrays(gl.TRIANGLES, 0, 6)
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
@@ -156,6 +177,9 @@ export const glassPostPassMethods = {
         radii[2] * this.dpr,
         radii[3] * this.dpr
       )
+      gl.uniform2f(this.uRm['uOriginalSize'], origSizeX, origSizeY)
+      gl.uniform1f(this.uRm['uOriginalCornerRadius'], origRadius)
+      gl.uniform2f(this.uRm['uLayerScale'], layerScaleX, layerScaleY)
       gl.uniform4f(this.uRm['uHighlightColor'], el.highlight.color[0], el.highlight.color[1], el.highlight.color[2], 1.0)
       gl.uniform1f(this.uRm['uHighlightAngle'], el.highlight.angle)
       gl.uniform1f(this.uRm['uHighlightFalloff'], el.highlight.falloff)
@@ -164,6 +188,10 @@ export const glassPostPassMethods = {
       const rimAlpha = el.isToggleKnob ? elHighlightAlpha : el.highlight.alpha
       gl.uniform1f(this.uRm['uHighlightAlpha'], rimAlpha)
       gl.uniform1f(this.uRm['uHighlightMode'], el.highlight.mode)
+      // Stroke width + blur in ORIGINAL px (the rim-highlight SDF is now
+      // computed in ORIGINAL space, faithful to graphicsLayer post-scaling).
+      // No layerScale multiplication — the graphicsLayer scales the stroke
+      // along with the layer, which our original-space SDF already models.
       const widthPx = el.highlight.widthDp * this.dpr
       const strokeWidthDevice = Math.ceil(widthPx) * 2
       const blurDevice = widthPx * 0.5

@@ -8,11 +8,21 @@ uniform sampler2D uBackdrop;
 uniform sampler2D uWallpaperSampler;  // wallpaper texture (unscaled backdrop for toggle knobs)
 uniform vec2  uCanvasSize;        // canvas size in px
 uniform vec2  uWallpaperSize;     // UNUSED — kept for uniform-set compatibility
-uniform vec2  uElementOffset;     // element top-left in canvas px
-uniform vec2  uElementSize;       // element size in px
-uniform vec4  uCornerRadii;       // (topLeft, topRight, bottomRight, bottomLeft) in px
-uniform float uRefractionHeight;  // px
-uniform float uRefractionAmount;  // px (already negated to match Kotlin's -refractionAmount)
+uniform vec2  uElementOffset;     // element top-left in canvas px (SCALED rect — where the quad is drawn)
+uniform vec2  uElementSize;       // element size in px (SCALED — includes graphicsLayer scaleX/scaleY)
+uniform vec4  uCornerRadii;       // (topLeft, topRight, bottomRight, bottomLeft) in px (ORIGINAL, unscaled)
+uniform float uRefractionHeight;  // px (ORIGINAL space — NOT scaled by layerScale, faithful to AGSL)
+uniform float uRefractionAmount;  // px (ORIGINAL space — NOT scaled, faithful to AGSL)
+// --- Layer transform (faithful to graphicsLayer { scaleX, scaleY }) ---
+// The original applies the refraction shader at the ORIGINAL element size, THEN
+// scales the entire rendered layer by (scaleX, scaleY) via graphicsLayer. To
+// replicate this in a single-pass shader, we compute the SDF/refraction in
+// ORIGINAL space (by dividing the screen-space centered coord by uLayerScale),
+// then map the refraction offset back to screen space for backdrop sampling.
+// This keeps the SDF shape correct (not stretched) while covering the scaled rect.
+uniform vec2  uOriginalSize;        // element size in px (ORIGINAL, unscaled by graphicsLayer)
+uniform float uOriginalCornerRadius; // corner radius in px (ORIGINAL, unscaled)
+uniform vec2  uLayerScale;          // (scaleX, scaleY) from graphicsLayer — maps original→screen
 uniform float uDepthEffect;       // 0 or 1
 uniform float uChromaticAberration; // 0 or 1
 uniform float uBlurRadius;        // px
