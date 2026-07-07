@@ -241,7 +241,13 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
             }
         }
     }
+    // In tab-content pixels (tabMask > 0), use accentColor directly — do NOT
+    // mix with the scene's white/black text. This prevents the white icon/label
+    // from showing through; only blue is visible where the tab content is.
     vec3 sceneColor = mix(scene.rgb, uIndicatorAccent.rgb, tabMask);
+    // Force fully opaque blue where tabMask is high (avoid white bleed from
+    // the scene's contentColor through partial-alpha edges).
+    sceneColor = mix(sceneColor, uIndicatorAccent.rgb, step(0.5, tabMask));
 
     // 5. Composite scene over wallpaper inside the inset capsule (SrcOver).
     float a = scene.a * mask;
