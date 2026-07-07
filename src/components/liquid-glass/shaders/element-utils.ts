@@ -239,11 +239,10 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
             }
         }
     }
-    // Smooth but tight transition — preserves AA (no jaggies) while keeping
-    // the blue solid in the icon/label core. fgTexture alpha 0.4..0.6 maps
-    // to full blue, outside maps to glass color.
-    float blueMask = smoothstep(0.4, 0.6, tabMask);
-    vec3 sceneColor = mix(scene.rgb, uIndicatorAccent.rgb, blueMask);
+    // Use fgTexture alpha directly as the blue compositing factor. fgTexture
+    // is LINEAR-filtered so its alpha has smooth AA edges — no smoothstep
+    // threshold needed (which caused jaggies by hard-clipping the AA gradient).
+    vec3 sceneColor = mix(scene.rgb, uIndicatorAccent.rgb, tabMask);
 
     // 5. Composite scene over wallpaper inside the inset capsule (SrcOver).
     float a = scene.a * mask;
