@@ -239,8 +239,11 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
             }
         }
     }
-    // Hard replace: tabMask > 0.5 → blue icon/label, else glass layer color.
-    vec3 sceneColor = mix(scene.rgb, uIndicatorAccent.rgb, step(0.5, tabMask));
+    // Smooth but tight transition — preserves AA (no jaggies) while keeping
+    // the blue solid in the icon/label core. fgTexture alpha 0.4..0.6 maps
+    // to full blue, outside maps to glass color.
+    float blueMask = smoothstep(0.4, 0.6, tabMask);
+    vec3 sceneColor = mix(scene.rgb, uIndicatorAccent.rgb, blueMask);
 
     // 5. Composite scene over wallpaper inside the inset capsule (SrcOver).
     float a = scene.a * mask;
