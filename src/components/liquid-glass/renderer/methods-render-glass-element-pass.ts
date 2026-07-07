@@ -207,6 +207,24 @@ export const glassElementPassMethods = {
         elContentScaleY = 1.0
       }
     }
+    // --- Bottom tab indicator: modulate refraction/highlight/shadow/innerShadow
+    // by pressProgress (faithful to LiquidBottomTabs.kt indicator):
+    //   lens(10dp*progress, 14dp*progress)
+    //   highlight: Highlight.Default.copy(alpha=progress)
+    //   shadow: Shadow(alpha=progress)
+    //   innerShadow: InnerShadow(radius=8dp*progress, alpha=progress)
+    // The indicator is NOT a toggle knob, so the isToggleKnob block above
+    // doesn't run — we apply the same progress modulation here.
+    if (el.isBottomTabIndicator) {
+      const progress = togglePressProgress
+      elRefractionHeight = el.refractionHeight * progress
+      elRefractionAmount = el.refractionAmount * progress
+      elHighlightAlpha = (el.highlight?.alpha ?? 0) * progress
+      elInnerShadowAlpha = (el.innerShadow?.alpha ?? 0) * progress
+      elInnerShadowRadius = (el.innerShadow?.radius ?? 0) * progress
+      elInnerShadowOffsetX = (el.innerShadow?.offsetX ?? 0) * progress
+      elInnerShadowOffsetY = (el.innerShadow?.offsetY ?? 0) * progress
+    }
     // Set the CombinedBackdrop uniforms (no-ops for non-toggle elements).
     gl.uniform1f(this.uEl['uUseToggleBackdrop'], useToggleBackdrop)
     gl.uniform1f(this.uEl['uUseSolidBackdrop'], useSolidBackdrop)

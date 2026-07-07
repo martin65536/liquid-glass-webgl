@@ -272,6 +272,13 @@ export const glassRenderMethods = {
     const gl = this.gl
     const { el, sx, sy, sw, sh, radii } = state
     if (!el.outerShadow || el.outerShadow.alpha <= 0.001 || el.outerShadow.radius <= 0.5) return
+    // Bottom tab indicator: shadow alpha modulated by pressProgress (faithful
+    // to LiquidBottomTabs.kt indicator: Shadow(alpha=progress)).
+    let shadowAlpha = el.outerShadow.alpha
+    if (el.isBottomTabIndicator) {
+      shadowAlpha = el.outerShadow.alpha * state.togglePressProgress
+      if (shadowAlpha <= 0.001) return
+    }
     gl.useProgram(this.shadowProgram)
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
     gl.enableVertexAttribArray(this.aPosLocSh)
@@ -312,7 +319,7 @@ export const glassRenderMethods = {
       el.outerShadow.color[0],
       el.outerShadow.color[1],
       el.outerShadow.color[2],
-      el.outerShadow.alpha
+      shadowAlpha
     )
     gl.drawArrays(gl.TRIANGLES, 0, 6)
   },

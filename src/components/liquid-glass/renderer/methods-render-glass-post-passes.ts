@@ -114,6 +114,36 @@ export const glassPostPassMethods = {
       gl.drawArrays(gl.TRIANGLES, 0, 6)
     }
 
+    // --- Step 2d2: Bottom tab indicator onDrawSurface (faithful to
+    // LiquidBottomTabs.kt indicator):
+    //   drawRect(if (isLightTheme) Color.Black.copy(0.1f) else Color.White.copy(0.1f), alpha = 1f - progress)
+    //   drawRect(Color.Black.copy(alpha = 0.03f * progress))
+    // First: theme-aware dim overlay fading OUT on press (SrcOver).
+    // Second: subtle black tint fading IN on press (SrcOver).
+    if (el.isBottomTabIndicator && el.isBottomTabIndicator.dimColor) {
+      const dc = el.isBottomTabIndicator.dimColor
+      const p = togglePressProgress
+      gl.useProgram(this.tintProgram)
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+      gl.enableVertexAttribArray(this.aPosLocTn)
+      gl.vertexAttribPointer(this.aPosLocTn, 2, gl.FLOAT, false, 0, 0)
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+      gl.uniform2f(this.uTn['uCanvasSize'], this.canvas.width, this.canvas.height)
+      gl.uniform2f(this.uTn['uOffset'], sx * this.dpr, sy * this.dpr)
+      gl.uniform2f(this.uTn['uSize'], sw * this.dpr, sh * this.dpr)
+      gl.uniform4f(this.uTn['uCornerRadii'], radii[0] * this.dpr, radii[1] * this.dpr, radii[2] * this.dpr, radii[3] * this.dpr)
+      gl.uniform2f(this.uTn['uOriginalSize'], origSizeX, origSizeY)
+      gl.uniform1f(this.uTn['uOriginalCornerRadius'], origRadius)
+      gl.uniform2f(this.uTn['uLayerScale'], layerScaleX, layerScaleY)
+      // First overlay: dim color at 0.1 * (1 - progress) — fades out on press.
+      gl.uniform4f(this.uTn['uColor'], dc[0], dc[1], dc[2], 0.1 * (1 - p))
+      gl.drawArrays(gl.TRIANGLES, 0, 6)
+      // Second overlay: black at 0.03 * progress — fades in on press.
+      gl.uniform4f(this.uTn['uColor'], 0, 0, 0, 0.03 * p)
+      gl.drawArrays(gl.TRIANGLES, 0, 6)
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+    }
+
     // --- Step 2e: Foreground (label or icon) pass (button only) ---
     if (isButton && (el.label || el.icon)) {
       const fgTex = this.fgTextures.get(el.id)

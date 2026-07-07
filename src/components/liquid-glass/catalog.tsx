@@ -1453,6 +1453,10 @@ function buildSlider(
       onDragStart: (pos: { x: number; y: number }) => {
         const r = rendererRef?.current
         if (!r) return
+        // Relative drag mode: knob follows finger with a spring lag (faithful
+        // to LiquidSlider.kt's onDrag → updateValue → spring). This gives the
+        // elastic "spring" feel that absolute positioning (setSliderDragPosition)
+        // lacks — the knob trails the finger slightly and settles with a bounce.
         dragStartFraction = r.getToggleTarget(groupId)
         dragStartX = pos.x
         r.beginToggleDrag(groupId, dragStartFraction)
@@ -1534,8 +1538,13 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
 
     // Selected indicator (Layer 3) — slides between tab positions.
     // DampedDragAnimation with pressedScale=78/56, velocity/10.
-    // Faithful to LiquidBottomTabs.kt indicator layerBlock.
-    // Initial position based on selectedTab (renderer animates from here).
+    // Faithful to LiquidBottomTabs.kt indicator:
+    //   effects: lens(10dp*progress, 14dp*progress, chromaticAberration=true)
+    //   highlight: Highlight.Default.copy(alpha=progress)
+    //   shadow: Shadow(alpha=progress)         ← was missing
+    //   innerShadow: InnerShadow(radius=8dp*progress, alpha=progress)  ← was 4dp
+    //   onDrawSurface: drawRect(Black 0.1, alpha=1-progress) + drawRect(Black 0.03*progress)  ← was missing
+    //   layerBlock: scaleX/Y = dampedDragAnimation.scaleX/Y + velocity/10 squash
     const indicatorX = tabsX + TAB_W * selectedTab + 4
     const indicatorW = TAB_W - 8
     const indicatorEl = makeGlassShape(
@@ -1549,12 +1558,30 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
         saturation: 1.5,
         surfaceColor: [1, 1, 1, 0.3],
         highlight: { ...DEFAULT_HIGHLIGHT },
-        outerShadow: null,
-        innerShadow: { radius: 4 * DP, alpha: 1, offsetX: 0, offsetY: 0 },
+        // Faithful to Shadow(alpha=progress) — renderer modulates alpha by
+        // pressProgress (like toggle knob shadow). Default Shadow radius=24dp,
+        // but the original Shadow(alpha=progress) uses Shadow.Default which
+        // has radius=24dp, color=Black(0.1). We use a smaller 8dp radius for
+        // the indicator since it's a small element.
+        outerShadow: { radius: 8 * DP, alpha: 0.1, offsetX: 0, offsetY: (8 / 6) * DP, color: [0, 0, 0] },
+        // Faithful to InnerShadow(radius=8dp*progress, alpha=progress).
+        // Renderer modulates radius + alpha by pressProgress (like toggle knob).
+        innerShadow: { radius: 8 * DP, alpha: 1, offsetX: 0, offsetY: 8 * DP },
         chromaticAberration: true,
       }
     )
     indicatorEl.isBottomTabIndicator = { groupId: idPrefix, dragWidth: TAB_W }
+    // Faithful to LiquidBottomTabs.kt indicator onDrawSurface:
+    //   drawRect(if (isLightTheme) Color.Black.copy(0.1f) else Color.White.copy(0.1f), alpha = 1f - progress)
+    //   drawRect(Color.Black.copy(alpha = 0.03f * progress))
+    // The first is a theme-aware dim overlay fading out on press; the second
+    // is a subtle dark tint fading in on press. We store both as isBottomTabIndicator
+    // so the renderer can apply them in the post-pass.
+    indicatorEl.isBottomTabIndicator = {
+      groupId: idPrefix,
+      dragWidth: TAB_W,
+      dimColor: palette.backIconColor, // Black (light) / White (dark) — theme-aware 0.1 alpha
+    }
     elements.push(indicatorEl)
 
     // Tab labels with icons (Layer 2 content — scales up to 1.2 on press).

@@ -285,7 +285,16 @@ export interface GlassElementConfig extends GlassButtonConfig {
    *   scaleY *= 1 - clamp(vel*0.25, -0.2, 0.2)
    * Position: translationX = fraction * dragWidth + panelOffset
    */
-  isBottomTabIndicator?: { groupId: string; dragWidth: number }
+  isBottomTabIndicator?: {
+    groupId: string
+    dragWidth: number
+    /** Theme-aware dim color for onDrawSurface (Black light / White dark).
+     *  Faithful to LiquidBottomTabs.kt indicator:
+     *    drawRect(if (isLightTheme) Color.Black.copy(0.1f) else Color.White.copy(0.1f), alpha = 1f - progress)
+     *    drawRect(Color.Black.copy(alpha = 0.03f * progress))
+     *  The renderer draws both overlays in the post-pass, modulated by pressProgress. */
+    dimColor?: [number, number, number, number]
+  }
 }
 
 /* Per-element interaction state — mirrors InteractiveHighlight.kt. */
