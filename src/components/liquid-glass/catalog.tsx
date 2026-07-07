@@ -1580,13 +1580,78 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
     containerEl.isBottomTabContainer = { groupId: idPrefix }
     elements.push(containerEl)
 
-    // === Layer 2: Tab content (icons + labels, visible) ===
+    // === Layer 2: Selected indicator (glass capsule that slides between tabs) ===
+    // Faithful to LiquidBottomTabs.kt indicator Box:
+    //   drawBackdrop(rememberCombinedBackdrop(backdrop, tabsBackdrop), Capsule,
+    //     effects = { lens(10dp*progress, 14dp*progress, chromaticAberration=true) },
+    //     highlight = { Highlight.Default.copy(alpha=progress) },  ← alpha=0 at rest!
+    //     shadow = { Shadow(alpha=progress) },            // Shadow.Default: radius=24dp, color=Black(0.1)
+    //     innerShadow = { InnerShadow(radius=8dp*progress, alpha=progress) },
+    //     layerBlock = { scaleX/Y = dampedDragAnimation.scaleX/Y + velocity/10 squash },
+    //     onDrawSurface = { drawRect(dimColor 0.1, alpha=1-progress) + drawRect(Black 0.03*progress) })
+    //   height=56dp, fillMaxWidth(1/tabsCount), padding(horizontal=4dp)
+    //   → visual width = tabW - 8dp (4dp padding each side)
+    //   → translationX = dampedDragAnimation.value * tabWidth + panelOffset
+    //
+    // INDICATOR LAYER: the original indicator's backdrop is
+    //   rememberCombinedBackdrop(backdrop, tabsBackdrop)
+    // where `backdrop` is the outer LayerBackdrop (wallpaper) and `tabsBackdrop`
+    // is a HIDDEN Row (alpha=0) with ColorFilter.tint(accentColor) — so the
+    // indicator refracts wallpaper + blue-tinted tab content, giving it a
+    // subtle blue glass appearance. We don't have the hidden tinted layer, so
+    // the indicator samples the wallpaper + container glass (scene) like a
+    // normal glass element. This is an approximation — the blue tint is
+    // missing, but the glass refraction shape is correct.
+    const indicatorW = tabW - 2 * GLASS_PAD // faithful: fillMaxWidth(1/tabsCount) + padding(4dp) each side
+    const indicatorEl = makeGlassShape(
+      `${idPrefix}-indicator`,
+      { x: glassX + GLASS_PAD, y: glassY, w: indicatorW, h: GLASS_H },
+      {
+        cornerRadius: glassR,
+        refractionHeight: 10 * DP,
+        refractionAmount: -14 * DP,
+        // Faithful to original: indicator has NO blur and NO vibrancy (only
+        // lens when pressed). The original indicator's effects block contains
+        // ONLY lens — no vibrancy(), no blur().
+        blurRadius: 0,
+        saturation: 1.0,
+        tintColor: [0, 0, 0, 0],
+        surfaceColor: [0, 0, 0, 0],
+        // Faithful to original: highlight = Highlight.Default.copy(alpha=progress).
+        // alpha=0 at rest (no edge highlight), full when pressed. The renderer
+        // modulates this by pressProgress (elHighlightAlpha = highlight.alpha * progress
+        // for toggle knobs / indicators). So we pass alpha=1.0 and let the
+        // renderer scale it — previously alpha was 1.0 constant which drew a
+        // bright edge highlight at rest (wrong).
+        highlight: { ...DEFAULT_HIGHLIGHT, alpha: 1.0 },
+        // Shadow(alpha=progress) — faithful to Shadow.Default: radius=24dp, color=Black(0.1),
+        // offset=(0, radius/6=4dp). Renderer modulates alpha by pressProgress.
+        outerShadow: { radius: 24 * DP, alpha: 0.1, offsetX: 0, offsetY: (24 / 6) * DP, color: [0, 0, 0] },
+        // InnerShadow(radius=8dp*progress, alpha=progress) — color=Black(0.15), offset=(0, radius).
+        innerShadow: { radius: 8 * DP, alpha: 0.15, offsetX: 0, offsetY: 8 * DP },
+        chromaticAberration: true,
+      }
+    )
+    // dragWidth = tabW (indicator slides one tab width per index unit).
+    // dimColor = theme-aware (Black light / White dark) for onDrawSurface.
+    indicatorEl.isBottomTabIndicator = {
+      groupId: idPrefix,
+      dragWidth: tabW,
+      dimColor: palette.backIconColor,
+    }
+    // Indicator is decorative — no interactions. Dragging is handled by the
+    // container + tab items below, so the indicator doesn't block tab taps.
+    elements.push(indicatorEl)
+
+    // === Layer 3: Tab content (icons + labels, visible, TOPMOST for hit-test) ===
     // Faithful to LiquidBottomTab.kt + BottomTabsContent.kt:
     //   Each tab: Column(fillMaxHeight, weight(1f), graphicsLayer { scale = lerp(1, 1.2, pressProgress) })
     //   Content: 28dp icon (ColorFilter.tint(contentColor)) + "Tab N" (12sp, contentColor)
     //   The whole Row has translationX = panelOffset.
-    // We render each tab as a text element with icon; the renderer's
-    // isBottomTabContent applies the scale + panelOffset transform.
+    // Tab items are pushed LAST so they're topmost in z-order — this lets tab
+    // taps work (indicator below doesn't swallow them) and drags start from
+    // any tab. Each tab gets both onTap (select) and the drag interactions.
+    const dragInteractions = makeTabDragInteractions(idPrefix, tabW, tabsCount, onSelect, rendererRef)
     for (let i = 0; i < tabsCount; i++) {
       const id = `${idPrefix}-tab-${i}`
       const tabEl = makeText(
@@ -1604,72 +1669,25 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
         }
       )
       tabEl.isBottomTabContent = { groupId: idPrefix }
+      tabEl.isInteractive = true
       elements.push(tabEl)
-      interactions[id] = { onTap: () => onSelect(i) }
-    }
-
-    // === Layer 3: Selected indicator (glass capsule that slides between tabs) ===
-    // Faithful to LiquidBottomTabs.kt indicator Box:
-    //   drawBackdrop(rememberCombinedBackdrop(backdrop, tabsBackdrop), Capsule,
-    //     effects = { lens(10dp*progress, 14dp*progress, chromaticAberration=true) },
-    //     highlight = { Highlight.Default.copy(alpha=progress) },
-    //     shadow = { Shadow(alpha=progress) },            // Shadow.Default: radius=24dp, color=Black(0.1)
-    //     innerShadow = { InnerShadow(radius=8dp*progress, alpha=progress) },
-    //     layerBlock = { scaleX/Y = dampedDragAnimation.scaleX/Y + velocity/10 squash },
-    //     onDrawSurface = { drawRect(dimColor 0.1, alpha=1-progress) + drawRect(Black 0.03*progress) })
-    //   height=56dp, fillMaxWidth(1/tabsCount), padding(horizontal=4dp)
-    //   translationX = dampedDragAnimation.value * tabWidth + panelOffset
-    //
-    // The indicator refracts CombinedBackdrop(backdrop=wallpaper, tabsBackdrop=hidden tinted content).
-    // The hidden content layer uses ColorFilter.tint(accentColor), giving the indicator a blue
-    // appearance. We approximate by tinting the indicator surface with accentColor.
-    const indicatorW = tabW
-    const indicatorEl = makeGlassShape(
-      `${idPrefix}-indicator`,
-      { x: glassX, y: glassY, w: indicatorW, h: GLASS_H },
-      {
-        cornerRadius: glassR,
-        refractionHeight: 10 * DP,
-        refractionAmount: -14 * DP,
-        // Faithful to original: indicator has NO blur and NO vibrancy (only
-        // lens when pressed). The original indicator's effects block contains
-        // ONLY lens — no vibrancy(), no blur(). Having vibrancy+blur made it
-        // look like a flat frosted rectangle instead of transparent glass.
-        blurRadius: 0,
-        saturation: 1.0,
-        // No tint — the original indicator's blue comes from refracting a hidden
-        // ColorFilter.tint(accentColor) content layer via CombinedBackdrop,
-        // which we don't have. Using a surface tint made it look like a flat
-        // blue rectangle. Instead, the indicator shows the container glass
-        // through it naturally, with the onDrawSurface dim overlay providing
-        // depth. This looks more like glass than a solid tinted shape.
-        tintColor: [0, 0, 0, 0],
-        surfaceColor: [0, 0, 0, 0],
-        highlight: { ...DEFAULT_HIGHLIGHT },
-        // Shadow(alpha=progress) — faithful to Shadow.Default: radius=24dp, color=Black(0.1),
-        // offset=(0, radius/6=4dp). Renderer modulates alpha by pressProgress.
-        outerShadow: { radius: 24 * DP, alpha: 0.1, offsetX: 0, offsetY: (24 / 6) * DP, color: [0, 0, 0] },
-        // InnerShadow(radius=8dp*progress, alpha=progress) — color=Black(0.15), offset=(0, radius).
-        innerShadow: { radius: 8 * DP, alpha: 0.15, offsetX: 0, offsetY: 8 * DP },
-        chromaticAberration: true,
+      // Each tab gets tap (select) + drag (slide indicator). This lets the user
+      // drag from any tab to slide the indicator, and tap any tab to select it.
+      interactions[id] = {
+        onTap: () => onSelect(i),
+        onDragStart: dragInteractions.onDragStart,
+        onDrag: dragInteractions.onDrag,
+        onDragEnd: dragInteractions.onDragEnd,
       }
-    )
-    // dragWidth = tabW (indicator slides one tab width per index unit).
-    // dimColor = theme-aware (Black light / White dark) for onDrawSurface.
-    indicatorEl.isBottomTabIndicator = {
-      groupId: idPrefix,
-      dragWidth: tabW,
-      dimColor: palette.backIconColor,
     }
-    elements.push(indicatorEl)
 
     // === Interactions ===
-    // Drag anywhere on container or indicator to slide the indicator.
+    // Container also supports drag (drag from empty space between tabs).
     // Faithful to LiquidBottomTabs.kt: InteractiveHighlight.gestureModifier on
     // the indicator Box captures drags; onDragStopped snaps to nearest tab.
-    const dragInteractions = makeTabDragInteractions(idPrefix, tabW, tabsCount, onSelect, rendererRef)
+    // We extend drag to the container + all tab items so the user can start a
+    // drag anywhere on the bar.
     interactions[`${idPrefix}-container`] = dragInteractions
-    interactions[`${idPrefix}-indicator`] = dragInteractions
   }
 
   // 2 tab bars (3 tabs + 4 tabs) with 32dp Column spacing.

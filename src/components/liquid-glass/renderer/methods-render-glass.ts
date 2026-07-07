@@ -165,13 +165,26 @@ export const glassRenderMethods = {
       }
     }
 
-    // --- Bottom tabs content transform (faithful to LiquidBottomTab.kt graphicsLayer) ---
-    //   val scale = lerp(1f, 1.2f, dampedDragAnimation.pressProgress)
-    //   scaleX = scaleY = scale
-    //   translationX = panelOffset (content shifts with the bar)
+    // --- Bottom tabs content transform (faithful to LiquidBottomTabs.kt) ---
+    // Tab content sits INSIDE the container Row, so it inherits the container's
+    // press scale (lerp(1, 1+16dp/width, progress)) AND has its own content
+    // scale (lerp(1, 1.2, pressProgress)) + translationX = panelOffset.
+    // The original applies both via nested graphicsLayer: the container's
+    // layerBlock scales the whole Row (including tab content), then each tab's
+    // own graphicsLayer adds the 1→1.2 content scale.
     if (el.isBottomTabContent) {
       const tg = this.toggleStates.get(el.isBottomTabContent.groupId)
       if (tg) {
+        // Container press scale (same as isBottomTabContainer above) — the
+        // tab content is a child of the container, so it scales with it.
+        // We need the container's width to compute the scale; approximate
+        // using this element's rect.w * tabsCount (container ≈ tabsCount * tabW).
+        // Faithful to: scale = lerp(1, 1 + 16dp/containerWidth, pressProgress).
+        const containerW = el.rect.w * 4 // approximate (tabsCount is 3 or 4, close enough)
+        const containerScale = 1 + (16 * DP) / containerW * tg.pressProgress
+        scaleX *= containerScale
+        scaleY *= containerScale
+        // Content's own scale (lerp(1, 1.2, pressProgress)).
         const contentScale = 1 + 0.2 * tg.pressProgress
         scaleX *= contentScale
         scaleY *= contentScale
