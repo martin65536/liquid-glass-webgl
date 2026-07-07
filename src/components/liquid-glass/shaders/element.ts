@@ -1,4 +1,4 @@
-import { SDF_GLSL } from './sdf'
+import { SDF_GLSL, COVER_GLSL } from './sdf'
 import { ELEMENT_UNIFORMS_GLSL } from './element-uniforms'
 import { ELEMENT_UTILS_GLSL } from './element-utils'
 
@@ -27,6 +27,8 @@ precision highp float;
 ${ELEMENT_UNIFORMS_GLSL}
 
 ${SDF_GLSL}
+
+${COVER_GLSL}
 
 ${ELEMENT_UTILS_GLSL}
 

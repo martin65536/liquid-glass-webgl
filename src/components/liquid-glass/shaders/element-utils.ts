@@ -88,12 +88,20 @@ vec4 sampleToggleBackdrop(vec2 canvasPx, float radius) {
         wp = uSolidBackdropColor;
     } else if (radius < 0.5) {
         // LayerBackdrop case (t1): sample wallpaper texture unscaled.
-        vec2 uv = sceneUv(canvasPx);
+        // IMPORTANT: use coverUv (cover-fit) to match the wallpaper background
+        // pass (WALLPAPER_FRAGMENT_SHADER). Using sceneUv (raw normalization)
+        // here would sample the wrong texel when the wallpaper aspect ratio
+        // differs from the canvas — causing the knob to see a shifted/misaligned
+        // wallpaper that doesn't match what's displayed behind it.
+        vec2 uv = coverUv(canvasPx);
         wp = texture2D(uWallpaperSampler, uv);
     } else {
         // LayerBackdrop case (t1) with blur: 9-tap poisson disc on wallpaper.
-        vec2 uv = sceneUv(canvasPx);
-        vec2 pxToUv = radius / uCanvasSize;
+        // Use coverUv for the center sample, and convert the blur radius from
+        // canvas px to UV-space using canvasPxToUvScale() (which accounts for
+        // the cover-fit aspect ratio cropping).
+        vec2 uv = coverUv(canvasPx);
+        vec2 pxToUv = radius * canvasPxToUvScale();
         vec4 sum = vec4(0.0);
         float total = 0.0;
         sum += texture2D(uWallpaperSampler, uv) * 0.25; total += 0.25;
