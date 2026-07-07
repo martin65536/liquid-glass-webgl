@@ -267,7 +267,7 @@ export interface GlassElementConfig extends GlassButtonConfig {
    *   scale = lerp(1, 1 + 16dp/width, pressProgress)
    * Also shifts by panelOffset during drag.
    */
-  isBottomTabContainer?: { groupId: string }
+  isBottomTabContainer?: { groupId: string; tabsCount?: number }
   /**
    * Bottom tabs content (text/icon) — scales up to 1.2 on press.
    * Faithful to LiquidBottomTab.kt graphicsLayer:

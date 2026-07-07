@@ -83,9 +83,18 @@ export const glassPostPassMethods = {
       let px: number, py: number
       if (isContainer) {
         const tg = this.toggleStates.get(el.isBottomTabContainer!.groupId)
-        const dragWidth = el.rect.w / (tg ? 4 : 4) // approximate tabsCount
-        const indCenterX = (tg ? tg.fraction * dragWidth : 0) + dragWidth / 2
-        px = Math.max(0, Math.min(sw, indCenterX)) * this.dpr
+        // tabW = container ORIGINAL width / tabsCount (not scaled — the position
+        // lambda runs in pre-scale local coords). indicator center =
+        // (fraction + 0.5) * tabW. Faithful to LiquidBottomTabs.kt:
+        //   position = (dampedDragAnimation.value + 0.5) * tabWidth
+        const tabsCount = el.isBottomTabContainer!.tabsCount ?? 4
+        const tabW = el.rect.w / tabsCount
+        const fraction = tg ? tg.fraction : 0
+        const indCenterX = (fraction + 0.5) * tabW
+        // Map original-local to scaled-local (the shader's uPosition is in
+        // scaled-local coords, 0..sw). scale = sw / el.rect.w.
+        const scaleToLocal = sw / el.rect.w
+        px = Math.max(0, Math.min(sw, indCenterX * scaleToLocal)) * this.dpr
         py = (sh / 2) * this.dpr
       } else {
         px = Math.max(0, Math.min(sw, st!.dragX * state.layerScaleX)) * this.dpr

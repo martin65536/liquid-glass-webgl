@@ -1617,7 +1617,7 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
         outerShadow: null,
       }
     )
-    containerEl.isBottomTabContainer = { groupId: idPrefix }
+    containerEl.isBottomTabContainer = { groupId: idPrefix, tabsCount }
     elements.push(containerEl)
 
     // === Layer 2: Tab content (icons + labels) ===
