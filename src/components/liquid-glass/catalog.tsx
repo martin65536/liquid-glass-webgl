@@ -1031,7 +1031,18 @@ function buildToggle(
       chromaticAberration: true, // lens(chromaticAberration = true)
     }
   )
-  t1KnobEl.isToggleKnob = { groupId: 'toggle1', dragWidth: TOGGLE_DRAG }
+  t1KnobEl.isToggleKnob = {
+    groupId: 'toggle1',
+    dragWidth: TOGGLE_DRAG,
+    // CombinedBackdrop track color info (faithful to LiquidToggle.kt):
+    //   backdrop = rememberCombinedBackdrop(backdrop, scaled trackBackdrop)
+    // The knob samples wallpaper (unscaled) + scaled track color rect.
+    // Track color lerps between trackColor (off) and accentColor (on).
+    trackColorOff: [...TOGGLE_TRACK_T, 1] as [number, number, number, number],
+    trackColorOn: [...TOGGLE_ACCENT_T, 1] as [number, number, number, number],
+    trackW: TOGGLE_W,
+    trackH: TOGGLE_H,
+  }
   elements.push(t1KnobEl)
 
   // --- White card with toggle 2 (faithful to ToggleContent.kt) ---
@@ -1097,7 +1108,18 @@ function buildToggle(
       chromaticAberration: true,
     }
   )
-  t2KnobEl.isToggleKnob = { groupId: 'toggle2', dragWidth: TOGGLE_DRAG }
+  t2KnobEl.isToggleKnob = {
+    groupId: 'toggle2',
+    dragWidth: TOGGLE_DRAG,
+    // CombinedBackdrop track color info (faithful to LiquidToggle.kt):
+    //   backdrop = rememberCombinedBackdrop(backdrop, scaled trackBackdrop)
+    // The knob samples wallpaper (unscaled) + scaled track color rect.
+    // Track color lerps between trackColor (off) and accentColor (on).
+    trackColorOff: [...TOGGLE_TRACK_T, 1] as [number, number, number, number],
+    trackColorOn: [...TOGGLE_ACCENT_T, 1] as [number, number, number, number],
+    trackW: TOGGLE_W,
+    trackH: TOGGLE_H,
+  }
   elements.push(t2KnobEl)
 
   // --- Interactions ---

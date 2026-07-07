@@ -66,7 +66,17 @@ void main() {
     // --- 1. Backdrop sample (before refraction) -------------------
     // Use sampleCoord (content-scaled) so the backdrop shrinks inward when
     // uContentScaleX/Y < 1.0 (toggle/slider knob press effect).
-    vec4 backdrop = sampleBackdrop(sampleCoord, uBlurRadius);
+    vec4 backdrop;
+    if (uUseToggleBackdrop > 0.5) {
+        // Toggle knob CombinedBackdrop (faithful to LiquidToggle.kt):
+        //   backdrop = wallpaper (unscaled) + scaled track color rect
+        // The wallpaper is sampled at screenCoord (NOT content-scaled),
+        // and the track color is composited on top using a rounded-rect
+        // SDF at the scaled track rect position.
+        backdrop = sampleToggleBackdrop(screenCoord, uBlurRadius);
+    } else {
+        backdrop = sampleBackdrop(sampleCoord, uBlurRadius);
+    }
     vec3 color = applyColorControls(backdrop.rgb, uBrightness, uContrast, uSaturation);
     float alpha = backdrop.a;
 
@@ -91,11 +101,14 @@ void main() {
         if (gradLen > 1e-6) grad = gradSum / gradLen;
 
         vec2 refractedLocal = localCoord + d * grad;
-        // Apply non-uniform content scale to the refracted sample too, so
-        // the lens refraction also sees the compressed backdrop.
+        // For toggle knobs with CombinedBackdrop: the refraction samples
+        // the wallpaper (unscaled) + scaled track color, NOT the content-
+        // scaled scene. Faithful to the original where the lens refracts
+        // the CombinedBackdrop (wallpaper + scaled track color).
         vec2 refractedScreen = uElementOffset + refractedLocal;
         vec2 refractedSampleCoord = refractedScreen;
-        if (uContentScaleX < 0.999 || uContentScaleY < 0.999) {
+        if (uUseToggleBackdrop < 0.5 &&
+            (uContentScaleX < 0.999 || uContentScaleY < 0.999)) {
             vec2 elementCenter = uElementOffset + uElementSize * 0.5;
             refractedSampleCoord = elementCenter + (refractedScreen - elementCenter) * contentScale;
         }
@@ -110,9 +123,16 @@ void main() {
             // 3-path RGB: red shifts +dispersedCoord, green shifts 0,
             // blue shifts -dispersedCoord. This gives the same chromatic
             // aberration fringe effect at 3/7 the cost.
-            vec4 redC   = sampleBackdrop(refractedSampleCoord + dispersedCoord, uBlurRadius);
-            vec4 greenC = sampleBackdrop(refractedSampleCoord,                  uBlurRadius);
-            vec4 blueC  = sampleBackdrop(refractedSampleCoord - dispersedCoord, uBlurRadius);
+            vec4 redC, greenC, blueC;
+            if (uUseToggleBackdrop > 0.5) {
+                redC   = sampleToggleBackdrop(refractedScreen + dispersedCoord, uBlurRadius);
+                greenC = sampleToggleBackdrop(refractedScreen,                  uBlurRadius);
+                blueC  = sampleToggleBackdrop(refractedScreen - dispersedCoord, uBlurRadius);
+            } else {
+                redC   = sampleBackdrop(refractedSampleCoord + dispersedCoord, uBlurRadius);
+                greenC = sampleBackdrop(refractedSampleCoord,                  uBlurRadius);
+                blueC  = sampleBackdrop(refractedSampleCoord - dispersedCoord, uBlurRadius);
+            }
 
             vec3 dispColor = vec3(redC.r, greenC.g, blueC.b);
             float dispAlpha = (redC.a + greenC.a + blueC.a) / 3.0;
@@ -120,7 +140,12 @@ void main() {
             color = applyColorControls(dispColor, uBrightness, uContrast, uSaturation);
             alpha = dispAlpha;
         } else {
-            vec4 refracted = sampleBackdrop(refractedSampleCoord, uBlurRadius);
+            vec4 refracted;
+            if (uUseToggleBackdrop > 0.5) {
+                refracted = sampleToggleBackdrop(refractedScreen, uBlurRadius);
+            } else {
+                refracted = sampleBackdrop(refractedSampleCoord, uBlurRadius);
+            }
             color = applyColorControls(refracted.rgb, uBrightness, uContrast, uSaturation);
             alpha = refracted.a;
         }

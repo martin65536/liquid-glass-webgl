@@ -88,7 +88,8 @@ export const glassPostPassMethods = {
         radii[2] * this.dpr,
         radii[3] * this.dpr
       )
-      gl.uniform4f(this.uTn['uColor'], 1, 1, 1, whiteAlpha)
+      // DEBUG: use red instead of white to verify overlay is drawn
+      gl.uniform4f(this.uTn['uColor'], 1, 0, 0, whiteAlpha)
       gl.drawArrays(gl.TRIANGLES, 0, 6)
     }
 

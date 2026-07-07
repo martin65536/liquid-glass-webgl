@@ -61,6 +61,70 @@ vec4 sampleBackdrop(vec2 canvasPx, float radius) {
     return sum / total;
 }
 
+// --- Toggle knob CombinedBackdrop sampling (faithful to LiquidToggle.kt) ---
+// The knob's backdrop is a CombinedBackdrop of:
+//   1. Outer wallpaper backdrop (unscaled)
+//   2. Scaled trackBackdrop (track color rect, clipped to Capsule, scaled
+//      by lerp(2/3, 0.75, pressProgress) x lerp(0, 0.75, pressProgress)
+//      around the knob's center)
+//
+// This function samples the wallpaper texture (uWallpaperSampler) with blur,
+// then composites the scaled track color on top using a rounded-rect SDF
+// at the uTrackRect position (center + half-size + corner radius).
+//
+// The track color SDF is also blurred by approximating the blur as a
+// smoothstep over uBlurRadius — this matches the original where the blur
+// effect is applied to the CombinedBackdrop (wallpaper + track color).
+vec4 sampleToggleBackdrop(vec2 canvasPx, float radius) {
+    // 1. Sample wallpaper (unscaled) with blur.
+    vec2 uv = sceneUv(canvasPx);
+    vec4 wp;
+    if (radius < 0.5) {
+        wp = texture2D(uWallpaperSampler, uv);
+    } else {
+        vec2 pxToUv = radius / uCanvasSize;
+        vec4 sum = vec4(0.0);
+        float total = 0.0;
+        sum += texture2D(uWallpaperSampler, uv) * 0.25; total += 0.25;
+        sum += texture2D(uWallpaperSampler, uv + vec2( 1.000,  0.000) * pxToUv) * 0.12; total += 0.12;
+        sum += texture2D(uWallpaperSampler, uv + vec2(-1.000,  0.000) * pxToUv) * 0.12; total += 0.12;
+        sum += texture2D(uWallpaperSampler, uv + vec2( 0.000,  1.000) * pxToUv) * 0.12; total += 0.12;
+        sum += texture2D(uWallpaperSampler, uv + vec2( 0.000, -1.000) * pxToUv) * 0.12; total += 0.12;
+        sum += texture2D(uWallpaperSampler, uv + vec2( 0.707,  0.707) * pxToUv) * 0.0675; total += 0.0675;
+        sum += texture2D(uWallpaperSampler, uv + vec2( 0.707, -0.707) * pxToUv) * 0.0675; total += 0.0675;
+        sum += texture2D(uWallpaperSampler, uv + vec2(-0.707,  0.707) * pxToUv) * 0.0675; total += 0.0675;
+        sum += texture2D(uWallpaperSampler, uv + vec2(-0.707, -0.707) * pxToUv) * 0.0675; total += 0.0675;
+        wp = sum / total;
+    }
+
+    // 2. Composite scaled track color on top.
+    // The track rect is centered at uTrackRect.xy with half-size uTrackRect.zw,
+    // and corner radius uTrackCornerRadius. We compute the SDF of this
+    // rounded rect at canvasPx, then apply a smoothstep for edge AA + blur.
+    // If uTrackColor.a == 0.0 OR the track rect is degenerate (halfW or
+    // halfH < 0.5px, which happens at rest when scaleY=0), skip compositing.
+    // Faithful to original: scale(scaleX, 0) { drawRect() } draws nothing.
+    if (uTrackColor.a > 0.001 && uTrackRect.z > 0.5 && uTrackRect.w > 0.5) {
+        vec2 trackCenter = uTrackRect.xy;
+        vec2 trackHalf = uTrackRect.zw;
+        vec2 trackLocal = canvasPx - trackCenter;
+        // sdRoundedRect expects centered coord (relative to center).
+        // Use uniform corner radius = uTrackCornerRadius.
+        float tr = uTrackCornerRadius;
+        // Approximate the rounded-rect SDF (matches sdRoundedRect from SDF_GLSL).
+        vec2 q = abs(trackLocal) - trackHalf + vec2(tr);
+        float trackSd = length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0) - tr;
+        // Blur the edge by uBlurRadius (approximate Gaussian edge feather).
+        // Inside (trackSd < -radius) → mask=1; outside (trackSd > radius) → mask=0.
+        float mask = 1.0 - smoothstep(-radius, radius, trackSd);
+        // Composite: srcOver (track color over wallpaper).
+        float a = mask * uTrackColor.a;
+        wp.rgb = mix(wp.rgb, uTrackColor.rgb, a);
+        wp.a = mix(wp.a, 1.0, a);
+    }
+    return wp;
+}
+
 // colorControls — exact port of ColorFilter.kt colorControlsColorFilter.
 // saturation 1.5, brightness 0, contrast 1 -> pure saturation boost.
 vec3 applyColorControls(vec3 c, float brightness, float contrast, float saturation) {

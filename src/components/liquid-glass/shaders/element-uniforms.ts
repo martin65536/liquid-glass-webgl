@@ -5,6 +5,7 @@
  * ------------------------------------------------------------------ */
 export const ELEMENT_UNIFORMS_GLSL = /* glsl */ `
 uniform sampler2D uBackdrop;
+uniform sampler2D uWallpaperSampler;  // wallpaper texture (unscaled backdrop for toggle knobs)
 uniform vec2  uCanvasSize;        // canvas size in px
 uniform vec2  uWallpaperSize;     // UNUSED — kept for uniform-set compatibility
 uniform vec2  uElementOffset;     // element top-left in canvas px
@@ -38,4 +39,14 @@ uniform vec2  uInnerShadowOffset;
 // but the white overlay (alpha=1) hides it. When pressed, scales to full.
 uniform float uContentScaleX;
 uniform float uContentScaleY;
+// --- Toggle knob CombinedBackdrop effect (faithful to LiquidToggle.kt) ---
+// The knob's backdrop is a CombinedBackdrop of:
+//   1. Outer wallpaper backdrop (unscaled)
+//   2. Scaled trackBackdrop (track color rect, scaled by lerp(2/3,0.75) x lerp(0,0.75))
+// uUseToggleBackdrop = 1.0 → sample wallpaper (unscaled) + composite scaled track color
+// uUseToggleBackdrop = 0.0 → sample scene (uBackdrop) as before
+uniform float uUseToggleBackdrop;
+uniform vec4  uTrackColor;        // rgba 0..1; alpha 0 = no track color
+uniform vec4  uTrackRect;         // (centerX, centerY, halfW, halfH) in canvas px (dpr-scaled)
+uniform float uTrackCornerRadius; // canvas px (dpr-scaled)
 `

@@ -166,6 +166,26 @@ export interface GlassElementConfig extends GlassButtonConfig {
      * Defaults to 50 (toggle). Slider sets 10.
      */
     velocityDivisor?: number
+    /**
+     * CombinedBackdrop track color info (faithful to LiquidToggle.kt):
+     *   backdrop = rememberCombinedBackdrop(
+     *     backdrop,                                            // wallpaper
+     *     rememberBackdrop(trackBackdrop) { drawBackdrop ->   // track color
+     *       scale(scaleX, scaleY) { drawBackdrop() }
+     *     }
+     *   )
+     * When set, the knob samples the wallpaper (unscaled) + composited
+     * scaled track color, instead of the content-scaled scene. The track
+     * color is lerped between offColor and onColor by the toggle fraction.
+     * The scale is (lerp(2/3, 0.75, pressProgress), lerp(0, 0.75, pressProgress))
+     * around the knob's center.
+     */
+    trackColorOff?: [number, number, number, number]
+    trackColorOn?: [number, number, number, number]
+    /** Track's original width in CSS px (e.g. 64dp for toggle). */
+    trackW?: number
+    /** Track's original height in CSS px (e.g. 28dp for toggle). */
+    trackH?: number
   }
   /**
    * If set, this element is a toggle track. Its color is lerped between

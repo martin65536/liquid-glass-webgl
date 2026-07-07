@@ -179,7 +179,7 @@ export class LiquidGlassRenderer {
   cacheUniforms() {
     const gl = this.gl
     const elNames = [
-      'uBackdrop', 'uCanvasSize', 'uWallpaperSize', 'uElementOffset', 'uElementSize',
+      'uBackdrop', 'uWallpaperSampler', 'uCanvasSize', 'uWallpaperSize', 'uElementOffset', 'uElementSize',
       'uCornerRadii', 'uRefractionHeight', 'uRefractionAmount', 'uDepthEffect',
       'uChromaticAberration', 'uBlurRadius', 'uSaturation', 'uBrightness',
       'uContrast', 'uTintColor', 'uSurfaceColor', 'uHighlightColor',
@@ -187,6 +187,7 @@ export class LiquidGlassRenderer {
       'uHighlightStrokeWidth', 'uHighlightBlur',
       'uInnerShadowRadius', 'uInnerShadowAlpha', 'uInnerShadowOffset',
       'uContentScaleX', 'uContentScaleY',
+      'uUseToggleBackdrop', 'uTrackColor', 'uTrackRect', 'uTrackCornerRadius',
     ]
     for (const n of elNames) this.uEl[n] = gl.getUniformLocation(this.elementProgram, n)
     const shNames = [
