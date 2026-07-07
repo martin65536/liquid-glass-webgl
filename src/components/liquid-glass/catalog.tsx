@@ -718,6 +718,11 @@ function applyVerticalCenter(
     if (el.isBottomTabContent && el.isBottomTabContent.containerCenterY != null) {
       el.isBottomTabContent.containerCenterY += yOffset
     }
+    // Bottom tab indicator also scales around the container center — shift
+    // its pivot too.
+    if (el.isBottomTabIndicator && el.isBottomTabIndicator.containerCenterY != null) {
+      el.isBottomTabIndicator.containerCenterY += yOffset
+    }
   }
   return contentHeight + yOffset
 }
@@ -1744,6 +1749,11 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
       // containerRect = the FULL container bar. The shader shrinks it 4dp
       // on each side to form the inset capsule SDF for the second layer.
       containerRect: { x: containerX, y, w: containerW, h: CONTAINER_H },
+      // Container center + width — the indicator scales around the container
+      // center (like tab-content), matching the original parent-child transform.
+      containerCenterX: containerX + containerW / 2,
+      containerCenterY: y + CONTAINER_H / 2,
+      containerWidth: containerW,
     }
     // Indicator is decorative — no interactions. It sits on top in z-order
     // so it refracts + tints the tab content beneath, but taps fall through

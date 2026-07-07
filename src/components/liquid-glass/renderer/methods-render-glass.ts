@@ -219,12 +219,41 @@ export const glassRenderMethods = {
         // Drive white overlay alpha + surface color by pressProgress
         // (faithful to indicator onDrawSurface).
         togglePressProgress = Math.max(togglePressProgress, tg.pressProgress)
+        // Container layerBlock scale — the indicator scales around the
+        // CONTAINER center (like tab-content), as a child of the container.
+        // Faithful to LiquidBottomTabs.kt: container Row's layerBlock applies
+        // to the whole bar including the indicator.
+        if (el.isBottomTabIndicator.containerWidth != null) {
+          const containerScale = 1 + (16 * DP) / el.isBottomTabIndicator.containerWidth * tg.pressProgress
+          scaleX *= containerScale
+          scaleY *= containerScale
+          // Scale the indicator's center around the container center.
+          // Applied below in the final rect computation (see containerCenterX/Y).
+        }
       }
     }
 
     // Compute final on-screen rect (in CSS px, matching the original code).
-    const cx = el.rect.x + el.rect.w / 2 + translationX + toggleXOffset
-    const cy = el.rect.y + el.rect.h / 2 + translationY
+    // For bottom-tab indicator with a container center, scale the indicator's
+    // center around the CONTAINER center (parent-child transform), matching
+    // how tab-content scales.
+    let cx: number, cy: number
+    if (el.isBottomTabIndicator && el.isBottomTabIndicator.containerCenterX != null && el.isBottomTabIndicator.containerCenterY != null && el.isBottomTabIndicator.containerWidth != null) {
+      const tg2 = this.toggleStates.get(el.isBottomTabIndicator.groupId)
+      const containerScale = tg2 ? 1 + (16 * DP) / (el.isBottomTabIndicator.containerWidth ?? el.rect.w) * tg2.pressProgress : 1
+      const pivotX = el.isBottomTabIndicator.containerCenterX
+      const pivotY = el.isBottomTabIndicator.containerCenterY
+      // indicator center (before container scale, but after toggle offset + panelOffset)
+      const indCenterX = el.rect.x + el.rect.w / 2 + translationX + toggleXOffset
+      const indCenterY = el.rect.y + el.rect.h / 2 + translationY
+      // Scale around container center: the indicator's offset from the
+      // container center grows by containerScale.
+      cx = pivotX + (indCenterX - pivotX) * containerScale
+      cy = pivotY + (indCenterY - pivotY) * containerScale
+    } else {
+      cx = el.rect.x + el.rect.w / 2 + translationX + toggleXOffset
+      cy = el.rect.y + el.rect.h / 2 + translationY
+    }
     const sw = el.rect.w * scaleX
     const sh = el.rect.h * scaleY
     const sx = cx - sw / 2

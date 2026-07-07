@@ -316,6 +316,13 @@ export interface GlassElementConfig extends GlassButtonConfig {
      *  SDF (container rect shrunk 4dp on each side) clips the scene-FBO
      *  sample for the second backdrop layer. */
     containerRect?: { x: number; y: number; w: number; h: number }
+    /** Container center (scale origin for the whole bar). The indicator
+     *  scales around this point (like tab-content), matching the original
+     *  where container is the parent and its transform applies uniformly. */
+    containerCenterX?: number
+    containerCenterY?: number
+    /** Container width (for computing the layerBlock scale). */
+    containerWidth?: number
   }
 }
 
