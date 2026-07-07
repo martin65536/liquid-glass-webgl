@@ -255,25 +255,32 @@ export const renderMethods = {
     if (el.kind === 'text') {
       this.bindFBO(curFbo)
       // Compute the effective draw rect for bottom-tab content.
-      // Faithful to LiquidBottomTabs.kt:
-      //   - Row graphicsLayer { translationX = panelOffset } → whole bar shifts
-      //   - Each tab's graphicsLayer { scale = lerp(1, 1.2, pressProgress) }
-      //     → each tab scales around its OWN center
-      // The container's layerBlock scale only affects the glass, not content.
+      // Faithful to LiquidBottomTabs.kt: the container is the parent of all
+      // tab-content, so the container's scale applies to the WHOLE Row as a
+      // unit — each tab scales around the CONTAINER's center, not its own.
+      // This means tabs spread apart as the bar grows:
+      //   scaledTabCenter = containerCenter + (tabCenter - containerCenter) * scale
       let drawRect = r
       let fgScaleX = 1
       let fgScaleY = 1
       if (el.isBottomTabContent) {
         const tg = this.toggleStates.get(el.isBottomTabContent.groupId)
         if (tg) {
-          const contentScale = 1 + 0.2 * tg.pressProgress
-          fgScaleX = contentScale
-          fgScaleY = contentScale
-          const sw = el.rect.w * contentScale
-          const sh = el.rect.h * contentScale
-          // Each tab scales around its own center; whole bar shifts by panelOffset.
-          const cx = el.rect.x + el.rect.w / 2 + tg.panelOffset
-          const cy = el.rect.y + el.rect.h / 2
+          // Container scale = lerp(1, 1+16dp/width, pressProgress).
+          const containerW = el.isBottomTabContent.containerWidth ?? el.rect.w * 4
+          const containerScale = 1 + (16 * DP) / containerW * tg.pressProgress
+          fgScaleX = containerScale
+          fgScaleY = containerScale
+          // Scale around the CONTAINER center (not the tab's own center).
+          const pivotX = el.isBottomTabContent.containerCenterX ?? (el.rect.x + el.rect.w / 2)
+          const pivotY = el.isBottomTabContent.containerCenterY ?? (el.rect.y + el.rect.h / 2)
+          const tabCenterX = el.rect.x + el.rect.w / 2
+          const tabCenterY = el.rect.y + el.rect.h / 2
+          // scaledCenter = pivot + (center - pivot) * scale + panelOffset
+          const cx = pivotX + (tabCenterX - pivotX) * containerScale + tg.panelOffset
+          const cy = pivotY + (tabCenterY - pivotY) * containerScale
+          const sw = el.rect.w * fgScaleX
+          const sh = el.rect.h * fgScaleY
           drawRect = { x: cx - sw / 2, y: cy - sh / 2, w: sw, h: sh }
         }
       }
