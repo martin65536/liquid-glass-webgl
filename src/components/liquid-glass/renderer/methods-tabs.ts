@@ -140,9 +140,14 @@ export const tabsMethods = {
     const finalTarget = Math.round(st.targetFraction)
     const clamped = Math.max(0, Math.min(tabsCount - 1, finalTarget))
     st.targetFraction = clamped
-    // Do NOT zero targetVelocity — let the velocity spring decay naturally
-    // (faithful to original release()). The drag velocity continues to drive
-    // squash-stretch as the indicator snaps to the nearest tab.
+    // Set targetVelocity = 0 so the velocity spring decays to 0 in parallel
+    // with the scale spring (1.5→1). This matches endToggleDrag/endSliderDrag
+    // — the original release() animates scaleX/Y to 1 while velocity decays
+    // simultaneously (the original's updateVelocity callback naturally → 0
+    // as the value settles; we explicitly target 0 since we lack that callback).
+    // NOT zeroing this left velocity stuck at the last drag value, causing
+    // the indicator to stay stretched on fast release.
+    st.targetVelocity = 0
     st.targetPanelOffset = 0
     st.lastFractionTime = 0
     // Don't release press here — auto-release will fire when fraction
