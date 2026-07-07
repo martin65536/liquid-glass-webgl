@@ -18,6 +18,7 @@ declare module './index' {
       dragWidth: number
     ): void
     endToggleDrag(groupId: string): number
+    endSliderDrag(groupId: string): number
     getToggleFraction(groupId: string): number
     getToggleTarget(groupId: string): number
   }
@@ -190,6 +191,29 @@ export const toggleMethods = {
     st.isDragging = false
     const finalTarget = st.targetFraction >= 0.5 ? 1 : 0
     st.targetFraction = finalTarget
+    st.targetVelocity = 0
+    st.lastFractionTime = 0
+    // Don't release press here — auto-release will fire when fraction
+    // settles near finalTarget.
+    this.startAnimation()
+    return finalTarget
+  },
+
+  /**
+   * End a finger drag on a SLIDER group. Unlike toggle (which snaps to 0/1),
+   * a slider is a continuous (stepless) control — faithful to LiquidSlider.kt's
+   * `onDragStopped = { if (didDrag) onValueChange(targetValue) }` which returns
+   * the continuous targetValue WITHOUT snapping.
+   *
+   * Returns the continuous target fraction (0..1) so the React layer can sync
+   * its state. The press animation auto-releases when the fraction settles.
+   */
+  endSliderDrag(this: LiquidGlassRenderer, groupId: string): number {
+    const st = this.toggleStates.get(groupId)
+    if (!st) return 0
+    st.isDragging = false
+    // NO snap — keep the continuous targetFraction as-is.
+    const finalTarget = st.targetFraction
     st.targetVelocity = 0
     st.lastFractionTime = 0
     // Don't release press here — auto-release will fire when fraction

@@ -1389,7 +1389,14 @@ function buildSlider(
   // Drag on track → knob follows finger (added for usability; the original
   //   only supports tap on track + drag on knob, but a small knob is hard
   //   to hit on touch devices, so we forward track drags to the knob).
-  // Drag on knob → knob follows finger; on release, snap state to nearest value.
+  // Drag on knob → knob follows finger continuously (stepless, faithful to
+  //   LiquidSlider.kt's continuous valueRange + onValueChange).
+  //
+  // Faithful to LiquidSlider.kt:
+  //   - onDrag: onValueChange(targetValue + delta)  — continuous, live
+  //   - onDragStopped: onValueChange(targetValue)    — NO snap (unlike toggle)
+  // We mirror this by calling setState during drag (so the fill width tracks
+  // the knob live) and using endSliderDrag (no 0/1 snap) on release.
   //
   // dragWidth for fraction computation = trackW - knobW/2 (matches the
   // renderer's positioning dragWidth). This ensures the knob tracks the
@@ -1403,7 +1410,7 @@ function buildSlider(
     return {
       onTap: (pos: { x: number; y: number }) => {
         const f = Math.max(0, Math.min(1, (pos.x - trackX) / trackW))
-        setState({ sliderValue: Math.round(f * 100) })
+        setState({ sliderValue: f * 100 })
       },
       onDragStart: (pos: { x: number; y: number }) => {
         const r = rendererRef?.current
@@ -1416,12 +1423,16 @@ function buildSlider(
         const r = rendererRef?.current
         if (!r) return
         r.dragToggle(groupId, dragStartFraction, pos.x, dragStartX, dragW)
+        // Live state update so the fill width tracks the knob during drag
+        // (faithful to LiquidSlider.kt's onValueChange during onDrag).
+        const currentTarget = r.getToggleTarget(groupId)
+        setState({ sliderValue: currentTarget * 100 })
       },
       onDragEnd: () => {
         const r = rendererRef?.current
         if (!r) return
-        const finalTarget = r.endToggleDrag(groupId)
-        setState({ sliderValue: Math.round(finalTarget * 100) })
+        const finalTarget = r.endSliderDrag(groupId)
+        setState({ sliderValue: finalTarget * 100 })
       },
     }
   }
@@ -1440,12 +1451,15 @@ function buildSlider(
         const r = rendererRef?.current
         if (!r) return
         r.dragToggle(groupId, dragStartFraction, pos.x, dragStartX, dragW)
+        // Live state update so the fill width tracks the knob during drag.
+        const currentTarget = r.getToggleTarget(groupId)
+        setState({ sliderValue: currentTarget * 100 })
       },
       onDragEnd: () => {
         const r = rendererRef?.current
         if (!r) return
-        const finalTarget = r.endToggleDrag(groupId)
-        setState({ sliderValue: Math.round(finalTarget * 100) })
+        const finalTarget = r.endSliderDrag(groupId)
+        setState({ sliderValue: finalTarget * 100 })
       },
     }
   }
