@@ -2060,8 +2060,8 @@ function buildControlCenter(W: number, H: number, onBack: () => void, state: Cat
 
   // Background dim overlay — faithful to ControlCenterContent.kt's backdrop:
   //   drawRect(dimColor * progress) where dimColor = Black(0.4).
-  // Fades in as the control center collapses (enterProgress → 0).
-  const dimAlpha = (1 - state.controlCenterEnter) * 0.4
+  // Fades in as the control center expands (enterProgress → 1).
+  const dimAlpha = state.controlCenterEnter * 0.4
   elements.push(makePlainRect('cc-dim', { x: 0, y: 0, w: W, h: Math.max(H, 800) }, [0, 0, 0, dimAlpha], 0))
 
   const startY = 0 // applyVerticalCenter shifts this
@@ -2200,6 +2200,14 @@ function buildControlCenter(W: number, H: number, onBack: () => void, state: Cat
         const target = state.controlCenterEnter < 0.5 ? 0 : 1
         animateControlCenterEnter(setState, target)
       },
+    }
+  }
+
+  // Apply enterProgress to all cc icon/background elements too (text + plainRect)
+  const enterP = state.controlCenterEnter
+  for (const e of elements) {
+    if (e.id.startsWith('cc-') && e.id !== 'cc-dim' && !ccTileIds.includes(e.id)) {
+      e.enterProgress = enterP
     }
   }
 
