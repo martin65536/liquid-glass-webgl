@@ -1680,13 +1680,17 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
         // ONLY lens — no vibrancy(), no blur().
         blurRadius: 0,
         saturation: 1.0,
-        // Blue surface tint (SrcOver) applied OVER the refracted content.
-        // Faithful to CombinedBackdrop(wallpaper, tinted-content): the original
-        // indicator refracts blue-tinted tab content, making the selected tab's
-        // icon/text appear blue through the glass. We approximate with a blue
-        // SrcOver overlay — the content beneath shifts toward blue.
+        // Indicator surface is TRANSPARENT (no tint, no surface color).
+        // Faithful to LiquidBottomTabs.kt: the indicator's onDrawSurface is
+        //   drawRect(dimColor 0.1, alpha=1-progress)  (dim at rest, clear pressed)
+        //   drawRect(Black 0.03*progress)             (slight darken when pressed)
+        // This dim overlay is handled by the isBottomTabIndicator dimColor path
+        // in post-passes. The indicator is NOT blue — it's transparent glass
+        // that refracts the content beneath. (The original's blue appearance
+        // comes from CombinedBackdrop with a hidden tinted layer, which we
+        // don't replicate — the indicator shows the scene as-is.)
         tintColor: [0, 0, 0, 0],
-        surfaceColor: [accentT[0], accentT[1], accentT[2], 0.12],
+        surfaceColor: [0, 0, 0, 0],
         // Faithful to original: highlight = Highlight.Default.copy(alpha=progress).
         // alpha=0 at rest (no edge highlight), full when pressed.
         highlight: { ...DEFAULT_HIGHLIGHT, alpha: 1.0 },
