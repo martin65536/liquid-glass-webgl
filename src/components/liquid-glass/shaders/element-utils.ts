@@ -197,35 +197,50 @@ vec4 sampleToggleBackdrop(vec2 canvasPx, float radius) {
 //      ColorFilter.tint(accentColor) to simulate the hidden tinted glass layer.
 //      ColorFilter.tint replaces hue+saturation with accent, keeping value.
 vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
-    // 1. Sample RAW wallpaper via coverUv (outer LayerBackdrop = wallpaper only).
-    //    Faithful to: backdrop = LayerBackdrop (window wallpaper, pre-draw).
-    //    Previously sampled the scene FBO (uBackdrop) which included the
-    //    already-drawn container glass — wrong. The original's LayerBackdrop
-    //    captures the wallpaper BEFORE any element is drawn.
-    vec4 wp;
+    // Faithful to LiquidBottomTabs.kt indicator's CombinedBackdrop:
+    //   backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop)
+    //   - backdrop = outer LayerBackdrop (wallpaper, pre-draw)
+    //   - tabsBackdrop = hidden Row (alpha=0) that captures:
+    //       container glass (vibrancy+blur+lens, scaled by pressProgress) +
+    //       tab content (icons+labels) + onDrawSurface(containerColor) +
+    //       ColorFilter.tint(accentColor)  ← blue tint over everything
+    //
+    // So the indicator refracts: wallpaper + [scaled container glass + tab
+    // content, all blue-tinted with containerColor overlay].
+    //
+    // We approximate by sampling the SCENE FBO (uBackdrop) — which already
+    // contains the drawn container glass + tab content — instead of raw
+    // wallpaper. This shows the actual container+tabs (with their glass
+    // refraction) through the indicator, not just a flat color. Then we apply
+    // the ColorFilter.tint(accentColor) + containerColor overlay inside the
+    // container capsule SDF to match the hidden tinted layer.
+
+    // 1. Sample the SCENE (uBackdrop) — contains wallpaper + container glass
+    //    + tab content already drawn. Use sceneUv (scene FBO is canvas-sized,
+    //    no cover-fit needed — it's the rendered framebuffer).
+    vec4 scene;
     if (radius < 0.5) {
-        vec2 uv = coverUv(canvasPx);
-        wp = texture2D(uWallpaperSampler, uv);
+        vec2 uv = sceneUv(canvasPx);
+        scene = texture2D(uBackdrop, uv);
     } else {
-        vec2 uv = coverUv(canvasPx);
-        vec2 pxToUv = radius * canvasPxToUvScale();
+        vec2 uv = sceneUv(canvasPx);
+        vec2 pxToUv = radius / uCanvasSize;
         vec4 sum = vec4(0.0);
         float total = 0.0;
-        sum += texture2D(uWallpaperSampler, uv) * 0.25; total += 0.25;
-        sum += texture2D(uWallpaperSampler, uv + vec2( 1.000,  0.000) * pxToUv) * 0.12; total += 0.12;
-        sum += texture2D(uWallpaperSampler, uv + vec2(-1.000,  0.000) * pxToUv) * 0.12; total += 0.12;
-        sum += texture2D(uWallpaperSampler, uv + vec2( 0.000,  1.000) * pxToUv) * 0.12; total += 0.12;
-        sum += texture2D(uWallpaperSampler, uv + vec2( 0.000, -1.000) * pxToUv) * 0.12; total += 0.12;
-        sum += texture2D(uWallpaperSampler, uv + vec2( 0.707,  0.707) * pxToUv) * 0.0675; total += 0.0675;
-        sum += texture2D(uWallpaperSampler, uv + vec2( 0.707, -0.707) * pxToUv) * 0.0675; total += 0.0675;
-        sum += texture2D(uWallpaperSampler, uv + vec2(-0.707,  0.707) * pxToUv) * 0.0675; total += 0.0675;
-        sum += texture2D(uWallpaperSampler, uv + vec2(-0.707, -0.707) * pxToUv) * 0.0675; total += 0.0675;
-        wp = sum / total;
+        sum += texture2D(uBackdrop, uv) * 0.25; total += 0.25;
+        sum += texture2D(uBackdrop, uv + vec2( 1.000,  0.000) * pxToUv) * 0.12; total += 0.12;
+        sum += texture2D(uBackdrop, uv + vec2(-1.000,  0.000) * pxToUv) * 0.12; total += 0.12;
+        sum += texture2D(uBackdrop, uv + vec2( 0.000,  1.000) * pxToUv) * 0.12; total += 0.12;
+        sum += texture2D(uBackdrop, uv + vec2( 0.000, -1.000) * pxToUv) * 0.12; total += 0.12;
+        sum += texture2D(uBackdrop, uv + vec2( 0.707,  0.707) * pxToUv) * 0.0675; total += 0.0675;
+        sum += texture2D(uBackdrop, uv + vec2( 0.707, -0.707) * pxToUv) * 0.0675; total += 0.0675;
+        sum += texture2D(uBackdrop, uv + vec2(-0.707,  0.707) * pxToUv) * 0.0675; total += 0.0675;
+        sum += texture2D(uBackdrop, uv + vec2(-0.707, -0.707) * pxToUv) * 0.0675; total += 0.0675;
+        scene = sum / total;
     }
 
-    // 2. Inside the container capsule, simulate the hidden tinted glass layer:
-    //    wallpaper → (vibrancy+blur+lens approximated as passthrough) →
-    //    containerColor overlay → ColorFilter.tint(accentColor).
+    // 2. Inside the container capsule, apply the hidden tinted layer:
+    //    onDrawSurface = drawRect(containerColor) + ColorFilter.tint(accentColor).
     //    The container capsule SDF determines where the tint applies.
     vec2 containerCenter = uContainerRect.xy;
     vec2 containerHalf = uContainerRect.zw;
@@ -236,17 +251,16 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     // Smooth edge for the container capsule (1px AA).
     float containerMask = 1.0 - smoothstep(-1.0, 1.0, containerSd);
 
-    // Apply containerColor overlay (onDrawSurface = drawRect(containerColor 0.4)).
+    // Apply containerColor overlay (onDrawSurface = drawRect(containerColor)).
     // uIndicatorAccent.a = containerColor alpha (e.g. 0.4).
-    vec3 withContainer = mix(wp.rgb, uIndicatorAccent.rgb, uIndicatorAccent.a * containerMask * 0.5);
+    vec3 withContainer = mix(scene.rgb, uIndicatorAccent.rgb, uIndicatorAccent.a * containerMask);
 
     // ColorFilter.tint(accentColor): replace hue+saturation with accent, keep value.
     // Skia tint: convert to HSV, take accent's H+S, keep dst's V.
-    // For the container area, the result is a blue-tinted version of the
-    // wallpaper+container mix.
+    // This gives the blue-tinted glass+content appearance.
     vec3 tinted = blendHue(withContainer, uIndicatorAccent.rgb);
-    // tint keeps dst value, so brightness is preserved. Apply only inside container.
-    vec3 resultRgb = mix(wp.rgb, tinted, containerMask);
+    // Apply only inside the container capsule.
+    vec3 resultRgb = mix(scene.rgb, tinted, containerMask);
 
     return vec4(resultRgb, 1.0);
 }
