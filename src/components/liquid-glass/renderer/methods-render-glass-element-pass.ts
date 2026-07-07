@@ -390,6 +390,20 @@ export const glassElementPassMethods = {
       gl.uniform2f(this.uEl['uInnerShadowOffset'], 0, 0)
     }
 
+    // --- SDF texture glass: bind sdfTexture + set SDF uniforms ---
+    if (el.isSdfTexture && this.sdfTexture) {
+      gl.activeTexture(gl.TEXTURE2)
+      gl.bindTexture(gl.TEXTURE_2D, this.sdfTexture)
+      gl.uniform1i(this.uEl['uSdfTexSampler'], 2)
+      gl.uniform1f(this.uEl['uUseSdfTexture'], 1.0)
+      gl.uniform2f(this.uEl['uSdfTexSize'], this.sdfTextureSize[0], this.sdfTextureSize[1])
+      gl.uniform1f(this.uEl['uSdfLightAngle'], el.isSdfTexture.lightAngle)
+      // Override refractionHeight for the SDF path.
+      gl.uniform1f(this.uEl['uRefractionHeight'], el.isSdfTexture.refractionHeight * this.dpr)
+    } else {
+      gl.uniform1f(this.uEl['uUseSdfTexture'], 0.0)
+    }
+
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 
     // Stash the computed highlight alpha so the rim highlight pass can

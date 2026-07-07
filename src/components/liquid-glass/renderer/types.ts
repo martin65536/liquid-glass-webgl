@@ -329,6 +329,15 @@ export interface GlassElementConfig extends GlassButtonConfig {
     /** Tab content rects (for positioning the fgTexture samples). */
     tabContentRects?: { x: number; y: number; w: number; h: number }[]
   }
+  /**
+   * SDF-texture glass — uses a precomputed SDF texture for BOTH the shape mask
+   * (A channel) and the refraction (R=SDF, GB=normal). Faithful to
+   * LockScreenContent.kt's rememberSdfShader(clock_sdf) + SdfShader.kt.
+   */
+  isSdfTexture?: {
+    refractionHeight: number
+    lightAngle: number
+  }
 }
 
 /* Per-element interaction state — mirrors InteractiveHighlight.kt. */

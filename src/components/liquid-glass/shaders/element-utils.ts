@@ -23,6 +23,25 @@ float circleMap(float x) {
     return 1.0 - sqrt(1.0 - x * x);
 }
 
+// SDF-texture glass sampling (faithful to SdfShader.kt).
+// Samples the clock_sdf texture at element-local coords.
+// Returns vec4(intensity, maskAlpha, normalX, normalY); zeroes if outside.
+vec4 sampleSdfTexture(vec2 localPx) {
+    vec2 uv = vec2(localPx.x / uOriginalSize.x,
+                   1.0 - localPx.y / uOriginalSize.y);
+    if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) {
+        return vec4(0.0);
+    }
+    vec4 v = texture2D(uSdfTexSampler, uv);
+    float sd = v.r * 2.0 - 1.0;
+    float mask = smoothstep(0.5, 1.0, v.a);
+    if (mask <= 0.0) return vec4(0.0);
+    if (mask < 1.0) sd = 0.0;
+    vec2 normal = normalize(v.gb * 2.0 - 1.0);
+    float intensity = circleMap(1.0 - min(1.0, -sd * 1.5));
+    return vec4(intensity, mask, normal.x, normal.y);
+}
+
 // Convert a canvas-pixel coordinate (top-left origin) to scene-texture UV.
 // The scene texture is the same size as the canvas, and is rendered with
 // gl_FragCoord (bottom-left origin). So UV = (canvasPx.x / canvasW, 1 -

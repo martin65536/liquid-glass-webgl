@@ -3,6 +3,7 @@ import type { LiquidGlassRenderer } from './index'
 declare module './index' {
   interface LiquidGlassRenderer {
     loadWallpaper(src: string): Promise<void>
+    loadSdfTexture(src: string): Promise<void>
     resize(cssW: number, cssH: number): void
   }
 }
@@ -38,6 +39,31 @@ export const wallpaperMethods = {
     this.wallpaperTexture = tex
     this.wallpaperSize = [w || 1, h || 1]
     this.wallpaperReady = true
+    this.requestRender()
+  },
+
+  /** Load the SDF texture (clock_sdf) for LockScreen glass. */
+  async loadSdfTexture(this: LiquidGlassRenderer, src: string) {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve()
+      img.onerror = () => reject(new Error('Failed to load SDF texture: ' + src))
+      img.src = src
+    })
+    const gl = this.gl
+    if (this.sdfTexture) gl.deleteTexture(this.sdfTexture)
+    const tex = gl.createTexture()!
+    gl.bindTexture(gl.TEXTURE_2D, tex)
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    this.sdfTexture = tex
+    this.sdfTextureSize = [img.naturalWidth || 1, img.naturalHeight || 1]
+    this.sdfTextureReady = true
     this.requestRender()
   },
 

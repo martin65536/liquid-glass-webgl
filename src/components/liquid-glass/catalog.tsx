@@ -2534,39 +2534,49 @@ function buildLockScreen(W: number, H: number, onBack: () => void, state: Catalo
   // Dark scrim (30% black)
   elements.push(makePlainRect('ls-scrim', { x: 0, y: 0, w: W, h: Math.max(H, 600) }, [0, 0, 0, 0.3], 0))
 
-  // Glass rect (max 400dp wide, 16:9-ish aspect, draggable)
-  const maxW = Math.min(400 * DP, W - 96)
+  // Glass (SDF texture clock) — faithful to LockScreenContent.kt:
+  //   padding(horizontal=48dp), widthIn(max=400dp), aspectRatio(sdf.w/sdf.h), fillMaxWidth
+  // clock_sdf texture is 1599×515.
+  const maxW = Math.min(400 * DP, W - 96 * DP)
   const glassW = maxW
-  const glassH = glassW * (3 / 4) // approx aspect ratio
+  const sdfAspect = 515 / 1599
+  const glassH = glassW * sdfAspect
   const baseX = (W - glassW) / 2
-  const baseY = 0 // applyVerticalCenter shifts this
+  const baseY = 0
   const glassX = baseX + state.lockScreenOffsetX
   const glassY = baseY + state.lockScreenOffsetY
-  elements.push(
-    makeGlassShape(
-      'ls-glass',
-      { x: glassX, y: glassY, w: glassW, h: glassH },
-      {
-        cornerRadius: 0,
-        refractionHeight: 0,
-        refractionAmount: 0,
-        blurRadius: 2 * DP,
-        saturation: 1.5,
-        brightness: -0.1,
-        contrast: 0.75,
-        surfaceColor: [1, 1, 1, 0.25],
-        highlight: null,
-        outerShadow: null,
-      }
-    )
+  const lsGlass = makeGlassShape(
+    'ls-glass',
+    { x: glassX, y: glassY, w: glassW, h: glassH },
+    {
+      cornerRadius: 0,
+      refractionHeight: 0,
+      refractionAmount: 0,
+      blurRadius: 2 * DP,
+      saturation: 1.5,
+      brightness: -0.1,
+      contrast: 0.75,
+      surfaceColor: [1, 1, 1, 0.25],
+      highlight: null,
+      outerShadow: null,
+    }
   )
+  lsGlass.isSdfTexture = { refractionHeight: 48 * DP, lightAngle: 45 }
+  elements.push(lsGlass)
+  // Drag — faithful to draggable2D { offset += delta }. Fix the accumulation
+  // bug: capture the offset at drag start, then set absolute = start + delta.
+  let dragStartOffsetX = 0
+  let dragStartOffsetY = 0
   interactions['ls-glass'] = {
-    onDragStart: () => {},
+    onDragStart: () => {
+      dragStartOffsetX = state.lockScreenOffsetX
+      dragStartOffsetY = state.lockScreenOffsetY
+    },
     onDrag: (_pos, delta) => {
-      setState((prev) => ({
-        lockScreenOffsetX: prev.lockScreenOffsetX + delta.x,
-        lockScreenOffsetY: prev.lockScreenOffsetY + delta.y,
-      }))
+      setState({
+        lockScreenOffsetX: dragStartOffsetX + delta.x,
+        lockScreenOffsetY: dragStartOffsetY + delta.y,
+      })
     },
     onDragEnd: () => {},
   }
@@ -2575,7 +2585,7 @@ function buildLockScreen(W: number, H: number, onBack: () => void, state: Catalo
     makeText(
       'ls-hint',
       { x: 24, y: baseY + glassH + 32, w: W - 48, h: 40 },
-      'Drag the glass — SDF texture omitted in WebGL port',
+      'Drag the clock — SDF texture glass',
       { color: [1, 1, 1, 0.8], fontSizePx: 14, fontWeight: 400, align: 'center', paddingPx: 0, halo: 'dark' }
     )
   )

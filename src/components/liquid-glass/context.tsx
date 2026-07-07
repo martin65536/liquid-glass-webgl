@@ -125,6 +125,7 @@ export function LiquidGlassCanvas({
     if (rendererRef) rendererRef.current = renderer
     renderer.setBackgroundColor(backgroundColor)
     renderer.loadWallpaper(wallpaperSrc).catch((e) => console.error(e))
+    renderer.loadSdfTexture('/clock_sdf.webp').catch((e) => console.error(e))
 
     const resize = () => {
       const r = containerRef.current?.getBoundingClientRect()

@@ -99,6 +99,10 @@ export class LiquidGlassRenderer {
   tabsBackdropFbo: WebGLFramebuffer | null = null
   tabsBackdropTex: WebGLTexture | null = null
   tabsBackdropDirty = true
+  // SDF texture (clock_sdf) for LockScreen glass
+  sdfTexture: WebGLTexture | null = null
+  sdfTextureReady = false
+  sdfTextureSize: [number, number] = [1, 1]
 
   // Offscreen 2D canvas for the foreground (label + chevron). Reused
   // across buttons — we re-rasterize + re-upload per button per frame.
@@ -216,6 +220,7 @@ export class LiquidGlassRenderer {
       'uTabContentRects[0]', 'uTabContentRects[1]', 'uTabContentRects[2]', 'uTabContentRects[3]',
       'uTabContentRects[4]', 'uTabContentRects[5]', 'uTabContentRects[6]', 'uTabContentRects[7]',
       'uTabContentCount', 'uTabsGlassLayer',
+      'uSdfTexSampler', 'uUseSdfTexture', 'uSdfTexSize', 'uSdfLightAngle',
     ]
     for (const n of elNames) this.uEl[n] = gl.getUniformLocation(this.elementProgram, n)
     const shNames = [
@@ -277,6 +282,8 @@ export class LiquidGlassRenderer {
     if (this.tabsBackdropTex) gl.deleteTexture(this.tabsBackdropTex)
     this.tabsBackdropFbo = null
     this.tabsBackdropTex = null
+    if (this.sdfTexture) gl.deleteTexture(this.sdfTexture)
+    this.sdfTexture = null
     gl.deleteProgram(this.elementProgram)
     gl.deleteProgram(this.shadowProgram)
     gl.deleteProgram(this.wallpaperProgram)

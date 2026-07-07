@@ -68,6 +68,42 @@ void main() {
     vec2 origHalfSize = uOriginalSize * 0.5;
     float origRadius = uOriginalCornerRadius;
 
+    // --- SDF-texture glass path (faithful to SdfShader.kt) ---
+    if (uUseSdfTexture > 0.5) {
+        vec2 localPx = centeredOrig + uOriginalSize * 0.5;
+        vec4 sdfData = sampleSdfTexture(localPx);
+        if (sdfData.y <= 0.0) discard;
+        float intensity = sdfData.x;
+        float sdfMask = sdfData.y;
+        vec2 normal = sdfData.zw;
+
+        vec4 backdrop = sampleBackdrop(sampleCoord, uBlurRadius);
+        vec3 color = applyColorControls(backdrop.rgb, uBrightness, uContrast, uSaturation);
+
+        // Refraction: coord - intensity * refractionHeight * normal
+        vec2 refractedOffsetOrig = intensity * uRefractionHeight * normal;
+        vec2 refractedOffsetScreen = refractedOffsetOrig * layerScale;
+        vec2 refractedScreen = screenCoord + refractedOffsetScreen;
+        vec4 refracted = sampleBackdrop(refractedScreen, uBlurRadius);
+        color = applyColorControls(refracted.rgb, uBrightness, uContrast, uSaturation);
+
+        // Bevel lighting
+        float angleRad = uSdfLightAngle * 3.1415926 / 180.0;
+        vec2 lightDir = vec2(cos(angleRad), sin(angleRad));
+        float bevel1 = clamp(dot(normal, lightDir), 0.0, 1.0);
+        color.rgb *= 1.0 + 0.5 * intensity * bevel1;
+        float bevel2 = clamp(dot(normal, -lightDir), 0.0, 1.0);
+        color.rgb *= 1.0 + 0.5 * bevel2 * min(1.0, smoothstep(1.0, 0.0, abs(intensity - 0.25) * 6.0));
+
+        // onDrawSurface: surfaceColor (White 0.25 alpha)
+        if (uSurfaceColor.a > 0.001) {
+            color = mix(color, uSurfaceColor.rgb, uSurfaceColor.a);
+        }
+
+        gl_FragColor = vec4(color, sdfMask);
+        return;
+    }
+
     // SDF in ORIGINAL space — shape is a correct (unscaled) rounded rect.
     float sd = sdRoundedRect(centeredOrig, origHalfSize, origRadius);
 

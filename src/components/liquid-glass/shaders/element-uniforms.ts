@@ -96,4 +96,9 @@ uniform sampler2D uTabContentTex7;
 uniform vec4  uTabContentRects[8];   // (centerX, centerY, halfW, halfH) per tab, canvas px (dpr-scaled)
 uniform float uTabContentCount;      // number of valid tab rects (0..8)
 uniform sampler2D uTabsGlassLayer;   // scene snapshot BEFORE tab-content (wallpaper+glass only, no text)
+// --- SDF texture glass (faithful to SdfShader.kt) ---
+uniform sampler2D uSdfTexSampler;   // clock_sdf texture (R=SDF, GB=normal, A=shape alpha)
+uniform float uUseSdfTexture;       // 0 or 1
+uniform vec2  uSdfTexSize;          // texture natural dimensions (px)
+uniform float uSdfLightAngle;       // bevel light angle (degrees)
 `
