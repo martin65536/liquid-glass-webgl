@@ -254,6 +254,29 @@ export const renderMethods = {
     // --- text ---
     if (el.kind === 'text') {
       this.bindFBO(curFbo)
+      // Compute the effective draw rect for bottom-tab content: the tab
+      // content has its OWN scale (lerp(1, 1.2, pressProgress) via
+      // LocalLiquidBottomTabScale) + panelOffset translation. It does NOT
+      // inherit the container's layerBlock scale (that only affects the
+      // container's drawBackdrop glass, not the Row's content).
+      // Faithful to LiquidBottomTabs.kt: LocalLiquidBottomTabScale provides
+      // lerp(1, 1.2, pressProgress), applied via each tab's graphicsLayer.
+      let drawRect = r
+      let fgScaleX = 1
+      let fgScaleY = 1
+      if (el.isBottomTabContent) {
+        const tg = this.toggleStates.get(el.isBottomTabContent.groupId)
+        if (tg) {
+          const contentScale = 1 + 0.2 * tg.pressProgress
+          fgScaleX = contentScale
+          fgScaleY = contentScale
+          const sw = el.rect.w * fgScaleX
+          const sh = el.rect.h * fgScaleY
+          const cx = el.rect.x + el.rect.w / 2 + tg.panelOffset
+          const cy = el.rect.y + el.rect.h / 2
+          drawRect = { x: cx - sw / 2, y: cy - sh / 2, w: sw, h: sh }
+        }
+      }
       // Press tint overlay for interactive text items (e.g. home list
       // items). Faithful to MainContent.kt's
       //   ripple(color = if (isLightTheme) Color.Black else Color.White)
@@ -276,12 +299,10 @@ export const renderMethods = {
           gl.blendFunc(gl.SRC_ALPHA, gl.ONE)
         }
         gl.uniform2f(this.uTn['uCanvasSize'], this.canvas.width, this.canvas.height)
-        gl.uniform2f(this.uTn['uOffset'], r.x * this.dpr, r.y * this.dpr)
-        gl.uniform2f(this.uTn['uSize'], r.w * this.dpr, r.h * this.dpr)
+        gl.uniform2f(this.uTn['uOffset'], drawRect.x * this.dpr, drawRect.y * this.dpr)
+        gl.uniform2f(this.uTn['uSize'], drawRect.w * this.dpr, drawRect.h * this.dpr)
         gl.uniform4f(this.uTn['uCornerRadii'], 0, 0, 0, 0)
-        // Text elements have NO graphicsLayer scale (origSize = scaled size,
-        // layerScale = 1). Required after the original-space SDF clip change.
-        gl.uniform2f(this.uTn['uOriginalSize'], r.w * this.dpr, r.h * this.dpr)
+        gl.uniform2f(this.uTn['uOriginalSize'], drawRect.w * this.dpr, drawRect.h * this.dpr)
         gl.uniform1f(this.uTn['uOriginalCornerRadius'], 0)
         gl.uniform2f(this.uTn['uLayerScale'], 1, 1)
         if (pressTint) {
@@ -303,8 +324,8 @@ export const renderMethods = {
         gl.bindTexture(gl.TEXTURE_2D, fgTex)
         gl.uniform1i(this.uFg['uTexture'], 0)
         gl.uniform2f(this.uFg['uCanvasSize'], this.canvas.width, this.canvas.height)
-        gl.uniform2f(this.uFg['uOffset'], r.x * this.dpr, r.y * this.dpr)
-        gl.uniform2f(this.uFg['uSize'], r.w * this.dpr, r.h * this.dpr)
+        gl.uniform2f(this.uFg['uOffset'], drawRect.x * this.dpr, drawRect.y * this.dpr)
+        gl.uniform2f(this.uFg['uSize'], drawRect.w * this.dpr, drawRect.h * this.dpr)
         gl.uniform4f(
           this.uFg['uCornerRadii'],
           el.cornerRadius * this.dpr,
@@ -312,13 +333,12 @@ export const renderMethods = {
           el.cornerRadius * this.dpr,
           el.cornerRadius * this.dpr
         )
-        // Text elements have NO graphicsLayer scale (origSize = scaled size,
-        // layerScale = 1). Required after the original-space SDF clip change
-        // — without these uniforms the foreground shader divides by a default
-        // layerScale of 0, collapsing the clip to a thin slit.
-        gl.uniform2f(this.uFg['uOriginalSize'], r.w * this.dpr, r.h * this.dpr)
+        // Pass the content scale so the foreground shader's SDF clip scales
+        // correctly (matching the glass-element pattern). For non-tab text,
+        // layerScale = 1 (origSize = scaled size).
+        gl.uniform2f(this.uFg['uOriginalSize'], el.rect.w * this.dpr, el.rect.h * this.dpr)
         gl.uniform1f(this.uFg['uOriginalCornerRadius'], el.cornerRadius * this.dpr)
-        gl.uniform2f(this.uFg['uLayerScale'], 1, 1)
+        gl.uniform2f(this.uFg['uLayerScale'], fgScaleX, fgScaleY)
         gl.uniform1f(this.uFg['uAlpha'], 1.0)
         gl.drawArrays(gl.TRIANGLES, 0, 6)
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)

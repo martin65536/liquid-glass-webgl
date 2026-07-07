@@ -704,8 +704,8 @@ function applyVerticalCenter(
       el.isToggleKnob.trackOriginalY += yOffset
     }
     // Bottom tab indicator stores the CONTAINER rect separately for its
-    // CombinedBackdrop (the blue tint overlay covers the container area).
-    // Shift it by the same yOffset so the container SDF stays aligned.
+    // CombinedBackdrop (the inset capsule SDF covers the container area).
+    // Shift it by the same yOffset so the SDF stays aligned.
     if (el.isBottomTabIndicator && el.isBottomTabIndicator.containerRect) {
       el.isBottomTabIndicator.containerRect = {
         ...el.isBottomTabIndicator.containerRect,
@@ -1720,13 +1720,14 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
       dimColor: palette.backIconColor,
       // CombinedBackdrop: faithful to LiquidBottomTabs.kt indicator's
       //   rememberCombinedBackdrop(backdrop, tabsBackdrop)
-      // where tabsBackdrop is a hidden Row with ColorFilter.tint(accentColor).
-      // The indicator refracts wallpaper + blue-tinted container area.
+      // - backdrop = outer LayerBackdrop (wallpaper)
+      // - tabsBackdrop = hidden Row capturing the container glass capsule,
+      //   inset 4dp on all sides relative to the indicator.
+      // The indicator samples wallpaper (outer) + the scene FBO (container
+      // glass + content) composited inside an inset capsule SDF.
       accentColor: [...accentT] as [number, number, number],
-      containerColor: [...containerColor] as [number, number, number, number],
-      // containerRect = the FULL container bar (not just the indicator),
-      // so the blue tint covers the entire container area, matching the
-      // original where tabsBackdrop is the full container capsule tinted blue.
+      // containerRect = the FULL container bar. The shader shrinks it 4dp
+      // on each side to form the inset capsule SDF for the second layer.
       containerRect: { x: containerX, y, w: containerW, h: CONTAINER_H },
     }
     // Indicator is decorative — no interactions. It sits on top in z-order

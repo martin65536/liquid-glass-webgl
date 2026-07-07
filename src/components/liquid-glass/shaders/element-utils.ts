@@ -151,72 +151,20 @@ vec4 sampleToggleBackdrop(vec2 canvasPx, float radius) {
     return wp;
 }
 
-// --- Bottom tab indicator CombinedBackdrop (faithful to LiquidBottomTabs.kt) ---
-// The indicator's backdrop = CombinedBackdrop(wallpaper, tabsBackdrop) where
-// tabsBackdrop is a hidden Row (alpha=0) with ColorFilter.tint(accentColor).
-// The hidden Row renders the FULL container area (wallpaper + container glass
-// + tab content), all tinted blue by ColorFilter.tint(SrcIn) — replacing all
-// opaque pixels' color with accentColor, preserving alpha.
+// sampleIndicatorBackdrop — faithful to LiquidBottomTabs.kt indicator.
 //
-// CombinedBackdrop draws backdrop1 (wallpaper) THEN backdrop2 (tinted layer):
-//   result = wallpaper (outside container) | blue-tinted (inside container)
+// Original: indicator.drawBackdrop(backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop))
+//   - backdrop = outer LayerBackdrop = wallpaper (sampled via coverUv)
+//   - tabsBackdrop = hidden Row capturing the container glass capsule,
+//     inset 4dp on all sides relative to the indicator's draw area.
 //
-// We approximate:
-//   1. Sample wallpaper via coverUv (outer backdrop = wallpaper).
-//   2. Inside the container capsule SDF, overlay accentColor at containerColor
-//      alpha (simulating the tinted container glass). The tab content within
-//      is also blue in the original, but since the tinted layer is opaque-blue
-//      inside the container, the content detail is lost — matching the original
-//      where ColorFilter.tint replaces all colors with accentColor.
-// sampleIndicatorBackdrop — faithful to LiquidBottomTabs.kt indicator's
-// CombinedBackdrop(backdrop, tabsBackdrop).
-//
-// Original (LiquidBottomTabs.kt):
-//   indicator.drawBackdrop(backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop))
-//   - backdrop = outer LayerBackdrop = the WINDOW's wallpaper texture (captured
-//     before any drawing, so it's the RAW wallpaper — NOT the scene with the
-//     container already drawn).
-//   - tabsBackdrop = a HIDDEN Row (alpha=0, invisible) that re-renders the
-//     container area as glass:
-//       drawBackdrop(backdrop=wallpaper, Capsule, vibrancy + blur(8dp) + lens(24dp*progress))
-//       onDrawSurface = { drawRect(containerColor) }   // 0.4 alpha surface
-//       graphicsLayer(colorFilter = ColorFilter.tint(accentColor))  // blue tint
-//     So tabsBackdrop = wallpaper → vibrancy → blur → lens → containerColor,
-//     all tinted blue by ColorFilter.tint(accentColor). Captured inside the
-//     container capsule shape.
-//   - CombinedBackdrop = backdrop (wallpaper) THEN tabsBackdrop (blue glass)
-//     → inside container: indicator refracts blue-tinted glass wallpaper
-//       outside container: indicator refracts raw wallpaper
-//
-// We approximate (vibrancy/blur/lens can't be done inline cheaply):
-//   1. Sample wallpaper via coverUv (outer backdrop = raw wallpaper, NOT scene).
-//      This is the KEY difference from the previous impl which sampled the
-//      scene FBO (containing the already-drawn container) — the original's
-//      LayerBackdrop captures the wallpaper BEFORE the container is drawn.
-//   2. Inside the container capsule SDF, apply containerColor overlay +
-//      ColorFilter.tint(accentColor) to simulate the hidden tinted glass layer.
-//      ColorFilter.tint replaces hue+saturation with accent, keeping value.
+// Implementation (mirrors sampleToggleBackdrop):
+//   1. Sample wallpaper (outer backdrop) with blur — same as toggle's outer.
+//   2. Composite the scene FBO (uBackdrop = container glass + content)
+//      inside an INSET capsule SDF (containerRect shrunk 4dp each side).
+//      This is the "smaller background plate" refracted inside the indicator.
 vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
-    // Faithful to LiquidBottomTabs.kt indicator's CombinedBackdrop:
-    //   backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop)
-    //   - backdrop = outer LayerBackdrop (wallpaper) — clean background
-    //   - tabsBackdrop = hidden Row capturing a SCALED-DOWN copy of the
-    //     container glass + tab content (icons/labels), NOT a blue tint.
-    //
-    // User clarification: "原版和开关的处理差不多" (same as toggle knob):
-    //   1. Clean wallpaper background (LayerBackdrop)
-    //   2. Scaled-down container glass composited on top (real glass, no tint)
-    //   3. Blue icon/text (tab content in accentColor, opaque)
-    //   NOT transparent, NOT a blue filter over everything.
-    //
-    // We sample the SCENE FBO (uBackdrop) which already contains the drawn
-    // container glass + tab content, and composite it inside the container
-    // capsule SDF — like the toggle knob samples the scaled track content.
-    // No tint, no blue filter: the container glass keeps its natural appearance
-    // (refracting wallpaper), and the tab content shows through as-is.
-
     // 1. Sample wallpaper (outer LayerBackdrop) via coverUv (cover-fit).
-    //    This is the CLEAN background.
     vec4 wp;
     if (radius < 0.5) {
         vec2 uv = coverUv(canvasPx);
@@ -238,25 +186,26 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
         wp = sum / total;
     }
 
-    // 2. Composite the scene (container glass + tab content) inside the
-    //    container capsule, faithful to the tabsBackdrop capturing the
-    //    scaled-down container. The scene FBO (uBackdrop) already has the
-    //    container glass + tab content drawn — we composite it over the
-    //    wallpaper, masked to the capsule shape. NO tint, NO blue filter.
-    vec2 containerCenter = uContainerRect.xy;
-    vec2 containerHalf = uContainerRect.zw;
-    vec2 containerLocal = canvasPx - containerCenter;
-    float cr = uContainerCornerRadius;
-    vec2 cq = abs(containerLocal) - containerHalf + vec2(cr);
-    float containerSd = length(max(cq, vec2(0.0))) + min(max(cq.x, cq.y), 0.0) - cr;
-    float containerMask = 1.0 - smoothstep(-1.0, 1.0, containerSd);
+    // 2. Inset capsule SDF — container rect shrunk 4dp (uInsetPx) on each side,
+    //    then scaled by (1 + 0.2*press) and shifted by panelOffset — matching
+    //    the original's hidden Row (translationX = panelOffset) and tab content
+    //    scale (LocalLiquidBottomTabScale lerp(1, 1.2, pressProgress)).
+    float pressScale = 1.0 + 0.2 * uIndicatorPressProgress;
+    vec2 capsuleCenter = uContainerRect.xy + vec2(uIndicatorPanelOffset, 0.0);
+    vec2 capsuleHalf = max((uContainerRect.zw - vec2(uInsetPx)) * pressScale, vec2(0.0));
+    float cr = max((uContainerCornerRadius - uInsetPx) * pressScale, 0.0);
+    vec2 capsuleLocal = canvasPx - capsuleCenter;
+    vec2 cq = abs(capsuleLocal) - capsuleHalf + vec2(cr);
+    float capsuleSd = length(max(cq, vec2(0.0))) + min(max(cq.x, cq.y), 0.0) - cr;
+    float mask = 1.0 - smoothstep(-radius, radius, capsuleSd);
 
-    // Sample the scene FBO (container glass + tab content).
-    vec2 sceneUv2 = sceneUv(canvasPx);
+    // 3. Sample the scene FBO (container glass + tab content) — also shifted
+    //    by panelOffset so the refracted content tracks the bar's drag motion.
+    vec2 sceneUv2 = sceneUv(canvasPx - vec2(uIndicatorPanelOffset, 0.0));
     vec4 scene = texture2D(uBackdrop, sceneUv2);
 
-    // SrcOver composite: scene over wallpaper, masked to capsule.
-    float a = scene.a * containerMask;
+    // 4. Composite scene over wallpaper inside the inset capsule (SrcOver).
+    float a = scene.a * mask;
     vec3 resultRgb = mix(wp.rgb, scene.rgb, a);
     return vec4(resultRgb, 1.0);
 }

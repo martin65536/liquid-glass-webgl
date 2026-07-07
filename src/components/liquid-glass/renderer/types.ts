@@ -294,21 +294,17 @@ export interface GlassElementConfig extends GlassButtonConfig {
      *    drawRect(Color.Black.copy(alpha = 0.03f * progress))
      *  The renderer draws both overlays in the post-pass, modulated by pressProgress. */
     dimColor?: [number, number, number, number]
-    /** CombinedBackdrop accent color (blue). Faithful to LiquidBottomTabs.kt:
-     *  the indicator's backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop)
-     *  where tabsBackdrop is a hidden Row with ColorFilter.tint(accentColor).
-     *  The indicator refracts wallpaper + blue-tinted tab content.
-     *  We approximate by sampling wallpaper + compositing a blue-tinted capsule
-     *  (container shape tinted with accentColor), similar to the toggle knob's
-     *  CombinedBackdrop path. */
+    /** CombinedBackdrop (faithful to LiquidBottomTabs.kt indicator):
+     *  backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop)
+     *  - backdrop = outer LayerBackdrop (wallpaper)
+     *  - tabsBackdrop = hidden Row capturing the container glass capsule,
+     *    inset 4dp on all sides relative to the indicator.
+     *  The indicator samples wallpaper (outer) + the scene FBO (container
+     *  glass + content) composited inside an inset capsule SDF. */
     accentColor?: [number, number, number]
-    /** Container color (for the blue-tinted capsule shape). Faithful to
-     *  LiquidBottomTabs.kt container onDrawSurface = drawRect(containerColor). */
-    containerColor?: [number, number, number, number]
-    /** Container rect (full container bar position/size). The indicator's
-     *  CombinedBackdrop overlays the blue tint inside the CONTAINER capsule
-     *  (not just the indicator), matching the original where tabsBackdrop
-     *  covers the entire container area. */
+    /** Container rect (full container bar position/size). The inset capsule
+     *  SDF (container rect shrunk 4dp on each side) clips the scene-FBO
+     *  sample for the second backdrop layer. */
     containerRect?: { x: number; y: number; w: number; h: number }
   }
 }

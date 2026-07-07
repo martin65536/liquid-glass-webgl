@@ -89,52 +89,15 @@ uniform sampler2D uTexture;
 uniform vec2 uCanvasSize;
 uniform vec3 uTintColor;   // rgb 0..1 (accentColor)
 
-vec3 rgb2hsv(vec3 c) {
-    float maxC = max(c.r, max(c.g, c.b));
-    float minC = min(c.r, min(c.g, c.b));
-    float delta = maxC - minC;
-    float v = maxC;
-    float s = maxC < 1e-6 ? 0.0 : delta / maxC;
-    float h = 0.0;
-    if (delta > 1e-6) {
-        if (maxC == c.r) {
-            h = mod((c.g - c.b) / delta, 6.0);
-        } else if (maxC == c.g) {
-            h = (c.b - c.r) / delta + 2.0;
-        } else {
-            h = (c.r - c.g) / delta + 4.0;
-        }
-        h *= 60.0;
-        if (h < 0.0) h += 360.0;
-    }
-    return vec3(h / 360.0, s, v);
-}
-
-vec3 hsv2rgb(vec3 c) {
-    float h = c.x * 6.0;
-    float s = c.y;
-    float v = c.z;
-    float i = floor(h);
-    float f = h - i;
-    float p = v * (1.0 - s);
-    float q = v * (1.0 - s * f);
-    float t = v * (1.0 - s * (1.0 - f));
-    i = mod(i, 6.0);
-    if (i < 1.0) return vec3(v, t, p);
-    if (i < 2.0) return vec3(q, v, p);
-    if (i < 3.0) return vec3(p, v, t);
-    if (i < 4.0) return vec3(p, q, v);
-    if (i < 5.0) return vec3(t, p, v);
-    return vec3(v, p, q);
-}
-
+// ColorFilter.tint(color, blendMode = BlendMode.SrcIn):
+//   result.rgb = src.rgb (the tint color)
+//   result.a   = dst.a * src.a
+// SrcIn replaces the destination's RGB with the tint color while
+// preserving its alpha — opaque content becomes solid tint, transparent
+// areas stay transparent. This matches Compose's ColorFilter.tint default.
 void main() {
     vec2 uv = vec2(gl_FragCoord.x / uCanvasSize.x, gl_FragCoord.y / uCanvasSize.y);
     vec4 src = texture2D(uTexture, uv);
-    // ColorFilter.tint: take H+S from tint color, keep V from source.
-    vec3 dstHsv = rgb2hsv(src.rgb);
-    vec3 tintHsv = rgb2hsv(uTintColor);
-    vec3 result = hsv2rgb(vec3(tintHsv.x, tintHsv.y, dstHsv.z));
-    gl_FragColor = vec4(result, src.a);
+    gl_FragColor = vec4(uTintColor, src.a);
 }
 `

@@ -46,15 +46,10 @@ export const glassElementPassMethods = {
       gl.uniform1i(this.uEl['uWallpaperSampler'], 1)
     }
 
-    // Bind tabsBackdrop FBO texture to TEXTURE2 for the indicator's
-    // CombinedBackdrop (faithful to LiquidBottomTabs.kt). The indicator
-    // samples wallpaper (TEXTURE1) + tinted scene (TEXTURE2) composited
-    // inside the container capsule SDF.
-    if (this.tabsBackdropTex) {
-      gl.activeTexture(gl.TEXTURE2)
-      gl.bindTexture(gl.TEXTURE_2D, this.tabsBackdropTex)
-      gl.uniform1i(this.uEl['uTabsBackdropSampler'], 2)
-    }
+    // uTabsBackdropSampler (TEXTURE2) is no longer bound — the faithful
+    // sampleIndicatorBackdrop computes the tinted layer inline (wallpaper +
+    // accentColor at containerColor alpha inside the container capsule SDF),
+    // without sampling a tinted scene FBO.
 
     gl.uniform2f(this.uEl['uCanvasSize'], this.canvas.width, this.canvas.height)
     gl.uniform2f(this.uEl['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
@@ -249,25 +244,17 @@ export const glassElementPassMethods = {
       // --- CombinedBackdrop (faithful to LiquidBottomTabs.kt indicator) ---
       // The original indicator's backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop)
       //   - backdrop = outer LayerBackdrop (wallpaper)
-      //   - tabsBackdrop = hidden Row (alpha=0) with ColorFilter.tint(accentColor)
-      //     → captures blue-tinted container area (wallpaper+container+content, all blue)
-      // The indicator refracts wallpaper + blue-tinted container layer.
-      //
-      // We use a dedicated shader path (uIndicatorBackdrop) that:
-      //   1. Samples wallpaper via coverUv (outer backdrop)
-      //   2. Inside the CONTAINER capsule SDF, overlays accentColor at
-      //      containerColor alpha (simulating the tinted tabsBackdrop)
-      // The container rect is the FULL container bar (not just the indicator),
-      // matching the original where tabsBackdrop covers the entire container.
-      if (el.isBottomTabIndicator.accentColor && el.isBottomTabIndicator.containerColor &&
-          el.isBottomTabIndicator.containerRect) {
+      //   - tabsBackdrop = hidden Row capturing the container glass capsule,
+      //     inset 4dp on all sides relative to the indicator.
+      // The indicator samples wallpaper (outer) + scene FBO (container glass)
+      // composited inside an inset capsule SDF.
+      if (el.isBottomTabIndicator.accentColor && el.isBottomTabIndicator.containerRect) {
         const ac = el.isBottomTabIndicator.accentColor
-        const cc = el.isBottomTabIndicator.containerColor
         const cr = el.isBottomTabIndicator.containerRect
         indicatorAccentR = ac[0]
         indicatorAccentG = ac[1]
         indicatorAccentB = ac[2]
-        indicatorAccentA = cc[3] // container alpha (e.g. 0.4)
+        indicatorAccentA = 1.0
         containerRectX = (cr.x + cr.w / 2) * this.dpr
         containerRectY = (cr.y + cr.h / 2) * this.dpr
         containerHalfW = (cr.w / 2) * this.dpr
@@ -288,6 +275,21 @@ export const glassElementPassMethods = {
     gl.uniform4f(this.uEl['uContainerRect'], containerRectX, containerRectY, containerHalfW, containerHalfH)
     gl.uniform1f(this.uEl['uContainerCornerRadius'], containerCornerRadius)
     gl.uniform4f(this.uEl['uIndicatorAccent'], indicatorAccentR, indicatorAccentG, indicatorAccentB, indicatorAccentA)
+    // Indicator backdrop inset: 4dp (the tabsBackdrop capsule is inset 4dp
+    // from the indicator's draw area on every side).
+    gl.uniform1f(this.uEl['uInsetPx'], 4 * this.dpr)
+    // 2nd-layer (inset capsule) press progress + panelOffset — the inset
+    // background plate scales (1→1.2) and shifts with panelOffset, matching
+    // the original's hidden Row (graphicsLayer translationX = panelOffset)
+    // and tab content (LocalLiquidBottomTabScale lerp(1, 1.2, progress)).
+    if (el.isBottomTabIndicator) {
+      const tg = this.toggleStates.get(el.isBottomTabIndicator.groupId)
+      gl.uniform1f(this.uEl['uIndicatorPressProgress'], tg ? tg.pressProgress : 0)
+      gl.uniform1f(this.uEl['uIndicatorPanelOffset'], tg ? tg.panelOffset * this.dpr : 0)
+    } else {
+      gl.uniform1f(this.uEl['uIndicatorPressProgress'], 0)
+      gl.uniform1f(this.uEl['uIndicatorPanelOffset'], 0)
+    }
     // Refraction params in ORIGINAL px (NOT scaled by layerScale).
     // Faithful to the original: the AGSL shader receives the original element
     // size and refraction params, computes refraction in original space, THEN

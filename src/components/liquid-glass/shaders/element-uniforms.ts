@@ -70,13 +70,15 @@ uniform vec4  uTrackRect;         // (centerX, centerY, halfW, halfH) in canvas 
 uniform float uTrackCornerRadius; // canvas px (dpr-scaled)
 // --- Bottom tab indicator CombinedBackdrop (faithful to LiquidBottomTabs.kt) ---
 // The indicator's backdrop = CombinedBackdrop(wallpaper, tabsBackdrop) where
-// tabsBackdrop is a hidden Row with ColorFilter.tint(accentColor). The blue-
-// tinted layer covers the CONTAINER capsule area (not just the indicator).
-// uIndicatorBackdrop = 1.0 → apply the CombinedBackdrop: sample wallpaper,
-// then inside uContainerRect (container capsule SDF) overlay a blue tint
-// (accentColor at containerColor alpha) to simulate the tinted tabsBackdrop.
+// tabsBackdrop is a hidden Row with ColorFilter.tint(accentColor). Only the
+// opaque tab content (icons/labels) becomes blue after tint — the glass part
+// is transparent. We pass up to 8 tab content rects; pixels inside any rect
+// (clipped to the container capsule) are tinted accentColor.
 uniform float uIndicatorBackdrop;    // 0 or 1
 uniform vec4  uContainerRect;        // (centerX, centerY, halfW, halfH) in canvas px (dpr-scaled)
 uniform float uContainerCornerRadius; // canvas px (dpr-scaled)
-uniform vec4  uIndicatorAccent;      // (r, g, b, containerAlpha) — accentColor + container alpha
+uniform vec4  uIndicatorAccent;      // (r, g, b, a) — accentColor + unused
+uniform float uInsetPx;              // indicator backdrop inset in device px (4dp * dpr)
+uniform float uIndicatorPressProgress; // 0..1 press progress (for 2nd-layer scale)
+uniform float uIndicatorPanelOffset; // panel offset in device px (2nd-layer x translation)
 `
