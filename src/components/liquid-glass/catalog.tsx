@@ -34,6 +34,31 @@ const DP = 1
 const lockScreenDragStart: { x: number; y: number } = { x: 0, y: 0 }
 // Control-center drag-start enter progress (survives re-renders)
 const ccDragStartEnter: { v: number } = { v: 1 }
+// Control-center snap animation handle (cancel previous if a new one starts)
+let ccAnimHandle: number | null = null
+/** Animate controlCenterEnter to `target` (0 or 1) via a simple lerp spring. */
+function animateControlCenterEnter(
+  setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void,
+  target: number
+) {
+  if (ccAnimHandle != null) cancelAnimationFrame(ccAnimHandle)
+  let current = -1
+  const step = () => {
+    setState((prev) => {
+      if (current < 0) current = prev.controlCenterEnter
+      // Critically-damped lerp: move ~15% toward target per frame (~300ms total)
+      current = current + (target - current) * 0.15
+      const done = Math.abs(target - current) < 0.001
+      if (done) {
+        ccAnimHandle = null
+        return { controlCenterEnter: target }
+      }
+      ccAnimHandle = requestAnimationFrame(step)
+      return { controlCenterEnter: current }
+    })
+  }
+  ccAnimHandle = requestAnimationFrame(step)
+}
 const BUTTON_HEIGHT = 48 * DP
 const BUTTON_HORIZONTAL_PADDING = 16 * DP
 const TEXT_FONT_SIZE_PX = 15 * DP
@@ -2171,9 +2196,9 @@ function buildControlCenter(W: number, H: number, onBack: () => void, state: Cat
         setState({ controlCenterEnter: Math.max(0, Math.min(1, target)) })
       },
       onDragEnd: () => {
-        setState((prev) => ({
-          controlCenterEnter: prev.controlCenterEnter < 0.5 ? 0 : 1,
-        }))
+        // Snap to 0 or 1 with a spring animation (not instant jump).
+        const target = state.controlCenterEnter < 0.5 ? 0 : 1
+        animateControlCenterEnter(setState, target)
       },
     }
   }

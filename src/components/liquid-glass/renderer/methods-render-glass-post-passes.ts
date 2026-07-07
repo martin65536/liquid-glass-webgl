@@ -240,7 +240,8 @@ export const glassPostPassMethods = {
       // alpha=0 (no edge highlight); pressed → full. For non-toggle elements,
       // use the original alpha.
       const rimAlpha = (el.isToggleKnob || el.isBottomTabIndicator) ? elHighlightAlpha : el.highlight.alpha
-      gl.uniform1f(this.uRm['uHighlightAlpha'], rimAlpha)
+      // Apply enter alpha (ControlCenter fade) so the rim highlight fades too.
+      gl.uniform1f(this.uRm['uHighlightAlpha'], rimAlpha * state.enterAlpha)
       gl.uniform1f(this.uRm['uHighlightMode'], el.highlight.mode)
       // Stroke width + blur in ORIGINAL px (the rim-highlight SDF is now
       // computed in ORIGINAL space, faithful to graphicsLayer post-scaling).
