@@ -1669,7 +1669,10 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
         }
       )
       tabEl.isBottomTabContent = { groupId: idPrefix }
-      tabEl.isInteractive = true
+      // NOTE: do NOT set isInteractive=true — that would trigger the text
+      // press tint (rectangle overlay). Tab items use scale (1→1.2) as their
+      // press feedback, not a ripple. The hit-test still works because the
+      // element has interactions (onTap/onDrag) set below.
       elements.push(tabEl)
       // Each tab gets tap (select) + drag (slide indicator). This lets the user
       // drag from any tab to slide the indicator, and tap any tab to select it.

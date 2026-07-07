@@ -83,6 +83,13 @@ export const glassElementPassMethods = {
     let elInnerShadowOffsetX = el.innerShadow ? el.innerShadow.offsetX : 0
     let elInnerShadowOffsetY = el.innerShadow ? el.innerShadow.offsetY : 0
     let elSurfaceAlpha = el.surfaceColor[3]
+    // Indicator (bottom tabs) highlight alpha is modulated by pressProgress,
+    // faithful to LiquidBottomTabs.kt: highlight = Highlight.Default.copy(alpha=progress).
+    // At rest (progress=0) → no edge highlight; pressed (progress=1) → full.
+    // togglePressProgress is set by methods-render-glass.ts for isBottomTabIndicator.
+    if (el.isBottomTabIndicator && togglePressProgress > 0) {
+      elHighlightAlpha = (el.highlight?.alpha ?? 0) * togglePressProgress
+    }
     // Content scale (non-uniform, faithful to LiquidToggle.kt / LiquidSlider.kt):
     //   scale(scaleX, scaleY) { drawBackdrop() }
     // Toggle: X lerp(2/3, 0.75, p), Y lerp(0, 0.75, p)
