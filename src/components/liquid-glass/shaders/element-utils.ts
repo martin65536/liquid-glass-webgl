@@ -212,16 +212,21 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     // 4. Tint only the tab content (icons/labels) blue. Use each tab's
     //    fgTexture (icon+label alpha mask) to determine which pixels are
     //    opaque content → blue. Container glass stays its natural color.
-    //    Faithful to ColorFilter.tint(accentColor) on the opaque tab content.
+    //    The tab rects scale around the container center + shift by panelOffset
+    //    (same transform as the mini-glass capsule), so the tint tracks the
+    //    container's press scale + drag motion.
     float tabMask = 0.0;
-    // Loop up to 8 tabs — sample each fgTexture at the tab's rect UV.
     for (int i = 0; i < 8; i++) {
         if (float(i) >= uTabContentCount) break;
         vec4 r = uTabContentRects[i];
         if (r.z > 0.5 && r.w > 0.5) {
-            // canvasPx relative to tab rect top-left, normalized 0..1.
-            vec2 localPx = canvasPx - (r.xy - r.zw);
-            vec2 uv = localPx / (r.zw * 2.0);
+            // Scale the tab rect around the container center + panelOffset.
+            vec2 scaledCenter = uContainerCenter + (r.xy - uContainerCenter) * uContainerScale
+                              + vec2(uIndicatorPanelOffset, 0.0);
+            vec2 scaledHalf = r.zw * uContainerScale;
+            // canvasPx relative to scaled tab rect top-left, normalized 0..1.
+            vec2 localPx = canvasPx - (scaledCenter - scaledHalf);
+            vec2 uv = localPx / (scaledHalf * 2.0);
             if (all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0)))) {
                 float a = 0.0;
                 if (i == 0) a = texture2D(uTabContentTex0, uv).a;
