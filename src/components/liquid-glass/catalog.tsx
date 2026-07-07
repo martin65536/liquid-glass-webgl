@@ -1885,7 +1885,10 @@ function buildDialog(W: number, H: number, onBack: () => void, palette: ThemePal
   // container color, theme-aware.
   // Okay: accentColor (#0088FF light / #0091FF dark).
   const DIALOG_BTN_H = 48
-  const DIALOG_BTN_W = (DIALOG_W - 24 - 16 - 24 - 16) / 2
+  // Row: padding(24dp) + fillMaxWidth + spacedBy(16dp). Each button weight(1f).
+  // Row width = DIALOG_W - 48 (24dp padding each side).
+  // Each button width = (RowWidth - 16) / 2 = (DIALOG_W - 48 - 16) / 2.
+  const DIALOG_BTN_W = (DIALOG_W - 48 - 16) / 2
   const DIALOG_BTN_Y = DIALOG_Y + DIALOG_H - 24 - DIALOG_BTN_H
   elements.push(
     makePlainRect(
