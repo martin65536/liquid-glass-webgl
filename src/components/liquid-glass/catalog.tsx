@@ -1327,6 +1327,17 @@ function buildSlider(
     }
   )
   s1KnobEl.isToggleKnob = { groupId: 'slider1', dragWidth: s1TrackW - SLIDER_KNOB_W / 2, velocityDivisor: 10 }
+  // Expanded touch target: knob is visually 40×24, but touchable over a 48dp
+  // band centered on the knob (faithful to Material touch-target guidelines).
+  // The hitRect is centered on the knob's rect so the touch zone extends ~12dp
+  // above and below the visible knob.
+  const SLIDER_KNOB_HIT_H = 48 * DP
+  s1KnobEl.hitRect = {
+    x: s1KnobBaseX,
+    y: s1KnobY + (SLIDER_KNOB_H - SLIDER_KNOB_HIT_H) / 2,
+    w: SLIDER_KNOB_W,
+    h: SLIDER_KNOB_HIT_H,
+  }
   elements.push(s1KnobEl)
 
   // --- White card with slider 2 (faithful to SliderContent.kt) ---
@@ -1387,6 +1398,13 @@ function buildSlider(
     }
   )
   s2KnobEl.isToggleKnob = { groupId: 'slider2', dragWidth: s2TrackW - SLIDER_KNOB_W / 2, velocityDivisor: 10 }
+  // Expanded touch target (same as slider1 knob).
+  s2KnobEl.hitRect = {
+    x: s2KnobBaseX,
+    y: s2KnobY + (SLIDER_KNOB_H - SLIDER_KNOB_HIT_H) / 2,
+    w: SLIDER_KNOB_W,
+    h: SLIDER_KNOB_HIT_H,
+  }
   elements.push(s2KnobEl)
 
   // --- Interactions ---
