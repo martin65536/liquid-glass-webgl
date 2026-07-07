@@ -240,15 +240,26 @@ export const renderMethods = {
     if (el.kind === 'text') {
       this.bindFBO(curFbo)
       // Press tint overlay for interactive text items (e.g. home list
-      // items). Draws a subtle white rect with Plus blend so the row
-      // visibly brightens on tap.
+      // items). Faithful to MainContent.kt's
+      //   ripple(color = if (isLightTheme) Color.Black else Color.White)
+      //   RippleDefaults.pressedAlpha = 0.1f
+      // When el.pressTintColor is set, use SrcOver blend with that color
+      // (black in light theme, white in dark). When unset, fall back to the
+      // legacy white Plus-blend overlay for backward compat.
       const pText = st?.pressProgress ?? 0
       if (el.isInteractive && pText > 0.001) {
+        const pressTint = el.pressTintColor
         gl.useProgram(this.tintProgram)
         gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
         gl.enableVertexAttribArray(this.aPosLocTn)
         gl.vertexAttribPointer(this.aPosLocTn, 2, gl.FLOAT, false, 0, 0)
-        gl.blendFunc(gl.SRC_ALPHA, gl.ONE)
+        if (pressTint) {
+          // Ripple (SrcOver): color over content at pressedAlpha.
+          gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+        } else {
+          // Legacy white Plus-blend overlay.
+          gl.blendFunc(gl.SRC_ALPHA, gl.ONE)
+        }
         gl.uniform2f(this.uTn['uCanvasSize'], this.canvas.width, this.canvas.height)
         gl.uniform2f(this.uTn['uOffset'], r.x * this.dpr, r.y * this.dpr)
         gl.uniform2f(this.uTn['uSize'], r.w * this.dpr, r.h * this.dpr)
@@ -258,7 +269,11 @@ export const renderMethods = {
         gl.uniform2f(this.uTn['uOriginalSize'], r.w * this.dpr, r.h * this.dpr)
         gl.uniform1f(this.uTn['uOriginalCornerRadius'], 0)
         gl.uniform2f(this.uTn['uLayerScale'], 1, 1)
-        gl.uniform4f(this.uTn['uColor'], 1, 1, 1, 0.10 * pText)
+        if (pressTint) {
+          gl.uniform4f(this.uTn['uColor'], pressTint[0], pressTint[1], pressTint[2], 0.10 * pText)
+        } else {
+          gl.uniform4f(this.uTn['uColor'], 1, 1, 1, 0.10 * pText)
+        }
         gl.drawArrays(gl.TRIANGLES, 0, 6)
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
       }

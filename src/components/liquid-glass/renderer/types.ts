@@ -61,6 +61,16 @@ export interface GlassButtonConfig {
   showChevron: boolean
   /** Whether to apply InteractiveHighlight press effect. */
   isInteractive: boolean
+  /**
+   * Press tint color for interactive 'text' elements (e.g. home list items).
+   * Faithful to MainContent.kt's `ripple(color = if (isLightTheme) Color.Black else Color.White)`.
+   * When set, the text press overlay uses this color with SrcOver blend at
+   * alpha = 0.1 * pressProgress (matching RippleDefaults.pressedAlpha = 0.1f).
+   * When unset, falls back to the legacy white Plus-blend overlay.
+   *   - Light theme: [0, 0, 0, 1] (black ripple)
+   *   - Dark theme:  [1, 1, 1, 1] (white ripple)
+   */
+  pressTintColor?: [number, number, number, number]
 }
 
 /* ------------------------------------------------------------------ *

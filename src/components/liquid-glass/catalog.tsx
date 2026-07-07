@@ -379,6 +379,9 @@ function makeText(
     paddingPx?: number
     halo?: 'auto' | 'light' | 'dark' | 'none'
     icon?: { path: string; size: number; color: [number, number, number, number] }
+    /** Press tint color for interactive text items (ripple color).
+     *  Faithful to MainContent.kt: black in light theme, white in dark. */
+    pressTintColor?: [number, number, number, number]
   } = {},
   scroll = true
 ): GlassElementConfig {
@@ -403,6 +406,7 @@ function makeText(
     labelColor: [0, 0, 0, 1],
     showChevron: false,
     isInteractive: false,
+    pressTintColor: opts.pressTintColor,
     scroll,
     text: {
       content: text,
@@ -776,6 +780,9 @@ function buildHome(W: number, onNavigate: (d: CatalogDestination) => void, palet
     // List items — 48dp tall touch target, 17sp text, left-padded 16dp.
     // Faithful to HomeContent.kt's ListItem composable:
     //   val contentColor = if (isLightTheme) Color.Black else Color.White
+    // Press tint (ripple color) is theme-aware via palette.backIconColor,
+    // faithful to MainContent.kt's
+    //   ripple(color = if (isLightTheme) Color.Black else Color.White)
     for (const item of section.items) {
       const id = `item-${item.dest}`
       const h = 48
@@ -790,6 +797,7 @@ function buildHome(W: number, onNavigate: (d: CatalogDestination) => void, palet
           align: 'left',
           paddingPx: 16,
           halo: palette.homeTextHalo,
+          pressTintColor: palette.backIconColor,
         }
       )
       itemEl.isInteractive = true
