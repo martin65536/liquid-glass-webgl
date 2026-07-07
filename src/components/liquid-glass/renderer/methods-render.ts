@@ -253,6 +253,11 @@ export const renderMethods = {
         gl.uniform2f(this.uTn['uOffset'], r.x * this.dpr, r.y * this.dpr)
         gl.uniform2f(this.uTn['uSize'], r.w * this.dpr, r.h * this.dpr)
         gl.uniform4f(this.uTn['uCornerRadii'], 0, 0, 0, 0)
+        // Text elements have NO graphicsLayer scale (origSize = scaled size,
+        // layerScale = 1). Required after the original-space SDF clip change.
+        gl.uniform2f(this.uTn['uOriginalSize'], r.w * this.dpr, r.h * this.dpr)
+        gl.uniform1f(this.uTn['uOriginalCornerRadius'], 0)
+        gl.uniform2f(this.uTn['uLayerScale'], 1, 1)
         gl.uniform4f(this.uTn['uColor'], 1, 1, 1, 0.10 * pText)
         gl.drawArrays(gl.TRIANGLES, 0, 6)
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
@@ -277,6 +282,13 @@ export const renderMethods = {
           el.cornerRadius * this.dpr,
           el.cornerRadius * this.dpr
         )
+        // Text elements have NO graphicsLayer scale (origSize = scaled size,
+        // layerScale = 1). Required after the original-space SDF clip change
+        // — without these uniforms the foreground shader divides by a default
+        // layerScale of 0, collapsing the clip to a thin slit.
+        gl.uniform2f(this.uFg['uOriginalSize'], r.w * this.dpr, r.h * this.dpr)
+        gl.uniform1f(this.uFg['uOriginalCornerRadius'], el.cornerRadius * this.dpr)
+        gl.uniform2f(this.uFg['uLayerScale'], 1, 1)
         gl.uniform1f(this.uFg['uAlpha'], 1.0)
         gl.drawArrays(gl.TRIANGLES, 0, 6)
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
