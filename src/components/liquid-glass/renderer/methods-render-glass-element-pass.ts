@@ -1,5 +1,6 @@
 import type { LiquidGlassRenderer } from './index'
 import type { GlassRenderState } from './methods-render-glass'
+import { DP } from './spring'
 
 declare module './index' {
   interface LiquidGlassRenderer {
@@ -286,9 +287,19 @@ export const glassElementPassMethods = {
       const tg = this.toggleStates.get(el.isBottomTabIndicator.groupId)
       gl.uniform1f(this.uEl['uIndicatorPressProgress'], tg ? tg.pressProgress : 0)
       gl.uniform1f(this.uEl['uIndicatorPanelOffset'], tg ? tg.panelOffset * this.dpr : 0)
+      // Container center + scale (for mini-glass to scale around the container
+      // center, same as tab-content and indicator).
+      const ccx = el.isBottomTabIndicator.containerCenterX ?? 0
+      const ccy = el.isBottomTabIndicator.containerCenterY ?? 0
+      const cw = el.isBottomTabIndicator.containerWidth ?? el.rect.w
+      const cScale = tg ? 1 + (16 * DP) / cw * tg.pressProgress : 1
+      gl.uniform2f(this.uEl['uContainerCenter'], ccx * this.dpr, ccy * this.dpr)
+      gl.uniform1f(this.uEl['uContainerScale'], cScale)
     } else {
       gl.uniform1f(this.uEl['uIndicatorPressProgress'], 0)
       gl.uniform1f(this.uEl['uIndicatorPanelOffset'], 0)
+      gl.uniform2f(this.uEl['uContainerCenter'], 0, 0)
+      gl.uniform1f(this.uEl['uContainerScale'], 1)
     }
     // Refraction params in ORIGINAL px (NOT scaled by layerScale).
     // Faithful to the original: the AGSL shader receives the original element

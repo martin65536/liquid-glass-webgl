@@ -186,17 +186,20 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
         wp = sum / total;
     }
 
-    // 2. tabsBackdrop capsule SDF — the hidden Row's 56dp glass capsule
-    //    (same height as the indicator, full TABS_W width). Scaled by
-    //    (1 + 0.2*press) and shifted by panelOffset — matching the original's
-    //    hidden Row (translationX = panelOffset) and tab content scale
-    //    (LocalLiquidBottomTabScale lerp(1, 1.2, pressProgress)).
-    //    No inset — uContainerRect already holds the 56dp tabsBackdrop rect.
-    float pressScale = 1.0 + 0.2 * uIndicatorPressProgress;
-    vec2 capsuleCenter = uContainerRect.xy + vec2(uIndicatorPanelOffset, 0.0);
-    vec2 capsuleHalf = max(uContainerRect.zw * pressScale, vec2(0.0));
-    float cr = max(uContainerCornerRadius * pressScale, 0.0);
-    vec2 capsuleLocal = canvasPx - capsuleCenter;
+    // 2. tabsBackdrop capsule SDF — the hidden Row's 56dp glass capsule.
+    //    Scales around the CONTAINER center (same as tab-content and
+    //    indicator) by uContainerScale, and shifts by panelOffset —
+    //    matching the original's container layerBlock (parent-child
+    //    transform applies uniformly to all children).
+    vec2 capsuleCenter = uContainerRect.xy;
+    // Scale the capsule center + half-size around the container center.
+    vec2 capsuleHalf = max(uContainerRect.zw * uContainerScale, vec2(0.0));
+    float cr = max(uContainerCornerRadius * uContainerScale, 0.0);
+    // Scaled center = containerCenter + (rectCenter - containerCenter) * scale
+    //                + panelOffset (whole-bar translation)
+    vec2 scaledCenter = uContainerCenter + (uContainerRect.xy - uContainerCenter) * uContainerScale
+                       + vec2(uIndicatorPanelOffset, 0.0);
+    vec2 capsuleLocal = canvasPx - scaledCenter;
     vec2 cq = abs(capsuleLocal) - capsuleHalf + vec2(cr);
     float capsuleSd = length(max(cq, vec2(0.0))) + min(max(cq.x, cq.y), 0.0) - cr;
     float mask = 1.0 - smoothstep(-radius, radius, capsuleSd);

@@ -210,6 +210,7 @@ export class LiquidGlassRenderer {
       'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale',
       'uIndicatorBackdrop', 'uContainerRect', 'uContainerCornerRadius', 'uIndicatorAccent',
       'uInsetPx', 'uIndicatorPressProgress', 'uIndicatorPanelOffset',
+      'uContainerCenter', 'uContainerScale',
     ]
     for (const n of elNames) this.uEl[n] = gl.getUniformLocation(this.elementProgram, n)
     const shNames = [
