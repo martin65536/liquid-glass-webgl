@@ -712,6 +712,12 @@ function applyVerticalCenter(
         y: el.isBottomTabIndicator.containerRect.y + yOffset,
       }
     }
+    // Bottom tab content stores the CONTAINER center (scale origin) separately.
+    // Shift it by the same yOffset so the scale pivot stays aligned with the
+    // actual container position after vertical centering.
+    if (el.isBottomTabContent && el.isBottomTabContent.containerCenterY != null) {
+      el.isBottomTabContent.containerCenterY += yOffset
+    }
   }
   return contentHeight + yOffset
 }
