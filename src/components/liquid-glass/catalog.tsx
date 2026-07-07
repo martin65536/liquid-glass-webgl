@@ -1521,36 +1521,35 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
   const containerColor = palette.tabsContainer
   const accentT = palette.tabsAccent
 
+  // --- Bottom tabs geometry (faithful to LiquidBottomTabs.kt) ---
+  // BoxWithConstraints → maxWidth = TABS_W
+  //   tabWidth = (maxWidth - 8dp) / tabsCount     [the 8dp is 4dp padding each side]
+  // Container Row: height=64dp, fillMaxWidth, padding(4dp)
+  //   → glass capsule: 56dp tall, (TABS_W - 8dp) wide, cornerRadius = 28dp
+  // Indicator Box: height=56dp, fillMaxWidth(1/tabsCount), padding(horizontal=4dp)
+  //   → glass capsule: 56dp tall, (tabWidth - 8dp) wide, cornerRadius = 28dp
+  //   → translationX = value * tabWidth + panelOffset
+  const CONTAINER_H = 64 * DP
+  const GLASS_H = 56 * DP
+  const GLASS_PAD = 4 * DP
+  const glassX = TABS_PAD + GLASS_PAD
+  const glassW = TABS_W - 2 * GLASS_PAD
+  const glassR = GLASS_H / 2 // Capsule = height/2 = 28dp
+
   function buildTabBar(idPrefix: string, tabsCount: number, selectedTab: number, onSelect: (i: number) => void, y: number) {
-    // Original LiquidBottomTabs.kt layout:
-    //   BoxWithConstraints → tabWidth = (maxWidth - 8dp) / tabsCount
-    //   Row (container): height=64dp, fillMaxWidth, padding(4dp) → inner 56dp tall, full width minus 8dp
-    //   Hidden Row: height=56dp, fillMaxWidth, padding(horizontal=4dp) → inner 56dp, width minus 8dp
-    //   Indicator Box: height=56dp, fillMaxWidth(1/tabsCount), padding(horizontal=4dp) → width = tabWidth
-    //
-    // tabWidth = (TABS_W - 8dp) / tabsCount  (the 8dp is the 4dp padding on each side)
-    // Container outer: x=TABS_PAD, w=TABS_W, h=64dp
-    // Container inner (glass shape): x=TABS_PAD+4, w=TABS_W-8, h=56dp, y=y+4
-    // Indicator: x=TABS_PAD+4 + tabWidth*selectedTab, w=tabWidth, h=56dp
-    const CONTAINER_H = 64 * DP
-    const INNER_H = 56 * DP
-    const INNER_PAD = 4 * DP
-    const innerX = TABS_PAD + INNER_PAD
-    const innerW = TABS_W - 2 * INNER_PAD
-    const innerY = y + INNER_PAD
-    const TAB_W = innerW / tabsCount
+    const tabW = glassW / tabsCount
+    const glassY = y + GLASS_PAD
 
     // === Layer 1: Container (visible glass bar) ===
-    // Faithful to LiquidBottomTabs.kt Row container:
+    // Faithful to LiquidBottomTabs.kt container Row:
     //   drawBackdrop(backdrop, Capsule, vibrancy + blur(8dp) + lens(24dp,24dp),
     //     layerBlock = { scale = lerp(1, 1+16dp/width, pressProgress) },
     //     onDrawSurface = { drawRect(containerColor) })
-    //   height=64dp, fillMaxWidth, padding(4dp)
     const containerEl = makeGlassShape(
       `${idPrefix}-container`,
-      { x: innerX, y: innerY, w: innerW, h: INNER_H },
+      { x: glassX, y: glassY, w: glassW, h: GLASS_H },
       {
-        cornerRadius: INNER_H / 2,
+        cornerRadius: glassR,
         refractionHeight: 24 * DP,
         refractionAmount: -24 * DP,
         blurRadius: 8 * DP,
@@ -1574,7 +1573,7 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
       const id = `${idPrefix}-tab-${i}`
       const tabEl = makeText(
         id,
-        { x: innerX + TAB_W * i, y: innerY, w: TAB_W, h: INNER_H },
+        { x: glassX + tabW * i, y: glassY, w: tabW, h: GLASS_H },
         `Tab ${i + 1}`,
         {
           color: palette.tabsContentColor,
@@ -1596,7 +1595,7 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
     //   drawBackdrop(rememberCombinedBackdrop(backdrop, tabsBackdrop), Capsule,
     //     effects = { lens(10dp*progress, 14dp*progress, chromaticAberration=true) },
     //     highlight = { Highlight.Default.copy(alpha=progress) },
-    //     shadow = { Shadow(alpha=progress) },
+    //     shadow = { Shadow(alpha=progress) },            // Shadow.Default: radius=24dp, color=Black(0.1)
     //     innerShadow = { InnerShadow(radius=8dp*progress, alpha=progress) },
     //     layerBlock = { scaleX/Y = dampedDragAnimation.scaleX/Y + velocity/10 squash },
     //     onDrawSurface = { drawRect(dimColor 0.1, alpha=1-progress) + drawRect(Black 0.03*progress) })
@@ -1604,39 +1603,37 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
     //   translationX = dampedDragAnimation.value * tabWidth + panelOffset
     //
     // The indicator refracts CombinedBackdrop(backdrop=wallpaper, tabsBackdrop=hidden tinted content).
-    // Since we don't have a separate hidden tinted layer, the indicator samples the
-    // scene (wallpaper + container + content) like a normal glass element, and we
-    // add a subtle accent tint to approximate the blue tint from the hidden layer.
-    const indicatorBaseX = innerX
+    // The hidden content layer uses ColorFilter.tint(accentColor), giving the indicator a blue
+    // appearance. We approximate by tinting the indicator surface with accentColor.
+    const indicatorW = tabW
     const indicatorEl = makeGlassShape(
       `${idPrefix}-indicator`,
-      { x: indicatorBaseX, y: innerY, w: TAB_W, h: INNER_H },
+      { x: glassX, y: glassY, w: indicatorW, h: GLASS_H },
       {
-        cornerRadius: INNER_H / 2,
+        cornerRadius: glassR,
         refractionHeight: 10 * DP,
         refractionAmount: -14 * DP,
         blurRadius: 2 * DP,
         saturation: 1.5,
         // Accent tint approximates the hidden ColorFilter.tint(accentColor) layer
-        // that the original indicator refracts via CombinedBackdrop. The original
-        // refracts a fully blue-tinted content layer, so the tint needs to be
-        // strong enough to give the indicator a clear blue appearance over the
-        // wallpaper/container backdrop.
-        tintColor: [accentT[0], accentT[1], accentT[2], 0.35],
+        // that the original indicator refracts via CombinedBackdrop.
+        tintColor: [accentT[0], accentT[1], accentT[2], 0.3],
         surfaceColor: [0, 0, 0, 0],
         highlight: { ...DEFAULT_HIGHLIGHT },
-        // Shadow(alpha=progress) — renderer modulates alpha by pressProgress.
-        outerShadow: { radius: 8 * DP, alpha: 0.1, offsetX: 0, offsetY: (8 / 6) * DP, color: [0, 0, 0] },
-        // InnerShadow(radius=8dp*progress, alpha=progress) — renderer modulates.
-        innerShadow: { radius: 8 * DP, alpha: 1, offsetX: 0, offsetY: 8 * DP },
+        // Shadow(alpha=progress) — faithful to Shadow.Default: radius=24dp, color=Black(0.1),
+        // offset=(0, radius/6=4dp). Renderer modulates alpha by pressProgress.
+        outerShadow: { radius: 24 * DP, alpha: 0.1, offsetX: 0, offsetY: (24 / 6) * DP, color: [0, 0, 0] },
+        // InnerShadow(radius=8dp*progress, alpha=progress) — color=Black(0.15), offset=(0, radius).
+        // Renderer modulates radius + alpha by pressProgress.
+        innerShadow: { radius: 8 * DP, alpha: 0.15, offsetX: 0, offsetY: 8 * DP },
         chromaticAberration: true,
       }
     )
-    // dragWidth = TAB_W (indicator slides one tab width per index unit).
+    // dragWidth = tabW (indicator slides one tab width per index unit).
     // dimColor = theme-aware (Black light / White dark) for onDrawSurface.
     indicatorEl.isBottomTabIndicator = {
       groupId: idPrefix,
-      dragWidth: TAB_W,
+      dragWidth: tabW,
       dimColor: palette.backIconColor,
     }
     elements.push(indicatorEl)
@@ -1645,14 +1642,13 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
     // Drag anywhere on container or indicator to slide the indicator.
     // Faithful to LiquidBottomTabs.kt: InteractiveHighlight.gestureModifier on
     // the indicator Box captures drags; onDragStopped snaps to nearest tab.
-    const dragInteractions = makeTabDragInteractions(idPrefix, TAB_W, tabsCount, onSelect, rendererRef)
+    const dragInteractions = makeTabDragInteractions(idPrefix, tabW, tabsCount, onSelect, rendererRef)
     interactions[`${idPrefix}-container`] = dragInteractions
     interactions[`${idPrefix}-indicator`] = dragInteractions
   }
 
   // 2 tab bars (3 tabs + 4 tabs) with 32dp Column spacing.
   // Faithful to BottomTabsContent.kt: Column(spacedBy(32dp)) { Block { 3-tab }, Block { 4-tab } }
-  const CONTAINER_H = 64 * DP
   buildTabBar('tabs3', 3, state.selectedTab, (i) => setState({ selectedTab: i }), 0)
   buildTabBar('tabs4', 4, state.selectedTab2, (i) => setState({ selectedTab2: i }), CONTAINER_H + 32)
   const contentHeight = 2 * CONTAINER_H + 32
