@@ -1724,9 +1724,10 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
         // Faithful to original: highlight = Highlight.Default.copy(alpha=progress).
         // alpha=0 at rest (no edge highlight), full when pressed.
         highlight: { ...DEFAULT_HIGHLIGHT, alpha: 1.0 },
-        // Shadow(alpha=progress) — faithful to Shadow.Default: radius=24dp, color=Black(0.1),
-        // offset=(0, radius/6=4dp). Renderer modulates alpha by pressProgress.
-        outerShadow: { radius: 24 * DP, alpha: 0.1, offsetX: 0, offsetY: (24 / 6) * DP, color: [0, 0, 0] },
+        // Large white outer glow — the original indicator has a soft white
+        // halo extending ~12-16dp beyond the edges (visible at rest). This is
+        // a white outer shadow, always visible (not press-modulated).
+        outerShadow: { radius: 16 * DP, alpha: 0.5, offsetX: 0, offsetY: 0, color: [1, 1, 1] },
         // InnerShadow(radius=8dp*progress, alpha=progress) — color=Black(0.15), offset=(0, radius).
         innerShadow: { radius: 8 * DP, alpha: 0.15, offsetX: 0, offsetY: 8 * DP },
         chromaticAberration: true,

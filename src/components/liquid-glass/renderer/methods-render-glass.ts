@@ -328,11 +328,10 @@ export const glassRenderMethods = {
     if (!el.outerShadow || el.outerShadow.alpha <= 0.001 || el.outerShadow.radius <= 0.5) return
     // Bottom tab indicator: shadow alpha modulated by pressProgress (faithful
     // to LiquidBottomTabs.kt indicator: Shadow(alpha=progress)).
+    // The white outer glow is always visible (not press-modulated) — matching
+    // the original's persistent halo at rest.
     let shadowAlpha = el.outerShadow.alpha
-    if (el.isBottomTabIndicator) {
-      shadowAlpha = el.outerShadow.alpha * state.togglePressProgress
-      if (shadowAlpha <= 0.001) return
-    }
+    if (el.isBottomTabIndicator && shadowAlpha <= 0.001) return
     gl.useProgram(this.shadowProgram)
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
     gl.enableVertexAttribArray(this.aPosLocSh)
