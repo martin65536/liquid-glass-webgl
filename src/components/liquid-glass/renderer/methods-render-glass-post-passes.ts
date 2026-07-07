@@ -261,7 +261,8 @@ export const glassPostPassMethods = {
     // --- Step 2g: Mini-glass rim highlight (bottom-tab indicator only) ---
     // The mini-glass (tabsBackdrop capsule inside the indicator) has its own
     // Highlight.Default.copy(alpha=progress), drawn as a rim highlight on the
-    // mini-glass capsule shape (containerRect scaled by containerScale + panelOffset).
+    // mini-glass capsule shape. Clipped to the indicator's rect via scissor
+    // so the highlight doesn't bleed outside the indicator.
     if (el.isBottomTabIndicator && el.highlight && togglePressProgress > 0.001) {
       const tg = this.toggleStates.get(el.isBottomTabIndicator.groupId)
       const cr = el.isBottomTabIndicator.containerRect
@@ -277,6 +278,14 @@ export const glassPostPassMethods = {
         const mgW = cr.w * containerScale
         const mgH = cr.h * containerScale
         const mgR = (cr.h / 2) * containerScale // capsule radius
+        // Clip to the indicator's rect so the highlight stays inside.
+        gl.enable(gl.SCISSOR_TEST)
+        gl.scissor(
+          Math.floor(sx * this.dpr),
+          Math.floor((this.canvas.height - (sy + sh) * this.dpr)),
+          Math.ceil(sw * this.dpr),
+          Math.ceil(sh * this.dpr)
+        )
         gl.useProgram(this.rimHighlightProgram)
         gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
         gl.enableVertexAttribArray(this.aPosLocRm)
@@ -301,6 +310,7 @@ export const glassPostPassMethods = {
         gl.uniform1f(this.uRm['uHighlightBlur'], widthPx * 0.5)
         gl.drawArrays(gl.TRIANGLES, 0, 6)
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+        gl.disable(gl.SCISSOR_TEST)
       }
     }
   },
