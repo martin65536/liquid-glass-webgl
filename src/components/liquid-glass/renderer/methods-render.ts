@@ -207,16 +207,17 @@ export const renderMethods = {
       }
       // Slider fill: dynamically adjust width from the toggle group's animated
       // fraction so the fill tracks the knob's spring motion (no React-state
-      // lag) and aligns exactly with the knob center (no overshoot).
-      //   fillEnd = trackX + knobW/4 + fraction * (trackW - knobW/2)
-      //   fillW = fillEnd - trackX = knobW/4 + fraction * (trackW - knobW/2)
+      // lag). Faithful to LiquidSlider.kt:
+      //   width = constraints.maxWidth * dampedDragAnimation.progress
+      // i.e. fillW = trackW * fraction (NOT knob-center-aligned — the original
+      // lets the fill span the full track width, with the knob clamped at the
+      // ends so it sits w/4 inside the fill at progress=0 and w/4 past the
+      // fill end at progress=1).
       let fillRect = r
       if (el.isSliderFill) {
         const sf = this.toggleStates.get(el.isSliderFill.groupId)
         const fraction = sf ? sf.fraction : 0
-        const dragW = el.isSliderFill.trackW - el.isSliderFill.knobW / 2
-        const fillEnd = el.isSliderFill.trackX + el.isSliderFill.knobW / 4 + fraction * dragW
-        const fillW = Math.max(el.isSliderFill.minW, fillEnd - el.isSliderFill.trackX)
+        const fillW = Math.max(el.isSliderFill.minW, el.isSliderFill.trackW * fraction)
         fillRect = { x: r.x, y: r.y, w: fillW, h: r.h }
       }
       gl.useProgram(this.plainRectProgram)

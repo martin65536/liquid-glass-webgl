@@ -19,6 +19,11 @@ declare module './index' {
     ): void
     endToggleDrag(groupId: string): number
     endSliderDrag(groupId: string): number
+    /** Set the toggle/slider fraction to an absolute value during a drag
+     *  (used by slider track drag — knob jumps to finger position and follows,
+     *  matching the original LiquidSlider.kt tap-to-position behavior extended
+     *  to drag). Unlike setToggleTarget, this works during isDragging. */
+    setSliderDragPosition(groupId: string, fraction: number): void
     getToggleFraction(groupId: string): number
     getToggleTarget(groupId: string): number
   }
@@ -225,6 +230,26 @@ export const toggleMethods = {
   /** Read the current animated fraction (0..1) for a toggle group. */
   getToggleFraction(this: LiquidGlassRenderer, groupId: string): number {
     return this.toggleStates.get(groupId)?.fraction ?? 0
+  },
+
+  /**
+   * Set the fraction to an absolute value during a slider drag. Used by the
+   * slider track drag handler so the knob jumps to the finger position and
+   * follows it (absolute positioning, like a tap but continuous). This matches
+   * the original LiquidSlider.kt track tap-to-position behavior, extended to
+   * drag for better usability on a small knob.
+   *
+   * Unlike setToggleTarget (which no-ops during isDragging), this directly
+   * sets targetFraction so it works mid-drag.
+   */
+  setSliderDragPosition(this: LiquidGlassRenderer, groupId: string, fraction: number) {
+    const st = this.toggleStates.get(groupId)
+    if (!st) return
+    const clamped = Math.max(0, Math.min(1, fraction))
+    if (st.targetFraction !== clamped) {
+      st.targetFraction = clamped
+      this.startAnimation()
+    }
   },
 
   /** Read the current target fraction (0..1) for a toggle group. */

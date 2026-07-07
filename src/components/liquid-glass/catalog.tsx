@@ -1306,7 +1306,7 @@ function buildSlider(
   // with the knob's motion and aligns exactly with the knob center.
   // The initial rect.w is a placeholder; the renderer recomputes it each frame.
   const s1FillEl = makePlainRect('slider1-fill', { x: s1TrackX, y: s1TrackY, w: SLIDER_TRACK_H, h: SLIDER_TRACK_H }, [...SLIDER_ACCENT_T, 1], SLIDER_TRACK_H / 2)
-  s1FillEl.isSliderFill = { groupId: 'slider1', trackX: s1TrackX, trackW: s1TrackW, knobW: SLIDER_KNOB_W, minW: SLIDER_TRACK_H }
+  s1FillEl.isSliderFill = { groupId: 'slider1', trackX: s1TrackX, trackW: s1TrackW, knobW: SLIDER_KNOB_W, minW: 0 }
   elements.push(s1FillEl)
   // Knob — solid frosted white at rest, glass when pressed (renderer handles modulation).
   const s1KnobEl = makeGlassShape(
@@ -1367,7 +1367,7 @@ function buildSlider(
   s2TrackEl.hitRect = { x: s2TrackX, y: s2TrackY + (SLIDER_TRACK_H - SLIDER_HIT_H) / 2, w: s2TrackW, h: SLIDER_HIT_H }
   elements.push(s2TrackEl)
   const s2FillEl = makePlainRect('slider2-fill', { x: s2TrackX, y: s2TrackY, w: SLIDER_TRACK_H, h: SLIDER_TRACK_H }, [...SLIDER_ACCENT_T, 1], SLIDER_TRACK_H / 2)
-  s2FillEl.isSliderFill = { groupId: 'slider2', trackX: s2TrackX, trackW: s2TrackW, knobW: SLIDER_KNOB_W, minW: SLIDER_TRACK_H }
+  s2FillEl.isSliderFill = { groupId: 'slider2', trackX: s2TrackX, trackW: s2TrackW, knobW: SLIDER_KNOB_W, minW: 0 }
   elements.push(s2FillEl)
   const s2KnobEl = makeGlassShape(
     'slider2-knob',
@@ -1409,28 +1409,34 @@ function buildSlider(
   const SLIDER_DRAG_W1 = s1TrackW - SLIDER_KNOB_W / 2
   const SLIDER_DRAG_W2 = s2TrackW - SLIDER_KNOB_W / 2
   function makeSliderTrackInteractions(groupId: string, trackX: number, trackW: number, dragW: number) {
-    let dragStartFraction = 0
-    let dragStartX = 0
+    // Track drag uses ABSOLUTE positioning: the knob jumps to the finger
+    // position on press and follows it (like a tap, but continuous). This
+    // matches the original LiquidSlider.kt track tap-to-position behavior,
+    // extended to drag so the user doesn't have to hit the small knob.
+    // Faithful to original: fraction = (pos.x - trackX) / trackW (progress),
+    // same formula as onTap.
+    const fractionAt = (pos: { x: number; y: number }) =>
+      Math.max(0, Math.min(1, (pos.x - trackX) / trackW))
     return {
       onTap: (pos: { x: number; y: number }) => {
-        const f = Math.max(0, Math.min(1, (pos.x - trackX) / trackW))
-        setState({ sliderValue: f * 100 })
+        setState({ sliderValue: fractionAt(pos) * 100 })
       },
       onDragStart: (pos: { x: number; y: number }) => {
         const r = rendererRef?.current
         if (!r) return
-        dragStartFraction = r.getToggleTarget(groupId)
-        dragStartX = pos.x
-        r.beginToggleDrag(groupId, dragStartFraction)
+        // Jump the knob to the finger position immediately (absolute).
+        const f = fractionAt(pos)
+        r.beginToggleDrag(groupId, f)
+        r.setSliderDragPosition(groupId, f)
+        setState({ sliderValue: f * 100 })
       },
       onDrag: (pos: { x: number; y: number }) => {
         const r = rendererRef?.current
         if (!r) return
-        r.dragToggle(groupId, dragStartFraction, pos.x, dragStartX, dragW)
-        // Live state update so the fill width tracks the knob during drag
-        // (faithful to LiquidSlider.kt's onValueChange during onDrag).
-        const currentTarget = r.getToggleTarget(groupId)
-        setState({ sliderValue: currentTarget * 100 })
+        // Absolute: knob follows finger position (no relative offset).
+        const f = fractionAt(pos)
+        r.setSliderDragPosition(groupId, f)
+        setState({ sliderValue: f * 100 })
       },
       onDragEnd: () => {
         const r = rendererRef?.current
