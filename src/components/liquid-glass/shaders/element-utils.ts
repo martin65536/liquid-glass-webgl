@@ -28,7 +28,7 @@ float circleMap(float x) {
 // Returns vec4(intensity, maskAlpha, normalX, normalY); zeroes if outside.
 vec4 sampleSdfTexture(vec2 localPx) {
     vec2 uv = vec2(localPx.x / uOriginalSize.x,
-                   1.0 - localPx.y / uOriginalSize.y);
+                   localPx.y / uOriginalSize.y);
     if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) {
         return vec4(0.0);
     }

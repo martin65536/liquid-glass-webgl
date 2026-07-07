@@ -29,6 +29,9 @@ export enum CatalogDestination {
  * dp at density 1).
  * ------------------------------------------------------------------ */
 const DP = 1
+// Drag-start offset for LockScreen glass — module-level so it survives
+// re-renders during the drag gesture (closure vars get reset each render).
+const lockScreenDragStart: { x: number; y: number } = { x: 0, y: 0 }
 const BUTTON_HEIGHT = 48 * DP
 const BUTTON_HORIZONTAL_PADDING = 16 * DP
 const TEXT_FONT_SIZE_PX = 15 * DP
@@ -2563,19 +2566,19 @@ function buildLockScreen(W: number, H: number, onBack: () => void, state: Catalo
   )
   lsGlass.isSdfTexture = { refractionHeight: 48 * DP, lightAngle: 45 }
   elements.push(lsGlass)
-  // Drag — faithful to draggable2D { offset += delta }. Fix the accumulation
-  // bug: capture the offset at drag start, then set absolute = start + delta.
-  let dragStartOffsetX = 0
-  let dragStartOffsetY = 0
+  // Drag — faithful to draggable2D { offset += delta }. The web drag delta
+  // is cumulative (from press start), so offset = dragStartOffset + delta.
+  // Store dragStartOffset outside the render closure (module-level) so it
+  // survives re-renders during the drag gesture.
   interactions['ls-glass'] = {
     onDragStart: () => {
-      dragStartOffsetX = state.lockScreenOffsetX
-      dragStartOffsetY = state.lockScreenOffsetY
+      lockScreenDragStart.x = state.lockScreenOffsetX
+      lockScreenDragStart.y = state.lockScreenOffsetY
     },
     onDrag: (_pos, delta) => {
       setState({
-        lockScreenOffsetX: dragStartOffsetX + delta.x,
-        lockScreenOffsetY: dragStartOffsetY + delta.y,
+        lockScreenOffsetX: lockScreenDragStart.x + delta.x,
+        lockScreenOffsetY: lockScreenDragStart.y + delta.y,
       })
     },
     onDragEnd: () => {},
