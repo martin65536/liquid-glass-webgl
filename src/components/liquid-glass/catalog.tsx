@@ -1415,6 +1415,8 @@ function buildSlider(
     // extended to drag so the user doesn't have to hit the small knob.
     // Faithful to original: fraction = (pos.x - trackX) / trackW (progress),
     // same formula as onTap.
+    // NO setState during drag — the fill width is driven by the renderer's
+    // isSliderFill (reads sf.fraction every frame). State is synced on dragEnd.
     const fractionAt = (pos: { x: number; y: number }) =>
       Math.max(0, Math.min(1, (pos.x - trackX) / trackW))
     return {
@@ -1428,7 +1430,6 @@ function buildSlider(
         const f = fractionAt(pos)
         r.beginToggleDrag(groupId, f)
         r.setSliderDragPosition(groupId, f)
-        setState({ sliderValue: f * 100 })
       },
       onDrag: (pos: { x: number; y: number }) => {
         const r = rendererRef?.current
@@ -1436,7 +1437,6 @@ function buildSlider(
         // Absolute: knob follows finger position (no relative offset).
         const f = fractionAt(pos)
         r.setSliderDragPosition(groupId, f)
-        setState({ sliderValue: f * 100 })
       },
       onDragEnd: () => {
         const r = rendererRef?.current
@@ -1453,21 +1453,24 @@ function buildSlider(
       onDragStart: (pos: { x: number; y: number }) => {
         const r = rendererRef?.current
         if (!r) return
-        // Relative drag mode: knob follows finger with a spring lag (faithful
-        // to LiquidSlider.kt's onDrag → updateValue → spring). This gives the
-        // elastic "spring" feel that absolute positioning (setSliderDragPosition)
-        // lacks — the knob trails the finger slightly and settles with a bounce.
-        dragStartFraction = r.getToggleTarget(groupId)
+        // Use the VISUAL fraction (not target) as the drag start — if the knob
+        // is mid-animation (fraction ≠ target), starting from target would
+        // cause a visible jump/teleport. Faithful to LiquidSlider.kt which
+        // reads the current animated value.
+        dragStartFraction = r.getToggleFraction(groupId)
         dragStartX = pos.x
         r.beginToggleDrag(groupId, dragStartFraction)
       },
       onDrag: (pos: { x: number; y: number }) => {
         const r = rendererRef?.current
         if (!r) return
+        // Relative drag: knob follows finger with spring lag. NO setState here
+        // — the fill width is driven by the renderer's isSliderFill (which
+        // reads sf.fraction every frame), so React state is not needed during
+        // drag. Calling setState during drag caused a feedback loop (setState
+        // → toggleTargets effect → setToggleTarget) that fought the spring.
+        // State is synced once on dragEnd.
         r.dragToggle(groupId, dragStartFraction, pos.x, dragStartX, dragW)
-        // Live state update so the fill width tracks the knob during drag.
-        const currentTarget = r.getToggleTarget(groupId)
-        setState({ sliderValue: currentTarget * 100 })
       },
       onDragEnd: () => {
         const r = rendererRef?.current
