@@ -201,11 +201,16 @@ export const toggleMethods = {
     st.isDragging = false
     const finalTarget = st.targetFraction >= 0.5 ? 1 : 0
     st.targetFraction = finalTarget
-    // Do NOT zero targetVelocity here — the original release() lets the
-    // velocity spring (spring(0.5, 300) underdamped) decay naturally. The
-    // velocity captured during the drag continues to drive squash-stretch
-    // during the snap-to-0/1 animation, giving the toggle its bounce.
-    // Zeroing it here kills the elastic feel.
+    // Decay velocity target to 0. The original DampedDragAnimation keeps
+    // calling updateVelocity() during the value spring's update callback
+    // after release — VelocityTracker calculates a decreasing velocity as
+    // the value settles, so velocity target naturally → 0. We don't have
+    // that callback mechanism, so we explicitly set targetVelocity = 0 on
+    // release. The velocity spring (underdamped) still has the current
+    // velocity, so squash-stretch decays smoothly to 0 rather than freezing
+    // at the last drag velocity (which caused 'stays stretched on fast
+    // release').
+    st.targetVelocity = 0
     st.lastFractionTime = 0
     // Don't release press here — auto-release will fire when fraction
     // settles near finalTarget.
@@ -228,9 +233,11 @@ export const toggleMethods = {
     st.isDragging = false
     // NO snap — keep the continuous targetFraction as-is.
     const finalTarget = st.targetFraction
-    // Do NOT zero targetVelocity — let the velocity spring decay naturally
-    // (faithful to original release()). The drag velocity continues to drive
-    // squash-stretch as the knob settles, giving the elastic feel.
+    // Decay velocity target to 0 (same as endToggleDrag — see comment there
+    // for why this is needed: the original's VelocityTracker naturally
+    // decays velocity as the value settles, but we don't have that callback
+    // mechanism, so we explicitly zero the target on release).
+    st.targetVelocity = 0
     st.lastFractionTime = 0
     // Don't release press here — auto-release will fire when fraction
     // settles near finalTarget.
