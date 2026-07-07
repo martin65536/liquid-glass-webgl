@@ -201,6 +201,13 @@ export const renderMethods = {
   ): boolean {
     const gl = this.gl
 
+    // Apply enterProgress translationY (ControlCenter) to the rect.
+    let r2 = r
+    if (el.enterProgress != null) {
+      const ty = -48 * DP * (1 - el.enterProgress)
+      r2 = { x: r.x, y: r.y + ty, w: r.w, h: r.h }
+    }
+
     // --- plain-rect ---
     if (el.kind === 'plain-rect' && el.plainRect) {
       this.bindFBO(curFbo)
@@ -230,7 +237,7 @@ export const renderMethods = {
       // lets the fill span the full track width, with the knob clamped at the
       // ends so it sits w/4 inside the fill at progress=0 and w/4 past the
       // fill end at progress=1).
-      let fillRect = r
+      let fillRect = r2
       if (el.isSliderFill) {
         const sf = this.toggleStates.get(el.isSliderFill.groupId)
         const fraction = sf ? sf.fraction : 0
@@ -254,7 +261,7 @@ export const renderMethods = {
     if (el.kind === 'progressive-blur' && el.progressiveBlur) {
       this.bindFBO(curFbo)
       gl.useProgram(this.progressiveBlurProgram)
-      this.setSdfUniforms(this.uPb, this.aPosLocPb, r, el.cornerRadius)
+      this.setSdfUniforms(this.uPb, this.aPosLocPb, r2, el.cornerRadius)
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
       gl.activeTexture(gl.TEXTURE0)
       gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture!)
@@ -277,7 +284,7 @@ export const renderMethods = {
       // unit — each tab scales around the CONTAINER's center, not its own.
       // This means tabs spread apart as the bar grows:
       //   scaledTabCenter = containerCenter + (tabCenter - containerCenter) * scale
-      let drawRect = r
+      let drawRect = r2
       let fgScaleX = 1
       let fgScaleY = 1
       if (el.isBottomTabContent) {

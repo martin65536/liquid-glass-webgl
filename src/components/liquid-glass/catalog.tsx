@@ -2062,7 +2062,9 @@ function buildControlCenter(W: number, H: number, onBack: () => void, state: Cat
   //   drawRect(dimColor * progress) where dimColor = Black(0.4).
   // Fades in as the control center expands (enterProgress → 1).
   const dimAlpha = state.controlCenterEnter * 0.4
-  elements.push(makePlainRect('cc-dim', { x: 0, y: 0, w: W, h: Math.max(H, 800) }, [0, 0, 0, dimAlpha], 0))
+  const dimEl = makePlainRect('cc-dim', { x: 0, y: 0, w: W, h: Math.max(H, 800) }, [0, 0, 0, dimAlpha], 0)
+  dimEl.scroll = false // fixed full-screen, not affected by scroll
+  elements.push(dimEl)
 
   const startY = 0 // applyVerticalCenter shifts this
   // Row 1: [2-span with 3 inner items] [2-span empty]
@@ -2209,6 +2211,23 @@ function buildControlCenter(W: number, H: number, onBack: () => void, state: Cat
     if (e.id.startsWith('cc-') && e.id !== 'cc-dim' && !ccTileIds.includes(e.id)) {
       e.enterProgress = enterP
     }
+  }
+
+  // Full-screen drag on the dim overlay (so dragging anywhere works, not
+  // just on tiles). The dim is behind tiles in hit-test order (pushed first),
+  // so tiles get priority — but empty areas hit the dim.
+  interactions['cc-dim'] = {
+    onDragStart: () => {
+      ccDragStartEnter.v = state.controlCenterEnter
+    },
+    onDrag: (_pos, delta) => {
+      const target = ccDragStartEnter.v + delta.y / MAX_DRAG
+      setState({ controlCenterEnter: Math.max(0, Math.min(1, target)) })
+    },
+    onDragEnd: () => {
+      const target = state.controlCenterEnter < 0.5 ? 0 : 1
+      animateControlCenterEnter(setState, target)
+    },
   }
 
   const contentHeight = cursorY
