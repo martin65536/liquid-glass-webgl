@@ -687,6 +687,10 @@ function applyVerticalCenter(
     // Back button and theme button stay at top corners (not shifted).
     if (el.id === '__back__' || el.id === '__theme__') continue
     el.rect = { ...el.rect, y: el.rect.y + yOffset }
+    // Shift hitRect too (if set) so expanded touch targets follow the element.
+    if (el.hitRect) {
+      el.hitRect = { ...el.hitRect, y: el.hitRect.y + yOffset }
+    }
     // Faithful fix: toggle knobs store the TRACK's original screen
     // position separately in `isToggleKnob.trackOriginalY` (used by the
     // renderer to compute the scaled track rect inside the knob's
