@@ -1649,38 +1649,27 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
     interactions[`${idPrefix}-container`] = dragInteractions
 
     // === Layer 3: Selected indicator (glass capsule, TOPMOST) ===
-    // Faithful to LiquidBottomTabs.kt indicator Box:
-    //   height(56dp).fillMaxWidth(1/tabsCount).padding(horizontal=4dp)
-    //   → indicator glass: 56dp tall, (tabW - 8dp) wide, centered in the tab slot.
-    //   → translationX = dampedDragAnimation.value * tabWidth + panelOffset
+    // Faithful to LiquidBottomTabs.kt indicator Box geometry:
+    //   Box(padding(horizontal=4dp).graphicsLayer{translationX=value*tabWidth}
+    //     .drawBackdrop(...).height(56dp).fillMaxWidth(1/tabsCount))
     //
-    // INDICATOR BACKDROP: rememberCombinedBackdrop(backdrop, tabsBackdrop).
-    //   - backdrop = outer LayerBackdrop (wallpaper)
-    //   - tabsBackdrop = hidden Row (alpha=0) with ColorFilter.tint(accentColor)
-    //     → the indicator refracts wallpaper + blue-tinted tab content.
-    //   The indicator sits ABOVE the tab content (z-order), so it refracts the
-    //   content beneath it. We apply a blue surfaceColor (SrcOver) so the
-    //   content under the indicator appears blue — matching the original where
-    //   the indicator's CombinedBackdrop makes the selected tab's content blue.
+    //   - BoxWithConstraints maxWidth = TABS_W (= W - 2*36dp)
+    //   - tabWidth = (maxWidth - 8dp) / tabsCount   [container padding(4dp)*2]
+    //   - indicator Box width = fillMaxWidth(1/tabsCount) = TABS_W / tabsCount
+    //   - indicator glass width = Box width - 2*4dp padding = TABS_W/tabsCount - 8dp
+    //   - indicator glass x (fraction=0) = TABS_PAD + 4dp (BoxWithConstraints pad + indicator pad)
+    //   - translationX = fraction * tabWidth (renderer adds via toggleXOffset)
     //
-    // The original indicator also has onDrawSurface:
-    //   drawRect(dimColor 0.1, alpha=1-progress)  (dim at rest, clear pressed)
-    //   drawRect(Black 0.03*progress)             (slight darken when pressed)
-    // Handled by the isBottomTabIndicator dimColor path in post-passes.
-    const indicatorW = tabW - 2 * GLASS_PAD // (tabW - 8dp), 4dp inset each side
+    // Note: indicator Box width (TABS_W/tabsCount) ≠ tabWidth ((TABS_W-8)/tabsCount).
+    // The indicator glass is TABS_W/tabsCount - 8dp wide; tab items are tabWidth wide.
+    // The translation uses tabWidth so the indicator aligns with tab item centers.
+    const indicatorBoxW = TABS_W / tabsCount // fillMaxWidth(1/tabsCount) of BoxWithConstraints
+    const indicatorW = indicatorBoxW - 2 * GLASS_PAD // minus 4dp padding each side
     const indicatorEl = makeGlassShape(
       `${idPrefix}-indicator`,
-      // Indicator glass x = glassX + GLASS_PAD (4dp inset from tab slot left).
-      // Faithful to LiquidBottomTabs.kt: indicator Box has padding(horizontal=4dp),
-      // so the glass is inset 4dp on each side WITHIN the tab slot. The renderer
-      // adds translationX = fraction * tabW, so:
-      //   fraction=0 → indicator x = glassX+4, centered in tab 0 (4dp gap each side)
-      //   fraction=last → indicator x = glassX+4+(tabsCount-1)*tabW, centered in last tab
-      // This gives symmetric 4dp gaps on left and right of each tab slot, matching
-      // the original. The indicator right edge at the last tab = glassX+glassW-4,
-      // which is 4dp inside the tab content right edge (symmetric with the 4dp left
-      // gap at tab 0).
-      { x: glassX + GLASS_PAD, y: glassY, w: indicatorW, h: GLASS_H },
+      // Indicator glass x = TABS_PAD + 4dp (BoxWithConstraints pad + indicator pad).
+      // The renderer adds fraction * tabW via toggleXOffset (isBottomTabIndicator.dragWidth).
+      { x: TABS_PAD + GLASS_PAD, y: glassY, w: indicatorW, h: GLASS_H },
       {
         cornerRadius: glassR,
         refractionHeight: 10 * DP,
