@@ -205,8 +205,22 @@ export const renderMethods = {
       } else {
         c = el.plainRect.color
       }
+      // Slider fill: dynamically adjust width from the toggle group's animated
+      // fraction so the fill tracks the knob's spring motion (no React-state
+      // lag) and aligns exactly with the knob center (no overshoot).
+      //   fillEnd = trackX + knobW/4 + fraction * (trackW - knobW/2)
+      //   fillW = fillEnd - trackX = knobW/4 + fraction * (trackW - knobW/2)
+      let fillRect = r
+      if (el.isSliderFill) {
+        const sf = this.toggleStates.get(el.isSliderFill.groupId)
+        const fraction = sf ? sf.fraction : 0
+        const dragW = el.isSliderFill.trackW - el.isSliderFill.knobW / 2
+        const fillEnd = el.isSliderFill.trackX + el.isSliderFill.knobW / 4 + fraction * dragW
+        const fillW = Math.max(el.isSliderFill.minW, fillEnd - el.isSliderFill.trackX)
+        fillRect = { x: r.x, y: r.y, w: fillW, h: r.h }
+      }
       gl.useProgram(this.plainRectProgram)
-      this.setSdfUniforms(this.uPr, this.aPosLocPr, r, el.cornerRadius)
+      this.setSdfUniforms(this.uPr, this.aPosLocPr, fillRect, el.cornerRadius)
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
       gl.uniform4f(this.uPr['uColor'], c[0], c[1], c[2], c[3])
       gl.drawArrays(gl.TRIANGLES, 0, 6)

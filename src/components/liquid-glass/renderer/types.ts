@@ -244,6 +244,24 @@ export interface GlassElementConfig extends GlassButtonConfig {
     onColor: [number, number, number, number]
   }
   /**
+   * Slider fill — the accent-colored portion of a slider track. Its width is
+   * driven by the toggle group's animated `fraction` (spring) so it stays
+   * perfectly in sync with the knob's spring motion (no React-state lag).
+   *
+   * The fill extends from trackX to the knob's current center position:
+   *   fillEnd = trackX + knobW/4 + fraction * (trackW - knobW/2)
+   * This matches the knob center exactly (faithful to LiquidSlider.kt where
+   * both fill width and knob translationX use the same `progress`), so the
+   * fill never overshoots or undershoots the knob.
+   */
+  isSliderFill?: {
+    groupId: string
+    trackX: number
+    trackW: number
+    knobW: number
+    minW: number
+  }
+  /**
    * Bottom tabs container — scales up on press (16dp/width).
    * Faithful to LiquidBottomTabs.kt container layerBlock:
    *   scale = lerp(1, 1 + 16dp/width, pressProgress)

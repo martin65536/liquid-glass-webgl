@@ -1297,15 +1297,13 @@ function buildSlider(
   const SLIDER_HIT_H = 48 * DP
   s1TrackEl.hitRect = { x: s1TrackX, y: s1TrackY + (SLIDER_TRACK_H - SLIDER_HIT_H) / 2, w: s1TrackW, h: SLIDER_HIT_H }
   elements.push(s1TrackEl)
-  // Fill (accent color) — width lerps with the state fraction.
-  // The fill is drawn from trackX to trackX + trackW * fraction. At the
-  // extremes there's a small gap between the fill end and the knob center
-  // (knob is 1/4 off the track), which matches the original.
-  const s1Fraction = state.sliderValue / 100
-  const s1FillW = s1TrackW * s1Fraction
-  elements.push(
-    makePlainRect('slider1-fill', { x: s1TrackX, y: s1TrackY, w: Math.max(SLIDER_TRACK_H, s1FillW), h: SLIDER_TRACK_H }, [...SLIDER_ACCENT_T, 1], SLIDER_TRACK_H / 2)
-  )
+  // Fill (accent color) — width is driven by the renderer via isSliderFill,
+  // using the toggle group's animated fraction (spring) so it stays in sync
+  // with the knob's motion and aligns exactly with the knob center.
+  // The initial rect.w is a placeholder; the renderer recomputes it each frame.
+  const s1FillEl = makePlainRect('slider1-fill', { x: s1TrackX, y: s1TrackY, w: SLIDER_TRACK_H, h: SLIDER_TRACK_H }, [...SLIDER_ACCENT_T, 1], SLIDER_TRACK_H / 2)
+  s1FillEl.isSliderFill = { groupId: 'slider1', trackX: s1TrackX, trackW: s1TrackW, knobW: SLIDER_KNOB_W, minW: SLIDER_TRACK_H }
+  elements.push(s1FillEl)
   // Knob — solid frosted white at rest, glass when pressed (renderer handles modulation).
   const s1KnobEl = makeGlassShape(
     'slider1-knob',
@@ -1361,13 +1359,12 @@ function buildSlider(
   const s2TrackY = cardY + 24 + (SLIDER_KNOB_H - SLIDER_TRACK_H) / 2
   const s2KnobBaseX = s2TrackX - SLIDER_KNOB_W / 4
   const s2KnobY = s2TrackY + (SLIDER_TRACK_H - SLIDER_KNOB_H) / 2
-  const s2FillW = s2TrackW * s1Fraction
   const s2TrackEl = makePlainRect('slider2-track', { x: s2TrackX, y: s2TrackY, w: s2TrackW, h: SLIDER_TRACK_H }, SLIDER_TRACK_T, SLIDER_TRACK_H / 2)
   s2TrackEl.hitRect = { x: s2TrackX, y: s2TrackY + (SLIDER_TRACK_H - SLIDER_HIT_H) / 2, w: s2TrackW, h: SLIDER_HIT_H }
   elements.push(s2TrackEl)
-  elements.push(
-    makePlainRect('slider2-fill', { x: s2TrackX, y: s2TrackY, w: Math.max(SLIDER_TRACK_H, s2FillW), h: SLIDER_TRACK_H }, [...SLIDER_ACCENT_T, 1], SLIDER_TRACK_H / 2)
-  )
+  const s2FillEl = makePlainRect('slider2-fill', { x: s2TrackX, y: s2TrackY, w: SLIDER_TRACK_H, h: SLIDER_TRACK_H }, [...SLIDER_ACCENT_T, 1], SLIDER_TRACK_H / 2)
+  s2FillEl.isSliderFill = { groupId: 'slider2', trackX: s2TrackX, trackW: s2TrackW, knobW: SLIDER_KNOB_W, minW: SLIDER_TRACK_H }
+  elements.push(s2FillEl)
   const s2KnobEl = makeGlassShape(
     'slider2-knob',
     { x: s2KnobBaseX, y: s2KnobY, w: SLIDER_KNOB_W, h: SLIDER_KNOB_H },
