@@ -1667,10 +1667,17 @@ function buildBottomTabs(W: number, H: number, onBack: () => void, state: Catalo
     //   drawRect(dimColor 0.1, alpha=1-progress)  (dim at rest, clear pressed)
     //   drawRect(Black 0.03*progress)             (slight darken when pressed)
     // Handled by the isBottomTabIndicator dimColor path in post-passes.
-    const indicatorW = tabW - 2 * GLASS_PAD // (tabW - 8dp), centered in tab slot
+    const indicatorW = tabW - 2 * GLASS_PAD // (tabW - 8dp), 4dp inset each side
     const indicatorEl = makeGlassShape(
       `${idPrefix}-indicator`,
-      { x: glassX + GLASS_PAD, y: glassY, w: indicatorW, h: GLASS_H },
+      // Indicator glass x = glassX (aligned with tab 0's left edge).
+      // The renderer adds translationX = fraction * tabW, so at fraction=0
+      // the indicator aligns with tab 0, at fraction=1 with tab 1, etc.
+      // The indicator is narrower than a tab (tabW - 8dp) with 4dp inset on
+      // each side, faithful to the original's padding(horizontal=4dp).
+      // Previously x was glassX + GLASS_PAD (offset 4px right) which misaligned
+      // the indicator with the tab slots.
+      { x: glassX, y: glassY, w: indicatorW, h: GLASS_H },
       {
         cornerRadius: glassR,
         refractionHeight: 10 * DP,
