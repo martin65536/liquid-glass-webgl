@@ -301,6 +301,8 @@ export interface CatalogState {
   // LockScreen
   lockScreenOffsetX: number
   lockScreenOffsetY: number
+  // ControlCenter — bitmask of active tiles (bit 0 = cc-a, bit 1 = cc-b, ...)
+  controlCenterActive: number
 }
 
 export const DEFAULT_CATALOG_STATE: CatalogState = {
@@ -317,6 +319,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   magnifierY: 0,
   lockScreenOffsetX: 0,
   lockScreenOffsetY: 0,
+  controlCenterActive: 0,
 }
 
 /* ------------------------------------------------------------------ *
@@ -2006,7 +2009,7 @@ function buildProgressiveBlur(W: number, H: number, onBack: () => void, palette:
  * like the iOS control center. Each tile is a glass rounded-rect
  * with Default highlight. Some tiles contain flight icons.
  * ------------------------------------------------------------------ */
-function buildControlCenter(W: number, H: number, onBack: () => void, palette: ThemePalette = LIGHT_PALETTE): CatalogResult {
+function buildControlCenter(W: number, H: number, onBack: () => void, state: CatalogState, setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void, palette: ThemePalette = LIGHT_PALETTE): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
@@ -2137,6 +2140,32 @@ function buildControlCenter(W: number, H: number, onBack: () => void, palette: T
   elements.push(makeText('cc-k-icon', { x: rightColX, y: cursorY + itemSize + itemSpacing, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor } }))
 
   cursorY += twoSpan + itemSpacing
+
+  // Add tap interactions to all glass tiles — toggle active state (surfaceColor
+  // switches between containerColor and accentColor). Faithful to the original
+  // where tapping a tile toggles it (active = accentColor, inactive = containerColor).
+  const ccTileIds = ['cc-a', 'cc-b', 'cc-c', 'cc-d', 'cc-e', 'cc-f', 'cc-g', 'cc-h', 'cc-i', 'cc-j', 'cc-k']
+  for (let i = 0; i < ccTileIds.length; i++) {
+    const id = ccTileIds[i]
+    const bit = 1 << i
+    const isActive = (state.controlCenterActive & bit) !== 0
+    const el = elements.find((e) => e.id === id)
+    if (el) {
+      el.isInteractive = true
+      // active → accentColor surface, inactive → containerColor (0.05 black)
+      el.surfaceColor = isActive ? [...ACCENT_T] : [0, 0, 0, 0.05]
+    }
+    interactions[id] = {
+      onTap: () => {
+        setState((prev) => ({
+          controlCenterActive: prev.controlCenterActive ^ bit,
+        }))
+      },
+      onDragStart: () => {},
+      onDrag: () => {},
+      onDragEnd: () => {},
+    }
+  }
 
   const contentHeight = cursorY
   const finalHeight = applyVerticalCenter(elements, 0, contentHeight, H)
@@ -2689,7 +2718,7 @@ export function buildCatalog(
       result = buildLockScreen(W, H, onBack, state, setState, palette)
       break
     case CatalogDestination.ControlCenter:
-      result = buildControlCenter(W, H, onBack, palette)
+      result = buildControlCenter(W, H, onBack, state, setState, palette)
       break
     case CatalogDestination.Magnifier:
       result = buildMagnifier(W, H, onBack, state, setState, palette)
