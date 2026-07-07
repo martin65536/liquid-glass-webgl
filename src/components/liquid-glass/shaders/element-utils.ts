@@ -210,26 +210,18 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     vec4 scene = texture2D(uBackdrop, sceneUv2);
 
     // 4. Tint only the tab content (icons/labels) blue. Use each tab's
-    //    fgTexture (icon+label alpha mask) to determine which pixels are
-    //    opaque content → blue. Container glass stays its natural color.
-    //    The tab rects scale around the container center + shift by panelOffset
-    //    (same transform as the mini-glass capsule), so the tint tracks the
-    //    container's press scale + drag motion.
+    //    fgTexture (icon+label alpha mask) to REPLACE the scene's white/black
+    //    text with blue. step() gives a hard 0/1 mask — no mix, no white edges.
     float tabMask = 0.0;
     for (int i = 0; i < 8; i++) {
         if (float(i) >= uTabContentCount) break;
         vec4 r = uTabContentRects[i];
         if (r.z > 0.5 && r.w > 0.5) {
-            // Scale the tab rect around the container center + panelOffset.
             vec2 scaledCenter = uContainerCenter + (r.xy - uContainerCenter) * uContainerScale
                               + vec2(uIndicatorPanelOffset, 0.0);
             vec2 scaledHalf = r.zw * uContainerScale;
-            // canvasPx relative to scaled tab rect top-left, normalized 0..1.
             vec2 localPx = canvasPx - (scaledCenter - scaledHalf);
             vec2 uv = localPx / (scaledHalf * 2.0);
-            // Y-flip: fgTexture is rasterized top-down (Canvas2D), but WebGL
-            // texture origin is bottom-up. Flip Y so the icon/label aligns.
-            uv.y = 1.0 - uv.y;
             if (all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0)))) {
                 float a = 0.0;
                 if (i == 0) a = texture2D(uTabContentTex0, uv).a;
@@ -244,7 +236,8 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
             }
         }
     }
-    vec3 sceneColor = mix(scene.rgb, uIndicatorAccent.rgb, tabMask);
+    // Hard replace: tabMask > 0.5 → blue, else scene. No white edges.
+    vec3 sceneColor = mix(scene.rgb, uIndicatorAccent.rgb, step(0.5, tabMask));
 
     // 5. Composite scene over wallpaper inside the inset capsule (SrcOver).
     float a = scene.a * mask;
