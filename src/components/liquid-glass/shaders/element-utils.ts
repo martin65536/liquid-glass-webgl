@@ -199,20 +199,24 @@ vec4 sampleToggleBackdrop(vec2 canvasPx, float radius) {
 vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     // Faithful to LiquidBottomTabs.kt indicator's CombinedBackdrop:
     //   backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop)
-    //   - backdrop = outer LayerBackdrop (wallpaper) — the MAIN backdrop
-    //   - tabsBackdrop = hidden Row (alpha=0) capturing container+tabs with
-    //     ColorFilter.tint(accentColor) — a SUBTLE secondary layer
+    //   - backdrop = outer LayerBackdrop (wallpaper) — clean background
+    //   - tabsBackdrop = hidden Row capturing a SCALED-DOWN copy of the
+    //     container glass + tab content (icons/labels), NOT a blue tint.
     //
-    // The indicator is primarily a glass element refracting the wallpaper
-    // (like a toggle knob). The tabsBackdrop adds a faint blue tint inside
-    // the container capsule — it should NOT flood the container with blue.
-    // The original's tint is gentle (HSV tint preserves brightness), and the
-    // hidden Row's glass refracts mostly wallpaper, so the net effect is a
-    // subtle blue cast, not a solid blue fill.
+    // User clarification: "原版和开关的处理差不多" (same as toggle knob):
+    //   1. Clean wallpaper background (LayerBackdrop)
+    //   2. Scaled-down container glass composited on top (real glass, no tint)
+    //   3. Blue icon/text (tab content in accentColor, opaque)
+    //   NOT transparent, NOT a blue filter over everything.
+    //
+    // We sample the SCENE FBO (uBackdrop) which already contains the drawn
+    // container glass + tab content, and composite it inside the container
+    // capsule SDF — like the toggle knob samples the scaled track content.
+    // No tint, no blue filter: the container glass keeps its natural appearance
+    // (refracting wallpaper), and the tab content shows through as-is.
 
     // 1. Sample wallpaper (outer LayerBackdrop) via coverUv (cover-fit).
-    //    This is the PRIMARY backdrop — the indicator is mostly transparent
-    //    glass refracting the wallpaper.
+    //    This is the CLEAN background.
     vec4 wp;
     if (radius < 0.5) {
         vec2 uv = coverUv(canvasPx);
@@ -234,13 +238,11 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
         wp = sum / total;
     }
 
-    // 2. Apply a FAINT blue tint inside the container capsule, faithful to
-    //    the tabsBackdrop's ColorFilter.tint(accentColor). The tint is subtle:
-    //    HSV tint (take H+S from accent, keep V) preserves brightness, so it
-    //    only shifts the hue gently. We further reduce the intensity so the
-    //    container doesn't look flooded with blue — the original's hidden Row
-    //    is at alpha=0 and its glass refracts mostly wallpaper, making the net
-    //    blue cast very gentle.
+    // 2. Composite the scene (container glass + tab content) inside the
+    //    container capsule, faithful to the tabsBackdrop capturing the
+    //    scaled-down container. The scene FBO (uBackdrop) already has the
+    //    container glass + tab content drawn — we composite it over the
+    //    wallpaper, masked to the capsule shape. NO tint, NO blue filter.
     vec2 containerCenter = uContainerRect.xy;
     vec2 containerHalf = uContainerRect.zw;
     vec2 containerLocal = canvasPx - containerCenter;
@@ -249,11 +251,13 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     float containerSd = length(max(cq, vec2(0.0))) + min(max(cq.x, cq.y), 0.0) - cr;
     float containerMask = 1.0 - smoothstep(-1.0, 1.0, containerSd);
 
-    // blendHue: take accent's H+S, keep wallpaper's V. Then mix at low alpha.
-    vec3 tinted = blendHue(wp.rgb, uIndicatorAccent.rgb);
-    float tintAlpha = containerMask * 0.15;  // very faint
-    vec3 resultRgb = mix(wp.rgb, tinted, tintAlpha);
+    // Sample the scene FBO (container glass + tab content).
+    vec2 sceneUv2 = sceneUv(canvasPx);
+    vec4 scene = texture2D(uBackdrop, sceneUv2);
 
+    // SrcOver composite: scene over wallpaper, masked to capsule.
+    float a = scene.a * containerMask;
+    vec3 resultRgb = mix(wp.rgb, scene.rgb, a);
     return vec4(resultRgb, 1.0);
 }
 
