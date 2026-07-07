@@ -213,11 +213,10 @@ export const glassPostPassMethods = {
       gl.uniform4f(this.uRm['uHighlightColor'], el.highlight.color[0], el.highlight.color[1], el.highlight.color[2], 1.0)
       gl.uniform1f(this.uRm['uHighlightAngle'], el.highlight.angle)
       gl.uniform1f(this.uRm['uHighlightFalloff'], el.highlight.falloff)
-      // For toggle knobs AND bottom-tab indicators, use the pressProgress-modulated
-      // alpha (elHighlightAlpha = highlight.alpha * progress). At rest both have
-      // alpha=0 (no edge highlight); pressed → full. For non-toggle elements,
-      // use the original alpha.
-      const rimAlpha = (el.isToggleKnob || el.isBottomTabIndicator) ? elHighlightAlpha : el.highlight.alpha
+      // For toggle knobs the alpha is pressProgress-modulated (rest = 0).
+      // For bottom-tab indicators the alpha is always full (visible white
+      // glow at rest). For non-toggle elements, use the original alpha.
+      const rimAlpha = el.isToggleKnob ? elHighlightAlpha : el.highlight.alpha
       gl.uniform1f(this.uRm['uHighlightAlpha'], rimAlpha)
       gl.uniform1f(this.uRm['uHighlightMode'], el.highlight.mode)
       // Stroke width + blur in ORIGINAL px (the rim-highlight SDF is now
