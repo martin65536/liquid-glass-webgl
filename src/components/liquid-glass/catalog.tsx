@@ -2656,15 +2656,13 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
       setState((prev) => {
         const zoom = prev.gpZoom * gestureZoom
         const rotation = prev.gpRotation + gestureRotate
-        // Rotate the pan delta by the new rotation, then scale by zoom
-        // (faithful to: offset + pan.rotateBy(rotation) * zoom).
-        const cosR = Math.cos(rotation)
-        const sinR = Math.sin(rotation)
-        const rx = pan.x * cosR - pan.y * sinR
-        const ry = pan.x * sinR + pan.y * cosR
+        // The centroid pan is in SCREEN space, and gpOffsetX/Y is also in
+        // screen space — so apply it directly (the glass follows the fingers).
+        // Faithful to: translationX/Y in graphicsLayer is screen-space, and
+        // the centroid delta is screen-space, so they compose directly.
         return {
-          gpOffsetX: prev.gpOffsetX + rx * zoom,
-          gpOffsetY: prev.gpOffsetY + ry * zoom,
+          gpOffsetX: prev.gpOffsetX + pan.x,
+          gpOffsetY: prev.gpOffsetY + pan.y,
           gpZoom: zoom,
           gpRotation: rotation,
         }
