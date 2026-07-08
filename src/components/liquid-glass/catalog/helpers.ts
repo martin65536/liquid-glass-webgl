@@ -140,17 +140,33 @@ export const toggleDragBindings = {
   setTarget: (r: LiquidGlassRenderer, id: string, f: number) => r.setToggleTarget(id, f),
 }
 
-// Bottom tabs: getTabFraction, beginTabDrag, dragTab, endTabDrag, setTabSelected.
+// Bottom tabs: fraction (0..1) ↔ index (0..count-1) conversion at the
+// binding layer. The renderer works in INDEX space (0..count-1), but
+// makeDragInteractions works in FRACTION space (0..1). The bindings
+// convert: getFraction divides by (count-1), setTarget/beginDrag/drag
+// multiply by (count-1).
 export const tabDragBindings = {
-  getFraction: (r: LiquidGlassRenderer, id: string) => r.getTabFraction(id),
-  beginDrag: (r: LiquidGlassRenderer, id: string, f: number, count?: number) =>
-    r.beginTabDrag(id, f, count ?? 3),
-  drag: (r: LiquidGlassRenderer, id: string, sf: number, cx: number, sx: number, dw: number, count?: number) =>
-    r.dragTab(id, sf, cx, sx, dw, count ?? 3),
-  endDrag: (r: LiquidGlassRenderer, id: string, count?: number) =>
-    r.endTabDrag(id, count ?? 3),
-  setTarget: (r: LiquidGlassRenderer, id: string, f: number, count?: number) =>
-    r.setTabSelected(id, Math.round(f), count ?? 3),
+  getFraction: (r: LiquidGlassRenderer, id: string, count?: number) => {
+    const c = count ?? 3
+    return r.getTabFraction(id) / Math.max(1, c - 1)
+  },
+  beginDrag: (r: LiquidGlassRenderer, id: string, f: number, count?: number) => {
+    const c = count ?? 3
+    r.beginTabDrag(id, f * (c - 1), c)
+  },
+  drag: (r: LiquidGlassRenderer, id: string, sf: number, cx: number, sx: number, dw: number, count?: number) => {
+    const c = count ?? 3
+    r.dragTab(id, sf * (c - 1), cx, sx, dw, c)
+  },
+  endDrag: (r: LiquidGlassRenderer, id: string, count?: number) => {
+    const c = count ?? 3
+    // endTabDrag returns an INDEX (0..c-1). Convert to fraction (0..1).
+    return r.endTabDrag(id, c) / Math.max(1, c - 1)
+  },
+  setTarget: (r: LiquidGlassRenderer, id: string, f: number, count?: number) => {
+    const c = count ?? 3
+    r.setTabSelected(id, Math.max(0, Math.min(c - 1, Math.round(f * (c - 1)))), c)
+  },
 }
 
 export function makeLiquidSlider(
@@ -373,21 +389,22 @@ export function makeTabDragInteractions(
   onSelect: (i: number) => void,
   rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> | null
 ): ElementInteraction {
+  // Tab fraction maps 0..1 to tab indices 0..(tabsCount-1).
+  // snap: round to nearest 1/(tabsCount-1) step.
+  // index: Math.round(fraction * (tabsCount-1)).
+  const maxIndex = tabsCount - 1
   return makeDragInteractions({
     groupId,
-    trackX: 0, // tab dragW is the full tabWidth (not offset by knob)
+    trackX: 0,
     dragW: tabWidth,
     rendererRef,
     onValueChange: (f) => {
-      // onSelect is called on dragEnd with the snapped (integer) index.
-      // The makeDragInteractions onDragEnd calls onValueChange with the
-      // snapped fraction — convert to index and call onSelect.
-      onSelect(Math.round(f))
+      onSelect(Math.max(0, Math.min(maxIndex, Math.round(f * maxIndex))))
     },
     ...tabDragBindings,
     count: tabsCount,
-    snap: (f) => Math.max(0, Math.min(1, Math.round(f * tabsCount) / tabsCount)),
-    onTapJump: false, // tab taps are handled by tab-text interactions
+    snap: (f) => Math.max(0, Math.min(1, Math.round(f * maxIndex) / maxIndex)),
+    onTapJump: false,
   })
 }
 
