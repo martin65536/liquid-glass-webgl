@@ -136,14 +136,21 @@ export default function Page() {
   // (left-right tilt). We map these to a gravity angle: gamma → x, beta → y.
   // Stored in React state so changes trigger a catalog rebuild → real-time
   // highlight rotation on Control Center tiles.
+  // THROTTLED: only update state when angle changes by >5° to avoid
+  // rebuilding the catalog (and losing drag state) on every deviceorientation
+  // event (which fires ~60/s on mobile).
   const [gravityAngle, setGravityAngleState] = React.useState(45)
+  const lastGravityUpdateRef = React.useRef(45)
   React.useEffect(() => {
     if (typeof window === 'undefined' || !('DeviceOrientationEvent' in window)) return
     const handler = (e: DeviceOrientationEvent) => {
       const x = e.gamma ?? 0
       const y = e.beta ?? 0
       const angle = Math.atan2(y, x) * 180 / Math.PI
-      setGravityAngleState(angle)
+      if (Math.abs(angle - lastGravityUpdateRef.current) >= 5) {
+        lastGravityUpdateRef.current = angle
+        setGravityAngleState(angle)
+      }
     }
     window.addEventListener('deviceorientation', handler)
     return () => window.removeEventListener('deviceorientation', handler)
