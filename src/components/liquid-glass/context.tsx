@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { LiquidGlassRenderer, type GlassElementConfig } from './renderer'
+import { draggingGroups } from './catalog'
 
 /* ------------------------------------------------------------------ *
  * LiquidGlassCanvas
@@ -94,6 +95,8 @@ export function LiquidGlassCanvas({
   elementsRef.current = elements
   const interactionsRef = React.useRef(interactions)
   interactionsRef.current = interactions
+  // Module-level draggingGroups from catalog.tsx — tracks which toggle
+  // groups are being dragged (setToggleTarget skipped to avoid drift).
 
   // --- Gesture state (all in refs so handlers don't need re-creation) ---
   /** Currently pressed element id (or null for scroll/empty). */
@@ -188,6 +191,9 @@ export function LiquidGlassCanvas({
     const r = rendererRefInternal.current
     if (!r) return
     for (const [groupId, target] of Object.entries(toggleTargets)) {
+      // Skip groups currently being dragged — dragToggle controls their
+      // fraction, setToggleTarget would conflict and cause drift.
+      if (draggingGroups.has(groupId)) continue
       r.setToggleTarget(groupId, target)
     }
   }, [toggleTargets])

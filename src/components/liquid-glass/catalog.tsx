@@ -39,6 +39,9 @@ let ccDragRAF: number | null = null
 let ccDragPending: number | null = null
 // Magnifier drag-start offset (survives re-renders)
 const magDragStart: { x: number; y: number } = { x: 0, y: 0 }
+// Track which toggle groups are being dragged — setToggleTarget is skipped
+// for these (in context.tsx) to avoid drift during liveUpdate.
+export const draggingGroups = new Set<string>()
 // Control-center snap animation handle (cancel previous if a new one starts)
 let ccAnimHandle: number | null = null
 /** Animate controlCenterEnter to `target` (0 or 1) via a simple lerp spring. */
@@ -397,7 +400,8 @@ function makeLiquidSlider(
   accentColor: [number, number, number],
   rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> | null,
   onValueChange: (fraction: number) => void,
-  scroll = true
+  scroll = true,
+  liveUpdate = false
 ): { elements: GlassElementConfig[]; interactions: Record<string, ElementInteraction> } {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
@@ -449,6 +453,7 @@ function makeLiquidSlider(
     onDragStart: (pos) => {
       const r = rendererRef?.current
       if (!r) return
+      draggingGroups.add(groupId)
       dragStartFraction = r.getToggleFraction(groupId)
       dragStartX = pos.x
       r.beginToggleDrag(groupId, dragStartFraction)
@@ -457,17 +462,24 @@ function makeLiquidSlider(
       const r = rendererRef?.current
       if (!r) return
       r.dragToggle(groupId, dragStartFraction, pos.x, dragStartX, dragW)
+      if (liveUpdate) {
+        const f = r.getToggleFraction(groupId)
+        onValueChange(f)
+      }
     },
     onDragEnd: () => {
       const r = rendererRef?.current
       if (!r) return
-      onValueChange(r.endSliderDrag(groupId))
+      const f = r.endSliderDrag(groupId)
+      draggingGroups.delete(groupId)
+      onValueChange(f)
     },
   }
   const knobInteract: ElementInteraction = {
     onDragStart: (pos) => {
       const r = rendererRef?.current
       if (!r) return
+      draggingGroups.add(groupId)
       dragStartFraction = r.getToggleFraction(groupId)
       dragStartX = pos.x
       r.beginToggleDrag(groupId, dragStartFraction)
@@ -476,11 +488,17 @@ function makeLiquidSlider(
       const r = rendererRef?.current
       if (!r) return
       r.dragToggle(groupId, dragStartFraction, pos.x, dragStartX, dragW)
+      if (liveUpdate) {
+        const f = r.getToggleFraction(groupId)
+        onValueChange(f)
+      }
     },
     onDragEnd: () => {
       const r = rendererRef?.current
       if (!r) return
-      onValueChange(r.endSliderDrag(groupId))
+      const f = r.endSliderDrag(groupId)
+      draggingGroups.delete(groupId)
+      onValueChange(f)
     },
   }
   interactions[`${idPrefix}-track`] = trackInteract
@@ -2608,14 +2626,15 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
         trackY,
         trackW,
         groupId,
-        SLIDER_TRACK,
-        SLIDER_ACCENT,
+        palette.sliderTrackOff,
+        palette.sliderAccent,
         rendererRef,
         (f) => {
           const v = range[0] + (range[1] - range[0]) * f
           setState({ [key]: v } as Partial<CatalogState>)
         },
-        false // scroll = false
+        false, // scroll = false
+        true   // liveUpdate = true
       )
       elements.push(...slider.elements)
       Object.assign(interactions, slider.interactions)
