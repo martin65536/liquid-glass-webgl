@@ -372,7 +372,7 @@ export const renderMethods = {
         gl.uniform2f(this.uFg['uOriginalSize'], el.rect.w * this.dpr, el.rect.h * this.dpr)
         gl.uniform1f(this.uFg['uOriginalCornerRadius'], el.cornerRadius * this.dpr)
         gl.uniform2f(this.uFg['uLayerScale'], fgScaleX, fgScaleY)
-        gl.uniform1f(this.uFg['uAlpha'], el.enterProgress != null ? el.enterProgress * el.enterProgress * (3 - 2 * el.enterProgress) : 1.0)
+        gl.uniform1f(this.uFg['uAlpha'], el.enterProgress != null ? (() => { const p = Math.max(0, Math.min(1, el.enterProgress!)); return p * p * (3 - 2 * p); })() : 1.0)
         gl.drawArrays(gl.TRIANGLES, 0, 6)
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
       }

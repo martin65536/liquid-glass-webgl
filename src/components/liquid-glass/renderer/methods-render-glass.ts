@@ -309,7 +309,7 @@ export const glassRenderMethods = {
       // here, and renderGlassElementPass overrides it to alpha*progress when
       // progress > 0. For non-toggle elements, use the static highlight alpha.
       elHighlightAlpha: (el.isToggleKnob || el.isBottomTabIndicator) ? 0 : (el.highlight ? el.highlight.alpha : 0),
-      enterAlpha: el.enterProgress != null ? el.enterProgress * el.enterProgress * (3 - 2 * el.enterProgress) : 1,
+      enterAlpha: el.enterProgress != null ? (() => { const p = Math.max(0, Math.min(1, el.enterProgress!)); return p * p * (3 - 2 * p); })() : 1,
       layerScaleX: scaleX,
       layerScaleY: scaleY,
       layerScale: Math.min(scaleX, scaleY),

@@ -2185,7 +2185,7 @@ function buildControlCenter(W: number, H: number, onBack: () => void, state: Cat
   const itemSize = 68 * DP
   const twoSpan = itemSize * 2 + itemSpacing
   const iconColor: [number, number, number, number] = [1, 1, 1, 1]
-  const dimAlpha = state.controlCenterEnter * 0.4
+  const dimAlpha = Math.min(1, state.controlCenterEnter) * 0.4
   const dimEl = makePlainRect('cc-dim', { x: 0, y: 0, w: W, h: Math.max(H, 800) }, [0, 0, 0, dimAlpha], 0)
   dimEl.scroll = false
   elements.push(dimEl)
