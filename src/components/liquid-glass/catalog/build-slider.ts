@@ -14,6 +14,10 @@ import {
 } from './types'
 import { applyVerticalCenter, makeBackButton, makeGlassShape, makePlainRect } from './helpers'
 
+// Module-level drag state — survives re-renders (gravityAngle changes can
+// rebuild the catalog mid-drag, which would reset closure variables).
+const sliderDragStates = new Map<string, { fraction: number; x: number }>()
+
 /* ------------------------------------------------------------------ *
  * SLIDER — faithful to SliderContent.kt + LiquidSlider.kt
  *
@@ -238,8 +242,8 @@ export function buildSlider(
     //   detectTapGestures → animateToValue).
     // NO setState during drag — the fill width is driven by the renderer's
     // isSliderFill (reads sf.fraction every frame). State is synced on dragEnd.
-    let dragStartFraction = 0
-    let dragStartX = 0
+    if (!sliderDragStates.has(groupId)) sliderDragStates.set(groupId, { fraction: 0, x: 0 })
+    const ds = sliderDragStates.get(groupId)!
     const fractionAt = (pos: { x: number; y: number }) =>
       Math.max(0, Math.min(1, (pos.x - trackX) / trackW))
     return {
@@ -250,15 +254,15 @@ export function buildSlider(
         const r = rendererRef?.current
         if (!r) return
         // Relative: start from the knob's CURRENT visual position (not jump).
-        dragStartFraction = r.getToggleFraction(groupId)
-        dragStartX = pos.x
-        r.beginToggleDrag(groupId, dragStartFraction)
+        ds.fraction = r.getToggleFraction(groupId)
+        ds.x = pos.x
+        r.beginToggleDrag(groupId, ds.fraction)
       },
       onDrag: (pos: { x: number; y: number }) => {
         const r = rendererRef?.current
         if (!r) return
         // Relative: knob follows finger delta, not absolute position.
-        r.dragToggle(groupId, dragStartFraction, pos.x, dragStartX, dragW)
+        r.dragToggle(groupId, ds.fraction, pos.x, ds.x, dragW)
       },
       onDragEnd: () => {
         const r = rendererRef?.current
@@ -269,8 +273,8 @@ export function buildSlider(
     }
   }
   function makeSliderKnobInteractions(groupId: string, dragW: number, trackX: number, trackW: number) {
-    let dragStartFraction = 0
-    let dragStartX = 0
+    if (!sliderDragStates.has(groupId)) sliderDragStates.set(groupId, { fraction: 0, x: 0 })
+    const ds = sliderDragStates.get(groupId)!
     const fractionAt = (pos: { x: number; y: number }) =>
       Math.max(0, Math.min(1, (pos.x - trackX) / trackW))
     return {
@@ -286,9 +290,9 @@ export function buildSlider(
         // is mid-animation (fraction ≠ target), starting from target would
         // cause a visible jump/teleport. Faithful to LiquidSlider.kt which
         // reads the current animated value.
-        dragStartFraction = r.getToggleFraction(groupId)
-        dragStartX = pos.x
-        r.beginToggleDrag(groupId, dragStartFraction)
+        ds.fraction = r.getToggleFraction(groupId)
+        ds.x = pos.x
+        r.beginToggleDrag(groupId, ds.fraction)
       },
       onDrag: (pos: { x: number; y: number }) => {
         const r = rendererRef?.current
@@ -299,7 +303,7 @@ export function buildSlider(
         // drag. Calling setState during drag caused a feedback loop (setState
         // → toggleTargets effect → setToggleTarget) that fought the spring.
         // State is synced once on dragEnd.
-        r.dragToggle(groupId, dragStartFraction, pos.x, dragStartX, dragW)
+        r.dragToggle(groupId, ds.fraction, pos.x, ds.x, dragW)
       },
       onDragEnd: () => {
         const r = rendererRef?.current

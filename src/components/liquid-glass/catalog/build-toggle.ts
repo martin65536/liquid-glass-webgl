@@ -3,6 +3,11 @@ import type { ElementInteraction } from '../context'
 import type { GlassElementConfig, GlassHighlight, LiquidGlassRenderer } from '../renderer'
 import { DP, LIGHT_PALETTE, type CatalogResult, type CatalogState, type ThemePalette } from './types'
 import { applyVerticalCenter, makeBackButton, makeGlassShape, makePlainRect } from './helpers'
+import { draggingGroups } from './types'
+
+// Module-level drag state — survives re-renders (gravityAngle changes can
+// rebuild the catalog mid-drag, which would reset closure variables).
+const toggleDragStates = new Map<string, { fraction: number; x: number }>()
 
 /* ------------------------------------------------------------------ *
  * TOGGLE — pixel-perfect port of ToggleContent.kt + LiquidToggle.kt
@@ -289,8 +294,8 @@ export function buildToggle(
   // Each toggle has its own groupId for animation, but both are pushed
   // the same target via `toggleTargets` from page.tsx.
   function makeToggleInteractions(groupId: string, dragWidth: number) {
-    let dragStartFraction = 0
-    let dragStartX = 0
+    if (!toggleDragStates.has(groupId)) toggleDragStates.set(groupId, { fraction: 0, x: 0 })
+    const ds = toggleDragStates.get(groupId)!
     return {
       onTap: () => {
         setState((prev) => ({ toggleOn: !prev.toggleOn }))
@@ -298,14 +303,14 @@ export function buildToggle(
       onDragStart: (pos: { x: number; y: number }) => {
         const r = rendererRef?.current
         if (!r) return
-        dragStartFraction = r.getToggleTarget(groupId)
-        dragStartX = pos.x
-        r.beginToggleDrag(groupId, dragStartFraction)
+        ds.fraction = r.getToggleTarget(groupId)
+        ds.x = pos.x
+        r.beginToggleDrag(groupId, ds.fraction)
       },
       onDrag: (pos: { x: number; y: number }) => {
         const r = rendererRef?.current
         if (!r) return
-        r.dragToggle(groupId, dragStartFraction, pos.x, dragStartX, dragWidth)
+        r.dragToggle(groupId, ds.fraction, pos.x, ds.x, dragWidth)
       },
       onDragEnd: () => {
         const r = rendererRef?.current
