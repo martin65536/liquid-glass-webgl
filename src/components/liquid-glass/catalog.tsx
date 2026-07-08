@@ -398,13 +398,16 @@ function makeLiquidSlider(
   rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> | null,
   onValueChange: (fraction: number) => void,
   scroll = true,
-  liveUpdate = false
+  liveUpdate = false,
+  initialFraction = 0
 ): { elements: GlassElementConfig[]; interactions: Record<string, ElementInteraction> } {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
   const dragW = trackW - SLIDER_KNOB_W / 2
   const knobBaseX = trackX - SLIDER_KNOB_W / 4
   const knobY = trackY + (SLIDER_TRACK_H - SLIDER_KNOB_H) / 2
+  // Initial knob position from initialFraction
+  const knobX = knobBaseX + initialFraction * dragW
 
   // Track
   const trackEl = makePlainRect(`${idPrefix}-track`, { x: trackX, y: trackY, w: trackW, h: SLIDER_TRACK_H }, trackColor, SLIDER_TRACK_H / 2)
@@ -412,8 +415,9 @@ function makeLiquidSlider(
   trackEl.scroll = scroll
   elements.push(trackEl)
 
-  // Fill
-  const fillEl = makePlainRect(`${idPrefix}-fill`, { x: trackX, y: trackY, w: SLIDER_TRACK_H, h: SLIDER_TRACK_H }, [...accentColor, 1], SLIDER_TRACK_H / 2)
+  // Fill — initial width from initialFraction
+  const fillW = Math.max(SLIDER_TRACK_H, initialFraction * trackW)
+  const fillEl = makePlainRect(`${idPrefix}-fill`, { x: trackX, y: trackY, w: fillW, h: SLIDER_TRACK_H }, [...accentColor, 1], SLIDER_TRACK_H / 2)
   fillEl.isSliderFill = { groupId, trackX, trackW, knobW: SLIDER_KNOB_W, minW: 0 }
   fillEl.scroll = scroll
   elements.push(fillEl)
@@ -421,7 +425,7 @@ function makeLiquidSlider(
   // Knob
   const knobEl = makeGlassShape(
     `${idPrefix}-knob`,
-    { x: knobBaseX, y: knobY, w: SLIDER_KNOB_W, h: SLIDER_KNOB_H },
+    { x: knobX, y: knobY, w: SLIDER_KNOB_W, h: SLIDER_KNOB_H },
     {
       cornerRadius: SLIDER_KNOB_H / 2,
       refractionHeight: 10 * DP,
@@ -437,7 +441,7 @@ function makeLiquidSlider(
     scroll
   )
   knobEl.isToggleKnob = { groupId, dragWidth: dragW, velocityDivisor: 10 }
-  knobEl.hitRect = { x: knobBaseX, y: knobY + (SLIDER_KNOB_H - SLIDER_HIT_H) / 2, w: SLIDER_KNOB_W, h: SLIDER_HIT_H }
+  knobEl.hitRect = { x: knobX, y: knobY + (SLIDER_KNOB_H - SLIDER_HIT_H) / 2, w: SLIDER_KNOB_W, h: SLIDER_HIT_H }
   elements.push(knobEl)
 
   // Interactions — relative drag (same as Slider page)
@@ -2551,12 +2555,15 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
 
   // Control sheet (bottom, glass card with sliders) — only when expanded
   const ORANGE = [0xff / 255, 0x8d / 255, 0x28 / 255, 1] as [number, number, number, number]
+  const toggleBtnSize = 56 * DP
+  const bottomBtnSpace = 20 * DP + toggleBtnSize + 12 * DP // button area + gap
   if (state.gpSheetExpanded) {
     const sheetX = 16 * DP
-    const sheetY = squareY + squareSize + 24
     const sheetW = W - 2 * sheetX
-    const sheetH = 340 * DP
+    const sheetH = 300 * DP
     const sheetRadius = 32 * DP
+    // Position sheet above the bottom buttons (relative to bottom)
+    const sheetY = H - bottomBtnSpace - sheetH
     elements.push(
       makeGlassShape(
         'gp-sheet',
@@ -2587,18 +2594,18 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
   const gpTrackX = sheetX + GP_PAD
   const gpTrackW = sheetW - 2 * GP_PAD
 
-  let labelY = sheetY + 24
+  let labelY = sheetY + 20
   let sliderIdx = 0
   for (const s of sliderLabels) {
     // Label
     elements.push(
       makeText(
         `gp-label-${s.key}`,
-        { x: sheetX + 24, y: labelY, w: sheetW - 48, h: 20 },
+        { x: sheetX + 24, y: labelY, w: sheetW - 48, h: 18 },
         s.label,
         {
           color: labelColor,
-          fontSizePx: 14,
+          fontSizePx: 13,
           fontWeight: 400,
           align: 'left',
           paddingPx: 0,
@@ -2606,7 +2613,7 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
         }
       )
     )
-    labelY += 24
+    labelY += 22 // label height + gap to slider
 
     // Slider — shared factory (same component as the Slider page)
     const groupId = `gp-slider-${sliderIdx++}`
@@ -2625,17 +2632,17 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
         setState({ [s.key]: v } as Partial<CatalogState>)
       },
       false, // scroll = false (playground doesn't scroll)
-      true   // liveUpdate = true (real-time parameter adjustment)
+      true,  // liveUpdate = true (real-time parameter adjustment)
+      (s.val - range[0]) / (range[1] - range[0]) // initialFraction from state
     )
     elements.push(...slider.elements)
     Object.assign(interactions, slider.interactions)
 
-    labelY += 36
+    labelY += 30 // slider height + gap to next label
   }
   } // end if (state.gpSheetExpanded)
 
   // Left bottom: orange circle button — toggle sheet expand/collapse
-  const toggleBtnSize = 56 * DP
   const toggleBtn = makeButton(
     'gp-toggle',
     { x: 20 * DP, y: H - 20 * DP - toggleBtnSize, w: toggleBtnSize, h: toggleBtnSize },
