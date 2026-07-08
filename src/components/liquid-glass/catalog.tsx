@@ -2561,8 +2561,8 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
     const sheetX = 16 * DP
     const sheetW = W - 2 * sheetX
     const sheetRadius = 32 * DP
-    // Calculate sheet height from content: 5 items × (label 14 + gap 10 + slider 24 + gap 8) + top/bottom padding 24
-    const itemH = 14 + 10 + 24 + 8 // label + gap + slider + gap
+    // Calculate sheet height from content: 5 items × (label 14 + gap 18 + slider 24 + gap 8) + top/bottom padding 24
+    const itemH = 14 + 18 + 24 + 8 // label + gap + slider + gap
     const sheetH = 24 + 5 * itemH + 24 - 8 // top pad + 5 items - last gap + bottom pad
     // Position sheet above the bottom buttons (relative to bottom)
     const sheetY = H - bottomBtnSpace - sheetH
@@ -2615,7 +2615,7 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
         }
       )
     )
-    labelY += 14 + 10 // label height + 10dp gap to slider
+    labelY += 14 + 18 // label height + 18dp gap (compensates for knob overflowing track by 9dp up)
 
     // Slider — shared factory (same component as the Slider page)
     const groupId = `gp-slider-${sliderIdx++}`
