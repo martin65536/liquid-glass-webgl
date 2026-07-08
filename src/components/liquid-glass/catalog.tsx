@@ -599,6 +599,8 @@ function makeText(
     align?: 'left' | 'center' | 'right'
     wrap?: boolean
     paddingPx?: number
+    valign?: 'top' | 'center' | 'bottom'
+    maxLines?: number
     halo?: 'auto' | 'light' | 'dark' | 'none'
     icon?: { path: string; size: number; color: [number, number, number, number] }
     /** Press tint color for interactive text items (ripple color).
@@ -638,6 +640,8 @@ function makeText(
       align: opts.align ?? 'left',
       wrap: opts.wrap ?? false,
       paddingPx: opts.paddingPx ?? 16,
+      valign: opts.valign,
+      maxLines: opts.maxLines,
       halo: opts.halo ?? 'auto',
       icon: opts.icon,
     },
@@ -2051,7 +2055,12 @@ function buildDialog(W: number, H: number, onBack: () => void, palette: ThemePal
   //   colorControls(brightness = if (isLightTheme) 0.2f else 0f, saturation = 1.5f)
   const DIALOG_PAD = 40 * DP
   const DIALOG_W = W - 2 * DIALOG_PAD
-  const DIALOG_H = 320 * DP
+  // Dialog height = natural Column content height (faithful to DialogContent.kt):
+  //   Title:   padding(28,24,28,12) + 24sp text (~32px) = 24+32+12 = 68
+  //   Body:    padding(24,12,24,12) + 5 lines × 15sp (~20px) = 12+100+12 = 124
+  //   Buttons: padding(24,12,24,24) + 48dp height = 12+48+24 = 84
+  //   Total = 68 + 124 + 84 = 276
+  const DIALOG_H = 276 * DP
   const DIALOG_X = DIALOG_PAD
   const DIALOG_Y = (H - DIALOG_H) / 2
   elements.push(
@@ -2100,7 +2109,7 @@ function buildDialog(W: number, H: number, onBack: () => void, palette: ThemePal
   elements.push(
     makeText(
       'dialog-body',
-      { x: DIALOG_X + 24, y: DIALOG_Y + 72, w: DIALOG_W - 48, h: 120 },
+      { x: DIALOG_X + 24, y: DIALOG_Y + 68 + 12, w: DIALOG_W - 48, h: 100 },
       LOREM_IPSUM,
       {
         color: bodyColor,
@@ -2108,6 +2117,8 @@ function buildDialog(W: number, H: number, onBack: () => void, palette: ThemePal
         fontWeight: 400,
         align: 'left',
         wrap: true,
+        valign: 'top',
+        maxLines: 5,
         paddingPx: 0,
         halo: 'none',
       }

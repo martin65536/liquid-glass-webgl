@@ -195,10 +195,20 @@ export const rasterMethods = {
     if (t.align === 'center') {
       ctx.textAlign = 'center'
       if (t.wrap) {
-        const lines = wrapText(ctx, t.content, cssW - pad * 2)
+        let lines = wrapText(ctx, t.content, cssW - pad * 2)
+        if (t.maxLines != null && lines.length > t.maxLines) {
+          lines = lines.slice(0, t.maxLines)
+        }
         const lineH = t.fontSizePx * 1.35
         const totalH = lineH * lines.length
-        let y = cssH / 2 - totalH / 2 + lineH / 2 + textYOffset
+        let y: number
+        if (t.valign === 'top') {
+          y = lineH / 2 + textYOffset
+        } else if (t.valign === 'bottom') {
+          y = cssH - totalH + lineH / 2 + textYOffset
+        } else {
+          y = cssH / 2 - totalH / 2 + lineH / 2 + textYOffset
+        }
         for (const line of lines) {
           ctx.fillText(line, cssW / 2, y)
           y += lineH
@@ -209,10 +219,20 @@ export const rasterMethods = {
     } else if (t.align === 'left') {
       ctx.textAlign = 'left'
       if (t.wrap) {
-        const lines = wrapText(ctx, t.content, cssW - pad * 2)
+        let lines = wrapText(ctx, t.content, cssW - pad * 2)
+        if (t.maxLines != null && lines.length > t.maxLines) {
+          lines = lines.slice(0, t.maxLines)
+        }
         const lineH = t.fontSizePx * 1.35
         const totalH = lineH * lines.length
-        let y = cssH / 2 - totalH / 2 + lineH / 2 + textYOffset
+        let y: number
+        if (t.valign === 'top') {
+          y = lineH / 2 + textYOffset
+        } else if (t.valign === 'bottom') {
+          y = cssH - totalH + lineH / 2 + textYOffset
+        } else {
+          y = cssH / 2 - totalH / 2 + lineH / 2 + textYOffset
+        }
         for (const line of lines) {
           ctx.fillText(line, pad, y)
           y += lineH

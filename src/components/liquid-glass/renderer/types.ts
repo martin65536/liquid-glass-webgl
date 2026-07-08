@@ -113,6 +113,11 @@ export interface TextSpec {
   wrap?: boolean
   /** For 'left' / 'right' alignment: horizontal padding from rect edge (px). */
   paddingPx?: number
+  /** Vertical alignment (default 'center'). 'top' starts at the rect top
+   *  (used by dialog body text which is top-aligned in the original). */
+  valign?: 'top' | 'center' | 'bottom'
+  /** Max lines when wrapping (default = unlimited). Extra lines are clipped. */
+  maxLines?: number
   /** Halo for legibility (default = auto from color brightness). */
   halo?: 'auto' | 'light' | 'dark' | 'none'
   /** Optional vector icon drawn above the text (for tab items / control

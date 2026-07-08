@@ -72,7 +72,9 @@ export const elementMethods = {
         pt.fontWeight !== nt.fontWeight ||
         pt.align !== nt.align ||
         pt.wrap !== nt.wrap ||
-        pt.paddingPx !== nt.paddingPx
+        pt.paddingPx !== nt.paddingPx ||
+        pt.valign !== nt.valign ||
+        pt.maxLines !== nt.maxLines
       ))
       if (
         prev.label !== next.label ||
