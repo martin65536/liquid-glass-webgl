@@ -2195,7 +2195,9 @@ function buildControlCenter(W: number, H: number, onBack: () => void, state: Cat
       },
       onDrag: (_pos, delta) => {
         const target = ccDragStartEnter.v + delta.y / MAX_DRAG
-        setState({ controlCenterEnter: Math.max(0, Math.min(1, target)) })
+        // Allow p > 1 (overshoot) for the scaleX/Y stretch animation.
+        // Clamp lower bound at -0.2 to avoid going too far negative.
+        setState({ controlCenterEnter: Math.max(-0.2, target) })
       },
       onDragEnd: () => {
         // Snap to 0 or 1 with a spring animation (not instant jump).
@@ -2222,7 +2224,7 @@ function buildControlCenter(W: number, H: number, onBack: () => void, state: Cat
     },
     onDrag: (_pos, delta) => {
       const target = ccDragStartEnter.v + delta.y / MAX_DRAG
-      setState({ controlCenterEnter: Math.max(0, Math.min(1, target)) })
+      setState({ controlCenterEnter: Math.max(-0.2, target) })
     },
     onDragEnd: () => {
       const target = state.controlCenterEnter < 0.5 ? 0 : 1

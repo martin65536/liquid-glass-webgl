@@ -247,7 +247,9 @@ export const renderMethods = {
       gl.useProgram(this.plainRectProgram)
       this.setSdfUniforms(this.uPr, this.aPosLocPr, fillRect, el.cornerRadius)
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-      gl.uniform4f(this.uPr['uColor'], c[0], c[1], c[2], c[3])
+      // Apply enterProgress alpha (ControlCenter fade) to plainRects.
+      const enterA = el.enterProgress != null ? Math.max(0, Math.min(1, el.enterProgress * el.enterProgress * (3 - 2 * el.enterProgress))) : 1
+      gl.uniform4f(this.uPr['uColor'], c[0], c[1], c[2], c[3] * enterA)
       gl.drawArrays(gl.TRIANGLES, 0, 6)
       return true
     }
