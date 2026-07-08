@@ -351,7 +351,13 @@ export const glassElementPassMethods = {
     // applies blur as a RenderEffect at original size, then graphicsLayer scales
     // → blur appears as blurRadius * layerScale in screen space (isotropic approx
     // via min(scaleX, scaleY); full anisotropy would need separable 2-pass blur).
-    gl.uniform1f(this.uEl['uBlurRadius'], elBlurRadius * layerScale * this.dpr)
+    //
+    // Skia's BlurEffect treats the radius as a Gaussian SIGMA (effective visual
+    // extent ≈ 3×sigma), but our 9-tap Poisson disc uses radius as the kernel
+    // radius (taps span ±radius). To match the original's visual blur width,
+    // we multiply by 3 so our kernel samples out to ±3×sigma like Skia does.
+    // Without this, the blur is ~3× too narrow compared to the original.
+    gl.uniform1f(this.uEl['uBlurRadius'], elBlurRadius * layerScale * this.dpr * 3.0)
     gl.uniform1f(this.uEl['uSaturation'], el.saturation)
     gl.uniform1f(this.uEl['uBrightness'], el.brightness)
     gl.uniform1f(this.uEl['uContrast'], el.contrast)

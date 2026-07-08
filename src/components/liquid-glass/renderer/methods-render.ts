@@ -269,7 +269,7 @@ export const renderMethods = {
       gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture!)
       gl.uniform1i(this.uPb['uBackdrop'], 0)
       gl.uniform2f(this.uPb['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
-      gl.uniform1f(this.uPb['uBlurRadius'], el.progressiveBlur.blurRadius * this.dpr)
+      gl.uniform1f(this.uPb['uBlurRadius'], el.progressiveBlur.blurRadius * this.dpr * 3.0)
       const tc = el.progressiveBlur.tintColor
       gl.uniform4f(this.uPb['uTintColor'], tc[0], tc[1], tc[2], tc[3])
       gl.uniform1f(this.uPb['uTintIntensity'], el.progressiveBlur.tintIntensity)
