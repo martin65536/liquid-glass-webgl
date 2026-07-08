@@ -121,12 +121,15 @@ export interface TextSpec {
   /** Halo for legibility (default = auto from color brightness). */
   halo?: 'auto' | 'light' | 'dark' | 'none'
   /** Optional vector icon drawn above the text (for tab items / control
-   *  center tiles). The path is SVG path data in a 24×24 viewport,
-   *  scaled to `iconSize` px and centered horizontally. */
+   *  center tiles). The path is SVG path data in a viewport of size
+   *  `viewport` (default 24), scaled to `iconSize` px and centered. */
   icon?: {
     path: string
     size: number // px
     color: [number, number, number, number]
+    /** SVG viewport size the path is defined in (default 24). Use 960 for
+     *  paths ported from Compose ImageVector (Material icons). */
+    viewport?: number
   }
 }
 
@@ -137,11 +140,15 @@ export interface GlassElementConfig extends GlassButtonConfig {
   text?: TextSpec
   /** Optional vector icon drawn on a 'button' (replaces the text label).
    *  Used by the circular back button (MD arrow_back icon). The path is
-   *  SVG path data in a 24×24 viewport, scaled to `size` px and centered. */
+   *  SVG path data in a viewport of size `viewport` (default 24), scaled
+   *  to `size` px and centered. */
   icon?: {
     path: string
     size: number // px (CSS space)
     color: [number, number, number, number]
+    /** SVG viewport size the path is defined in (default 24). Use 960 for
+     *  paths ported from Compose ImageVector (Material icons). */
+    viewport?: number
   }
   /** Inner shadow (optional, for toggle/slider knobs). */
   innerShadow?: {

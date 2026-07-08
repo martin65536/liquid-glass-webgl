@@ -76,11 +76,11 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
   // Inner icons (3 small capsules)
   const innerSize = 56 * DP
   elements.push(makePlainRect('cc-a-icon1', { x: leftPad + itemSpacing, y: cursorY + itemSpacing, w: innerSize, h: innerSize }, [1, 1, 1, 0.2], innerSize / 2))
-  elements.push(makeText('cc-a-icon1-label', { x: leftPad + itemSpacing, y: cursorY + itemSpacing, w: innerSize, h: innerSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor } }))
+  elements.push(makeText('cc-a-icon1-label', { x: leftPad + itemSpacing, y: cursorY + itemSpacing, w: innerSize, h: innerSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor, viewport: 960 } }))
   elements.push(makePlainRect('cc-a-icon2', { x: leftPad + twoSpan - itemSpacing - innerSize, y: cursorY + itemSpacing, w: innerSize, h: innerSize }, ACCENT_T, innerSize / 2))
-  elements.push(makeText('cc-a-icon2-label', { x: leftPad + twoSpan - itemSpacing - innerSize, y: cursorY + itemSpacing, w: innerSize, h: innerSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor } }))
+  elements.push(makeText('cc-a-icon2-label', { x: leftPad + twoSpan - itemSpacing - innerSize, y: cursorY + itemSpacing, w: innerSize, h: innerSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor, viewport: 960 } }))
   elements.push(makePlainRect('cc-a-icon3', { x: leftPad + itemSpacing, y: cursorY + twoSpan - itemSpacing - innerSize, w: innerSize, h: innerSize }, ACCENT_T, innerSize / 2))
-  elements.push(makeText('cc-a-icon3-label', { x: leftPad + itemSpacing, y: cursorY + twoSpan - itemSpacing - innerSize, w: innerSize, h: innerSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor } }))
+  elements.push(makeText('cc-a-icon3-label', { x: leftPad + itemSpacing, y: cursorY + twoSpan - itemSpacing - innerSize, w: innerSize, h: innerSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor, viewport: 960 } }))
 
   // Tile B (2×2 empty) — row 0
   elements.push(
@@ -110,13 +110,13 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
       cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
-  elements.push(makeText('cc-c-icon', { x: leftColX, y: cursorY, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor } }))
+  elements.push(makeText('cc-c-icon', { x: leftColX, y: cursorY, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor, viewport: 960 } }))
   elements.push(
     makeGlassShape('cc-d', { x: leftColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: itemSize }, {
       cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
-  elements.push(makeText('cc-d-icon', { x: leftColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor } }))
+  elements.push(makeText('cc-d-icon', { x: leftColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor, viewport: 960 } }))
   // Wide tile under the two small ones
   elements.push(
     makeGlassShape('cc-e', { x: leftColX, y: cursorY + itemSize + itemSpacing, w: twoSpan, h: itemSize }, {
@@ -149,19 +149,19 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
       cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
-  elements.push(makeText('cc-i-icon', { x: rightColX, y: cursorY, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor } }))
+  elements.push(makeText('cc-i-icon', { x: rightColX, y: cursorY, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor, viewport: 960 } }))
   elements.push(
     makeGlassShape('cc-j', { x: rightColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: itemSize }, {
       cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
-  elements.push(makeText('cc-j-icon', { x: rightColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor } }))
+  elements.push(makeText('cc-j-icon', { x: rightColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor, viewport: 960 } }))
   elements.push(
     makeGlassShape('cc-k', { x: rightColX, y: cursorY + itemSize + itemSpacing, w: itemSize, h: itemSize }, {
       cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
-  elements.push(makeText('cc-k-icon', { x: rightColX, y: cursorY + itemSize + itemSpacing, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor } }))
+  elements.push(makeText('cc-k-icon', { x: rightColX, y: cursorY + itemSize + itemSpacing, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor, viewport: 960 } }))
 
   cursorY += twoSpan + itemSpacing
 
