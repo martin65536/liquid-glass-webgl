@@ -53,27 +53,56 @@ const algDragStart = { x: 0, y: 0, ox: 0, oy: 0 }
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t
 }
+
+// --- Gravity angle (gyroscope/accelerometer) for highlight direction ---
+// Faithful to UISensor.kt: gravityAngle = atan2(y, x) * 180/PI, default 45°.
+// On web, we approximate via DeviceOrientationEvent (beta/gamma → gravity
+// vector → angle). Updated by a listener set up in page.tsx.
+// The highlight angle determines where the light edge appears on glass
+// elements — tilting the device shifts it, matching the original.
+let gravityAngle = 45
+export function setGravityAngle(a: number) { gravityAngle = a; }
+function getGravityAngle() { return gravityAngle; }
 // Control-center snap animation handle (cancel previous if a new one starts)
 let ccAnimHandle: number | null = null
-/** Animate controlCenterEnter to `target` (0 or 1) via a simple lerp spring. */
+let ccLastVelocity = 0
+/** Animate controlCenterEnter to `target` (0 or 1) via a spring.
+ *  Faithful to ControlCenterContent.kt onDragStopped:
+ *    - target 1 (expand): spring(0.5, 300, ...) — UNDERDAMPED → bounces/overshoots
+ *    - target 0 (collapse): spring(1.0, 300, ...) — critically damped, no overshoot
+ *  The underdamped spring gives the characteristic "bounce back" when
+ *  releasing an over-pulled (progress > 1) control center. */
 function animateControlCenterEnter(
   setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void,
   target: number
 ) {
   if (ccAnimHandle != null) cancelAnimationFrame(ccAnimHandle)
-  let current = -1
+  // Spring params (faithful to Compose SpringSpec):
+  //   dampingRatio: 0.5 (underdamped) for expand, 1.0 (critical) for collapse
+  //   stiffness: 300
+  const dampingRatio = target > 0.5 ? 0.5 : 1.0
+  const stiffness = 300
+  // Spring integration via semi-implicit Euler.
+  let pos = -1
+  let vel = ccLastVelocity
   const step = () => {
     setState((prev) => {
-      if (current < 0) current = prev.controlCenterEnter
-      // Critically-damped lerp: move ~15% toward target per frame (~300ms total)
-      current = current + (target - current) * 0.15
-      const done = Math.abs(target - current) < 0.001
+      if (pos < 0) pos = prev.controlCenterEnter
+      // Spring force: F = -k * (pos - target) - c * vel
+      // k = stiffness, c = 2 * sqrt(k) * dampingRatio (critical damping coeff)
+      const k = stiffness
+      const c = 2 * Math.sqrt(k) * dampingRatio
+      const dt = 1 / 60 // assume 60fps
+      const force = -k * (pos - target) - c * vel
+      vel = vel + force * dt
+      pos = pos + vel * dt
+      const done = Math.abs(target - pos) < 0.002 && Math.abs(vel) < 0.05
       if (done) {
         ccAnimHandle = null
         return { controlCenterEnter: target }
       }
       ccAnimHandle = requestAnimationFrame(step)
-      return { controlCenterEnter: current }
+      return { controlCenterEnter: pos }
     })
   }
   ccAnimHandle = requestAnimationFrame(step)
@@ -2128,30 +2157,30 @@ function buildDialog(W: number, H: number, onBack: () => void, palette: ThemePal
   // Cancel: containerColor.copy(0.2f) — 0.2 alpha on top of the dialog
   // container color, theme-aware.
   // Okay: accentColor (#0088FF light / #0091FF dark).
-  // Both use glass-shape with refractionHeight=0, blur=0, highlight=null so
-  // they render as opaque capsules WITH the InteractiveHighlight press glow
-  // (faithful to the original's clickable ripple).
+  // Both use kind='button' (so they get InteractiveHighlight press glow +
+  // scale) but with refractionHeight=0, blur=0 so they render as opaque
+  // capsules (no glass refraction, faithful to the original's solid
+  // background Row buttons).
   const DIALOG_BTN_H = 48
   const DIALOG_BTN_W = (DIALOG_W - 48 - 16) / 2
   const DIALOG_BTN_Y = DIALOG_Y + DIALOG_H - 24 - DIALOG_BTN_H
 
-  const cancelBtn = makeGlassShape(
+  const cancelBtn = makeButton(
     'dialog-cancel',
     { x: DIALOG_X + 24, y: DIALOG_BTN_Y, w: DIALOG_BTN_W, h: DIALOG_BTN_H },
     {
-      cornerRadius: DIALOG_BTN_H / 2,
-      refractionHeight: 0,
-      refractionAmount: 0,
-      blurRadius: 0,
-      saturation: 1,
+      label: '',
+      tintColor: [0, 0, 0, 0],
       surfaceColor: [palette.dialogContainer[0], palette.dialogContainer[1], palette.dialogContainer[2], 0.2],
-      highlight: null,
-      outerShadow: null,
-      depthEffect: false,
-    }
+      labelColor: palette.dialogContentColor,
+    },
+    false
   )
-  cancelBtn.isInteractive = true
-  cancelBtn.scroll = false
+  cancelBtn.refractionHeight = 0
+  cancelBtn.refractionAmount = 0
+  cancelBtn.blurRadius = 0
+  cancelBtn.highlight = null
+  cancelBtn.outerShadow = null
   elements.push(cancelBtn)
   interactions['dialog-cancel'] = { onTap: () => {} }
   elements.push(
@@ -2163,23 +2192,22 @@ function buildDialog(W: number, H: number, onBack: () => void, palette: ThemePal
     )
   )
 
-  const okayBtn = makeGlassShape(
+  const okayBtn = makeButton(
     'dialog-okay',
     { x: DIALOG_X + 24 + DIALOG_BTN_W + 16, y: DIALOG_BTN_Y, w: DIALOG_BTN_W, h: DIALOG_BTN_H },
     {
-      cornerRadius: DIALOG_BTN_H / 2,
-      refractionHeight: 0,
-      refractionAmount: 0,
-      blurRadius: 0,
-      saturation: 1,
+      label: '',
+      tintColor: [0, 0, 0, 0],
       surfaceColor: palette.dialogAccent,
-      highlight: null,
-      outerShadow: null,
-      depthEffect: false,
-    }
+      labelColor: [1, 1, 1, 1],
+    },
+    false
   )
-  okayBtn.isInteractive = true
-  okayBtn.scroll = false
+  okayBtn.refractionHeight = 0
+  okayBtn.refractionAmount = 0
+  okayBtn.blurRadius = 0
+  okayBtn.highlight = null
+  okayBtn.outerShadow = null
   elements.push(okayBtn)
   interactions['dialog-okay'] = { onTap: () => {} }
   // "Okay" label is always Color.White (DialogContent.kt line 133).
@@ -2314,7 +2342,7 @@ function buildControlCenter(W: number, H: number, onBack: () => void, state: Cat
         blurRadius: 8 * DP,
         saturation: 1.5,
         surfaceColor: [0, 0, 0, 0.05],
-        highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 },
+        highlight: { ...DEFAULT_HIGHLIGHT, angle: getGravityAngle() * Math.PI / 180, falloff: 2.0 },
         outerShadow: null,
         depthEffect: true,
       }
@@ -2341,7 +2369,7 @@ function buildControlCenter(W: number, H: number, onBack: () => void, state: Cat
         blurRadius: 8 * DP,
         saturation: 1.5,
         surfaceColor: [0, 0, 0, 0.05],
-        highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 },
+        highlight: { ...DEFAULT_HIGHLIGHT, angle: getGravityAngle() * Math.PI / 180, falloff: 2.0 },
         outerShadow: null,
         depthEffect: true,
       }
@@ -2354,32 +2382,32 @@ function buildControlCenter(W: number, H: number, onBack: () => void, state: Cat
   const leftColX = leftPad
   elements.push(
     makeGlassShape('cc-c', { x: leftColX, y: cursorY, w: itemSize, h: itemSize }, {
-      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: getGravityAngle() * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   elements.push(makeText('cc-c-icon', { x: leftColX, y: cursorY, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor } }))
   elements.push(
     makeGlassShape('cc-d', { x: leftColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: itemSize }, {
-      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: getGravityAngle() * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   elements.push(makeText('cc-d-icon', { x: leftColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor } }))
   // Wide tile under the two small ones
   elements.push(
     makeGlassShape('cc-e', { x: leftColX, y: cursorY + itemSize + itemSpacing, w: twoSpan, h: itemSize }, {
-      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: getGravityAngle() * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   // Right column: 2 tall tiles
   const rightColX = leftColX + twoSpan + itemSpacing
   elements.push(
     makeGlassShape('cc-f', { x: rightColX, y: cursorY, w: itemSize, h: twoSpan }, {
-      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: getGravityAngle() * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   elements.push(
     makeGlassShape('cc-g', { x: rightColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: twoSpan }, {
-      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: getGravityAngle() * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   cursorY += twoSpan + itemSpacing
@@ -2387,25 +2415,25 @@ function buildControlCenter(W: number, H: number, onBack: () => void, state: Cat
   // Row 3: [2×2 empty] / [1×1 + 1×1] / [1×1] — stretch factor 2
   elements.push(
     makeGlassShape('cc-h', { x: leftPad, y: cursorY, w: twoSpan, h: twoSpan }, {
-      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: getGravityAngle() * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   // Right: 2 small + 1 small
   elements.push(
     makeGlassShape('cc-i', { x: rightColX, y: cursorY, w: itemSize, h: itemSize }, {
-      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: getGravityAngle() * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   elements.push(makeText('cc-i-icon', { x: rightColX, y: cursorY, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor } }))
   elements.push(
     makeGlassShape('cc-j', { x: rightColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: itemSize }, {
-      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: getGravityAngle() * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   elements.push(makeText('cc-j-icon', { x: rightColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor } }))
   elements.push(
     makeGlassShape('cc-k', { x: rightColX, y: cursorY + itemSize + itemSpacing, w: itemSize, h: itemSize }, {
-      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: getGravityAngle() * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   elements.push(makeText('cc-k-icon', { x: rightColX, y: cursorY + itemSize + itemSpacing, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor } }))

@@ -7,6 +7,7 @@ import {
   CatalogDestination,
   DEFAULT_CATALOG_STATE,
   type CatalogState,
+  setGravityAngle,
 } from '@/components/liquid-glass/catalog'
 import type { LiquidGlassRenderer } from '@/components/liquid-glass/renderer'
 
@@ -328,6 +329,22 @@ export default function Page() {
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
   }, [destination, W, H, setState])
+
+  // Device orientation → gravity angle for glass highlight direction.
+  // Faithful to UISensor.kt: gravityAngle = atan2(y, x) * 180/PI (default 45°).
+  // On web, DeviceOrientationEvent gives beta (front-back tilt) and gamma
+  // (left-right tilt). We map these to a gravity angle: gamma → x, beta → y.
+  React.useEffect(() => {
+    if (typeof window === 'undefined' || !('DeviceOrientationEvent' in window)) return
+    const handler = (e: DeviceOrientationEvent) => {
+      const x = e.gamma ?? 0
+      const y = e.beta ?? 0
+      const angle = Math.atan2(y, x) * 180 / Math.PI
+      setGravityAngle(angle)
+    }
+    window.addEventListener('deviceorientation', handler)
+    return () => window.removeEventListener('deviceorientation', handler)
+  }, [])
 
   return (
     <div
