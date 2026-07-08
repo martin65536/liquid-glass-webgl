@@ -2835,17 +2835,20 @@ function buildAdaptiveLuminanceGlass(
 
   // Faithful to AdaptiveLuminanceGlassContent.kt:
   //   size = 160dp, RoundedRectangle(24dp)
-  //   effects: colorControls(brightness/contrast driven by luminance) + blur + lens(24dp, size/2, depthEffect)
+  //   effects: colorControls(brightness/contrast/saturation) + blur + lens(24dp, size/2, depthEffect)
   //   highlight = Highlight.Plain
   //   layerBlock: translationX/Y (drag), scaleX/Y=zoom, rotationZ
   //   contentColor adapts (Black/White) based on average luminance
   //
-  // The original samples the glass's rendered output (layer.toImageBitmap →
-  // scale(5,5) → readPixels) to compute average luminance and drive the
-  // effects. We approximate by reading the wallpaper pixel at the glass
-  // center via gl.readPixels in page.tsx (1px, throttled to ~10fps) and
-  // storing it in state.adaptiveLuminance. This gives a real-time adaptive
-  // effect as the glass is dragged over different backdrop regions.
+  // The original samples the glass's rendered output (layer.record →
+  // toImageBitmap → scale(5,5) → readPixels → average luminance) in a
+  // LaunchedEffect loop, then animates luminanceAnimation + contentColor
+  // toward the measured value via tween(1000).
+  //
+  // Port: page.tsx reads a 5×5 grid of pixels from the glass region via
+  // gl.readPixels (the final composited canvas, which includes the glass
+  // appearance — close to the original's layer capture), computes average
+  // luminance, and animates state.adaptiveLuminance toward it over ~1s.
   const luminance = state.adaptiveLuminance
   // l = (luminance * 2 - 1) with sign*it*it shaping (faithful to original).
   const rawL = luminance * 2 - 1
@@ -2853,8 +2856,12 @@ function buildAdaptiveLuminanceGlass(
   const brightness = l > 0 ? lerp(0.1, 0.5, l) : lerp(0.1, -0.2, -l)
   const contrast = l > 0 ? lerp(1, 0, l) : 1
   const blurDp = l > 0 ? lerp(8, 16, l) : lerp(8, 2, -l)
-  const contentColor = luminance > 0.5 ? palette.adaptiveContentColor : (palette === LIGHT_PALETTE ? [1, 1, 1, 1] as [number, number, number, number] : [0, 0, 0, 1] as [number, number, number, number])
-  const halo = palette.homeTextHalo
+  // contentColor: Black when luminance > 0.5, White otherwise — REGARDLESS
+  // of theme (faithful to original: if (averageLuminance > 0.5f) Black else White).
+  const contentColor: [number, number, number, number] = luminance > 0.5
+    ? [0, 0, 0, 1]
+    : [1, 1, 1, 1]
+  const halo = luminance > 0.5 ? 'dark' : 'light'
 
   const size = 160 * DP
   const x = (W - size) / 2 + state.algOffsetX

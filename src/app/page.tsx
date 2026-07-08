@@ -218,12 +218,14 @@ export default function Page() {
     return targets
   }, [destination, state.selectedTab, state.selectedTab2])
 
-  // AdaptiveLuminanceGlass: read the backdrop luminance at the glass center
-  // via gl.readPixels and update state.adaptiveLuminance. Faithful to
-  // AdaptiveLuminanceGlassContent.kt's layer.toImageBitmap → scale(5,5) →
-  // readPixels loop. We read 1px at the glass center (the glass samples a
-  // blurred backdrop anyway, so 1px is a good approximation). Throttled to
-  // ~10fps to avoid stalling the render loop with synchronous readPixels.
+  // AdaptiveLuminanceGlass: read the backdrop luminance at the glass region
+  // via gl.readPixels and animate state.adaptiveLuminance toward it.
+  // Faithful to AdaptiveLuminanceGlassContent.kt's LaunchedEffect loop:
+  //   layer.toImageBitmap → scale(5,5) → readPixels → averageLuminance
+  //   → luminanceAnimation.animateTo(averageLuminance, tween(1000))
+  // We read a 5×5 grid of pixels from the final composited canvas (which
+  // includes the glass appearance) across the glass region, compute average
+  // luminance, then tween state.adaptiveLuminance toward it over ~1s.
   React.useEffect(() => {
     if (destination !== CatalogDestination.AdaptiveLuminanceGlass) return
     const r = rendererRef.current
@@ -231,31 +233,61 @@ export default function Page() {
     const gl = r.gl
     const canvas = r.canvas
     let raf = 0
-    let last = 0
-    const px = new Uint8Array(4)
+    let lastSample = 0
+    // Animated luminance — eased toward target each frame (tween(1000) approx).
+    let animLum = state.adaptiveLuminance
+    const px = new Uint8Array(4 * 25) // 5×5 grid
     const tick = (t: number) => {
       raf = requestAnimationFrame(tick)
-      if (t - last < 100) return // ~10fps
-      last = t
-      // Glass center in CSS px = (W - size)/2 + algOffsetX, centered-y + algOffsetY.
-      // size = 160. Center = center + size/2.
-      const size = 160
-      const cx = Math.round((W - size) / 2 + state.algOffsetX + size / 2)
-      const cy = Math.round((H - size) / 2 + state.algOffsetY + size / 2)
-      // Convert to device px (canvas backing store) + Y-flip (canvas origin
-      // is bottom-left in WebGL).
-      const dx = Math.max(0, Math.min(canvas.width - 1, Math.round(cx * r.dpr)))
-      const dy = Math.max(0, Math.min(canvas.height - 1, Math.round((H - cy) * r.dpr)))
-      try {
-        gl.readPixels(dx, dy, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px)
-        const lum = (0.2126 * px[0] + 0.7152 * px[1] + 0.0722 * px[2]) / 255
-        // Avoid setState spam: only update if changed by > 0.02.
+      // Sample the glass region every ~100ms (original loops continuously
+      // but readPixels is synchronous/expensive, so throttle).
+      if (t - lastSample >= 100) {
+        lastSample = t
+        const size = 160
+        // Glass center in CSS px (after applyVerticalCenter shifts it).
+        const cx = (W - size) / 2 + state.algOffsetX + size / 2
+        const cy = (H - size) / 2 + state.algOffsetY + size / 2
+        // Sample 5×5 grid spanning the glass interior (inset 24dp for corner radius).
+        const span = size - 48 * 1 // 24dp inset each side
+        const half = span / 2
+        let sum = 0
+        let count = 0
+        for (let gy = 0; gy < 5; gy++) {
+          for (let gx = 0; gx < 5; gx++) {
+            const sx = cx - half + (span * gx) / 4
+            const sy = cy - half + (span * gy) / 4
+            const dx = Math.max(0, Math.min(canvas.width - 1, Math.round(sx * r.dpr)))
+            const dy = Math.max(0, Math.min(canvas.height - 1, Math.round((H - sy) * r.dpr)))
+            try {
+              // Bind the default framebuffer (the visible canvas) before
+              // readPixels — the renderer may have left an FBO bound.
+              gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+              gl.readPixels(dx, dy, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px)
+              const lum = (0.2126 * px[0] + 0.7152 * px[1] + 0.0722 * px[2]) / 255
+              sum += lum
+              count++
+            } catch {
+              // ignore
+            }
+          }
+        }
+        if (count > 0) {
+          const target = sum / count
+          // Start animating toward target (tween(1000) approximated by easing
+          // 6% per frame at 60fps → ~63% in 1s, close to tween's ease).
+          // We store target in a closure var; the frame loop eases toward it.
+          ;(tick as any)._target = target
+        }
+      }
+      // Ease animLum toward target each frame (~tween(1000)).
+      const target = (tick as any)._target ?? animLum
+      const diff = target - animLum
+      if (Math.abs(diff) > 0.001) {
+        animLum += diff * 0.06 // ~6% per frame → ~1s to reach 95%
         setState((prev) => {
-          if (Math.abs(prev.adaptiveLuminance - lum) < 0.02) return {}
-          return { adaptiveLuminance: lum }
+          if (Math.abs(prev.adaptiveLuminance - animLum) < 0.005) return {}
+          return { adaptiveLuminance: animLum }
         })
-      } catch {
-        // readPixels can fail if the framebuffer is invalid; ignore.
       }
     }
     raf = requestAnimationFrame(tick)
