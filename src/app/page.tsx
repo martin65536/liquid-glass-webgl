@@ -135,7 +135,7 @@ export default function Page() {
     const r = rendererRef.current
     if (!r) return
     const deviceDpr = window.devicePixelRatio || 1
-    const maxDpr = deviceDpr * 2
+    const maxDpr = deviceDpr
     if (state.customDpr > 0) {
       r.dpr = Math.max(0.5, Math.min(maxDpr, state.customDpr))
     } else {
@@ -196,8 +196,16 @@ export default function Page() {
       targets['gp-slider-3'] = state.refractionAmountFrac
       targets['gp-slider-4'] = state.chromaticAberration
     }
+    if (destination === CatalogDestination.Settings) {
+      const deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+      const minDpr = 0.5
+      const maxDpr = deviceDpr
+      const dprRange = Math.max(0.0001, maxDpr - minDpr)
+      const currentDpr = state.customDpr > 0 ? Math.max(minDpr, Math.min(maxDpr, state.customDpr)) : Math.min(deviceDpr, 1.5)
+      targets['settings-dpr'] = Math.max(0, Math.min(1, (currentDpr - minDpr) / dprRange))
+    }
     return targets
-  }, [destination, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration])
+  }, [destination, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration, state.customDpr])
 
   // Tab targets use a separate prop because they need setTabSelected
   // (which sets pressedScale=78/56, not toggle's 1.5).

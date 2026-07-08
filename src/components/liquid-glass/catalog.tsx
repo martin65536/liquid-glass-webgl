@@ -2952,6 +2952,7 @@ function buildSettings(
   onBack: () => void,
   state: CatalogState,
   setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void,
+  rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> | null,
   palette: ThemePalette
 ): CatalogResult {
   const elements: GlassElementConfig[] = []
@@ -2974,16 +2975,22 @@ function buildSettings(
     )
   )
 
-  // DPR slider (first, then label below it, then reset button)
+  // DPR slider — max is the device DPR (not 2x).
+  // All elements on this page use scroll=true so applyVerticalCenter
+  // shifts them together (mixing scroll true/false splits the cluster).
+  // The slider's full [0,1] range maps linearly to [minDpr, maxDpr] so the
+  // whole track is usable (no dead zone at the low end).
   const deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
-  const maxDpr = deviceDpr * 2
-  const currentDpr = state.customDpr > 0 ? state.customDpr : Math.min(deviceDpr, 1.5)
+  const minDpr = 0.5
+  const maxDpr = deviceDpr
+  const dprRange = Math.max(0.0001, maxDpr - minDpr)
+  const currentDpr = state.customDpr > 0 ? Math.max(minDpr, Math.min(maxDpr, state.customDpr)) : Math.min(deviceDpr, 1.5)
 
   const sliderY = 60
   const trackX = pad
   const trackW = W - 2 * pad
   const trackY = sliderY + (24 - 6) / 2
-  const dprFraction = currentDpr / maxDpr
+  const dprFraction = Math.max(0, Math.min(1, (currentDpr - minDpr) / dprRange))
 
   const dprSlider = makeLiquidSlider(
     'settings-dpr',
@@ -2993,11 +3000,11 @@ function buildSettings(
     'settings-dpr',
     palette.sliderTrackOff,
     palette.sliderAccent,
-    null,
+    rendererRef,
     (f) => {
-      setState({ customDpr: Math.max(0.5, f * maxDpr) })
+      setState({ customDpr: minDpr + f * dprRange })
     },
-    false,
+    true,
     true
   )
   // Override knob/fill initial position
@@ -3021,7 +3028,7 @@ function buildSettings(
     makeText(
       'settings-dpr-label',
       { x: pad, y: labelY, w: W - 2 * pad, h: 16 },
-      `DPR: ${currentDpr.toFixed(2)} (device: ${deviceDpr}, max: ${maxDpr.toFixed(2)})`,
+      `DPR: ${currentDpr.toFixed(2)}  (device ${deviceDpr}, range ${minDpr.toFixed(1)}–${maxDpr.toFixed(2)})`,
       { color: labelColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
     )
   )
@@ -3040,7 +3047,7 @@ function buildSettings(
       surfaceColor: [0, 0, 0, 0],
       labelColor: [1, 1, 1, 1],
     },
-    false
+    true
   )
   elements.push(resetBtn)
   interactions['settings-reset'] = {
@@ -3123,7 +3130,7 @@ export function buildCatalog(
       result = buildScrollContainer(W, onBack, 100, palette)
       break
     case CatalogDestination.Settings:
-      result = buildSettings(W, H, onBack, state, setState, palette)
+      result = buildSettings(W, H, onBack, state, setState, rendererRef, palette)
       break
     default:
       result = buildHome(W, onNavigate, palette)
