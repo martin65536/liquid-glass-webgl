@@ -57,6 +57,10 @@ export default function Page() {
   // renderer. Catalog builders use this to call renderer methods
   // (e.g. setToggleTarget, beginToggleDrag, dragToggle, endToggleDrag).
   const rendererRef = React.useRef<LiquidGlassRenderer | null>(null)
+  // Current wallpaper URL — updated when user picks an image. The AL
+  // luminance sampler reads from this to stay in sync with the displayed
+  // wallpaper (not just the default /wallpaper/wallpaper_light.webp).
+  const wallpaperUrlRef = React.useRef('/wallpaper/wallpaper_light.webp')
 
   // setState supports both a partial patch and a functional updater.
   // The functional form is critical for drag callbacks (slider, magnifier,
@@ -264,7 +268,7 @@ export default function Page() {
       algWpCanvasRef.current = c
       algWpReadyRef.current = true
     }
-    img.src = '/wallpaper/wallpaper_light.webp'
+    img.src = wallpaperUrlRef.current
   }, [destination])
   React.useEffect(() => {
     if (destination !== CatalogDestination.AdaptiveLuminanceGlass) return
@@ -376,7 +380,24 @@ export default function Page() {
             const file = e.target.files?.[0]
             if (file) {
               const url = URL.createObjectURL(file)
+              wallpaperUrlRef.current = url
               rendererRef.current?.loadWallpaper(url).catch(() => {})
+              // Reload the AL wallpaper canvas so luminance sampling uses
+              // the user-selected image (not the default wallpaper).
+              algWpReadyRef.current = false
+              const img = new Image()
+              img.crossOrigin = 'anonymous'
+              img.onload = () => {
+                const c = document.createElement('canvas')
+                c.width = img.naturalWidth
+                c.height = img.naturalHeight
+                const ctx = c.getContext('2d', { alpha: false })
+                if (!ctx) return
+                ctx.drawImage(img, 0, 0)
+                algWpCanvasRef.current = c
+                algWpReadyRef.current = true
+              }
+              img.src = url
             }
             e.target.value = ''
           }}
