@@ -339,6 +339,17 @@ export interface GlassElementConfig extends GlassButtonConfig {
     lightAngle: number
   }
   /**
+   * Magnifier glass — samples the scene FBO with 1.5x zoom + offset toward
+   * the cursor position (80dp below the glass). Faithful to MagnifierContent.kt:
+   *   onDrawBackdrop = { scale(1.5); translate(top = -80dp); drawBackdrop() }
+   */
+  isMagnifier?: {
+    /** Zoom factor (1.5 in original). */
+    zoom: number
+    /** Y offset to the sampling position (80dp below glass, in CSS px). */
+    sampleOffsetY: number
+  }
+  /**
    * Control-center enter progress (0 = collapsed, 1 = expanded).
    * Faithful to ControlCenterContent.kt glassLayer:
    *   translationY = -48dp * (1 - progress)

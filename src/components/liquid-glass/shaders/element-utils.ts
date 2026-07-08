@@ -284,6 +284,15 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     return vec4(resultRgb, 1.0);
 }
 
+// Magnifier backdrop sampling — zoom + offset toward cursor.
+// Faithful to MagnifierContent.kt: scale(1.5) + translate(-80dp).
+vec4 sampleMagnifier(vec2 canvasPx, float radius) {
+    vec2 magCenter = uElementOffset + uElementSize * 0.5;
+    vec2 zoomedCoord = magCenter + (canvasPx - magCenter) / uMagnifierZoom;
+    vec2 cursorCoord = vec2(zoomedCoord.x, zoomedCoord.y + uMagnifierOffsetY);
+    return sampleBackdrop(cursorCoord, radius);
+}
+
 // colorControls — exact port of ColorFilter.kt colorControlsColorFilter.
 // saturation 1.5, brightness 0, contrast 1 -> pure saturation boost.
 vec3 applyColorControls(vec3 c, float brightness, float contrast, float saturation) {

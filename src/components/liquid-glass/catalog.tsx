@@ -2293,29 +2293,31 @@ function buildMagnifier(W: number, H: number, onBack: () => void, state: Catalog
   elements.push(makePlainRect('mag-cursor', { x: cursorX, y: cursorY, w: 4 * DP, h: 24 * DP }, palette.magnifierAccent, 2 * DP))
 
   // Magnifier glass (128×96 capsule, sits 80dp above the cursor)
+  // Faithful to MagnifierContent.kt: the glass refracts the content at the
+  // cursor position with 1.5x zoom. onDrawBackdrop does scale(1.5) + translate(-80dp).
   const magW = 128 * DP
   const magH = 96 * DP
   const magX = cursorX + 2 - magW / 2
   const magY = cursorY + 12 - 80 * DP - magH / 2
-  elements.push(
-    makeGlassShape(
-      'mag-glass',
-      { x: magX, y: magY, w: magW, h: magH },
-      {
-        cornerRadius: magH / 2,
-        refractionHeight: 8 * DP,
-        refractionAmount: -24 * DP,
-        blurRadius: 0,
-        saturation: 1.5,
-        surfaceColor: [0, 0, 0, 0],
-        highlight: { ...DEFAULT_HIGHLIGHT },
-        outerShadow: null,
-        innerShadow: { radius: 16 * DP, alpha: 1, offsetX: 0, offsetY: 0 },
-        depthEffect: true,
-        chromaticAberration: true,
-      }
-    )
+  const magGlass = makeGlassShape(
+    'mag-glass',
+    { x: magX, y: magY, w: magW, h: magH },
+    {
+      cornerRadius: magH / 2,
+      refractionHeight: 8 * DP,
+      refractionAmount: -24 * DP,
+      blurRadius: 0,
+      saturation: 1.5,
+      surfaceColor: [0, 0, 0, 0],
+      highlight: { ...DEFAULT_HIGHLIGHT },
+      outerShadow: null,
+      innerShadow: { radius: 16 * DP, alpha: 1, offsetX: 0, offsetY: 0 },
+      depthEffect: true,
+      chromaticAberration: true,
+    }
   )
+  magGlass.isMagnifier = { zoom: 1.5, sampleOffsetY: 80 * DP }
+  elements.push(magGlass)
   interactions['mag-glass'] = {
     onDragStart: () => {
       magDragStart.x = state.magnifierX

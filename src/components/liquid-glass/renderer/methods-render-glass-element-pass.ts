@@ -404,6 +404,14 @@ export const glassElementPassMethods = {
     }
     // Global enter alpha (ControlCenter enter progress)
     gl.uniform1f(this.uEl['uEnterAlpha'], state.enterAlpha)
+    // Magnifier glass uniforms
+    if (el.isMagnifier) {
+      gl.uniform1f(this.uEl['uUseMagnifier'], 1.0)
+      gl.uniform1f(this.uEl['uMagnifierZoom'], el.isMagnifier.zoom)
+      gl.uniform1f(this.uEl['uMagnifierOffsetY'], el.isMagnifier.sampleOffsetY * this.dpr)
+    } else {
+      gl.uniform1f(this.uEl['uUseMagnifier'], 0.0)
+    }
 
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 

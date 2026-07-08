@@ -119,14 +119,11 @@ void main() {
     // uContentScaleX/Y < 1.0 (toggle/slider knob press effect).
     vec4 backdrop;
     if (uIndicatorBackdrop > 0.5) {
-        // Bottom tab indicator CombinedBackdrop (faithful to LiquidBottomTabs.kt):
-        //   backdrop = CombinedBackdrop(wallpaper, blue-tinted-tabsBackdrop)
-        // Sample wallpaper + overlay blue tint inside container capsule.
         backdrop = sampleIndicatorBackdrop(screenCoord, uBlurRadius);
     } else if (uUseToggleBackdrop > 0.5) {
-        // Toggle knob CombinedBackdrop (faithful to LiquidToggle.kt):
-        //   backdrop = wallpaper (unscaled) + scaled track color rect
         backdrop = sampleToggleBackdrop(screenCoord, uBlurRadius);
+    } else if (uUseMagnifier > 0.5) {
+        backdrop = sampleMagnifier(screenCoord, uBlurRadius);
     } else {
         backdrop = sampleBackdrop(sampleCoord, uBlurRadius);
     }
@@ -191,6 +188,10 @@ void main() {
                 redC   = sampleToggleBackdrop(refractedScreen + dispersedOffsetScreen, uBlurRadius);
                 greenC = sampleToggleBackdrop(refractedScreen,                        uBlurRadius);
                 blueC  = sampleToggleBackdrop(refractedScreen - dispersedOffsetScreen, uBlurRadius);
+            } else if (uUseMagnifier > 0.5) {
+                redC   = sampleMagnifier(refractedScreen + dispersedOffsetScreen, uBlurRadius);
+                greenC = sampleMagnifier(refractedScreen,                        uBlurRadius);
+                blueC  = sampleMagnifier(refractedScreen - dispersedOffsetScreen, uBlurRadius);
             } else {
                 redC   = sampleBackdrop(refractedSampleCoord + dispersedOffsetScreen, uBlurRadius);
                 greenC = sampleBackdrop(refractedSampleCoord,                        uBlurRadius);
@@ -208,6 +209,8 @@ void main() {
                 refracted = sampleIndicatorBackdrop(refractedScreen, uBlurRadius);
             } else if (uUseToggleBackdrop > 0.5) {
                 refracted = sampleToggleBackdrop(refractedScreen, uBlurRadius);
+            } else if (uUseMagnifier > 0.5) {
+                refracted = sampleMagnifier(refractedScreen, uBlurRadius);
             } else {
                 refracted = sampleBackdrop(refractedSampleCoord, uBlurRadius);
             }
