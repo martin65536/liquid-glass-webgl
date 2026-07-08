@@ -2292,7 +2292,10 @@ function buildMagnifier(W: number, H: number, onBack: () => void, state: Catalog
   const cursorBaseY = cardY + cardH - 60 * DP
   const cursorX = cursorBaseX + state.magnifierX
   const cursorY = cursorBaseY + state.magnifierY
-  elements.push(makePlainRect('mag-cursor', { x: cursorX, y: cursorY, w: 4 * DP, h: 24 * DP }, palette.magnifierAccent, 2 * DP))
+  const cursorEl = makePlainRect('mag-cursor', { x: cursorX, y: cursorY, w: 4 * DP, h: 24 * DP }, palette.magnifierAccent, 2 * DP)
+  // Larger hit area for easy dragging (48×48dp touch target)
+  cursorEl.hitRect = { x: cursorX - 22 * DP, y: cursorY - 12 * DP, w: 48 * DP, h: 48 * DP }
+  elements.push(cursorEl)
 
   // Magnifier glass (128×96 capsule, sits 80dp above the cursor)
   // Faithful to MagnifierContent.kt: the glass refracts the content at the
@@ -2309,9 +2312,9 @@ function buildMagnifier(W: number, H: number, onBack: () => void, state: Catalog
       refractionHeight: 8 * DP,
       refractionAmount: -24 * DP,
       blurRadius: 0,
-      saturation: 1.5,
+      saturation: 1.0,
       surfaceColor: [0, 0, 0, 0],
-      highlight: { ...DEFAULT_HIGHLIGHT },
+      highlight: null,
       outerShadow: null,
       innerShadow: { radius: 16 * DP, alpha: 1, offsetX: 0, offsetY: 0 },
       depthEffect: true,
@@ -2320,7 +2323,10 @@ function buildMagnifier(W: number, H: number, onBack: () => void, state: Catalog
   )
   magGlass.isMagnifier = { zoom: 1.5, sampleOffsetY: 80 * DP }
   elements.push(magGlass)
-  interactions['mag-glass'] = {
+
+  // Drag interaction — bound to BOTH the cursor and the glass (either can be
+  // dragged). Faithful to MagnifierContent.kt: draggable2D is on the cursor Box.
+  const magDragHandler: ElementInteraction = {
     onDragStart: () => {
       magDragStart.x = state.magnifierX
       magDragStart.y = state.magnifierY
@@ -2333,6 +2339,8 @@ function buildMagnifier(W: number, H: number, onBack: () => void, state: Catalog
     },
     onDragEnd: () => {},
   }
+  interactions['mag-glass'] = magDragHandler
+  interactions['mag-cursor'] = magDragHandler
 
   const contentHeight = cardH
   const finalHeight = applyVerticalCenter(elements, 0, contentHeight, H)
