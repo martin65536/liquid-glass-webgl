@@ -99,7 +99,7 @@ export function buildBottomTabs(W: number, H: number, onBack: () => void, state:
         blurRadius: 8 * DP,
         saturation: 1.5,
         surfaceColor: containerColor,
-        highlight: { ...DEFAULT_HIGHLIGHT },
+        highlight: null, // Original container has NO highlight
         outerShadow: null,
         depthEffect: true,
       }
