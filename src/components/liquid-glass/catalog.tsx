@@ -56,10 +56,9 @@ function lerp(a: number, b: number, t: number): number {
 
 // --- Gravity angle (gyroscope/accelerometer) for highlight direction ---
 // Faithful to UISensor.kt: gravityAngle = atan2(y, x) * 180/PI, default 45°.
-// On web, we approximate via DeviceOrientationEvent (beta/gamma → gravity
-// vector → angle). Updated by a listener set up in page.tsx.
-// The highlight angle determines where the light edge appears on glass
-// elements — tilting the device shifts it, matching the original.
+// On web, approximated via DeviceOrientationEvent (beta/gamma → gravity
+// vector → angle). Passed in as a prop from page.tsx (React state) so
+// changes trigger a catalog rebuild → real-time highlight rotation.
 let gravityAngle = 45
 export function setGravityAngle(a: number) { gravityAngle = a; }
 function getGravityAngle() { return gravityAngle; }
@@ -2301,7 +2300,7 @@ function buildProgressiveBlur(W: number, H: number, onBack: () => void, palette:
  * like the iOS control center. Each tile is a glass rounded-rect
  * with Default highlight. Some tiles contain flight icons.
  * ------------------------------------------------------------------ */
-function buildControlCenter(W: number, H: number, onBack: () => void, state: CatalogState, setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void, palette: ThemePalette = LIGHT_PALETTE): CatalogResult {
+function buildControlCenter(W: number, H: number, onBack: () => void, state: CatalogState, setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void, palette: ThemePalette = LIGHT_PALETTE, gravityAngle: number = 45): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
@@ -2342,7 +2341,7 @@ function buildControlCenter(W: number, H: number, onBack: () => void, state: Cat
         blurRadius: 8 * DP,
         saturation: 1.5,
         surfaceColor: [0, 0, 0, 0.05],
-        highlight: { ...DEFAULT_HIGHLIGHT, angle: getGravityAngle() * Math.PI / 180, falloff: 2.0 },
+        highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 },
         outerShadow: null,
         depthEffect: true,
       }
@@ -2369,7 +2368,7 @@ function buildControlCenter(W: number, H: number, onBack: () => void, state: Cat
         blurRadius: 8 * DP,
         saturation: 1.5,
         surfaceColor: [0, 0, 0, 0.05],
-        highlight: { ...DEFAULT_HIGHLIGHT, angle: getGravityAngle() * Math.PI / 180, falloff: 2.0 },
+        highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 },
         outerShadow: null,
         depthEffect: true,
       }
@@ -2382,32 +2381,32 @@ function buildControlCenter(W: number, H: number, onBack: () => void, state: Cat
   const leftColX = leftPad
   elements.push(
     makeGlassShape('cc-c', { x: leftColX, y: cursorY, w: itemSize, h: itemSize }, {
-      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: getGravityAngle() * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   elements.push(makeText('cc-c-icon', { x: leftColX, y: cursorY, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor } }))
   elements.push(
     makeGlassShape('cc-d', { x: leftColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: itemSize }, {
-      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: getGravityAngle() * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   elements.push(makeText('cc-d-icon', { x: leftColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor } }))
   // Wide tile under the two small ones
   elements.push(
     makeGlassShape('cc-e', { x: leftColX, y: cursorY + itemSize + itemSpacing, w: twoSpan, h: itemSize }, {
-      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: getGravityAngle() * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   // Right column: 2 tall tiles
   const rightColX = leftColX + twoSpan + itemSpacing
   elements.push(
     makeGlassShape('cc-f', { x: rightColX, y: cursorY, w: itemSize, h: twoSpan }, {
-      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: getGravityAngle() * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   elements.push(
     makeGlassShape('cc-g', { x: rightColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: twoSpan }, {
-      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: getGravityAngle() * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   cursorY += twoSpan + itemSpacing
@@ -2415,25 +2414,25 @@ function buildControlCenter(W: number, H: number, onBack: () => void, state: Cat
   // Row 3: [2×2 empty] / [1×1 + 1×1] / [1×1] — stretch factor 2
   elements.push(
     makeGlassShape('cc-h', { x: leftPad, y: cursorY, w: twoSpan, h: twoSpan }, {
-      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: getGravityAngle() * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   // Right: 2 small + 1 small
   elements.push(
     makeGlassShape('cc-i', { x: rightColX, y: cursorY, w: itemSize, h: itemSize }, {
-      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: getGravityAngle() * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   elements.push(makeText('cc-i-icon', { x: rightColX, y: cursorY, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor } }))
   elements.push(
     makeGlassShape('cc-j', { x: rightColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: itemSize }, {
-      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: getGravityAngle() * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   elements.push(makeText('cc-j-icon', { x: rightColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor } }))
   elements.push(
     makeGlassShape('cc-k', { x: rightColX, y: cursorY + itemSize + itemSpacing, w: itemSize, h: itemSize }, {
-      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: getGravityAngle() * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   elements.push(makeText('cc-k-icon', { x: rightColX, y: cursorY + itemSize + itemSpacing, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor } }))
@@ -3396,7 +3395,8 @@ export function buildCatalog(
   rendererRef?: React.MutableRefObject<LiquidGlassRenderer | null>,
   isLightTheme: boolean = true,
   onToggleTheme?: () => void,
-  onPickImage?: () => void
+  onPickImage?: () => void,
+  gravityAngle: number = 45
 ): CatalogResult {
   const palette = getPalette(isLightTheme)
   let result: CatalogResult
@@ -3423,7 +3423,7 @@ export function buildCatalog(
       result = buildLockScreen(W, H, onBack, state, setState, palette)
       break
     case CatalogDestination.ControlCenter:
-      result = buildControlCenter(W, H, onBack, state, setState, palette)
+      result = buildControlCenter(W, H, onBack, state, setState, palette, gravityAngle)
       break
     case CatalogDestination.Magnifier:
       result = buildMagnifier(W, H, onBack, state, setState, palette)

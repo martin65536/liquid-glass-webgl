@@ -7,7 +7,6 @@ import {
   CatalogDestination,
   DEFAULT_CATALOG_STATE,
   type CatalogState,
-  setGravityAngle,
 } from '@/components/liquid-glass/catalog'
 import type { LiquidGlassRenderer } from '@/components/liquid-glass/renderer'
 
@@ -131,31 +130,30 @@ export default function Page() {
     setUserOverride((prev) => (prev === 'light' ? 'dark' : 'light'))
   }, [])
 
-  // Apply custom DPR override from Settings
+  // Device orientation → gravity angle for glass highlight direction.
+  // Faithful to UISensor.kt: gravityAngle = atan2(y, x) * 180/PI (default 45°).
+  // On web, DeviceOrientationEvent gives beta (front-back tilt) and gamma
+  // (left-right tilt). We map these to a gravity angle: gamma → x, beta → y.
+  // Stored in React state so changes trigger a catalog rebuild → real-time
+  // highlight rotation on Control Center tiles.
+  const [gravityAngle, setGravityAngleState] = React.useState(45)
   React.useEffect(() => {
-    const r = rendererRef.current
-    if (!r) return
-    const deviceDpr = window.devicePixelRatio || 1
-    const maxDpr = deviceDpr
-    if (state.customDpr > 0) {
-      r.dpr = Math.max(0.5, Math.min(maxDpr, state.customDpr))
-    } else {
-      r.dpr = deviceDpr
+    if (typeof window === 'undefined' || !('DeviceOrientationEvent' in window)) return
+    const handler = (e: DeviceOrientationEvent) => {
+      const x = e.gamma ?? 0
+      const y = e.beta ?? 0
+      const angle = Math.atan2(y, x) * 180 / Math.PI
+      setGravityAngleState(angle)
     }
-    // Trigger resize to apply the new DPR
-    const el = frameRef.current
-    if (el) {
-      const w = el.clientWidth
-      const h = el.clientHeight
-      r.resize(w, h)
-    }
-  }, [state.customDpr])
+    window.addEventListener('deviceorientation', handler)
+    return () => window.removeEventListener('deviceorientation', handler)
+  }, [])
 
   // Build the catalog for the current destination.
-  // useMemo so we don't rebuild every render (only when dest/state/W/H/theme change).
+  // useMemo so we don't rebuild every render (only when dest/state/W/H/theme/gravityAngle change).
   const catalog = React.useMemo(
-    () => buildCatalog(destination, W, H, state, setState, onNavigate, onBack, rendererRef, isLightTheme, toggleTheme, () => fileInputRef.current?.click()),
-    [destination, W, H, state, setState, onNavigate, onBack, isLightTheme, toggleTheme]
+    () => buildCatalog(destination, W, H, state, setState, onNavigate, onBack, rendererRef, isLightTheme, toggleTheme, () => fileInputRef.current?.click(), gravityAngle),
+    [destination, W, H, state, setState, onNavigate, onBack, isLightTheme, toggleTheme, gravityAngle]
   )
 
   // Home page background: faithful to the original Android app.
@@ -330,22 +328,6 @@ export default function Page() {
     return () => cancelAnimationFrame(raf)
   }, [destination, W, H, setState])
 
-  // Device orientation → gravity angle for glass highlight direction.
-  // Faithful to UISensor.kt: gravityAngle = atan2(y, x) * 180/PI (default 45°).
-  // On web, DeviceOrientationEvent gives beta (front-back tilt) and gamma
-  // (left-right tilt). We map these to a gravity angle: gamma → x, beta → y.
-  React.useEffect(() => {
-    if (typeof window === 'undefined' || !('DeviceOrientationEvent' in window)) return
-    const handler = (e: DeviceOrientationEvent) => {
-      const x = e.gamma ?? 0
-      const y = e.beta ?? 0
-      const angle = Math.atan2(y, x) * 180 / Math.PI
-      setGravityAngle(angle)
-    }
-    window.addEventListener('deviceorientation', handler)
-    return () => window.removeEventListener('deviceorientation', handler)
-  }, [])
-
   return (
     <div
       className="w-full flex items-center justify-center"
@@ -374,6 +356,7 @@ export default function Page() {
           toggleTargets={toggleTargets}
           tabTargets={tabTargets}
           rendererRef={rendererRef}
+          dpr={state.customDpr}
           className="w-full h-full"
         />
         {/* Hidden file input for "Pick an image" — triggered by the canvas button */}

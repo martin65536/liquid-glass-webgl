@@ -55,6 +55,9 @@ export interface LiquidGlassCanvasProps {
    *  like setToggleTarget / beginToggleDrag / dragToggle / endToggleDrag. */
   rendererRef?: React.MutableRefObject<LiquidGlassRenderer | null>
   className?: string
+  /** Device pixel ratio override (0 = use device DPR, capped at 1.5 by
+   *  the renderer's resize). Applied on renderer init + when it changes. */
+  dpr?: number
 }
 
 export interface ElementInteraction {
@@ -93,6 +96,7 @@ export function LiquidGlassCanvas({
   tabTargets,
   rendererRef,
   className,
+  dpr,
 }: LiquidGlassCanvasProps) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
   const containerRef = React.useRef<HTMLDivElement>(null)
@@ -154,6 +158,12 @@ export function LiquidGlassCanvas({
       canvasRef.current!.style.height = r.height + 'px'
       renderer.resize(r.width, r.height)
     }
+    // Apply the DPR override BEFORE the first resize so the renderer uses
+    // the correct DPR from the start (otherwise resize caps at 1.5).
+    if (dpr != null) {
+      const deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+      renderer.dpr = dpr > 0 ? Math.max(0.5, Math.min(deviceDpr, dpr)) : deviceDpr
+    }
     resize()
     const ro = new ResizeObserver(resize)
     ro.observe(containerRef.current)
@@ -184,6 +194,16 @@ export function LiquidGlassCanvas({
   React.useEffect(() => {
     rendererRefInternal.current?.setBackgroundColor(backgroundColor)
   }, [backgroundColor])
+
+  // Apply DPR override when it changes (Settings page slider).
+  React.useEffect(() => {
+    const renderer = rendererRefInternal.current
+    if (!renderer || dpr == null) return
+    const deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+    renderer.dpr = dpr > 0 ? Math.max(0.5, Math.min(deviceDpr, dpr)) : deviceDpr
+    const r = containerRef.current?.getBoundingClientRect()
+    if (r) renderer.resize(r.width, r.height)
+  }, [dpr])
 
   // Push the latest element list to the renderer.
   React.useEffect(() => {
