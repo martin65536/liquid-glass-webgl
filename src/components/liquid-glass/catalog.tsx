@@ -553,6 +553,11 @@ function makeLiquidSlider(
     },
   }
   const knobInteract: ElementInteraction = {
+    // Tap on the knob (or its expanded hitRect which overlaps the track)
+    // → jump to the tapped position, same as tapping the track.
+    onTap: (pos) => {
+      onValueChange(Math.max(0, Math.min(1, (pos.x - trackX) / dragW)))
+    },
     onDragStart: (pos) => {
       const r = rendererRef?.current
       if (!r) return
@@ -1757,10 +1762,17 @@ function buildSlider(
       },
     }
   }
-  function makeSliderKnobInteractions(groupId: string, dragW: number) {
+  function makeSliderKnobInteractions(groupId: string, dragW: number, trackX: number, trackW: number) {
     let dragStartFraction = 0
     let dragStartX = 0
+    const fractionAt = (pos: { x: number; y: number }) =>
+      Math.max(0, Math.min(1, (pos.x - trackX) / trackW))
     return {
+      // Tap on the knob (or its expanded hitRect which overlaps the track)
+      // → jump to the tapped position, same as tapping the track.
+      onTap: (pos: { x: number; y: number }) => {
+        setState({ sliderValue: fractionAt(pos) * 100 })
+      },
       onDragStart: (pos: { x: number; y: number }) => {
         const r = rendererRef?.current
         if (!r) return
@@ -1792,9 +1804,9 @@ function buildSlider(
     }
   }
   interactions['slider1-track'] = makeSliderTrackInteractions('slider1', s1TrackX, s1TrackW, SLIDER_DRAG_W1)
-  interactions['slider1-knob'] = makeSliderKnobInteractions('slider1', SLIDER_DRAG_W1)
+  interactions['slider1-knob'] = makeSliderKnobInteractions('slider1', SLIDER_DRAG_W1, s1TrackX, s1TrackW)
   interactions['slider2-track'] = makeSliderTrackInteractions('slider2', s2TrackX, s2TrackW, SLIDER_DRAG_W2)
-  interactions['slider2-knob'] = makeSliderKnobInteractions('slider2', SLIDER_DRAG_W2)
+  interactions['slider2-knob'] = makeSliderKnobInteractions('slider2', SLIDER_DRAG_W2, s2TrackX, s2TrackW)
 
   // Content height = card bottom (including outer padding 24dp below the card)
   const contentHeight = cardY + cardH + 24
