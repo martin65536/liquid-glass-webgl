@@ -57,6 +57,9 @@ export default function Page() {
   // renderer. Catalog builders use this to call renderer methods
   // (e.g. setToggleTarget, beginToggleDrag, dragToggle, endToggleDrag).
   const rendererRef = React.useRef<LiquidGlassRenderer | null>(null)
+  // Ref mirror of algOffset so the AL-glass luminance rAF effect doesn't
+  // re-run on every drag frame (which would reset its animation).
+  const algOffsetRef = React.useRef({ x: 0, y: 0 })
 
   // setState supports both a partial patch and a functional updater.
   // The functional form is critical for drag callbacks (slider, magnifier,
@@ -223,9 +226,18 @@ export default function Page() {
   // Faithful to AdaptiveLuminanceGlassContent.kt's LaunchedEffect loop:
   //   layer.toImageBitmap → scale(5,5) → readPixels → averageLuminance
   //   → luminanceAnimation.animateTo(averageLuminance, tween(1000))
-  // We read a 5×5 grid of pixels from the final composited canvas (which
-  // includes the glass appearance) across the glass region, compute average
-  // luminance, then tween state.adaptiveLuminance toward it over ~1s.
+  //
+  // Implementation notes:
+  //   - algOffsetRef mirrors state.algOffsetX/Y so the rAF loop reads the
+  //     current offset WITHOUT the effect re-running on every drag frame
+  //     (re-running would reset animLum + cause the "goes to 0 on release"
+  //     bug because a fresh tick has no target yet).
+  //   - Single readPixels of a small block (1 GPU stall) every ~200ms.
+  //   - setState only when the eased value changes by >0.01.
+  React.useEffect(() => {
+    algOffsetRef.current.x = state.algOffsetX
+    algOffsetRef.current.y = state.algOffsetY
+  }, [state.algOffsetX, state.algOffsetY])
   React.useEffect(() => {
     if (destination !== CatalogDestination.AdaptiveLuminanceGlass) return
     const r = rendererRef.current
@@ -234,65 +246,50 @@ export default function Page() {
     const canvas = r.canvas
     let raf = 0
     let lastSample = 0
-    // Animated luminance — eased toward target each frame (tween(1000) approx).
     let animLum = state.adaptiveLuminance
-    const px = new Uint8Array(4 * 25) // 5×5 grid
+    let target = state.adaptiveLuminance
+    // Read a 9×9 block (81 pixels) — enough to approximate the average,
+    // small enough to be a cheap single readPixels (324 bytes).
+    const BLOCK = 9
+    const px = new Uint8Array(4 * BLOCK * BLOCK)
     const tick = (t: number) => {
       raf = requestAnimationFrame(tick)
-      // Sample the glass region every ~100ms (original loops continuously
-      // but readPixels is synchronous/expensive, so throttle).
-      if (t - lastSample >= 100) {
+      // Sample every ~200ms (readPixels is a synchronous GPU stall).
+      if (t - lastSample >= 200) {
         lastSample = t
         const size = 160
-        // Glass center in CSS px (after applyVerticalCenter shifts it).
-        const cx = (W - size) / 2 + state.algOffsetX + size / 2
-        const cy = (H - size) / 2 + state.algOffsetY + size / 2
-        // Sample 5×5 grid spanning the glass interior (inset 24dp for corner radius).
-        const span = size - 48 * 1 // 24dp inset each side
-        const half = span / 2
-        let sum = 0
-        let count = 0
-        for (let gy = 0; gy < 5; gy++) {
-          for (let gx = 0; gx < 5; gx++) {
-            const sx = cx - half + (span * gx) / 4
-            const sy = cy - half + (span * gy) / 4
-            const dx = Math.max(0, Math.min(canvas.width - 1, Math.round(sx * r.dpr)))
-            const dy = Math.max(0, Math.min(canvas.height - 1, Math.round((H - sy) * r.dpr)))
-            try {
-              // Bind the default framebuffer (the visible canvas) before
-              // readPixels — the renderer may have left an FBO bound.
-              gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-              gl.readPixels(dx, dy, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px)
-              const lum = (0.2126 * px[0] + 0.7152 * px[1] + 0.0722 * px[2]) / 255
-              sum += lum
-              count++
-            } catch {
-              // ignore
-            }
+        const cx = (W - size) / 2 + algOffsetRef.current.x + size / 2
+        const cy = (H - size) / 2 + algOffsetRef.current.y + size / 2
+        const dpr = r.dpr
+        // Block centered on glass center (device px, Y-flipped).
+        const dx = Math.max(0, Math.round(cx * dpr) - Math.floor(BLOCK / 2))
+        const dy = Math.max(0, Math.round((H - cy) * dpr) - Math.floor(BLOCK / 2))
+        try {
+          gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+          gl.readPixels(dx, dy, BLOCK, BLOCK, gl.RGBA, gl.UNSIGNED_BYTE, px)
+          let sum = 0
+          const n = BLOCK * BLOCK
+          for (let i = 0; i < n; i++) {
+            sum += (0.2126 * px[i * 4] + 0.7152 * px[i * 4 + 1] + 0.0722 * px[i * 4 + 2]) / 255
           }
-        }
-        if (count > 0) {
-          const target = sum / count
-          // Start animating toward target (tween(1000) approximated by easing
-          // 6% per frame at 60fps → ~63% in 1s, close to tween's ease).
-          // We store target in a closure var; the frame loop eases toward it.
-          ;(tick as any)._target = target
+          target = sum / n
+        } catch {
+          // ignore
         }
       }
-      // Ease animLum toward target each frame (~tween(1000)).
-      const target = (tick as any)._target ?? animLum
+      // Ease animLum toward target each frame (~tween(1000) ≈ 6%/frame).
       const diff = target - animLum
       if (Math.abs(diff) > 0.001) {
-        animLum += diff * 0.06 // ~6% per frame → ~1s to reach 95%
+        animLum += diff * 0.06
         setState((prev) => {
-          if (Math.abs(prev.adaptiveLuminance - animLum) < 0.005) return {}
+          if (Math.abs(prev.adaptiveLuminance - animLum) < 0.01) return {}
           return { adaptiveLuminance: animLum }
         })
       }
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [destination, W, H, state.algOffsetX, state.algOffsetY, setState])
+  }, [destination, W, H, setState])
 
   return (
     <div
