@@ -130,6 +130,26 @@ export default function Page() {
     setUserOverride((prev) => (prev === 'light' ? 'dark' : 'light'))
   }, [])
 
+  // Apply custom DPR override from Settings
+  React.useEffect(() => {
+    const r = rendererRef.current
+    if (!r) return
+    const deviceDpr = window.devicePixelRatio || 1
+    const maxDpr = deviceDpr * 2
+    if (state.customDpr > 0) {
+      r.dpr = Math.max(0.5, Math.min(maxDpr, state.customDpr))
+    } else {
+      r.dpr = Math.min(deviceDpr, 1.5)
+    }
+    // Trigger resize to apply the new DPR
+    const el = frameRef.current
+    if (el) {
+      const w = el.clientWidth
+      const h = el.clientHeight
+      r.resize(w, h)
+    }
+  }, [state.customDpr])
+
   // Build the catalog for the current destination.
   // useMemo so we don't rebuild every render (only when dest/state/W/H/theme change).
   const catalog = React.useMemo(
