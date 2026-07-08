@@ -19,11 +19,139 @@ import {
  * Shared LiquidSlider factory — used by both the Slider page and the
  * Glass Playground. Creates track + fill + knob + interactions.
  * ------------------------------------------------------------------ */
-// Per-group drag state (survives re-renders during liveUpdate)
-const dragStates = new Map<string, { fraction: number; x: number }>()
-// Per-group tab drag state (survives re-renders — gravityAngle changes
-// can rebuild the catalog mid-drag, resetting closure variables).
-const tabDragStates = new Map<string, { tab: number; x: number; didDrag: boolean }>()
+// Unified per-group drag state (survives re-renders during liveUpdate /
+// gravityAngle changes). Used by ALL drag-based controls.
+const dragStates = new Map<string, { fraction: number; x: number; didDrag: boolean }>()
+
+/* ------------------------------------------------------------------ *
+ * makeDragInteractions — the ONE shared drag-interaction factory.
+ *
+ * Used by: sliders (continuous + stepped), toggles, bottom tabs.
+ * All share the same gesture pattern:
+ *   onDragStart → read current visual fraction → beginDrag
+ *   onDrag → relative drag (knob follows finger delta with spring lag)
+ *   onDragEnd → endDrag → snap → setTarget
+ *   onTap → jump to tapped fraction → snap → setTarget
+ *
+ * The control-specific behavior is injected via the `opts` object:
+ *   - getFraction: read current visual fraction (getToggleFraction / getTabFraction)
+ *   - beginDrag: start the drag (beginToggleDrag / beginTabDrag)
+ *   - drag: update during drag (dragToggle / dragTab)
+ *   - endDrag: release + return final fraction (endSliderDrag / endToggleDrag / endTabDrag)
+ *   - setTarget: programmatic target set (setToggleTarget / setTabSelected)
+ *   - snap: snap function (fraction → snapped fraction), or null = no snap
+ *   - liveUpdate: push fraction to onValueChange during drag
+ *   - onTapJump: if false, tap does nothing (e.g. toggle = toggle on tap, not jump)
+ * ------------------------------------------------------------------ */
+interface DragInteractionsOpts {
+  groupId: string
+  trackX: number
+  dragW: number
+  rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> | null
+  onValueChange: (fraction: number) => void
+  // Control-specific renderer calls:
+  getFraction: (r: LiquidGlassRenderer, groupId: string) => number
+  beginDrag: (r: LiquidGlassRenderer, groupId: string, fraction: number, count?: number) => void
+  drag: (r: LiquidGlassRenderer, groupId: string, startFraction: number, currentX: number, startX: number, dragW: number, count?: number) => void
+  endDrag: (r: LiquidGlassRenderer, groupId: string, count?: number) => number
+  setTarget: (r: LiquidGlassRenderer, groupId: string, fraction: number, count?: number) => void
+  count?: number // tabsCount for tabs (passed to begin/drag/end/setTarget)
+  snap?: (f: number) => number // snap function (null/undefined = no snap)
+  liveUpdate?: boolean
+  onTapJump?: boolean // default true; false = tap does nothing (toggle uses its own onTap)
+  didDragThreshold?: number // px of movement before didDrag=true (default 3)
+}
+
+export function makeDragInteractions(opts: DragInteractionsOpts): ElementInteraction {
+  const {
+    groupId, trackX, dragW, rendererRef, onValueChange,
+    getFraction, beginDrag, drag, endDrag, setTarget,
+    count, snap, liveUpdate = false, onTapJump = true, didDragThreshold = 3,
+  } = opts
+
+  if (!dragStates.has(groupId)) dragStates.set(groupId, { fraction: 0, x: 0, didDrag: false })
+  const ds = dragStates.get(groupId)!
+
+  const fracFromPos = (px: number) => Math.max(0, Math.min(1, (px - trackX) / dragW))
+  const applySnap = (f: number) => (snap ? snap(f) : f)
+
+  return {
+    onTap: (pos) => {
+      if (!onTapJump) return
+      const f = applySnap(fracFromPos(pos.x))
+      const r = rendererRef?.current
+      if (r) setTarget(r, groupId, f, count)
+      onValueChange(f)
+    },
+    onDragStart: (pos) => {
+      const r = rendererRef?.current
+      if (!r) return
+      draggingGroups.add(groupId)
+      ds.fraction = getFraction(r, groupId)
+      ds.x = pos.x
+      ds.didDrag = false
+      beginDrag(r, groupId, ds.fraction, count)
+    },
+    onDrag: (pos) => {
+      const r = rendererRef?.current
+      if (!r) return
+      if (Math.abs(pos.x - ds.x) > didDragThreshold) ds.didDrag = true
+      drag(r, groupId, ds.fraction, pos.x, ds.x, dragW, count)
+      if (liveUpdate) {
+        onValueChange(getFraction(r, groupId))
+      }
+    },
+    onDragEnd: () => {
+      const r = rendererRef?.current
+      if (!r) return
+      const rawF = endDrag(r, groupId, count)
+      draggingGroups.delete(groupId)
+      const snappedF = applySnap(rawF)
+      if (snap) setTarget(r, groupId, snappedF, count)
+      onValueChange(snappedF)
+    },
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Renderer method bindings — pre-wired adapters for each control type.
+ * These eliminate the boilerplate of passing lambdas every time.
+ * ------------------------------------------------------------------ */
+
+// Slider/Settings: getToggleFraction, beginToggleDrag, dragToggle,
+// endSliderDrag, setToggleTarget.
+export const sliderDragBindings = {
+  getFraction: (r: LiquidGlassRenderer, id: string) => r.getToggleFraction(id),
+  beginDrag: (r: LiquidGlassRenderer, id: string, f: number) => r.beginToggleDrag(id, f),
+  drag: (r: LiquidGlassRenderer, id: string, sf: number, cx: number, sx: number, dw: number) =>
+    r.dragToggle(id, sf, cx, sx, dw),
+  endDrag: (r: LiquidGlassRenderer, id: string) => r.endSliderDrag(id),
+  setTarget: (r: LiquidGlassRenderer, id: string, f: number) => r.setToggleTarget(id, f),
+}
+
+// Toggle: getToggleTarget (not fraction!), beginToggleDrag, dragToggle,
+// endToggleDrag, setToggleTarget. Tap = toggle (no jump).
+export const toggleDragBindings = {
+  getFraction: (r: LiquidGlassRenderer, id: string) => r.getToggleTarget(id),
+  beginDrag: (r: LiquidGlassRenderer, id: string, f: number) => r.beginToggleDrag(id, f),
+  drag: (r: LiquidGlassRenderer, id: string, sf: number, cx: number, sx: number, dw: number) =>
+    r.dragToggle(id, sf, cx, sx, dw),
+  endDrag: (r: LiquidGlassRenderer, id: string) => r.endToggleDrag(id),
+  setTarget: (r: LiquidGlassRenderer, id: string, f: number) => r.setToggleTarget(id, f),
+}
+
+// Bottom tabs: getTabFraction, beginTabDrag, dragTab, endTabDrag, setTabSelected.
+export const tabDragBindings = {
+  getFraction: (r: LiquidGlassRenderer, id: string) => r.getTabFraction(id),
+  beginDrag: (r: LiquidGlassRenderer, id: string, f: number, count?: number) =>
+    r.beginTabDrag(id, f, count ?? 3),
+  drag: (r: LiquidGlassRenderer, id: string, sf: number, cx: number, sx: number, dw: number, count?: number) =>
+    r.dragTab(id, sf, cx, sx, dw, count ?? 3),
+  endDrag: (r: LiquidGlassRenderer, id: string, count?: number) =>
+    r.endTabDrag(id, count ?? 3),
+  setTarget: (r: LiquidGlassRenderer, id: string, f: number, count?: number) =>
+    r.setTabSelected(id, Math.round(f), count ?? 3),
+}
 
 export function makeLiquidSlider(
   idPrefix: string,
@@ -78,73 +206,14 @@ export function makeLiquidSlider(
   knobEl.hitRect = { x: knobBaseX, y: knobY + (SLIDER_KNOB_H - SLIDER_HIT_H) / 2, w: SLIDER_KNOB_W, h: SLIDER_HIT_H }
   elements.push(knobEl)
 
-  // Interactions — same as Slider page: relative drag via renderer
-  // Use module-level Map so dragStart values survive re-renders
-  // (liveUpdate causes setState → re-render → closure vars reset).
-  if (!dragStates.has(groupId)) dragStates.set(groupId, { fraction: 0, x: 0 })
-  const ds = dragStates.get(groupId)!
-  const trackInteract: ElementInteraction = {
-    onTap: (pos) => {
-      onValueChange(Math.max(0, Math.min(1, (pos.x - trackX) / dragW)))
-    },
-    onDragStart: (pos) => {
-      const r = rendererRef?.current
-      if (!r) return
-      draggingGroups.add(groupId)
-      ds.fraction = r.getToggleFraction(groupId)
-      ds.x = pos.x
-      r.beginToggleDrag(groupId, ds.fraction)
-    },
-    onDrag: (pos) => {
-      const r = rendererRef?.current
-      if (!r) return
-      r.dragToggle(groupId, ds.fraction, pos.x, ds.x, dragW)
-      if (liveUpdate) {
-        const f = r.getToggleFraction(groupId)
-        onValueChange(f)
-      }
-    },
-    onDragEnd: () => {
-      const r = rendererRef?.current
-      if (!r) return
-      const f = r.endSliderDrag(groupId)
-      draggingGroups.delete(groupId)
-      onValueChange(f)
-    },
-  }
-  const knobInteract: ElementInteraction = {
-    // Tap on the knob (or its expanded hitRect which overlaps the track)
-    // → jump to the tapped position, same as tapping the track.
-    onTap: (pos) => {
-      onValueChange(Math.max(0, Math.min(1, (pos.x - trackX) / dragW)))
-    },
-    onDragStart: (pos) => {
-      const r = rendererRef?.current
-      if (!r) return
-      draggingGroups.add(groupId)
-      ds.fraction = r.getToggleFraction(groupId)
-      ds.x = pos.x
-      r.beginToggleDrag(groupId, ds.fraction)
-    },
-    onDrag: (pos) => {
-      const r = rendererRef?.current
-      if (!r) return
-      r.dragToggle(groupId, ds.fraction, pos.x, ds.x, dragW)
-      if (liveUpdate) {
-        const f = r.getToggleFraction(groupId)
-        onValueChange(f)
-      }
-    },
-    onDragEnd: () => {
-      const r = rendererRef?.current
-      if (!r) return
-      const f = r.endSliderDrag(groupId)
-      draggingGroups.delete(groupId)
-      onValueChange(f)
-    },
-  }
-  interactions[`${idPrefix}-track`] = trackInteract
-  interactions[`${idPrefix}-knob`] = knobInteract
+  // Interactions — unified drag pattern via makeDragInteractions.
+  const interact = makeDragInteractions({
+    groupId, trackX, dragW, rendererRef, onValueChange,
+    ...sliderDragBindings,
+    liveUpdate,
+  })
+  interactions[`${idPrefix}-track`] = interact
+  interactions[`${idPrefix}-knob`] = interact
 
   return { elements, interactions }
 }
@@ -295,36 +364,22 @@ export function makeTabDragInteractions(
   onSelect: (i: number) => void,
   rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> | null
 ): ElementInteraction {
-  if (!tabDragStates.has(groupId)) tabDragStates.set(groupId, { tab: 0, x: 0, didDrag: false })
-  const ds = tabDragStates.get(groupId)!
-  return {
-    onTap: () => {
-      // Tap on container/indicator: no-op (tab taps are handled by tab-text interactions).
+  return makeDragInteractions({
+    groupId,
+    trackX: 0, // tab dragW is the full tabWidth (not offset by knob)
+    dragW: tabWidth,
+    rendererRef,
+    onValueChange: (f) => {
+      // onSelect is called on dragEnd with the snapped (integer) index.
+      // The makeDragInteractions onDragEnd calls onValueChange with the
+      // snapped fraction — convert to index and call onSelect.
+      onSelect(Math.round(f))
     },
-    onDragStart: (pos: { x: number; y: number }) => {
-      const r = rendererRef?.current
-      if (!r) return
-      // Use the VISUAL fraction (not target) to avoid teleport on drag start.
-      ds.tab = r.getTabFraction(groupId)
-      ds.x = pos.x
-      ds.didDrag = false
-      r.beginTabDrag(groupId, ds.tab, tabsCount)
-    },
-    onDrag: (pos: { x: number; y: number }) => {
-      const r = rendererRef?.current
-      if (!r) return
-      if (Math.abs(pos.x - ds.x) > 3) ds.didDrag = true
-      r.dragTab(groupId, ds.tab, pos.x, ds.x, tabWidth, tabsCount)
-    },
-    onDragEnd: () => {
-      const r = rendererRef?.current
-      if (!r) return
-      const finalTab = r.endTabDrag(groupId, tabsCount)
-      if (ds.didDrag) {
-        onSelect(finalTab)
-      }
-    },
-  }
+    ...tabDragBindings,
+    count: tabsCount,
+    snap: (f) => Math.max(0, Math.min(1, Math.round(f * tabsCount) / tabsCount)),
+    onTapJump: false, // tab taps are handled by tab-text interactions
+  })
 }
 
 export function makeGlassShape(
@@ -640,51 +695,14 @@ export function makeSettingsSlider(
   }
   elements.push(knobEl)
 
-  // Module-level drag state (survives re-renders).
-  if (!dragStates.has(groupId)) dragStates.set(groupId, { fraction: 0, x: 0 })
-  const ds = dragStates.get(groupId)!
-
-  // Fraction from a screen-x position (for tap-jump).
-  const fracFromPos = (px: number) => Math.max(0, Math.min(1, (px - trackX) / dragW))
-
-  // Shared interaction for track + knob (same as makeLiquidSlider pattern).
-  const interact: ElementInteraction = {
-    // Tap → snap to nearest step at the tapped position.
-    onTap: (pos) => {
-      const snappedF = snapFrac(fracFromPos(pos.x))
-      rendererRef?.current?.setToggleTarget(groupId, snappedF)
-      onValueChange(fracToVal(snappedF))
-    },
-    onDragStart: (pos) => {
-      const r = rendererRef?.current
-      if (!r) return
-      draggingGroups.add(groupId)
-      // Relative drag: start from the knob's CURRENT visual fraction.
-      ds.fraction = r.getToggleFraction(groupId)
-      ds.x = pos.x
-      r.beginToggleDrag(groupId, ds.fraction)
-    },
-    onDrag: (pos) => {
-      const r = rendererRef?.current
-      if (!r) return
-      // Relative: knob follows finger delta with spring lag.
-      r.dragToggle(groupId, ds.fraction, pos.x, ds.x, dragW)
-      // Live update: push the current fraction to React state so the
-      // label + DPR apply in real-time.
-      const f = r.getToggleFraction(groupId)
-      onValueChange(fracToVal(f))
-    },
-    onDragEnd: () => {
-      const r = rendererRef?.current
-      if (!r) return
-      const rawF = r.endSliderDrag(groupId)
-      draggingGroups.delete(groupId)
-      // Snap to nearest step (faithful to the stepped slider behavior).
-      const snappedF = snapFrac(rawF)
-      r.setToggleTarget(groupId, snappedF)
-      onValueChange(fracToVal(snappedF))
-    },
-  }
+  // Interactions — unified drag pattern with step snap + liveUpdate.
+  const interact = makeDragInteractions({
+    groupId, trackX, dragW, rendererRef,
+    onValueChange: (f) => onValueChange(fracToVal(f)),
+    ...sliderDragBindings,
+    snap: snapFrac,
+    liveUpdate: true,
+  })
   interactions[`${groupId}-track`] = interact
   interactions[`${groupId}-knob`] = interact
 

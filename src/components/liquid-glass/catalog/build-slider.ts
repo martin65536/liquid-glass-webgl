@@ -12,11 +12,7 @@ import {
   type CatalogState,
   type ThemePalette,
 } from './types'
-import { applyVerticalCenter, makeBackButton, makeGlassShape, makePlainRect } from './helpers'
-
-// Module-level drag state — survives re-renders (gravityAngle changes can
-// rebuild the catalog mid-drag, which would reset closure variables).
-const sliderDragStates = new Map<string, { fraction: number; x: number }>()
+import { applyVerticalCenter, makeBackButton, makeDragInteractions, makeGlassShape, makePlainRect, sliderDragBindings } from './helpers'
 
 /* ------------------------------------------------------------------ *
  * SLIDER — faithful to SliderContent.kt + LiquidSlider.kt
@@ -231,92 +227,22 @@ export function buildSlider(
   // move ~6% slower than the finger.
   const SLIDER_DRAG_W1 = s1TrackW - SLIDER_KNOB_W / 2
   const SLIDER_DRAG_W2 = s2TrackW - SLIDER_KNOB_W / 2
-  function makeSliderTrackInteractions(groupId: string, trackX: number, trackW: number, dragW: number) {
-    // Track drag uses RELATIVE positioning (faithful to LiquidSlider.kt):
-    //   onDrag → updateValue(targetValue + dragAmount.x / trackWidth * range)
-    // The knob does NOT jump to the finger on press — it stays at its current
-    // position and follows the finger's RELATIVE movement. This matches the
-    // original where tapping the track is a separate gesture (animateToValue)
-    // but dragging the track moves the knob relatively.
-    // Tap on track → animate knob to tapped position (absolute, like original
-    //   detectTapGestures → animateToValue).
-    // NO setState during drag — the fill width is driven by the renderer's
-    // isSliderFill (reads sf.fraction every frame). State is synced on dragEnd.
-    if (!sliderDragStates.has(groupId)) sliderDragStates.set(groupId, { fraction: 0, x: 0 })
-    const ds = sliderDragStates.get(groupId)!
-    const fractionAt = (pos: { x: number; y: number }) =>
-      Math.max(0, Math.min(1, (pos.x - trackX) / trackW))
-    return {
-      onTap: (pos: { x: number; y: number }) => {
-        setState({ sliderValue: fractionAt(pos) * 100 })
-      },
-      onDragStart: (pos: { x: number; y: number }) => {
-        const r = rendererRef?.current
-        if (!r) return
-        // Relative: start from the knob's CURRENT visual position (not jump).
-        ds.fraction = r.getToggleFraction(groupId)
-        ds.x = pos.x
-        r.beginToggleDrag(groupId, ds.fraction)
-      },
-      onDrag: (pos: { x: number; y: number }) => {
-        const r = rendererRef?.current
-        if (!r) return
-        // Relative: knob follows finger delta, not absolute position.
-        r.dragToggle(groupId, ds.fraction, pos.x, ds.x, dragW)
-      },
-      onDragEnd: () => {
-        const r = rendererRef?.current
-        if (!r) return
-        const finalTarget = r.endSliderDrag(groupId)
-        setState({ sliderValue: finalTarget * 100 })
-      },
-    }
-  }
-  function makeSliderKnobInteractions(groupId: string, dragW: number, trackX: number, trackW: number) {
-    if (!sliderDragStates.has(groupId)) sliderDragStates.set(groupId, { fraction: 0, x: 0 })
-    const ds = sliderDragStates.get(groupId)!
-    const fractionAt = (pos: { x: number; y: number }) =>
-      Math.max(0, Math.min(1, (pos.x - trackX) / trackW))
-    return {
-      // Tap on the knob (or its expanded hitRect which overlaps the track)
-      // → jump to the tapped position, same as tapping the track.
-      onTap: (pos: { x: number; y: number }) => {
-        setState({ sliderValue: fractionAt(pos) * 100 })
-      },
-      onDragStart: (pos: { x: number; y: number }) => {
-        const r = rendererRef?.current
-        if (!r) return
-        // Use the VISUAL fraction (not target) as the drag start — if the knob
-        // is mid-animation (fraction ≠ target), starting from target would
-        // cause a visible jump/teleport. Faithful to LiquidSlider.kt which
-        // reads the current animated value.
-        ds.fraction = r.getToggleFraction(groupId)
-        ds.x = pos.x
-        r.beginToggleDrag(groupId, ds.fraction)
-      },
-      onDrag: (pos: { x: number; y: number }) => {
-        const r = rendererRef?.current
-        if (!r) return
-        // Relative drag: knob follows finger with spring lag. NO setState here
-        // — the fill width is driven by the renderer's isSliderFill (which
-        // reads sf.fraction every frame), so React state is not needed during
-        // drag. Calling setState during drag caused a feedback loop (setState
-        // → toggleTargets effect → setToggleTarget) that fought the spring.
-        // State is synced once on dragEnd.
-        r.dragToggle(groupId, ds.fraction, pos.x, ds.x, dragW)
-      },
-      onDragEnd: () => {
-        const r = rendererRef?.current
-        if (!r) return
-        const finalTarget = r.endSliderDrag(groupId)
-        setState({ sliderValue: finalTarget * 100 })
-      },
-    }
-  }
-  interactions['slider1-track'] = makeSliderTrackInteractions('slider1', s1TrackX, s1TrackW, SLIDER_DRAG_W1)
-  interactions['slider1-knob'] = makeSliderKnobInteractions('slider1', SLIDER_DRAG_W1, s1TrackX, s1TrackW)
-  interactions['slider2-track'] = makeSliderTrackInteractions('slider2', s2TrackX, s2TrackW, SLIDER_DRAG_W2)
-  interactions['slider2-knob'] = makeSliderKnobInteractions('slider2', SLIDER_DRAG_W2, s2TrackX, s2TrackW)
+  // Slider page: NO liveUpdate (fill driven by renderer's isSliderFill).
+  // Tap → jump to position. Drag → relative. End → sync state.
+  const makeSliderInteract = (groupId: string, trackX: number, dragW: number): ElementInteraction =>
+    makeDragInteractions({
+      groupId, trackX, dragW, rendererRef,
+      onValueChange: (f) => setState({ sliderValue: f * 100 }),
+      ...sliderDragBindings,
+      // No liveUpdate — state synced on dragEnd only (avoids feedback loop
+      // with toggleTargets effect that would fight the spring).
+      liveUpdate: false,
+    })
+
+  interactions['slider1-track'] = makeSliderInteract('slider1', s1TrackX, SLIDER_DRAG_W1)
+  interactions['slider1-knob'] = interactions['slider1-track']
+  interactions['slider2-track'] = makeSliderInteract('slider2', s2TrackX, SLIDER_DRAG_W2)
+  interactions['slider2-knob'] = interactions['slider2-track']
 
   // Content height = card bottom (including outer padding 24dp below the card)
   const contentHeight = cardY + cardH + 24

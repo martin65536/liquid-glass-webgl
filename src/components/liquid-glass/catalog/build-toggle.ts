@@ -2,12 +2,7 @@ import * as React from 'react'
 import type { ElementInteraction } from '../context'
 import type { GlassElementConfig, GlassHighlight, LiquidGlassRenderer } from '../renderer'
 import { DP, LIGHT_PALETTE, type CatalogResult, type CatalogState, type ThemePalette } from './types'
-import { applyVerticalCenter, makeBackButton, makeGlassShape, makePlainRect } from './helpers'
-import { draggingGroups } from './types'
-
-// Module-level drag state — survives re-renders (gravityAngle changes can
-// rebuild the catalog mid-drag, which would reset closure variables).
-const toggleDragStates = new Map<string, { fraction: number; x: number }>()
+import { applyVerticalCenter, makeBackButton, makeDragInteractions, makeGlassShape, makePlainRect, toggleDragBindings } from './helpers'
 
 /* ------------------------------------------------------------------ *
  * TOGGLE — pixel-perfect port of ToggleContent.kt + LiquidToggle.kt
@@ -293,39 +288,29 @@ export function buildToggle(
   // Both toggles share `state.toggleOn` — tapping one flips both.
   // Each toggle has its own groupId for animation, but both are pushed
   // the same target via `toggleTargets` from page.tsx.
-  function makeToggleInteractions(groupId: string, dragWidth: number) {
-    if (!toggleDragStates.has(groupId)) toggleDragStates.set(groupId, { fraction: 0, x: 0 })
-    const ds = toggleDragStates.get(groupId)!
-    return {
-      onTap: () => {
-        setState((prev) => ({ toggleOn: !prev.toggleOn }))
-      },
-      onDragStart: (pos: { x: number; y: number }) => {
-        const r = rendererRef?.current
-        if (!r) return
-        ds.fraction = r.getToggleTarget(groupId)
-        ds.x = pos.x
-        r.beginToggleDrag(groupId, ds.fraction)
-      },
-      onDrag: (pos: { x: number; y: number }) => {
-        const r = rendererRef?.current
-        if (!r) return
-        r.dragToggle(groupId, ds.fraction, pos.x, ds.x, dragWidth)
-      },
-      onDragEnd: () => {
-        const r = rendererRef?.current
-        if (!r) return
-        const finalTarget = r.endToggleDrag(groupId)
-        const finalOn = finalTarget >= 0.5
+  // Toggle: tap = flip on/off (no jump), drag = relative, end = snap 0/1.
+  const makeToggleInteract = (groupId: string, dragWidth: number): ElementInteraction =>
+    makeDragInteractions({
+      groupId, trackX: 0, dragW: dragWidth, rendererRef,
+      onValueChange: (f) => {
+        const finalOn = f >= 0.5
         setState((prev) => (prev.toggleOn === finalOn ? prev : { toggleOn: finalOn }))
       },
-    }
-  }
+      ...toggleDragBindings,
+      snap: (f) => (f >= 0.5 ? 1 : 0), // snap to 0 or 1
+      onTapJump: false, // tap = flip (handled by custom onTap below)
+    })
 
-  interactions['toggle1-track'] = makeToggleInteractions('toggle1', TOGGLE_DRAG)
-  interactions['toggle1-knob'] = makeToggleInteractions('toggle1', TOGGLE_DRAG)
-  interactions['toggle2-track'] = makeToggleInteractions('toggle2', TOGGLE_DRAG)
-  interactions['toggle2-knob'] = makeToggleInteractions('toggle2', TOGGLE_DRAG)
+  // Override onTap: toggle flip (not jump).
+  const toggle1Interact = makeToggleInteract('toggle1', TOGGLE_DRAG)
+  toggle1Interact.onTap = () => setState((prev) => ({ toggleOn: !prev.toggleOn }))
+  const toggle2Interact = makeToggleInteract('toggle2', TOGGLE_DRAG)
+  toggle2Interact.onTap = () => setState((prev) => ({ toggleOn: !prev.toggleOn }))
+
+  interactions['toggle1-track'] = toggle1Interact
+  interactions['toggle1-knob'] = toggle1Interact
+  interactions['toggle2-track'] = toggle2Interact
+  interactions['toggle2-knob'] = toggle2Interact
 
   // Content height = card bottom (including outer padding 24dp below the card)
   const contentHeight = cardY + cardH + 24
