@@ -34,6 +34,9 @@ const DP = 1
 const lockScreenDragStart: { x: number; y: number } = { x: 0, y: 0 }
 // Control-center drag-start enter progress (survives re-renders)
 const ccDragStartEnter: { v: number } = { v: 1 }
+// Control-center drag RAF handle (throttle setState to one per frame)
+let ccDragRAF: number | null = null
+let ccDragPending: number | null = null
 // Magnifier drag-start offset (survives re-renders)
 const magDragStart: { x: number; y: number } = { x: 0, y: 0 }
 // Control-center snap animation handle (cancel previous if a new one starts)
@@ -2320,12 +2323,21 @@ function buildControlCenter(W: number, H: number, onBack: () => void, state: Cat
       },
       onDrag: (_pos, delta) => {
         const target = ccDragStartEnter.v + delta.y / MAX_DRAG
-        // Allow p > 1 (overshoot) for the scaleX/Y stretch animation.
-        // Clamp lower bound at -0.2 to avoid going too far negative.
-        setState({ controlCenterEnter: Math.max(-0.2, target) })
+        const clamped = Math.max(-0.2, target)
+        // Throttle setState to one per animation frame (avoid re-render storms)
+        ccDragPending = clamped
+        if (ccDragRAF == null) {
+          ccDragRAF = requestAnimationFrame(() => {
+            ccDragRAF = null
+            if (ccDragPending != null) {
+              setState({ controlCenterEnter: ccDragPending })
+              ccDragPending = null
+            }
+          })
+        }
       },
       onDragEnd: () => {
-        // Snap to 0 or 1 with a spring animation (not instant jump).
+        if (ccDragRAF != null) { cancelAnimationFrame(ccDragRAF); ccDragRAF = null; }
         const target = state.controlCenterEnter < 0.5 ? 0 : 1
         animateControlCenterEnter(setState, target)
       },
@@ -2349,9 +2361,20 @@ function buildControlCenter(W: number, H: number, onBack: () => void, state: Cat
     },
     onDrag: (_pos, delta) => {
       const target = ccDragStartEnter.v + delta.y / MAX_DRAG
-      setState({ controlCenterEnter: Math.max(-0.2, target) })
+      const clamped = Math.max(-0.2, target)
+      ccDragPending = clamped
+      if (ccDragRAF == null) {
+        ccDragRAF = requestAnimationFrame(() => {
+          ccDragRAF = null
+          if (ccDragPending != null) {
+            setState({ controlCenterEnter: ccDragPending })
+            ccDragPending = null
+          }
+        })
+      }
     },
     onDragEnd: () => {
+      if (ccDragRAF != null) { cancelAnimationFrame(ccDragRAF); ccDragRAF = null; }
       const target = state.controlCenterEnter < 0.5 ? 0 : 1
       animateControlCenterEnter(setState, target)
     },
