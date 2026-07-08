@@ -2124,24 +2124,36 @@ function buildDialog(W: number, H: number, onBack: () => void, palette: ThemePal
       }
     )
   )
-  // Buttons (Cancel + Okay)
+  // Buttons (Cancel + Okay) — interactive (clickable in the original).
   // Cancel: containerColor.copy(0.2f) — 0.2 alpha on top of the dialog
   // container color, theme-aware.
   // Okay: accentColor (#0088FF light / #0091FF dark).
+  // Both use glass-shape with refractionHeight=0, blur=0, highlight=null so
+  // they render as opaque capsules WITH the InteractiveHighlight press glow
+  // (faithful to the original's clickable ripple).
   const DIALOG_BTN_H = 48
-  // Row: padding(24dp) + fillMaxWidth + spacedBy(16dp). Each button weight(1f).
-  // Row width = DIALOG_W - 48 (24dp padding each side).
-  // Each button width = (RowWidth - 16) / 2 = (DIALOG_W - 48 - 16) / 2.
   const DIALOG_BTN_W = (DIALOG_W - 48 - 16) / 2
   const DIALOG_BTN_Y = DIALOG_Y + DIALOG_H - 24 - DIALOG_BTN_H
-  elements.push(
-    makePlainRect(
-      'dialog-cancel',
-      { x: DIALOG_X + 24, y: DIALOG_BTN_Y, w: DIALOG_BTN_W, h: DIALOG_BTN_H },
-      [palette.dialogContainer[0], palette.dialogContainer[1], palette.dialogContainer[2], 0.2],
-      DIALOG_BTN_H / 2
-    )
+
+  const cancelBtn = makeGlassShape(
+    'dialog-cancel',
+    { x: DIALOG_X + 24, y: DIALOG_BTN_Y, w: DIALOG_BTN_W, h: DIALOG_BTN_H },
+    {
+      cornerRadius: DIALOG_BTN_H / 2,
+      refractionHeight: 0,
+      refractionAmount: 0,
+      blurRadius: 0,
+      saturation: 1,
+      surfaceColor: [palette.dialogContainer[0], palette.dialogContainer[1], palette.dialogContainer[2], 0.2],
+      highlight: null,
+      outerShadow: null,
+      depthEffect: false,
+    }
   )
+  cancelBtn.isInteractive = true
+  cancelBtn.scroll = false
+  elements.push(cancelBtn)
+  interactions['dialog-cancel'] = { onTap: () => {} }
   elements.push(
     makeText(
       'dialog-cancel-label',
@@ -2150,14 +2162,26 @@ function buildDialog(W: number, H: number, onBack: () => void, palette: ThemePal
       { color: palette.dialogContentColor, fontSizePx: 16, fontWeight: 400, align: 'center', paddingPx: 0, halo: 'none' }
     )
   )
-  elements.push(
-    makePlainRect(
-      'dialog-okay',
-      { x: DIALOG_X + 24 + DIALOG_BTN_W + 16, y: DIALOG_BTN_Y, w: DIALOG_BTN_W, h: DIALOG_BTN_H },
-      palette.dialogAccent,
-      DIALOG_BTN_H / 2
-    )
+
+  const okayBtn = makeGlassShape(
+    'dialog-okay',
+    { x: DIALOG_X + 24 + DIALOG_BTN_W + 16, y: DIALOG_BTN_Y, w: DIALOG_BTN_W, h: DIALOG_BTN_H },
+    {
+      cornerRadius: DIALOG_BTN_H / 2,
+      refractionHeight: 0,
+      refractionAmount: 0,
+      blurRadius: 0,
+      saturation: 1,
+      surfaceColor: palette.dialogAccent,
+      highlight: null,
+      outerShadow: null,
+      depthEffect: false,
+    }
   )
+  okayBtn.isInteractive = true
+  okayBtn.scroll = false
+  elements.push(okayBtn)
+  interactions['dialog-okay'] = { onTap: () => {} }
   // "Okay" label is always Color.White (DialogContent.kt line 133).
   elements.push(
     makeText(

@@ -92,9 +92,12 @@ void main() {
         vec3 color = applyColorControls(backdrop.rgb, uBrightness, uContrast, uSaturation);
 
         // Refraction: coord - intensity * refractionHeight * normal
+        // (faithful to SdfShader.kt: refractedCoord = coord - intensity * H * normal).
+        // The offset is in ORIGINAL space (normal is from the SDF texture),
+        // mapped to SCREEN space via layerScale.
         vec2 refractedOffsetOrig = intensity * uRefractionHeight * normal;
         vec2 refractedOffsetScreen = refractedOffsetOrig * layerScale;
-        vec2 refractedScreen = screenCoord + refractedOffsetScreen;
+        vec2 refractedScreen = screenCoord - refractedOffsetScreen;
         vec2 wpUv2 = coverUv(refractedScreen);
         vec4 refracted = texture2D(uWallpaperSampler, wpUv2);
         color = applyColorControls(refracted.rgb, uBrightness, uContrast, uSaturation);
