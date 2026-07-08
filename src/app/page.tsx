@@ -57,9 +57,6 @@ export default function Page() {
   // renderer. Catalog builders use this to call renderer methods
   // (e.g. setToggleTarget, beginToggleDrag, dragToggle, endToggleDrag).
   const rendererRef = React.useRef<LiquidGlassRenderer | null>(null)
-  // Ref mirror of algOffset so the AL-glass luminance rAF effect doesn't
-  // re-run on every drag frame (which would reset its animation).
-  const algOffsetRef = React.useRef({ x: 0, y: 0 })
 
   // setState supports both a partial patch and a functional updater.
   // The functional form is critical for drag callbacks (slider, magnifier,
@@ -221,60 +218,101 @@ export default function Page() {
     return targets
   }, [destination, state.selectedTab, state.selectedTab2])
 
-  // AdaptiveLuminanceGlass: read the backdrop luminance at the glass region
-  // via gl.readPixels and animate state.adaptiveLuminance toward it.
-  // Faithful to AdaptiveLuminanceGlassContent.kt's LaunchedEffect loop:
-  //   layer.toImageBitmap → scale(5,5) → readPixels → averageLuminance
-  //   → luminanceAnimation.animateTo(averageLuminance, tween(1000))
+  // AdaptiveLuminanceGlass: compute the average luminance of the WALLPAPER
+  // behind the glass region and animate state.adaptiveLuminance toward it.
   //
-  // Implementation notes:
-  //   - algOffsetRef mirrors state.algOffsetX/Y so the rAF loop reads the
-  //     current offset WITHOUT the effect re-running on every drag frame
-  //     (re-running would reset animLum + cause the "goes to 0 on release"
-  //     bug because a fresh tick has no target yet).
-  //   - Single readPixels of a small block (1 GPU stall) every ~200ms.
-  //   - setState only when the eased value changes by >0.01.
+  // Faithful to AdaptiveLuminanceGlassContent.kt:
+  //   LaunchedEffect loop: layer.toImageBitmap → scale(5,5) → readPixels →
+  //   averageLuminance → luminanceAnimation.animateTo(target, tween(1000))
+  //
+  // The original reads the glass's rendered output (the backdrop WITH effects
+  // applied). WebGL `preserveDrawingBuffer: false` means the canvas is cleared
+  // after compositing, so gl.readPixels on the canvas returns 0 (the bug that
+  // caused luminance to always be 0). Reading from a scene FBO is fragile
+  // (ping-pong state). Instead, we sample the WALLPAPER on the CPU via a
+  // hidden 2D canvas — this is the backdrop luminance (stable, no feedback
+  // divergence) and matches the original's intent of "how bright is the
+  // region behind the glass".
+  //
+  // algOffsetRef mirrors state.algOffsetX/Y so the rAF loop reads the current
+  // offset WITHOUT the effect re-running on every drag frame.
+  const algOffsetRef = React.useRef({ x: 0, y: 0 })
+  const algWpCanvasRef = React.useRef<HTMLCanvasElement | null>(null)
+  const algWpReadyRef = React.useRef(false)
   React.useEffect(() => {
     algOffsetRef.current.x = state.algOffsetX
     algOffsetRef.current.y = state.algOffsetY
   }, [state.algOffsetX, state.algOffsetY])
+  // Load the wallpaper into a hidden 2D canvas for CPU-side luminance sampling.
   React.useEffect(() => {
     if (destination !== CatalogDestination.AdaptiveLuminanceGlass) return
-    const r = rendererRef.current
-    if (!r) return
-    const gl = r.gl
-    const canvas = r.canvas
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      const c = document.createElement('canvas')
+      c.width = img.naturalWidth
+      c.height = img.naturalHeight
+      const ctx = c.getContext('2d', { alpha: false })
+      if (!ctx) return
+      ctx.drawImage(img, 0, 0)
+      algWpCanvasRef.current = c
+      algWpReadyRef.current = true
+    }
+    img.src = '/wallpaper/wallpaper_light.webp'
+  }, [destination])
+  React.useEffect(() => {
+    if (destination !== CatalogDestination.AdaptiveLuminanceGlass) return
     let raf = 0
     let lastSample = 0
     let animLum = state.adaptiveLuminance
     let target = state.adaptiveLuminance
-    // Read a 9×9 block (81 pixels) — enough to approximate the average,
-    // small enough to be a cheap single readPixels (324 bytes).
-    const BLOCK = 9
-    const px = new Uint8Array(4 * BLOCK * BLOCK)
     const tick = (t: number) => {
       raf = requestAnimationFrame(tick)
-      // Sample every ~200ms (readPixels is a synchronous GPU stall).
+      // Sample every ~200ms.
       if (t - lastSample >= 200) {
         lastSample = t
-        const size = 160
-        const cx = (W - size) / 2 + algOffsetRef.current.x + size / 2
-        const cy = (H - size) / 2 + algOffsetRef.current.y + size / 2
-        const dpr = r.dpr
-        // Block centered on glass center (device px, Y-flipped).
-        const dx = Math.max(0, Math.round(cx * dpr) - Math.floor(BLOCK / 2))
-        const dy = Math.max(0, Math.round((H - cy) * dpr) - Math.floor(BLOCK / 2))
-        try {
-          gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-          gl.readPixels(dx, dy, BLOCK, BLOCK, gl.RGBA, gl.UNSIGNED_BYTE, px)
-          let sum = 0
-          const n = BLOCK * BLOCK
-          for (let i = 0; i < n; i++) {
-            sum += (0.2126 * px[i * 4] + 0.7152 * px[i * 4 + 1] + 0.0722 * px[i * 4 + 2]) / 255
+        const c = algWpCanvasRef.current
+        if (algWpReadyRef.current && c) {
+          const ctx = c.getContext('2d', { alpha: false })
+          if (ctx) {
+            const size = 160
+            // Glass center in CSS px (after applyVerticalCenter).
+            const cx = (W - size) / 2 + algOffsetRef.current.x + size / 2
+            const cy = (H - size) / 2 + algOffsetRef.current.y + size / 2
+            // Map CSS px → wallpaper canvas px using cover-fit (same as the
+            // wallpaper shader's coverUv). The wallpaper is drawn cover-fit
+            // into the W×H canvas.
+            const wpW = c.width
+            const wpH = c.height
+            const scale = Math.max(W / wpW, H / wpH)
+            const dispW = wpW * scale
+            const dispH = wpH * scale
+            const offX = (W - dispW) / 2
+            const offY = (H - dispH) / 2
+            // Glass region in wallpaper canvas px (5×5 grid, 24dp inset).
+            const inset = 24
+            const span = size - inset * 2
+            let sum = 0
+            let count = 0
+            try {
+              for (let gy = 0; gy < 5; gy++) {
+                for (let gx = 0; gx < 5; gx++) {
+                  const cssX = cx - span / 2 + (span * gx) / 4
+                  const cssY = cy - span / 2 + (span * gy) / 4
+                  const wpX = Math.round((cssX - offX) / scale)
+                  const wpY = Math.round((cssY - offY) / scale)
+                  if (wpX >= 0 && wpX < wpW && wpY >= 0 && wpY < wpH) {
+                    const d = ctx.getImageData(wpX, wpY, 1, 1).data
+                    sum += (0.2126 * d[0] + 0.7152 * d[1] + 0.0722 * d[2]) / 255
+                    count++
+                  }
+                }
+              }
+            } catch {
+              // getImageData can fail if the canvas is tainted; ignore.
+            }
+            if (count > 0) target = sum / count
           }
-          target = sum / n
-        } catch {
-          // ignore
         }
       }
       // Ease animLum toward target each frame (~tween(1000) ≈ 6%/frame).
