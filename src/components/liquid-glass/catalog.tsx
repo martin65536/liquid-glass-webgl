@@ -2896,7 +2896,14 @@ export function buildCatalog(
       result = buildHome(W, onNavigate, palette)
       break
   }
-  // Add the canvas-rendered theme toggle button to every destination.
+  // Move the back button to the end of the element list so it's on top of
+  // all layers (scrims, overlays, glass elements). It was pushed first by
+  // each builder, but scrims/overlays pushed after it would cover it.
+  const backIdx = result.elements.findIndex((e) => e.id === '__back__')
+  if (backIdx >= 0) {
+    const [backEl] = result.elements.splice(backIdx, 1)
+    result.elements.push(backEl)
+  }
   // It is appended AFTER the destination's elements so it sits on top in
   // z-order (tappable even over other glass elements). The button is
   // non-scrolling (stays at top-right when the page scrolls).
