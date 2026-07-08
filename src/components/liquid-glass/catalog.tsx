@@ -168,6 +168,11 @@ export interface ThemePalette {
 
   // Back button icon color — black on light, white on dark.
   backIconColor: [number, number, number, number]
+
+  // Back/theme button glass surface color — mirrors tabsContainer
+  // (white 0.3 in light, dark 0.4 in dark) so the circular buttons
+  // match the bottom-tabs container in each theme.
+  buttonSurface: [number, number, number, number]
 }
 
 const LIGHT_PALETTE: ThemePalette = {
@@ -208,6 +213,7 @@ const LIGHT_PALETTE: ThemePalette = {
   adaptiveContentColor: [0, 0, 0, 1],
 
   backIconColor: [0, 0, 0, 1],
+  buttonSurface: [1, 1, 1, 0.3],
 }
 
 const DARK_PALETTE: ThemePalette = {
@@ -248,6 +254,7 @@ const DARK_PALETTE: ThemePalette = {
   adaptiveContentColor: [1, 1, 1, 1],
 
   backIconColor: [1, 1, 1, 1],
+  buttonSurface: [0x12 / 255, 0x12 / 255, 0x12 / 255, 0.4],
 }
 
 function getPalette(isLightTheme: boolean): ThemePalette {
@@ -793,7 +800,7 @@ function makeBackButton(
     ...GLASS_PARAMS,
     cornerRadius: size / 2, // circular
     tintColor: [0, 0, 0, 0],
-    surfaceColor: [1, 1, 1, 0.3],
+    surfaceColor: palette.buttonSurface,
     highlight: null, // no edge highlight on the back button
     outerShadow: { ...DEFAULT_SHADOW, radius: 12 * DP, alpha: 0.08 },
     label: '', // no text label — icon replaces it
@@ -842,7 +849,7 @@ function makeThemeToggleButton(
     ...GLASS_PARAMS,
     cornerRadius: size / 2, // circular
     tintColor: [0, 0, 0, 0],
-    surfaceColor: [1, 1, 1, 0.3],
+    surfaceColor: palette.buttonSurface,
     highlight: null, // no edge highlight (matches back button)
     outerShadow: { ...DEFAULT_SHADOW, radius: 12 * DP, alpha: 0.08 },
     label: '',
