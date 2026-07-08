@@ -250,22 +250,37 @@ void main() {
     // on top with its own blend mode.
 
     // --- 6. Inner shadow ------------------------------------------
-    // Offset inward SDF, darken where inside the offset band.
-    // Computed in ORIGINAL space (uInnerShadowRadius/Offset are in original px,
-    // faithful to LiquidToggle.kt: InnerShadow(radius = 4dp * progress) — the
-    // graphicsLayer then scales the result).
+    // Faithful to InnerShadowModifier.kt:
+    //   1. Draw the shape outline with shadow color (Black 0.15)
+    //   2. Translate by offset (0, radius) — shadow shifts DOWN
+    //   3. Clear (BlendMode.Clear) the shape outline at the offset position
+    //      → this punches a hole, leaving only the ring (top edge) visible
+    //   4. Blur the whole layer by radius
+    //   5. Composite over content with shadow.alpha (SrcOver)
+    //
+    // The result: a darkened band at the TOP inner edge (because the shape
+    // is offset downward, the top part of the ring remains after the clear).
+    // The blur softens it into a gradient.
+    //
+    // We approximate this with an inverted SDF: the shadow appears where
+    // the pixel is INSIDE the shape but OUTSIDE the offset shape (the ring).
+    // The offset shifts the inner shape DOWN (positive Y), so the ring is
+    // thicker at the top.
     if (uInnerShadowAlpha > 0.001 && uInnerShadowRadius > 0.5) {
-        vec2 innerCenteredOrig = centeredOrig - uInnerShadowOffset;
-        float innerSd = sdRoundedRect(innerCenteredOrig, origHalfSize, origRadius);
-        // Faithful to InnerShadowModifier: blur the shape outline, offset inward,
-        // then SrcOver composite with the shadow color (Black 0.15 alpha).
-        // The shadow appears as a darkened band near the edge (innerSd > 0 = inside
-        // the offset shape, closer to the edge). Gaussian-like falloff via smoothstep.
-        float band = smoothstep(uInnerShadowRadius, 0.0, innerSd);
-        band *= step(0.0, innerSd);
-        // uInnerShadowAlpha already includes color alpha (0.15) * progress.
-        // No 0.5 reduction — the original composites at full alpha.
-        color *= 1.0 - band * uInnerShadowAlpha;
+        // The offset shape: same rect but shifted by the shadow offset.
+        // Original: draw outline → translate(offset) → clear outline.
+        // This means the clear happens at the offset position, removing
+        // the bottom part of the filled outline. What remains is the top.
+        // SDF approach: we're inside the shape (sd < 0) and the offset
+        // shape's SDF at this pixel is > 0 (outside the offset shape).
+        vec2 offsetCentered = centeredOrig - uInnerShadowOffset;
+        float offsetSd = sdRoundedRect(offsetCentered, origHalfSize, origRadius);
+        // Ring = inside original (sd < 0) AND outside offset shape (offsetSd > 0)
+        // Plus blur falloff based on distance into the ring.
+        float ring = smoothstep(0.0, uInnerShadowRadius, offsetSd) *
+                     (1.0 - smoothstep(-uInnerShadowRadius, 0.0, sd));
+        // ring is 1 in the middle of the ring, fading at both edges.
+        color *= 1.0 - ring * uInnerShadowAlpha;
     }
 
     // --- 7. Edge anti-aliasing -----------------------------------
