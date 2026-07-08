@@ -65,6 +65,13 @@ export interface ElementInteraction {
   onDrag?: (pos: { x: number; y: number }, delta: { x: number; y: number }) => void
   /** Fires on pointerup. */
   onDragEnd?: (pos: { x: number; y: number }) => void
+  /** Fires during a multi-pointer transform gesture (pinch zoom + rotate).
+   *  `gestureZoom` is the multiplicative zoom factor (1.0 = no change),
+   *  `gestureRotate` is the additive rotation delta in radians,
+   *  `pan` is the centroid movement delta (already rotation-aware).
+   *  Faithful to Compose's detectTransformGestures. Only fires when 2+ pointers
+   *  are active on the element. */
+  onTransform?: (pan: { x: number; y: number }, gestureZoom: number, gestureRotate: number) => void
 }
 
 /** Internal gesture mode — set on pointerdown, may transition during move. */
@@ -72,6 +79,7 @@ type GestureMode =
   | 'pending' // pointer down, no movement yet — could become tap, drag, or scroll
   | 'drag' // committed to an element drag (horizontal or onDrag element)
   | 'scroll' // committed to a scroll drag
+  | 'transform' // 2-pointer pinch zoom + rotate (onTransform element)
   | 'none' // no active gesture
 
 export function LiquidGlassCanvas({
@@ -114,6 +122,15 @@ export function LiquidGlassCanvas({
   /** Whether the pressed element had an onDrag handler (so we know
    *  whether to commit to drag or scroll on horizontal/vertical move). */
   const pressedHasDragRef = React.useRef(false)
+
+  // --- Multi-pointer tracking for transform gestures (pinch zoom + rotate) ---
+  // Maps pointerId → { x, y } (canvas-local CSS px). When 2 pointers are down
+  // on the same element with onTransform, we compute zoom/rotate/pan deltas
+  // from the changing distance + angle between them (faithful to Compose's
+  // detectTransformGestures).
+  const activePointersRef = React.useRef<Map<number, { x: number; y: number }>>(new Map())
+  /** Previous 2-pointer state for delta computation: { dist, angle, centroid }. */
+  const prevPinchRef = React.useRef<{ dist: number; angle: number; cx: number; cy: number } | null>(null)
 
   // --- Velocity tracking for scroll inertia ---
   // We keep a small ring buffer of recent (timestamp, clientY) samples
@@ -244,6 +261,45 @@ export function LiquidGlassCanvas({
       const { x, y } = localPos(e)
       const scrollY = renderer.getScrollY()
 
+      // Track ALL active pointers (for multi-pointer transform gestures).
+      activePointersRef.current.set(e.pointerId, { x, y })
+
+      // If a second pointer lands on the SAME element as the first, switch
+      // to transform mode (cancel any pending drag/scroll).
+      if (activePointersRef.current.size === 2 && pressedIdRef.current) {
+        // Check if the second pointer is also on the pressed element.
+        const id = pressedIdRef.current
+        const hitEl = els.find((b) => b.id === id)
+        if (hitEl) {
+          const hr = hitEl.hitRect ?? hitEl.rect
+          const visibleHY = hitEl.scroll ? hr.y - scrollY : hr.y
+          if (x >= hr.x && x <= hr.x + hr.w && y >= visibleHY && y <= visibleHY + hr.h) {
+            // Both pointers on the same element — start transform mode.
+            modeRef.current = 'transform'
+            // Initialize prevPinch from the current 2-pointer state.
+            const pts = Array.from(activePointersRef.current.values())
+            const dx = pts[1].x - pts[0].x
+            const dy = pts[1].y - pts[0].y
+            prevPinchRef.current = {
+              dist: Math.hypot(dx, dy),
+              angle: Math.atan2(dy, dx),
+              cx: (pts[0].x + pts[1].x) / 2,
+              cy: (pts[0].y + pts[1].y) / 2,
+            }
+            // Cancel any pending press highlight.
+            if (hitEl.isInteractive && (hitEl.kind === 'button' || hitEl.kind === 'text')) {
+              renderer.setPressed(id, false)
+            }
+            try {
+              canvas.setPointerCapture(e.pointerId)
+            } catch {
+              // ignore
+            }
+            return
+          }
+        }
+      }
+
       // Hit-test topmost first (last in array = topmost in z-order).
       // Skip decorative elements (no interactions AND not isInteractive)
       // so they don't block hit-test on interactive elements below them.
@@ -310,6 +366,36 @@ export function LiquidGlassCanvas({
       const canvas = canvasRef.current
       if (!canvas || !renderer) return
       const { x, y } = localPos(e)
+
+      // Update the active pointer position (for multi-pointer transform).
+      if (activePointersRef.current.has(e.pointerId)) {
+        activePointersRef.current.set(e.pointerId, { x, y })
+      }
+
+      // --- Transform mode (2-pointer pinch zoom + rotate) ---
+      if (modeRef.current === 'transform' && activePointersRef.current.size >= 2) {
+        const id = pressedIdRef.current
+        if (!id) return
+        const pts = Array.from(activePointersRef.current.values()).slice(0, 2)
+        const dx = pts[1].x - pts[0].x
+        const dy = pts[1].y - pts[0].y
+        const dist = Math.hypot(dx, dy)
+        const angle = Math.atan2(dy, dx)
+        const cx = (pts[0].x + pts[1].x) / 2
+        const cy = (pts[0].y + pts[1].y) / 2
+        const prev = prevPinchRef.current
+        if (prev && prev.dist > 0.001) {
+          const gestureZoom = dist / prev.dist
+          let gestureRotate = angle - prev.angle
+          // Wrap to [-PI, PI].
+          if (gestureRotate > Math.PI) gestureRotate -= 2 * Math.PI
+          if (gestureRotate < -Math.PI) gestureRotate += 2 * Math.PI
+          const pan = { x: cx - prev.cx, y: cy - prev.cy }
+          interactionsRef.current?.[id]?.onTransform?.(pan, gestureZoom, gestureRotate)
+        }
+        prevPinchRef.current = { dist, angle, cx, cy }
+        return
+      }
 
       // Track velocity samples for inertia (always, while pressed).
       velocitySamplesRef.current.push({ t: performance.now(), y: e.clientY })
@@ -429,6 +515,43 @@ export function LiquidGlassCanvas({
       const canvas = canvasRef.current
       const mode = modeRef.current
       const id = pressedIdRef.current
+
+      // Remove this pointer from the active set (multi-pointer tracking).
+      activePointersRef.current.delete(e.pointerId)
+
+      // If we were in transform mode and one pointer lifted, exit transform.
+      // If a pointer remains, fall back to drag for the remaining pointer.
+      if (mode === 'transform') {
+        if (activePointersRef.current.size < 2) {
+          prevPinchRef.current = null
+          // If one pointer remains, switch to drag mode so it can pan.
+          if (activePointersRef.current.size === 1 && id) {
+            const [pt] = Array.from(activePointersRef.current.values())
+            pressedStartRef.current = { x: pt.x, y: pt.y }
+            modeRef.current = 'drag'
+            dragStartedRef.current = true
+            interactionsRef.current?.[id]?.onDragStart?.({ x: pt.x, y: pt.y })
+          } else {
+            modeRef.current = 'none'
+            pressedIdRef.current = null
+          }
+          if (canvas && canvas.hasPointerCapture(e.pointerId)) {
+            try { canvas.releasePointerCapture(e.pointerId) } catch { /* ignore */ }
+          }
+          return
+        }
+        // Still 2+ pointers — re-init prevPinch with remaining pointers.
+        const pts = Array.from(activePointersRef.current.values()).slice(0, 2)
+        const dx = pts[1].x - pts[0].x
+        const dy = pts[1].y - pts[0].y
+        prevPinchRef.current = {
+          dist: Math.hypot(dx, dy),
+          angle: Math.atan2(dy, dx),
+          cx: (pts[0].x + pts[1].x) / 2,
+          cy: (pts[0].y + pts[1].y) / 2,
+        }
+        return
+      }
 
       if (renderer) {
         // Release button/text press.

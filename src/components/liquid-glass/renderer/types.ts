@@ -162,6 +162,14 @@ export interface GlassElementConfig extends GlassButtonConfig {
    */
   hitRect?: { x: number; y: number; w: number; h: number }
   /**
+   * Element rotation in RADIANS (applied around the element center).
+   * Faithful to Compose graphicsLayer { rotationZ }. Used by Glass
+   * Playground's transformable glass square. The renderer rotates the
+   * SDF + refraction sampling so the glass shape rotates as a unit.
+   * Default 0 (no rotation).
+   */
+  elementRotation?: number
+  /**
    * If set, this element is a toggle knob. The renderer maintains an
    * animated `fraction` (0..1) per groupId and applies:
    *   - x-offset = fraction * dragWidth (knob slides between off/on)

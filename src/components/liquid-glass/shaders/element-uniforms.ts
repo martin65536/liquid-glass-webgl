@@ -24,6 +24,7 @@ uniform float uRefractionAmount;  // px (ORIGINAL space — NOT scaled, faithful
 uniform vec2  uOriginalSize;        // element size in px (ORIGINAL, unscaled by graphicsLayer)
 uniform float uOriginalCornerRadius; // corner radius in px (ORIGINAL, unscaled)
 uniform vec2  uLayerScale;          // (scaleX, scaleY) from graphicsLayer — maps original→screen
+uniform float uElementRotation;    // rotation in radians (graphicsLayer rotationZ) — 0 = none
 uniform float uDepthEffect;       // 0 or 1
 uniform float uChromaticAberration; // 0 or 1
 uniform float uBlurRadius;        // px

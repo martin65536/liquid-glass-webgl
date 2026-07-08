@@ -64,13 +64,22 @@ void main() {
     // Map to original space (guard against divide-by-zero).
     vec2 layerScale = max(uLayerScale, vec2(1e-4));
     vec2 centeredOrig = centeredScreen / layerScale;
+    // Apply element rotation (graphicsLayer rotationZ). Rotate the centered
+    // coord by -rotation so the SDF shape appears rotated by +rotation.
+    // Faithful to: the layer is rotated AFTER shading, so we un-rotate the
+    // sample coord to shade in the element's local (un-rotated) space.
+    float rot = uElementRotation;
+    float cosR = cos(-rot);
+    float sinR = sin(-rot);
+    vec2 centeredOrigRot = vec2(centeredOrig.x * cosR - centeredOrig.y * sinR,
+                                centeredOrig.x * sinR + centeredOrig.y * cosR);
 
     vec2 origHalfSize = uOriginalSize * 0.5;
     float origRadius = uOriginalCornerRadius;
 
     // --- SDF-texture glass path (faithful to SdfShader.kt) ---
     if (uUseSdfTexture > 0.5) {
-        vec2 localPx = centeredOrig + uOriginalSize * 0.5;
+        vec2 localPx = centeredOrigRot + uOriginalSize * 0.5;
         vec4 sdfData = sampleSdfTexture(localPx);
         if (sdfData.y <= 0.0) discard;
         float intensity = sdfData.x;
@@ -110,7 +119,7 @@ void main() {
     }
 
     // SDF in ORIGINAL space — shape is a correct (unscaled) rounded rect.
-    float sd = sdRoundedRect(centeredOrig, origHalfSize, origRadius);
+    float sd = sdRoundedRect(centeredOrigRot, origHalfSize, origRadius);
 
     // Outside the shape — fully transparent (clip).
     // sd is in original px; 0.5px threshold in original space = 0.5*layerScale
@@ -147,12 +156,12 @@ void main() {
         float d = circleMap(1.0 - (-sdClamped) / uRefractionHeight) * uRefractionAmount;
 
         float gradRadius = min(origRadius * 1.5, min(origHalfSize.x, origHalfSize.y));
-        vec2 grad = gradSdRoundedRect(centeredOrig, origHalfSize, gradRadius);
+        vec2 grad = gradSdRoundedRect(centeredOrigRot, origHalfSize, gradRadius);
         // AGSL: normalize(grad + depthEffect * normalize(centeredCoord))
         vec2 depthVec = vec2(0.0);
         if (uDepthEffect > 0.5) {
-            float dirLen = length(centeredOrig);
-            if (dirLen > 1e-6) depthVec = centeredOrig / dirLen;
+            float dirLen = length(centeredOrigRot);
+            if (dirLen > 1e-6) depthVec = centeredOrigRot / dirLen;
         }
         vec2 gradSum = grad + uDepthEffect * depthVec;
         float gradLen = length(gradSum);
@@ -179,7 +188,7 @@ void main() {
         if (uChromaticAberration > 0.5) {
             // Dispersion intensity in original space (faithful to AGSL which
             // uses centeredCoord * centeredCoord / (halfSize * halfSize)).
-            float dispersionIntensity = 1.0 * ((centeredOrig.x * centeredOrig.y) / (origHalfSize.x * origHalfSize.y));
+            float dispersionIntensity = 1.0 * ((centeredOrigRot.x * centeredOrigRot.y) / (origHalfSize.x * origHalfSize.y));
             vec2 dispersedOffsetOrig = refractedOffsetOrig * dispersionIntensity;
             vec2 dispersedOffsetScreen = dispersedOffsetOrig * layerScale;
 
@@ -273,7 +282,7 @@ void main() {
         // the bottom part of the filled outline. What remains is the top.
         // SDF approach: we're inside the shape (sd < 0) and the offset
         // shape's SDF at this pixel is > 0 (outside the offset shape).
-        vec2 offsetCentered = centeredOrig - uInnerShadowOffset;
+        vec2 offsetCentered = centeredOrigRot - uInnerShadowOffset;
         float offsetSd = sdRoundedRect(offsetCentered, origHalfSize, origRadius);
         // Ring = inside original (sd < 0) AND outside offset shape (offsetSd > 0)
         // Plus blur falloff based on distance into the ring.

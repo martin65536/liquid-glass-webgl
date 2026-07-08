@@ -2604,7 +2604,8 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
   const labelColor = palette.backIconColor
 
   // Glass square (256dp, corner radius from slider) — draggable + transformable
-  const squareSize = 256 * DP
+  const baseSize = 256 * DP
+  const squareSize = baseSize * state.gpZoom
   const squareX = (W - squareSize) / 2 + state.gpOffsetX
   const squareY = 0 + state.gpOffsetY
   const cornerRadius = (squareSize / 2) * state.cornerRadiusFrac
@@ -2625,14 +2626,18 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
       chromaticAberration: state.chromaticAberration > 0,
     }
   )
+  // Apply rotation (radians) — the renderer reads elementRotation to rotate
+  // the SDF + refraction sampling. Faithful to graphicsLayer { rotationZ }.
+  ;(gpSquare as GlassElementConfig & { elementRotation?: number }).elementRotation = state.gpRotation
   gpSquare.isInteractive = true
   gpSquare.scroll = false
-  // Store zoom/rotation for the renderer to apply as layerBlock
-  // (the renderer doesn't have a generic layerBlock, so we approximate
-  // by scaling the element rect — but that changes the SDF. For now,
-  // just support drag pan; zoom/rotation need renderer changes.)
   elements.push(gpSquare)
-  // Drag interaction — pan the glass square (module-level state)
+  // Drag + transform interaction — pan (1 finger) / pinch zoom + rotate (2 fingers).
+  // Faithful to GlassPlaygroundContent.kt's detectTransformGestures:
+  //   targetZoom = zoom * gestureZoom
+  //   targetRotation = rotation + gestureRotate
+  //   targetOffset = offset + pan.rotateBy(targetRotation) * targetZoom
+  // (module-level drag state survives re-renders during the gesture)
   interactions['gp-square'] = {
     onDragStart: (pos) => {
       gpDragStart.x = pos.x
@@ -2647,6 +2652,24 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
       })
     },
     onDragEnd: () => {},
+    onTransform: (pan, gestureZoom, gestureRotate) => {
+      setState((prev) => {
+        const zoom = prev.gpZoom * gestureZoom
+        const rotation = prev.gpRotation + gestureRotate
+        // Rotate the pan delta by the new rotation, then scale by zoom
+        // (faithful to: offset + pan.rotateBy(rotation) * zoom).
+        const cosR = Math.cos(rotation)
+        const sinR = Math.sin(rotation)
+        const rx = pan.x * cosR - pan.y * sinR
+        const ry = pan.x * sinR + pan.y * cosR
+        return {
+          gpOffsetX: prev.gpOffsetX + rx * zoom,
+          gpOffsetY: prev.gpOffsetY + ry * zoom,
+          gpZoom: zoom,
+          gpRotation: rotation,
+        }
+      })
+    },
   }
 
   // Control sheet (bottom, glass card with sliders) — only when expanded
