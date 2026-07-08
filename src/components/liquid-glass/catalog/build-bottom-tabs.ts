@@ -101,6 +101,7 @@ export function buildBottomTabs(W: number, H: number, onBack: () => void, state:
         surfaceColor: containerColor,
         highlight: { ...DEFAULT_HIGHLIGHT },
         outerShadow: null,
+        depthEffect: true,
       }
     )
     containerEl.isBottomTabContainer = { groupId: idPrefix, tabsCount }
@@ -234,11 +235,10 @@ export function buildBottomTabs(W: number, H: number, onBack: () => void, state:
       // glass + content) composited inside an inset capsule SDF.
       accentColor: [...accentT] as [number, number, number],
       // containerRect = the tabsBackdrop capsule (hidden Row's 56dp glass),
-      // NOT the 64dp container. Faithful to LiquidBottomTabs.kt: the hidden
-      // Row is height(56dp) centered in the 64dp container (4dp padding top
-      // and bottom). Width = full TABS_W. The indicator refracts this 56dp
-      // capsule via CombinedBackdrop(wallpaper, tabsBackdrop).
-      containerRect: { x: containerX, y: glassY, w: containerW, h: GLASS_H },
+      // inset 4dp on all sides from the container. Faithful to LiquidBottomTabs.kt:
+      //   hidden Row = height(56dp).fillMaxWidth().padding(horizontal=4dp)
+      //   drawBackdrop paints 56dp × (TABS_W - 8dp) = 56dp × glassW.
+      containerRect: { x: glassX, y: glassY, w: glassW, h: GLASS_H },
       // Container center + width — the indicator scales around the container
       // center (like tab-content), matching the original parent-child transform.
       containerCenterX: containerX + containerW / 2,
