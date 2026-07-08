@@ -2536,8 +2536,8 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
   ] as const
 
   const GP_PAD = 24 * DP
-  const gpTrackX = sheetX + 24
-  const gpTrackW = sheetW - 2 * GP_PAD - 48
+  const gpTrackX = sheetX + GP_PAD
+  const gpTrackW = sheetW - 2 * GP_PAD
 
   let labelY = sheetY + 24
   let sliderIdx = 0
@@ -2576,7 +2576,7 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
         const v = range[0] + (range[1] - range[0]) * f
         setState({ [s.key]: v } as Partial<CatalogState>)
       },
-      false // scroll = false (inside the fixed sheet)
+      true // scroll = true (playground page scrolls)
     )
     elements.push(...slider.elements)
     Object.assign(interactions, slider.interactions)
