@@ -2556,16 +2556,30 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
   // Control sheet (bottom, glass card with sliders) — only when expanded
   const ORANGE = [0xff / 255, 0x8d / 255, 0x28 / 255, 1] as [number, number, number, number]
   const toggleBtnSize = 56 * DP
-  const bottomBtnSpace = 20 * DP + toggleBtnSize + 12 * DP // button area + gap
+  const bottomBtnSpace = 20 * DP + toggleBtnSize + 12 * DP
   if (state.gpSheetExpanded) {
     const sheetX = 16 * DP
     const sheetW = W - 2 * sheetX
     const sheetRadius = 32 * DP
-    // Calculate sheet height from content: 5 items × (label 14 + gap 18 + slider 24 + gap 8) + top/bottom padding 24
-    const itemH = 14 + 18 + 24 + 8 // label + gap + slider + gap
-    const sheetH = 24 + 5 * itemH + 24 - 8 // top pad + 5 items - last gap + bottom pad
-    // Position sheet above the bottom buttons (relative to bottom)
+    const GP_INNER_PAD = 24 * DP
+    const trackX = sheetX + GP_INNER_PAD
+    const trackW = sheetW - 2 * GP_INNER_PAD
+    const dragW = trackW - SLIDER_KNOB_W / 2
+
+    const sliderDefs = [
+      { key: 'cornerRadiusFrac' as const, label: 'Corner radius', range: [0, 1] as const },
+      { key: 'blurRadiusDp' as const, label: 'Blur radius', range: [0, 32] as const },
+      { key: 'refractionHeightFrac' as const, label: 'Refraction height', range: [0, 1] as const },
+      { key: 'refractionAmountFrac' as const, label: 'Refraction amount', range: [0, 1] as const },
+      { key: 'chromaticAberration' as const, label: 'Chromatic aberration', range: [0, 1] as const },
+    ]
+
+    // Layout: each row = label (16dp) + 12dp gap + slider row (24dp) + 16dp gap to next
+    const rowH = 16 + 12 + 24 + 16
+    const sheetH = GP_INNER_PAD + sliderDefs.length * rowH - 16 + GP_INNER_PAD // -16: no gap after last
     const sheetY = H - bottomBtnSpace - sheetH
+
+    // Sheet glass card
     elements.push(
       makeGlassShape(
         'gp-sheet',
@@ -2583,65 +2597,89 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
       )
     )
 
-  // Slider labels + tracks
-  const sliderLabels = [
-    { key: 'cornerRadiusFrac', label: 'Corner radius', range: [0, 1], val: state.cornerRadiusFrac },
-    { key: 'blurRadiusDp', label: 'Blur radius', range: [0, 32], val: state.blurRadiusDp },
-    { key: 'refractionHeightFrac', label: 'Refraction height', range: [0, 1], val: state.refractionHeightFrac },
-    { key: 'refractionAmountFrac', label: 'Refraction amount', range: [0, 1], val: state.refractionAmountFrac },
-    { key: 'chromaticAberration', label: 'Chromatic aberration', range: [0, 1], val: state.chromaticAberration },
-  ] as const
+    let rowY = sheetY + GP_INNER_PAD
+    for (const s of sliderDefs) {
+      const val = state[s.key] as number
+      const fraction = (val - s.range[0]) / (s.range[1] - s.range[0])
+      const range = s.range
+      const key = s.key
 
-  const GP_PAD = 24 * DP
-  const gpTrackX = sheetX + GP_PAD
-  const gpTrackW = sheetW - 2 * GP_PAD
-
-  let labelY = sheetY + 24 // top padding 24dp
-  let sliderIdx = 0
-  for (const s of sliderLabels) {
-    // Label
-    elements.push(
-      makeText(
-        `gp-label-${s.key}`,
-        { x: sheetX + 24, y: labelY, w: sheetW - 48, h: 14 },
-        s.label,
-        {
-          color: labelColor,
-          fontSizePx: 13,
-          fontWeight: 400,
-          align: 'left',
-          paddingPx: 0,
-          halo: palette.homeTextHalo,
-        }
+      // Label (16dp tall, top-aligned)
+      elements.push(
+        makeText(
+          `gp-label-${key}`,
+          { x: trackX, y: rowY, w: trackW, h: 16 },
+          s.label,
+          { color: labelColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
+        )
       )
-    )
-    labelY += 14 + 18 // label height + 18dp gap (compensates for knob overflowing track by 9dp up)
+      // Slider row: track vertically centered in 24dp
+      const sliderRowY = rowY + 16 + 12 // after label + gap
+      const trackY = sliderRowY + (24 - SLIDER_TRACK_H) / 2 // center track in 24dp
+      const knobY = sliderRowY + (24 - SLIDER_KNOB_H) / 2 // center knob in 24dp
+      const fillW = fraction * trackW
+      const knobX = trackX - SLIDER_KNOB_W / 4 + fraction * dragW
 
-    // Slider — shared factory (same component as the Slider page)
-    const groupId = `gp-slider-${sliderIdx++}`
-    const range = s.range
-    const slider = makeLiquidSlider(
-      `gp-${s.key}`,
-      gpTrackX,
-      labelY,
-      gpTrackW,
-      groupId,
-      SLIDER_TRACK,
-      SLIDER_ACCENT,
-      rendererRef,
-      (f) => {
-        const v = range[0] + (range[1] - range[0]) * f
-        setState({ [s.key]: v } as Partial<CatalogState>)
-      },
-      false, // scroll = false (playground doesn't scroll)
-      true,  // liveUpdate = true (real-time parameter adjustment)
-      (s.val - range[0]) / (range[1] - range[0]) // initialFraction from state
-    )
-    elements.push(...slider.elements)
-    Object.assign(interactions, slider.interactions)
+      // Track (background)
+      const trackEl = makePlainRect(`gp-track-${key}`, { x: trackX, y: trackY, w: trackW, h: SLIDER_TRACK_H }, SLIDER_TRACK, SLIDER_TRACK_H / 2)
+      trackEl.hitRect = { x: trackX, y: sliderRowY, w: trackW, h: 48 * DP }
+      trackEl.scroll = false
+      elements.push(trackEl)
 
-    labelY += 24 + 8 // slider area (knob 24dp) + 8dp gap to next item (spacedBy(16dp) - 8dp already used)
-  }
+      // Fill (accent)
+      const fillEl = makePlainRect(`gp-fill-${key}`, { x: trackX, y: trackY, w: Math.max(SLIDER_TRACK_H, fillW), h: SLIDER_TRACK_H }, [...SLIDER_ACCENT, 1], SLIDER_TRACK_H / 2)
+      fillEl.scroll = false
+      elements.push(fillEl)
+
+      // Knob (glass)
+      const knobEl = makeGlassShape(
+        `gp-knob-${key}`,
+        { x: knobX, y: knobY, w: SLIDER_KNOB_W, h: SLIDER_KNOB_H },
+        {
+          cornerRadius: SLIDER_KNOB_H / 2,
+          refractionHeight: 10 * DP,
+          refractionAmount: -14 * DP,
+          blurRadius: 8 * DP,
+          saturation: 1.0,
+          surfaceColor: [0, 0, 0, 0],
+          highlight: { mode: 1, color: [1, 1, 1], angle: 45 * Math.PI / 180, falloff: 1.0, alpha: 1.0, widthDp: 0.5 / 1.5 },
+          outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: (4 / 6) * DP, color: [0, 0, 0] },
+          innerShadow: { radius: 4 * DP, alpha: 0.15, offsetX: 0, offsetY: 4 * DP },
+          chromaticAberration: true,
+        },
+        false
+      )
+      knobEl.isInteractive = true
+      knobEl.hitRect = { x: knobX, y: sliderRowY, w: SLIDER_KNOB_W, h: 48 * DP }
+      elements.push(knobEl)
+
+      // Interactions — direct state update (no renderer toggleStates)
+      // Tap track → jump to position
+      interactions[`gp-track-${key}`] = {
+        onTap: (pos) => {
+          const f = Math.max(0, Math.min(1, (pos.x - trackX) / dragW))
+          setState({ [key]: range[0] + (range[1] - range[0]) * f } as Partial<CatalogState>)
+        },
+      }
+      // Drag knob → update state live
+      let dragStartVal = 0
+      let dragStartX = 0
+      interactions[`gp-knob-${key}`] = {
+        onDragStart: (pos) => {
+          dragStartVal = val
+          dragStartX = pos.x
+        },
+        onDrag: (pos) => {
+          const dx = pos.x - dragStartX
+          const df = dx / dragW
+          const f = Math.max(0, Math.min(1, (dragStartVal - range[0]) / (range[1] - range[0]) + df))
+          setState({ [key]: range[0] + (range[1] - range[0]) * f } as Partial<CatalogState>)
+        },
+        onDragEnd: () => {},
+      }
+
+      rowY += rowH
+    }
   } // end if (state.gpSheetExpanded)
 
   // Left bottom: orange circle button — toggle sheet expand/collapse
