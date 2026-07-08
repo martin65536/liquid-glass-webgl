@@ -50,7 +50,7 @@ export const rasterMethods = {
       const ic = cfg.icon.color
       ctx.save()
       ctx.translate(cssW / 2 - iconSize / 2, cssH / 2 - iconSize / 2)
-      ctx.scale(iconSize / 24, iconSize / 24)
+      ctx.scale(iconSize / 960, iconSize / 960)
       const p = new Path2D(cfg.icon.path)
       ctx.fillStyle = `rgba(${Math.round(ic[0] * 255)}, ${Math.round(
         ic[1] * 255
@@ -181,7 +181,7 @@ export const rasterMethods = {
       // centered at (iconCx, iconCy).
       ctx.save()
       ctx.translate(iconCx - iconSize / 2, iconCy - iconSize / 2)
-      ctx.scale(iconSize / 24, iconSize / 24)
+      ctx.scale(iconSize / 960, iconSize / 960)
       const p = new Path2D(t.icon.path)
       const ic = t.icon.color
       ctx.fillStyle = `rgba(${Math.round(ic[0] * 255)}, ${Math.round(
