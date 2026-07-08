@@ -779,6 +779,19 @@ const SUN_ICON_PATH =
 const MOON_ICON_PATH =
   'M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'
 
+// Material Design expand_more / expand_less icons (24×24 viewport) for the
+// Glass Playground sheet-toggle button. Down chevron when expanded, up when
+// collapsed — matches the original GlassPlaygroundContent.kt's "🔽"/"🔼".
+const EXPAND_MORE_ICON_PATH =
+  'M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z'
+const EXPAND_LESS_ICON_PATH =
+  'M16.59 15.41L12 10.83l-4.59 4.58L6 14l6-6 6 6-1.41 1.41z'
+
+// Material Design refresh icon (24×24 viewport) for the Glass Playground
+// reset button.
+const REFRESH_ICON_PATH =
+  'M17.65 6.35A7.958 7.958 0 0 0 12 4a8 8 0 1 0 7.75 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z'
+
 function makeBackButton(
   onBack: () => void,
   palette: ThemePalette,
@@ -2690,35 +2703,60 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
     }
   } // end if (state.gpSheetExpanded)
 
-  // Left bottom: orange circle button — toggle sheet expand/collapse
-  const toggleBtn = makeButton(
-    'gp-toggle',
-    { x: 20 * DP, y: H - 20 * DP - toggleBtnSize, w: toggleBtnSize, h: toggleBtnSize },
-    {
-      label: state.gpSheetExpanded ? 'v' : '^',
-      tintColor: ORANGE,
-      surfaceColor: [0, 0, 0, 0],
-      labelColor: [1, 1, 1, 1],
+  // Left bottom: orange circle button — toggle sheet expand/collapse.
+  // Material icon: expand_more (down chevron) when expanded, expand_less
+  // (up chevron) when collapsed — replaces the original's "🔽"/"🔼" emoji
+  // with a proper Material icon (per user request).
+  const toggleIconSize = 32 * DP
+  const toggleBtn: GlassElementConfig = {
+    id: 'gp-toggle',
+    kind: 'button',
+    rect: { x: 20 * DP, y: H - 20 * DP - toggleBtnSize, w: toggleBtnSize, h: toggleBtnSize },
+    ...GLASS_PARAMS,
+    cornerRadius: toggleBtnSize / 2,
+    tintColor: ORANGE,
+    surfaceColor: [0, 0, 0, 0],
+    highlight: { ...DEFAULT_HIGHLIGHT },
+    outerShadow: { ...DEFAULT_SHADOW },
+    label: '',
+    labelColor: [1, 1, 1, 1],
+    showChevron: false,
+    isInteractive: true,
+    scroll: false,
+    icon: {
+      path: state.gpSheetExpanded ? EXPAND_MORE_ICON_PATH : EXPAND_LESS_ICON_PATH,
+      size: toggleIconSize,
+      color: [1, 1, 1, 1],
     },
-    false
-  )
+  }
   elements.push(toggleBtn)
   interactions['gp-toggle'] = {
     onTap: () => setState((prev) => ({ gpSheetExpanded: !prev.gpSheetExpanded })),
   }
 
-  // Right bottom: orange circle button — Reset
-  const resetBtn = makeButton(
-    'gp-reset',
-    { x: W - 20 * DP - toggleBtnSize, y: H - 20 * DP - toggleBtnSize, w: toggleBtnSize, h: toggleBtnSize },
-    {
-      label: 'Reset',
-      tintColor: ORANGE,
-      surfaceColor: [0, 0, 0, 0],
-      labelColor: [1, 1, 1, 1],
+  // Right bottom: orange circle button — Reset.
+  // Material icon: refresh (per user request, replace "Reset" text with icon).
+  const resetBtn: GlassElementConfig = {
+    id: 'gp-reset',
+    kind: 'button',
+    rect: { x: W - 20 * DP - toggleBtnSize, y: H - 20 * DP - toggleBtnSize, w: toggleBtnSize, h: toggleBtnSize },
+    ...GLASS_PARAMS,
+    cornerRadius: toggleBtnSize / 2,
+    tintColor: ORANGE,
+    surfaceColor: [0, 0, 0, 0],
+    highlight: { ...DEFAULT_HIGHLIGHT },
+    outerShadow: { ...DEFAULT_SHADOW },
+    label: '',
+    labelColor: [1, 1, 1, 1],
+    showChevron: false,
+    isInteractive: true,
+    scroll: false,
+    icon: {
+      path: REFRESH_ICON_PATH,
+      size: toggleIconSize,
+      color: [1, 1, 1, 1],
     },
-    false
-  )
+  }
   elements.push(resetBtn)
   interactions['gp-reset'] = {
     onTap: () => setState({
@@ -3274,13 +3312,21 @@ export function buildCatalog(
     result.interactions[themeBtn.element.id] = themeBtn.interaction
   }
   // "Pick an image" button — faithful to BackdropDemoScaffold.kt's LiquidButton
-  // at the bottom center. Blue tint, 56dp tall capsule. Only on non-Home pages.
+  // at the bottom center. Blue tint, 56dp tall capsule (the original wraps
+  // LiquidButton with Modifier.height(56f.dp), overriding the default 48dp).
+  // The renderer scales button label font as cssH*(15/48); for a 56dp button
+  // that yields 17.5px, so we measure width with that same size to keep the
+  // capsule tight around the text. Horizontal padding = 16dp (button) + 8dp
+  // (text) per side = 48dp total, matching LiquidButton + BasicText padding.
+  // Only on non-Home pages.
   if (onPickImage && dest !== CatalogDestination.Home) {
     const pickLabel = 'Pick an image'
-    const pickW = Math.ceil(measureTextWidth(pickLabel, TEXT_FONT_SIZE_PX) + 2 * BUTTON_HORIZONTAL_PADDING)
+    const pickH = 56 * DP
+    const pickFontPx = pickH * (15 / 48)
+    const pickW = Math.ceil(measureTextWidth(pickLabel, pickFontPx) + 2 * (16 * DP + 8 * DP))
     const pickBtn = makeButton(
       '__pickimage__',
-      { x: W / 2 - pickW / 2, y: H - 16 - BUTTON_HEIGHT, w: pickW, h: BUTTON_HEIGHT },
+      { x: W / 2 - pickW / 2, y: H - 16 - pickH, w: pickW, h: pickH },
       {
         label: pickLabel,
         tintColor: [0x00 / 255, 0x88 / 255, 0xff / 255, 1], // accentColor (blue)
