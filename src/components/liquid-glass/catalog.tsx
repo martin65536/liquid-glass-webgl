@@ -2487,36 +2487,57 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
     knobEl.hitRect = { x: knobBaseX, y: knobY + (SLIDER_KNOB_H - SLIDER_HIT_H) / 2, w: SLIDER_KNOB_W, h: SLIDER_HIT_H }
     elements.push(knobEl)
 
-    // Interactions — use renderer drag methods (same as Slider page)
+    // Interactions — same pattern as the Slider page (relative drag on track + knob)
     const key = s.key
     const range = s.range
     const dragW = trackW - SLIDER_KNOB_W / 2
+    let dragStartFraction = 0
+    let dragStartX = 0
     interactions[`gp-track-${key}`] = {
       onTap: (pos) => {
         const f = Math.max(0, Math.min(1, (pos.x - trackX) / dragW))
         const v = range[0] + (range[1] - range[0]) * f
         setState({ [key]: v } as Partial<CatalogState>)
       },
-    }
-    interactions[`gp-knob-${key}`] = {
       onDragStart: (pos) => {
-        rendererRef?.current?.beginToggleDrag(groupId, fraction, pos.x)
+        const r = rendererRef?.current
+        if (!r) return
+        dragStartFraction = r.getToggleFraction(groupId)
+        dragStartX = pos.x
+        r.beginToggleDrag(groupId, dragStartFraction)
       },
       onDrag: (pos) => {
-        rendererRef?.current?.dragToggle(groupId, pos.x, trackX, dragW)
-        // Update state live from the renderer's current fraction
-        const tg = rendererRef?.current?.toggleStates?.get(groupId)
-        const f = tg ? tg.fraction : Math.max(0, Math.min(1, (pos.x - trackX) / dragW))
-        const v = range[0] + (range[1] - range[0]) * f
-        setState({ [key]: v } as Partial<CatalogState>)
+        const r = rendererRef?.current
+        if (!r) return
+        r.dragToggle(groupId, dragStartFraction, pos.x, dragStartX, dragW)
       },
       onDragEnd: () => {
         const r = rendererRef?.current
-        if (r) {
-          const f = r.endToggleDrag(groupId, 1)?.fraction ?? 0
-          const v = range[0] + (range[1] - range[0]) * f
-          setState({ [key]: v } as Partial<CatalogState>)
-        }
+        if (!r) return
+        const f = r.endSliderDrag(groupId)
+        const v = range[0] + (range[1] - range[0]) * f
+        setState({ [key]: v } as Partial<CatalogState>)
+      },
+    }
+    interactions[`gp-knob-${key}`] = {
+      onDragStart: (pos) => {
+        const r = rendererRef?.current
+        if (!r) return
+        dragStartFraction = r.getToggleFraction(groupId)
+        dragStartX = pos.x
+        r.beginToggleDrag(groupId, dragStartFraction)
+      },
+      onDrag: (pos) => {
+        const r = rendererRef?.current
+        if (!r) return
+        r.dragToggle(groupId, dragStartFraction, pos.x, dragStartX, dragW)
+      },
+      onDragEnd: () => {
+        const r = rendererRef?.current
+        if (!r) return
+        const f = r.endSliderDrag(groupId)
+        const v = range[0] + (range[1] - range[0]) * f
+        setState({ [key]: v } as Partial<CatalogState>)
       },
     }
     labelY += 36
