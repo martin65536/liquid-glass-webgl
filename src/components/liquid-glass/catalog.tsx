@@ -2560,8 +2560,10 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
   if (state.gpSheetExpanded) {
     const sheetX = 16 * DP
     const sheetW = W - 2 * sheetX
-    const sheetH = 300 * DP
     const sheetRadius = 32 * DP
+    // Calculate sheet height from content: 5 items × (label 14 + gap 10 + slider 24 + gap 8) + top/bottom padding 24
+    const itemH = 14 + 10 + 24 + 8 // label + gap + slider + gap
+    const sheetH = 24 + 5 * itemH + 24 - 8 // top pad + 5 items - last gap + bottom pad
     // Position sheet above the bottom buttons (relative to bottom)
     const sheetY = H - bottomBtnSpace - sheetH
     elements.push(
@@ -2594,7 +2596,7 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
   const gpTrackX = sheetX + GP_PAD
   const gpTrackW = sheetW - 2 * GP_PAD
 
-  let labelY = sheetY + 20
+  let labelY = sheetY + 24 // top padding 24dp
   let sliderIdx = 0
   for (const s of sliderLabels) {
     // Label
