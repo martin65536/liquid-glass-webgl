@@ -555,15 +555,13 @@ export function applyVerticalCenter(
 
 /* ------------------------------------------------------------------ *
  * makeSettingsSlider — a dedicated stepped slider for the Settings
- * page. Unlike makeLiquidSlider (continuous), this snaps to fixed
- * step increments and the knob has NO highlight (faithful to the
- * simpler settings knob the user requested).
+ * page. Uses the same relative-drag pattern as makeLiquidSlider
+ * (dragStates Map survives re-renders), with step-snap on release.
  *
  * - full [0,1] slider range maps linearly to [minVal, maxVal]
- * - value snaps to the nearest `step` increment
- * - knob: glass shape with highlight: null (no rim/gradient highlight)
- * - drag: continuous knob follow + snap-to-detent on release
- *   (renderer's toggle spring animates the knob to the nearest step)
+ * - value snaps to the nearest `step` increment on release
+ * - knob: glass shape with highlight: null (no rim highlight)
+ * - drag: relative (knob follows finger delta) + snap-to-detent on release
  * ------------------------------------------------------------------ */
 export function makeSettingsSlider(
   trackX: number,
@@ -615,8 +613,7 @@ export function makeSettingsSlider(
   fillEl.scroll = true
   elements.push(fillEl)
 
-  // Knob — glass shape with NO highlight (highlight: null disables both
-  // the element-pass gradient highlight and the press-modulated highlight).
+  // Knob — glass shape with NO highlight.
   const knobEl = makeGlassShape(
     `${groupId}-knob`,
     { x: knobBaseX + initFrac * dragW, y: knobY, w: SLIDER_KNOB_W, h: SLIDER_KNOB_H },
@@ -643,16 +640,15 @@ export function makeSettingsSlider(
   }
   elements.push(knobEl)
 
-  // Absolute-position drag: the knob jumps to the finger and follows it
-  // directly (via setSliderDragPosition), so no start-fraction / start-x
-  // needs to be tracked. The value snaps to the nearest step on release.
+  // Module-level drag state (survives re-renders).
+  if (!dragStates.has(groupId)) dragStates.set(groupId, { fraction: 0, x: 0 })
+  const ds = dragStates.get(groupId)!
 
   const fracFromPos = (px: number) => Math.max(0, Math.min(1, (px - trackX) / dragW))
 
   const trackInteract: ElementInteraction = {
     onTap: (pos) => {
       const snappedF = snapFrac(fracFromPos(pos.x))
-      // Animate knob to the detent immediately (don't wait for React round-trip).
       rendererRef?.current?.setToggleTarget(groupId, snappedF)
       onValueChange(fracToVal(snappedF))
     },
@@ -660,29 +656,28 @@ export function makeSettingsSlider(
       const r = rendererRef?.current
       if (!r) return
       draggingGroups.add(groupId)
-      r.beginToggleDrag(groupId, r.getToggleFraction(groupId))
-      // Absolute: knob jumps to finger immediately (no delta lag).
-      r.setSliderDragPosition(groupId, fracFromPos(pos.x))
+      ds.fraction = r.getToggleFraction(groupId)
+      ds.x = pos.x
+      r.beginToggleDrag(groupId, ds.fraction)
     },
     onDrag: (pos) => {
       const r = rendererRef?.current
       if (!r) return
-      // Absolute: knob follows finger position directly. Value commits on release.
-      r.setSliderDragPosition(groupId, fracFromPos(pos.x))
+      r.dragToggle(groupId, ds.fraction, pos.x, ds.x, dragW)
     },
     onDragEnd: () => {
       const r = rendererRef?.current
       if (!r) return
       const rawF = r.endSliderDrag(groupId)
       draggingGroups.delete(groupId)
-      // Spring the knob to the nearest detent.
+      // Snap to nearest step.
       const snappedF = snapFrac(rawF)
       r.setToggleTarget(groupId, snappedF)
       onValueChange(fracToVal(snappedF))
     },
   }
   interactions[`${groupId}-track`] = trackInteract
-  // Knob shares the same gesture handlers (drag starts on knob OR track).
+  // Knob shares the same gesture handlers.
   interactions[`${groupId}-knob`] = trackInteract
 
   return { elements, interactions }
