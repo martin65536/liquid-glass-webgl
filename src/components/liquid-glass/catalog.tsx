@@ -2836,25 +2836,19 @@ export function buildCatalog(
   // "Pick an image" button — faithful to BackdropDemoScaffold.kt's LiquidButton
   // at the bottom center. Blue tint, 56dp tall capsule. Only on non-Home pages.
   if (onPickImage && dest !== CatalogDestination.Home) {
-    const pickBtn = makeGlassShape(
+    const pickLabel = 'Pick an image'
+    const pickW = Math.ceil(measureTextWidth(pickLabel, TEXT_FONT_SIZE_PX) + 2 * BUTTON_HORIZONTAL_PADDING)
+    const pickBtn = makeButton(
       '__pickimage__',
-      { x: W / 2 - 80, y: H - 16 - 56, w: 160, h: 56 },
+      { x: W / 2 - pickW / 2, y: H - 16 - BUTTON_HEIGHT, w: pickW, h: BUTTON_HEIGHT },
       {
-        cornerRadius: 28 * DP,
-        refractionHeight: 12 * DP,
-        refractionAmount: -24 * DP,
-        blurRadius: 2 * DP,
-        saturation: 1.0,
-        tintColor: palette.controlCenterAccent, // accentColor (blue)
+        label: pickLabel,
+        tintColor: [0x00 / 255, 0x88 / 255, 0xff / 255, 1], // accentColor (blue)
         surfaceColor: [0, 0, 0, 0],
-        highlight: { ...DEFAULT_HIGHLIGHT },
-        outerShadow: { ...DEFAULT_SHADOW, radius: 12 * DP, alpha: 0.08 },
-        label: 'Pick an image',
+        labelColor: [1, 1, 1, 1], // white text
       },
       false // scroll = false (fixed at bottom)
     )
-    pickBtn.isInteractive = true
-    pickBtn.scroll = false
     result.elements.push(pickBtn)
     result.interactions['__pickimage__'] = {
       onTap: () => onPickImage(),
