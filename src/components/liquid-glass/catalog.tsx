@@ -1845,9 +1845,11 @@ function buildDialog(W: number, H: number, onBack: () => void, palette: ThemePal
   // Dim scrim covers the whole content area.
   // Faithful to DialogContent.kt:
   //   dimColor = if (isLightTheme) Color(0xFF29293A).copy(0.23f) else Color(0xFF121212).copy(0.56f)
-  const scrimY = 80
-  const scrimH = Math.max(H - scrimY - 40, 400)
-  elements.push(makePlainRect('dialog-scrim', { x: 0, y: scrimY, w: W, h: scrimH }, palette.dialogDim, 0))
+  const scrimY = 0
+  const scrimH = Math.max(H, 800)
+  const dialogScrim = makePlainRect('dialog-scrim', { x: 0, y: scrimY, w: W, h: scrimH }, palette.dialogDim, 0)
+  dialogScrim.scroll = false
+  elements.push(dialogScrim)
 
   // Dialog card.
   // Faithful to DialogContent.kt:
@@ -2646,8 +2648,10 @@ function buildLockScreen(W: number, H: number, onBack: () => void, state: Catalo
   elements.push(back.element)
   interactions[back.element.id] = back.interaction
 
-  // Dark scrim (30% black)
-  elements.push(makePlainRect('ls-scrim', { x: 0, y: 0, w: W, h: Math.max(H, 600) }, [0, 0, 0, 0.3], 0))
+  // Dark scrim (30% black) — full-screen, fixed (not affected by scroll)
+  const lsScrim = makePlainRect('ls-scrim', { x: 0, y: 0, w: W, h: Math.max(H, 800) }, [0, 0, 0, 0.3], 0)
+  lsScrim.scroll = false
+  elements.push(lsScrim)
 
   // Glass (SDF texture clock) — faithful to LockScreenContent.kt:
   //   padding(horizontal=48dp), widthIn(max=400dp), aspectRatio(sdf.w/sdf.h), fillMaxWidth
