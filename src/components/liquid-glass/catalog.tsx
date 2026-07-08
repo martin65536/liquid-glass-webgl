@@ -2974,64 +2974,69 @@ function buildSettings(
     )
   )
 
-  // DPR label
-  const dprLabelY = 60
+  // DPR slider (first, then label below it, then reset button)
   const deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
   const maxDpr = deviceDpr * 2
   const currentDpr = state.customDpr > 0 ? state.customDpr : Math.min(deviceDpr, 1.5)
+
+  const sliderY = 60
+  const trackX = pad
+  const trackW = W - 2 * pad
+  const trackY = sliderY + (24 - 6) / 2
+  const dprFraction = currentDpr / maxDpr
+
+  const dprSlider = makeLiquidSlider(
+    'settings-dpr',
+    trackX,
+    trackY,
+    trackW,
+    'settings-dpr',
+    palette.sliderTrackOff,
+    palette.sliderAccent,
+    null,
+    (f) => {
+      setState({ customDpr: Math.max(0.5, f * maxDpr) })
+    },
+    false,
+    true
+  )
+  // Override knob/fill initial position
+  const dragW = trackW - SLIDER_KNOB_W / 2
+  const knobBaseX = trackX - SLIDER_KNOB_W / 4
+  const knobEl = dprSlider.elements.find(e => e.id === 'settings-dpr-knob')
+  if (knobEl) {
+    knobEl.rect = { ...knobEl.rect, x: knobBaseX + dprFraction * dragW }
+    knobEl.hitRect = { x: knobBaseX + dprFraction * dragW, y: sliderY, w: SLIDER_KNOB_W, h: 48 * DP }
+  }
+  const fillEl = dprSlider.elements.find(e => e.id === 'settings-dpr-fill')
+  if (fillEl) {
+    fillEl.rect = { ...fillEl.rect, w: Math.max(6, dprFraction * trackW) }
+  }
+  elements.push(...dprSlider.elements)
+  Object.assign(interactions, dprSlider.interactions)
+
+  // Indicator label (below slider)
+  const labelY = sliderY + 24 + 12
   elements.push(
     makeText(
       'settings-dpr-label',
-      { x: pad, y: dprLabelY, w: W - 2 * pad, h: 16 },
+      { x: pad, y: labelY, w: W - 2 * pad, h: 16 },
       `DPR: ${currentDpr.toFixed(2)} (device: ${deviceDpr}, max: ${maxDpr.toFixed(2)})`,
       { color: labelColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
     )
   )
 
-  // DPR slider — reuse makeLiquidSlider
-  const dprSliderY = dprLabelY + 16 + 12
-  const dprTrackX = pad
-  const dprTrackW = W - 2 * pad
-  const dprTrackY = dprSliderY + (24 - 6) / 2
-  const dprFraction = currentDpr / maxDpr
-
-  const dprSlider = makeLiquidSlider(
-    'settings-dpr',
-    dprTrackX,
-    dprTrackY,
-    dprTrackW,
-    'settings-dpr',
-    palette.sliderTrackOff,
-    palette.sliderAccent,
-    null, // no renderer — settings slider uses direct state, not toggleStates
-    (f) => {
-      setState({ customDpr: Math.max(0.5, f * maxDpr) })
-    },
-    false, // scroll = false
-    true   // liveUpdate
-  )
-  // Override knob initial position from dprFraction
-  const dprDragW = dprTrackW - SLIDER_KNOB_W / 2
-  const dprKnobBaseX = dprTrackX - SLIDER_KNOB_W / 4
-  const dprKnobEl = dprSlider.elements.find(e => e.id === 'settings-dpr-knob')
-  if (dprKnobEl) {
-    dprKnobEl.rect = { ...dprKnobEl.rect, x: dprKnobBaseX + dprFraction * dprDragW }
-    dprKnobEl.hitRect = { x: dprKnobBaseX + dprFraction * dprDragW, y: dprSliderY, w: SLIDER_KNOB_W, h: 48 * DP }
-  }
-  const dprFillEl = dprSlider.elements.find(e => e.id === 'settings-dpr-fill')
-  if (dprFillEl) {
-    dprFillEl.rect = { ...dprFillEl.rect, w: Math.max(6, dprFraction * dprTrackW) }
-  }
-  elements.push(...dprSlider.elements)
-  Object.assign(interactions, dprSlider.interactions)
-
-  // Reset button
+  // Reset button (orange, below label)
+  const ORANGE = [0xff / 255, 0x8d / 255, 0x28 / 255, 1] as [number, number, number, number]
+  const resetLabel = 'Reset'
+  const resetTextW = measureTextWidth(resetLabel, TEXT_FONT_SIZE_PX)
+  const resetW = Math.ceil(resetTextW + 2 * BUTTON_HORIZONTAL_PADDING)
   const resetBtn = makeButton(
     'settings-reset',
-    { x: pad, y: dprSliderY + 48, w: 120, h: 48 },
+    { x: pad, y: labelY + 16 + 16, w: resetW, h: BUTTON_HEIGHT },
     {
-      label: 'Reset DPR',
-      tintColor: [...palette.sliderAccent, 1],
+      label: resetLabel,
+      tintColor: ORANGE,
       surfaceColor: [0, 0, 0, 0],
       labelColor: [1, 1, 1, 1],
     },
@@ -3042,7 +3047,7 @@ function buildSettings(
     onTap: () => setState({ customDpr: 0 }),
   }
 
-  const contentHeight = dprSliderY + 48 + 48 + 20
+  const contentHeight = labelY + 16 + 16 + BUTTON_HEIGHT + 20
   const finalHeight = applyVerticalCenter(elements, 0, contentHeight, H)
   return { elements, interactions, contentHeight: finalHeight }
 }
