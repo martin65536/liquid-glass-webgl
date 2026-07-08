@@ -92,11 +92,24 @@ export const glassElementPassMethods = {
     let elInnerShadowOffsetX = el.innerShadow ? el.innerShadow.offsetX : 0
     let elInnerShadowOffsetY = el.innerShadow ? el.innerShadow.offsetY : 0
     let elSurfaceAlpha = el.surfaceColor[3]
-    // Bottom tab indicator: highlight alpha modulated by pressProgress
-    // (faithful to LiquidBottomTabs.kt: highlight = Highlight.Default.copy(alpha=progress)).
-    // At rest (progress=0) → no edge highlight; pressed (progress=1) → full.
+    // Bottom tab indicator: modulate refraction/blur/highlight/inner-shadow
+    // with pressProgress, faithful to LiquidBottomTabs.kt:
+    //   lens(10dp * progress, 14dp * progress, chromaticAberration = true)
+    //   highlight = Highlight.Default.copy(alpha = progress)
+    //   Shadow(alpha = progress)
+    //   InnerShadow(radius = 8dp * progress, alpha = progress)
+    // At rest (progress=0): NO refraction, NO highlight, NO shadow, NO inner shadow.
+    // Pressed (progress=1): full lens refraction + chromatic aberration.
     if (el.isBottomTabIndicator) {
-      elHighlightAlpha = (el.highlight?.alpha ?? 0) * togglePressProgress
+      const progress = togglePressProgress
+      elRefractionHeight = el.refractionHeight * progress
+      elRefractionAmount = el.refractionAmount * progress
+      elBlurRadius = 0 // indicator has NO blur (original only has lens)
+      elHighlightAlpha = (el.highlight?.alpha ?? 0) * progress
+      elInnerShadowAlpha = (el.innerShadow?.alpha ?? 0) * progress
+      elInnerShadowRadius = (el.innerShadow?.radius ?? 0) * progress
+      elInnerShadowOffsetX = (el.innerShadow?.offsetX ?? 0) * progress
+      elInnerShadowOffsetY = (el.innerShadow?.offsetY ?? 0) * progress
     }
     // Content scale (non-uniform, faithful to LiquidToggle.kt / LiquidSlider.kt):
     //   scale(scaleX, scaleY) { drawBackdrop() }
