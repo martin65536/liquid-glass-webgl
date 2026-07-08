@@ -34,6 +34,8 @@ const DP = 1
 const lockScreenDragStart: { x: number; y: number } = { x: 0, y: 0 }
 // Control-center drag-start enter progress (survives re-renders)
 const ccDragStartEnter: { v: number } = { v: 1 }
+// Magnifier drag-start offset (survives re-renders)
+const magDragStart: { x: number; y: number } = { x: 0, y: 0 }
 // Control-center snap animation handle (cancel previous if a new one starts)
 let ccAnimHandle: number | null = null
 /** Animate controlCenterEnter to `target` (0 or 1) via a simple lerp spring. */
@@ -2314,12 +2316,15 @@ function buildMagnifier(W: number, H: number, onBack: () => void, state: Catalog
     )
   )
   interactions['mag-glass'] = {
-    onDragStart: () => {},
+    onDragStart: () => {
+      magDragStart.x = state.magnifierX
+      magDragStart.y = state.magnifierY
+    },
     onDrag: (_pos, delta) => {
-      setState((prev) => ({
-        magnifierX: prev.magnifierX + delta.x,
-        magnifierY: prev.magnifierY + delta.y,
-      }))
+      setState({
+        magnifierX: magDragStart.x + delta.x,
+        magnifierY: magDragStart.y + delta.y,
+      })
     },
     onDragEnd: () => {},
   }
