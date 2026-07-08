@@ -40,6 +40,16 @@ vec2 gradSdRoundedRect(vec2 coord, vec2 halfSize, float radius) {
         return sign(coord) * vec2(gradX, 1.0 - gradX);
     }
 }
+
+// rotateBy — rotate a 2D vector by angle (radians). Used to un-rotate the
+// sample coord into the element's local space (so the SDF shape appears
+// rotated by +uElementRotation), and to rotate refraction offsets back to
+// screen space.
+vec2 rotateBy(vec2 v, float angle) {
+    float c = cos(angle);
+    float s = sin(angle);
+    return vec2(v.x * c - v.y * s, v.x * s + v.y * c);
+}
 `
 
 /* ------------------------------------------------------------------ *

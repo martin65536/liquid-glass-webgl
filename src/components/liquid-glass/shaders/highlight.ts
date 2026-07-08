@@ -48,6 +48,7 @@ uniform vec2  uPosition;     // finger position in element-local px (top-left or
 uniform vec2  uOriginalSize;
 uniform float uOriginalCornerRadius;
 uniform vec2  uLayerScale;
+uniform float uElementRotation;
 
 ${SDF_GLSL}
 
@@ -61,7 +62,7 @@ void main() {
     vec2 layerScale = max(uLayerScale, vec2(1e-4));
     vec2 centeredOrig = centeredScreen / layerScale;
     vec2 origHalfSize = uOriginalSize * 0.5;
-    float sd = sdRoundedRect(centeredOrig, origHalfSize, uOriginalCornerRadius);
+    float sd = sdRoundedRect(rotateBy(centeredOrig, -uElementRotation), origHalfSize, uOriginalCornerRadius);
     if (sd > 0.5) discard;
     float clipAlpha = 1.0 - smoothstep(-0.5, 0.5, sd);
 
@@ -105,6 +106,7 @@ uniform vec4  uColor;
 uniform vec2  uOriginalSize;
 uniform float uOriginalCornerRadius;
 uniform vec2  uLayerScale;
+uniform float uElementRotation;
 
 ${SDF_GLSL}
 
@@ -115,7 +117,7 @@ void main() {
     vec2 layerScale = max(uLayerScale, vec2(1e-4));
     vec2 centeredOrig = centeredScreen / layerScale;
     vec2 origHalfSize = uOriginalSize * 0.5;
-    float sd = sdRoundedRect(centeredOrig, origHalfSize, uOriginalCornerRadius);
+    float sd = sdRoundedRect(rotateBy(centeredOrig, -uElementRotation), origHalfSize, uOriginalCornerRadius);
     if (sd > 0.5) discard;
     float clipAlpha = 1.0 - smoothstep(-0.5, 0.5, sd);
 
@@ -165,6 +167,7 @@ uniform float uHighlightBlur;
 uniform vec2  uOriginalSize;        // element size in px (ORIGINAL, unscaled)
 uniform float uOriginalCornerRadius; // corner radius in px (ORIGINAL, unscaled)
 uniform vec2  uLayerScale;          // (scaleX, scaleY) from graphicsLayer
+uniform float uElementRotation;     // rotation in radians (graphicsLayer rotationZ)
 
 ${SDF_GLSL}
 
@@ -185,12 +188,14 @@ void main() {
     // Map to ORIGINAL space (guard against divide-by-zero).
     vec2 layerScale = max(uLayerScale, vec2(1e-4));
     vec2 centeredOrig = centeredScreen / layerScale;
+    // Un-rotate into the element's local space so the SDF shape rotates.
+    vec2 centeredOrigRot = rotateBy(centeredOrig, -uElementRotation);
 
     vec2 origHalfSize = uOriginalSize * 0.5;
     float origRadius = uOriginalCornerRadius;
 
     // SDF in ORIGINAL space — shape is a correct (unscaled) rounded rect.
-    float sd = sdRoundedRect(centeredOrig, origHalfSize, origRadius);
+    float sd = sdRoundedRect(centeredOrigRot, origHalfSize, origRadius);
 
     // Outside the shape — nothing to add (the stroke's outward half is clipped).
     if (sd > 0.0) {
@@ -227,7 +232,7 @@ void main() {
     if (uHighlightMode < 0.5) {
         // Default — shader returns color * intensity, Plus blend.
         float gradRadius = min(origRadius * 1.5, min(origHalfSize.x, origHalfSize.y));
-        vec2 grad = gradSdRoundedRect(centeredOrig, origHalfSize, gradRadius);
+        vec2 grad = gradSdRoundedRect(centeredOrigRot, origHalfSize, gradRadius);
         vec2 normal = vec2(cos(uHighlightAngle), sin(uHighlightAngle));
         float d = dot(grad, normal);
         float intensity = pow(abs(d), uHighlightFalloff);
@@ -236,7 +241,7 @@ void main() {
     } else if (uHighlightMode < 1.5) {
         // Ambient — shader returns half4(t,t,t,1.0)*intensity, SrcOver blend.
         float gradRadius = min(origRadius * 1.5, min(origHalfSize.x, origHalfSize.y));
-        vec2 grad = gradSdRoundedRect(centeredOrig, origHalfSize, gradRadius);
+        vec2 grad = gradSdRoundedRect(centeredOrigRot, origHalfSize, gradRadius);
         vec2 normal = vec2(cos(uHighlightAngle), sin(uHighlightAngle));
         float d = dot(grad, normal);
         float intensity = pow(abs(d), uHighlightFalloff);

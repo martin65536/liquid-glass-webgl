@@ -33,6 +33,8 @@ export interface GlassRenderState {
   origW: number
   origH: number
   origCornerRadius: number
+  // Element rotation in radians (graphicsLayer rotationZ). 0 for most.
+  elementRotation: number
 }
 
 declare module './index' {
@@ -325,6 +327,7 @@ export const glassRenderMethods = {
       origW: el.rect.w,
       origH: el.rect.h,
       origCornerRadius: el.cornerRadius,
+      elementRotation: el.elementRotation ?? 0,
     }
 
     // --- Step 2a: Shadow pass (to otherFbo, on top of copied scene) ---
@@ -386,6 +389,7 @@ export const glassRenderMethods = {
     gl.uniform2f(this.uSh['uOriginalSize'], state.origW * this.dpr, state.origH * this.dpr)
     gl.uniform1f(this.uSh['uOriginalCornerRadius'], state.origCornerRadius * this.dpr)
     gl.uniform2f(this.uSh['uLayerScale'], state.layerScaleX, state.layerScaleY)
+    gl.uniform1f(this.uSh['uElementRotation'], state.elementRotation)
     // Shadow radius + offset in ORIGINAL px (NOT scaled by layerScale).
     // Faithful to original: BlurMaskFilter blurs the shadow at original size,
     // then graphicsLayer scales the entire shadow layer — so the blur sigma

@@ -28,6 +28,7 @@ uniform vec4  uShadowColor;     // rgba
 uniform vec2  uOriginalSize;        // element size in px (ORIGINAL, unscaled)
 uniform float uOriginalCornerRadius; // corner radius in px (ORIGINAL, unscaled)
 uniform vec2  uLayerScale;          // (scaleX, scaleY) from graphicsLayer
+uniform float uElementRotation;     // rotation in radians (graphicsLayer rotationZ)
 
 ${SDF_GLSL}
 
@@ -43,6 +44,10 @@ void main() {
     // Map to ORIGINAL space (guard against divide-by-zero).
     vec2 layerScale = max(uLayerScale, vec2(1e-4));
     vec2 centeredOrig = centeredScreen / layerScale;
+    // Un-rotate into local space so the shadow shape rotates with the element.
+    // Also rotate the shadow offset into local space so it stays consistent.
+    vec2 centeredOrigRot = rotateBy(centeredOrig, -uElementRotation);
+    vec2 shadowOffsetRot = rotateBy(uShadowOffset, -uElementRotation);
 
     vec2 origHalfSize = uOriginalSize * 0.5;
     float origRadius = uOriginalCornerRadius;
@@ -53,11 +58,11 @@ void main() {
     // becomes offset_orig * layerScale in screen space. We map it back to
     // original space for the SDF: offset_orig = offset_screen / layerScale,
     // which cancels — so we use uShadowOffset directly in original space.
-    vec2 shadowCenteredOrig = centeredOrig - uShadowOffset;
+    vec2 shadowCenteredOrig = centeredOrigRot - shadowOffsetRot;
     float sd = sdRoundedRect(shadowCenteredOrig, origHalfSize, origRadius);
     // SDF of the element itself (not offset) — used to mask the shadow
     // inside the element so it doesn't bleed through the AA edge.
-    float elementSd = sdRoundedRect(centeredOrig, origHalfSize, origRadius);
+    float elementSd = sdRoundedRect(centeredOrigRot, origHalfSize, origRadius);
 
     // Shadow intensity: Gaussian falloff from the shadow shape's edge.
     // uShadowRadius is in ORIGINAL px (faithful to BlurMaskFilter at original

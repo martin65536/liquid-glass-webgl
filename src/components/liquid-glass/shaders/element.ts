@@ -64,15 +64,13 @@ void main() {
     // Map to original space (guard against divide-by-zero).
     vec2 layerScale = max(uLayerScale, vec2(1e-4));
     vec2 centeredOrig = centeredScreen / layerScale;
-    // Apply element rotation (graphicsLayer rotationZ). Rotate the centered
-    // coord by -rotation so the SDF shape appears rotated by +rotation.
-    // Faithful to: the layer is rotated AFTER shading, so we un-rotate the
-    // sample coord to shade in the element's local (un-rotated) space.
+    // Apply element rotation (graphicsLayer rotationZ). Un-rotate the sample
+    // coord into the element's local space so the SDF shape appears rotated
+    // by +rotation. The layer is rotated AFTER shading, so we shade in local
+    // (un-rotated) space. Refraction offsets computed in local space are
+    // rotated BACK to screen space (by +rotation) before sampling the backdrop.
     float rot = uElementRotation;
-    float cosR = cos(-rot);
-    float sinR = sin(-rot);
-    vec2 centeredOrigRot = vec2(centeredOrig.x * cosR - centeredOrig.y * sinR,
-                                centeredOrig.x * sinR + centeredOrig.y * cosR);
+    vec2 centeredOrigRot = rotateBy(centeredOrig, -rot);
 
     vec2 origHalfSize = uOriginalSize * 0.5;
     float origRadius = uOriginalCornerRadius;
@@ -177,7 +175,10 @@ void main() {
         // space is therefore center + (p + offset_orig)*layerScale
         // = screenCoord + offset_orig * layerScale.
         vec2 refractedOffsetOrig = d * grad;
-        vec2 refractedOffsetScreen = refractedOffsetOrig * layerScale;
+        // Rotate the local-space offset BACK to screen space (by +rotation),
+        // then scale by layerScale. Without the rotation, refraction points
+        // in the wrong direction when the element is rotated.
+        vec2 refractedOffsetScreen = rotateBy(refractedOffsetOrig, rot) * layerScale;
         vec2 refractedScreen = screenCoord + refractedOffsetScreen;
         vec2 refractedSampleCoord = refractedScreen;
         if (uIndicatorBackdrop < 0.5 && uUseToggleBackdrop < 0.5 &&
@@ -190,7 +191,7 @@ void main() {
             // uses centeredCoord * centeredCoord / (halfSize * halfSize)).
             float dispersionIntensity = 1.0 * ((centeredOrigRot.x * centeredOrigRot.y) / (origHalfSize.x * origHalfSize.y));
             vec2 dispersedOffsetOrig = refractedOffsetOrig * dispersionIntensity;
-            vec2 dispersedOffsetScreen = dispersedOffsetOrig * layerScale;
+            vec2 dispersedOffsetScreen = rotateBy(dispersedOffsetOrig, rot) * layerScale;
 
             // PERFORMANCE: Reduced from 7-path (ROYGBV) to 3-path (RGB).
             vec4 redC, greenC, blueC;

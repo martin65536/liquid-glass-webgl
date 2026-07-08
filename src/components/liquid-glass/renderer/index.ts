@@ -228,7 +228,7 @@ export class LiquidGlassRenderer {
     const shNames = [
       'uCanvasSize', 'uElementOffset', 'uElementSize', 'uCornerRadii',
       'uShadowRadius', 'uShadowOffset', 'uShadowColor',
-      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale',
+      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation',
     ]
     for (const n of shNames) this.uSh[n] = gl.getUniformLocation(this.shadowProgram, n)
     const wpNames = ['uBackdrop', 'uCanvasSize', 'uWallpaperSize']
@@ -237,17 +237,17 @@ export class LiquidGlassRenderer {
       'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale']
     for (const n of fgNames) this.uFg[n] = gl.getUniformLocation(this.foregroundProgram, n)
     const hlNames = ['uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uColor', 'uRadius', 'uPosition',
-      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale']
+      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation']
     for (const n of hlNames) this.uHl[n] = gl.getUniformLocation(this.highlightProgram, n)
     const tnNames = ['uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uColor',
-      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale']
+      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation']
     for (const n of tnNames) this.uTn[n] = gl.getUniformLocation(this.tintProgram, n)
     const rmNames = [
       'uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii',
       'uHighlightColor', 'uHighlightAngle', 'uHighlightFalloff',
       'uHighlightAlpha', 'uHighlightMode', 'uHighlightStrokeWidth',
       'uHighlightBlur',
-      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale',
+      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation',
     ]
     for (const n of rmNames) this.uRm[n] = gl.getUniformLocation(this.rimHighlightProgram, n)
     const prNames = ['uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uColor']
