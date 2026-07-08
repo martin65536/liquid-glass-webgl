@@ -138,24 +138,37 @@ uniform float uTintIntensity;   // 0..1
 
 ${COVER_GLSL}
 
-// 9-tap poisson disc — offsets are inlined because GLSL ES 1.00 (WebGL 1)
-// does not support array constructors or const-array initializers.
-// The offsets are normalized (unit disc), multiplied by step (radius in UV).
+// 17-tap Gaussian disc blur — 1 center + 2 rings of 8 taps.
+// Ring 2 is rotated 22.5° relative to ring 1 to avoid visible grid artifacts.
+// radius is interpreted as Gaussian σ (matching Skia's BlurEffect).
 vec4 sampleBackdrop(vec2 canvasPx, float radius) {
-    vec2 uvScale = canvasPxToUvScale();
     vec2 uv = coverUv(canvasPx);
-    vec2 st = radius * uvScale;
+    if (radius < 0.5) {
+        return texture2D(uBackdrop, uv);
+    }
+    vec2 step = radius * canvasPxToUvScale();
     vec4 sum = vec4(0.0);
-    sum += texture2D(uBackdrop, uv + vec2( 0.0000,  0.0000) * st);
-    sum += texture2D(uBackdrop, uv + vec2( 0.5000,  0.0000) * st);
-    sum += texture2D(uBackdrop, uv + vec2(-0.5000,  0.0000) * st);
-    sum += texture2D(uBackdrop, uv + vec2( 0.0000,  0.5000) * st);
-    sum += texture2D(uBackdrop, uv + vec2( 0.0000, -0.5000) * st);
-    sum += texture2D(uBackdrop, uv + vec2( 0.3536,  0.3536) * st);
-    sum += texture2D(uBackdrop, uv + vec2(-0.3536,  0.3536) * st);
-    sum += texture2D(uBackdrop, uv + vec2( 0.3536, -0.3536) * st);
-    sum += texture2D(uBackdrop, uv + vec2(-0.3536, -0.3536) * st);
-    return sum / 9.0;
+    // Center
+    sum += texture2D(uBackdrop, uv) * 0.1442;
+    // Ring 1 (σ) — 8 taps, distance 1.0
+    sum += texture2D(uBackdrop, uv + vec2( 1.000,  0.000) * step) * 0.0875;
+    sum += texture2D(uBackdrop, uv + vec2( 0.707,  0.707) * step) * 0.0875;
+    sum += texture2D(uBackdrop, uv + vec2( 0.000,  1.000) * step) * 0.0875;
+    sum += texture2D(uBackdrop, uv + vec2(-0.707,  0.707) * step) * 0.0875;
+    sum += texture2D(uBackdrop, uv + vec2(-1.000,  0.000) * step) * 0.0875;
+    sum += texture2D(uBackdrop, uv + vec2(-0.707, -0.707) * step) * 0.0875;
+    sum += texture2D(uBackdrop, uv + vec2( 0.000, -1.000) * step) * 0.0875;
+    sum += texture2D(uBackdrop, uv + vec2( 0.707, -0.707) * step) * 0.0875;
+    // Ring 2 (2σ) — 8 taps rotated 22.5°, distance 2.0
+    sum += texture2D(uBackdrop, uv + vec2( 1.848,  0.766) * step) * 0.0195;
+    sum += texture2D(uBackdrop, uv + vec2( 0.766,  1.848) * step) * 0.0195;
+    sum += texture2D(uBackdrop, uv + vec2(-0.766,  1.848) * step) * 0.0195;
+    sum += texture2D(uBackdrop, uv + vec2(-1.848,  0.766) * step) * 0.0195;
+    sum += texture2D(uBackdrop, uv + vec2(-1.848, -0.766) * step) * 0.0195;
+    sum += texture2D(uBackdrop, uv + vec2(-0.766, -1.848) * step) * 0.0195;
+    sum += texture2D(uBackdrop, uv + vec2( 0.766, -1.848) * step) * 0.0195;
+    sum += texture2D(uBackdrop, uv + vec2( 1.848, -0.766) * step) * 0.0195;
+    return sum;
 }
 
 void main() {
