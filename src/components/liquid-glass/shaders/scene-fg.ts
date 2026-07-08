@@ -138,24 +138,34 @@ uniform float uTintIntensity;   // 0..1
 
 ${COVER_GLSL}
 
-// 9-tap poisson disc — offsets are inlined because GLSL ES 1.00 (WebGL 1)
-// does not support array constructors or const-array initializers.
-// The offsets are normalized (unit disc), multiplied by step (radius in UV).
+// 13-tap multi-radius Gaussian blur (σ ≈ 0.5 in blur-radius units).
+// Offsets are inlined because GLSL ES 1.00 (WebGL 1) does not support
+// array constructors or const-array initializers.
+//   - 1 center (r=0), weight 0.2218
+//   - 4 inner (r=0.5, cardinals), weight 0.1345 each
+//   - 8 outer (r=1.0, 22.5° offsets), weight 0.0300 each
 vec4 sampleBackdrop(vec2 canvasPx, float radius) {
     vec2 uvScale = canvasPxToUvScale();
     vec2 uv = coverUv(canvasPx);
     vec2 st = radius * uvScale;
     vec4 sum = vec4(0.0);
-    sum += texture2D(uBackdrop, uv + vec2( 0.0000,  0.0000) * st);
-    sum += texture2D(uBackdrop, uv + vec2( 0.5000,  0.0000) * st);
-    sum += texture2D(uBackdrop, uv + vec2(-0.5000,  0.0000) * st);
-    sum += texture2D(uBackdrop, uv + vec2( 0.0000,  0.5000) * st);
-    sum += texture2D(uBackdrop, uv + vec2( 0.0000, -0.5000) * st);
-    sum += texture2D(uBackdrop, uv + vec2( 0.3536,  0.3536) * st);
-    sum += texture2D(uBackdrop, uv + vec2(-0.3536,  0.3536) * st);
-    sum += texture2D(uBackdrop, uv + vec2( 0.3536, -0.3536) * st);
-    sum += texture2D(uBackdrop, uv + vec2(-0.3536, -0.3536) * st);
-    return sum / 9.0;
+    // Center (r=0)
+    sum += texture2D(uBackdrop, uv) * 0.2218;
+    // Inner ring (r=0.5, 4 cardinals)
+    sum += texture2D(uBackdrop, uv + vec2( 0.5,  0.0) * st) * 0.1345;
+    sum += texture2D(uBackdrop, uv + vec2(-0.5,  0.0) * st) * 0.1345;
+    sum += texture2D(uBackdrop, uv + vec2( 0.0,  0.5) * st) * 0.1345;
+    sum += texture2D(uBackdrop, uv + vec2( 0.0, -0.5) * st) * 0.1345;
+    // Outer ring (r=1.0, 8 taps at 22.5° offsets)
+    sum += texture2D(uBackdrop, uv + vec2( 0.9239,  0.3827) * st) * 0.0300;
+    sum += texture2D(uBackdrop, uv + vec2( 0.3827,  0.9239) * st) * 0.0300;
+    sum += texture2D(uBackdrop, uv + vec2(-0.3827,  0.9239) * st) * 0.0300;
+    sum += texture2D(uBackdrop, uv + vec2(-0.9239,  0.3827) * st) * 0.0300;
+    sum += texture2D(uBackdrop, uv + vec2(-0.9239, -0.3827) * st) * 0.0300;
+    sum += texture2D(uBackdrop, uv + vec2(-0.3827, -0.9239) * st) * 0.0300;
+    sum += texture2D(uBackdrop, uv + vec2( 0.3827, -0.9239) * st) * 0.0300;
+    sum += texture2D(uBackdrop, uv + vec2( 0.9239, -0.3827) * st) * 0.0300;
+    return sum;
 }
 
 void main() {
