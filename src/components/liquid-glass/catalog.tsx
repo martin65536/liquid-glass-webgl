@@ -2285,8 +2285,9 @@ function buildMagnifier(W: number, H: number, onBack: () => void, state: Catalog
   )
 
   // Cursor (small accent capsule) — accent color flips with theme.
+  // Shifted down a bit so the drag/sampling area sits lower on the card.
   const cursorBaseX = W / 2 - 2
-  const cursorBaseY = cardY + cardH / 2 - 12
+  const cursorBaseY = cardY + cardH / 2 + 20 * DP
   const cursorX = cursorBaseX + state.magnifierX
   const cursorY = cursorBaseY + state.magnifierY
   elements.push(makePlainRect('mag-cursor', { x: cursorX, y: cursorY, w: 4 * DP, h: 24 * DP }, palette.magnifierAccent, 2 * DP))
