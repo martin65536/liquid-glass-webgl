@@ -457,6 +457,13 @@ export interface ToggleGroupState {
   // update targetFraction directly (no spring lag, matches onDrag in
   // DampedDragAnimation which updates `fraction` instantly).
   isDragging: boolean
+  // True after a drag release (endToggleDrag/endSliderDrag) — enables
+  // velocity tracking from fraction rate-of-change. Set false by
+  // setToggleTarget/setTabSelected (tap = no velocity animation).
+  // Faithful to DampedDragAnimation: velocity is only non-zero after a
+  // drag (VelocityTracker accumulates during drag); animateToValue (tap)
+  // checks `if (velocity != 0f)` — for taps velocity is 0 → no stretch.
+  trackVelocityAfterRelease: boolean
   // Last fraction value seen by the velocity tracker (for computing Δfraction/Δt).
   lastFractionForVelocity: number
   lastFractionTime: number

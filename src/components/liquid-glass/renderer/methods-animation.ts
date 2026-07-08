@@ -150,7 +150,10 @@ export const animationMethods = {
           // value spring's animateTo callback). This gives the squash-stretch
           // more persistence after release (the velocity decays smoothly as
           // the fraction settles, rather than snapping to 0 immediately).
-          if (!tg.isDragging) {
+          // ONLY track after drag release (not tap) — taps have no velocity
+          // in the original (VelocityTracker is empty, animateToValue checks
+          // `if (velocity != 0f)` → no stretch for taps).
+          if (!tg.isDragging && tg.trackVelocityAfterRelease) {
             const now = performance.now() / 1000
             if (tg.lastFractionTime > 0) {
               const dt2 = now - tg.lastFractionTime
@@ -166,8 +169,11 @@ export const animationMethods = {
         } else {
           tg.fraction = tg.targetFraction
           tg.fractionVelocity = 0
-          // Velocity has settled — clear the tracking target.
-          if (!tg.isDragging) tg.targetVelocity = 0
+          // Velocity has settled — clear the tracking target + flag.
+          if (!tg.isDragging) {
+            tg.targetVelocity = 0
+            tg.trackVelocityAfterRelease = false
+          }
         }
 
         // Press progress: critically damped (spring(1f, 1000f)).

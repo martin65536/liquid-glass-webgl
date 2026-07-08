@@ -71,6 +71,7 @@ export const toggleMethods = {
         velocityVelocity: 0,
         targetVelocity: 0,
         isDragging: false,
+        trackVelocityAfterRelease: false,
         lastFractionForVelocity: initialFraction,
         lastFractionTime: 0,
         pressedScale,
@@ -109,6 +110,13 @@ export const toggleMethods = {
     if (st.isDragging) return // Don't fight a drag in progress
     if (st.targetFraction === target) return // Same target — no-op
     st.targetFraction = target
+    // Tap (programmatic toggle) — NO velocity tracking. Faithful to
+    // DampedDragAnimation.animateToValue which checks `if (velocity != 0f)`
+    // — for taps velocity is 0 → no squash-stretch.
+    st.trackVelocityAfterRelease = false
+    st.targetVelocity = 0
+    st.velocity = 0
+    st.velocityVelocity = 0
     // Trigger a brief press animation (matches animateToValue's press()+release()).
     // The press animation auto-releases when fraction settles near target
     // (handled in the animation loop).
@@ -116,11 +124,6 @@ export const toggleMethods = {
       st.targetPress = 1
       st.targetScaleX = st.pressedScale
       st.targetScaleY = st.pressedScale
-    }
-    // Faithful to animateToValue: if there's residual velocity, decay it to 0
-    // (the original does velocityAnimation.animateTo(0f, velocityAnimationSpec)).
-    if (st.velocity !== 0) {
-      st.targetVelocity = 0
     }
     this.startAnimation()
   },
@@ -201,10 +204,10 @@ export const toggleMethods = {
     st.isDragging = false
     const finalTarget = st.targetFraction >= 0.5 ? 1 : 0
     st.targetFraction = finalTarget
-    // Don't zero targetVelocity — the animation loop tracks the fraction's
-    // rate of change after release (faithful to DampedDragAnimation.kt's
-    // VelocityTracker which keeps updating velocity during the value spring).
-    // This gives the squash-stretch more persistence/bounce after release.
+    // Enable velocity tracking after drag release (faithful to
+    // DampedDragAnimation which tracks velocity via VelocityTracker
+    // during the value spring's animateTo callback).
+    st.trackVelocityAfterRelease = true
     st.lastFractionTime = performance.now() / 1000
     st.lastFractionForVelocity = st.fraction
     // Don't release press here — auto-release will fire when fraction
@@ -228,8 +231,8 @@ export const toggleMethods = {
     st.isDragging = false
     // NO snap — keep the continuous targetFraction as-is.
     const finalTarget = st.targetFraction
-    // Don't zero targetVelocity — the animation loop tracks the fraction's
-    // rate of change after release (same as endToggleDrag).
+    // Enable velocity tracking after drag release (same as endToggleDrag).
+    st.trackVelocityAfterRelease = true
     st.lastFractionTime = performance.now() / 1000
     st.lastFractionForVelocity = st.fraction
     // Don't release press here — auto-release will fire when fraction

@@ -52,6 +52,12 @@ export const tabsMethods = {
     if (st.isDragging) return
     if (st.targetFraction === tabIndex) return
     st.targetFraction = tabIndex
+    // Tap (programmatic tab switch) — NO velocity tracking. Faithful to
+    // DampedDragAnimation.animateToValue: for taps velocity is 0 → no stretch.
+    st.trackVelocityAfterRelease = false
+    st.targetVelocity = 0
+    st.velocity = 0
+    st.velocityVelocity = 0
     if (st.targetPress === 0) {
       st.targetPress = 1
       st.targetScaleX = st.pressedScale
