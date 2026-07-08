@@ -51,12 +51,14 @@ vec2 sceneUv(vec2 canvasPx) {
     return vec2(canvasPx.x / uCanvasSize.x, 1.0 - canvasPx.y / uCanvasSize.y);
 }
 
-// 13-tap multi-radius Gaussian blur (σ ≈ 0.5 in blur-radius units).
-// Samples are distributed across 3 radii so the full disc is covered:
-//   - 1 center tap (r=0), weight 0.2218
-//   - 4 inner taps (r=0.5, cardinals), weight 0.1345 each
-//   - 8 outer taps (r=1.0, 22.5° offsets), weight 0.0300 each
-// Total weight = 1.0 (normalized). radius < 0.5 falls back to single tap.
+// 13-tap Gaussian Vogel-disk blur (σ = radius, faithful to Skia BlurEffect).
+// The original uses Compose BlurEffect(radius, radius) which maps to Skia's
+// RenderEffect.createBlurEffect with sigma = radius. A true Gaussian extends
+// to ~3σ, but we sample to 2.5σ on a Vogel spiral (golden-angle) for uniform
+// angular coverage with proper Gaussian falloff weights, normalized to 1.0.
+// Previous "13-tap" used non-Gaussian weights (0.03 outer) that barely
+// blurred — this uses true exp(-r²/2σ²) weights so the full disc contributes.
+// radius < 0.5 falls back to single tap.
 vec4 sampleBackdrop(vec2 canvasPx, float radius) {
     vec2 uv = sceneUv(canvasPx);
     if (radius < 0.5) {
@@ -66,23 +68,20 @@ vec4 sampleBackdrop(vec2 canvasPx, float radius) {
     vec4 sum = vec4(0.0);
 
     // Center tap (r=0)
-    sum += texture2D(uBackdrop, uv) * 0.2218;
-
-    // Inner ring (r=0.5, 4 cardinals)
-    sum += texture2D(uBackdrop, uv + vec2( 0.5,  0.0) * pxToUv) * 0.1345;
-    sum += texture2D(uBackdrop, uv + vec2(-0.5,  0.0) * pxToUv) * 0.1345;
-    sum += texture2D(uBackdrop, uv + vec2( 0.0,  0.5) * pxToUv) * 0.1345;
-    sum += texture2D(uBackdrop, uv + vec2( 0.0, -0.5) * pxToUv) * 0.1345;
-
-    // Outer ring (r=1.0, 8 taps at 22.5° offsets for even angular coverage)
-    sum += texture2D(uBackdrop, uv + vec2( 0.9239,  0.3827) * pxToUv) * 0.0300;
-    sum += texture2D(uBackdrop, uv + vec2( 0.3827,  0.9239) * pxToUv) * 0.0300;
-    sum += texture2D(uBackdrop, uv + vec2(-0.3827,  0.9239) * pxToUv) * 0.0300;
-    sum += texture2D(uBackdrop, uv + vec2(-0.9239,  0.3827) * pxToUv) * 0.0300;
-    sum += texture2D(uBackdrop, uv + vec2(-0.9239, -0.3827) * pxToUv) * 0.0300;
-    sum += texture2D(uBackdrop, uv + vec2(-0.3827, -0.9239) * pxToUv) * 0.0300;
-    sum += texture2D(uBackdrop, uv + vec2( 0.3827, -0.9239) * pxToUv) * 0.0300;
-    sum += texture2D(uBackdrop, uv + vec2( 0.9239, -0.3827) * pxToUv) * 0.0300;
+    sum += texture2D(uBackdrop, uv) * 0.237306;
+    // Vogel spiral taps (r = sqrt(i/12)*2.5, theta = i*golden_angle)
+    sum += texture2D(uBackdrop, uv + vec2(-0.5322,  0.4875) * pxToUv) * 0.182899;
+    sum += texture2D(uBackdrop, uv + vec2( 0.0892, -1.0167) * pxToUv) * 0.140966;
+    sum += texture2D(uBackdrop, uv + vec2( 0.7605,  0.9920) * pxToUv) * 0.108646;
+    sum += texture2D(uBackdrop, uv + vec2(-1.4213, -0.2514) * pxToUv) * 0.083737;
+    sum += texture2D(uBackdrop, uv + vec2( 1.3616, -0.8661) * pxToUv) * 0.064539;
+    sum += texture2D(uBackdrop, uv + vec2(-0.4589,  1.7072) * pxToUv) * 0.049742;
+    sum += texture2D(uBackdrop, uv + vec2(-0.8801, -1.6945) * pxToUv) * 0.038338;
+    sum += texture2D(uBackdrop, uv + vec2( 1.9174,  0.7002) * pxToUv) * 0.029548;
+    sum += texture2D(uBackdrop, uv + vec2(-2.0013,  0.8261) * pxToUv) * 0.022774;
+    sum += texture2D(uBackdrop, uv + vec2( 0.9673, -2.0670) * pxToUv) * 0.017552;
+    sum += texture2D(uBackdrop, uv + vec2( 0.7164,  2.2839) * pxToUv) * 0.013528;
+    sum += texture2D(uBackdrop, uv + vec2(-2.1630, -1.2535) * pxToUv) * 0.010426;
 
     return sum;
 }
@@ -122,29 +121,29 @@ vec4 sampleToggleBackdrop(vec2 canvasPx, float radius) {
         vec2 uv = coverUv(canvasPx);
         wp = texture2D(uWallpaperSampler, uv);
     } else {
-        // LayerBackdrop case (t1) with blur: 13-tap multi-radius Gaussian on
-        // wallpaper. Use coverUv for the center sample, and convert the blur
-        // radius from canvas px to UV-space using canvasPxToUvScale() (which
-        // accounts for the cover-fit aspect ratio cropping).
+        // LayerBackdrop case (t1) with blur: 13-tap Gaussian Vogel-disk on
+        // wallpaper (σ = radius, faithful to Skia BlurEffect). Use coverUv for
+        // the center sample, and convert the blur radius from canvas px to
+        // UV-space using canvasPxToUvScale() (which accounts for the cover-fit
+        // aspect ratio cropping).
         vec2 uv = coverUv(canvasPx);
         vec2 pxToUv = radius * canvasPxToUvScale();
         vec4 sum = vec4(0.0);
         // Center (r=0)
-        sum += texture2D(uWallpaperSampler, uv) * 0.2218;
-        // Inner ring (r=0.5, 4 cardinals)
-        sum += texture2D(uWallpaperSampler, uv + vec2( 0.5,  0.0) * pxToUv) * 0.1345;
-        sum += texture2D(uWallpaperSampler, uv + vec2(-0.5,  0.0) * pxToUv) * 0.1345;
-        sum += texture2D(uWallpaperSampler, uv + vec2( 0.0,  0.5) * pxToUv) * 0.1345;
-        sum += texture2D(uWallpaperSampler, uv + vec2( 0.0, -0.5) * pxToUv) * 0.1345;
-        // Outer ring (r=1.0, 8 taps at 22.5° offsets)
-        sum += texture2D(uWallpaperSampler, uv + vec2( 0.9239,  0.3827) * pxToUv) * 0.0300;
-        sum += texture2D(uWallpaperSampler, uv + vec2( 0.3827,  0.9239) * pxToUv) * 0.0300;
-        sum += texture2D(uWallpaperSampler, uv + vec2(-0.3827,  0.9239) * pxToUv) * 0.0300;
-        sum += texture2D(uWallpaperSampler, uv + vec2(-0.9239,  0.3827) * pxToUv) * 0.0300;
-        sum += texture2D(uWallpaperSampler, uv + vec2(-0.9239, -0.3827) * pxToUv) * 0.0300;
-        sum += texture2D(uWallpaperSampler, uv + vec2(-0.3827, -0.9239) * pxToUv) * 0.0300;
-        sum += texture2D(uWallpaperSampler, uv + vec2( 0.3827, -0.9239) * pxToUv) * 0.0300;
-        sum += texture2D(uWallpaperSampler, uv + vec2( 0.9239, -0.3827) * pxToUv) * 0.0300;
+        sum += texture2D(uWallpaperSampler, uv) * 0.237306;
+        // Vogel spiral taps (σ=radius, max 2.5σ)
+        sum += texture2D(uWallpaperSampler, uv + vec2(-0.5322,  0.4875) * pxToUv) * 0.182899;
+        sum += texture2D(uWallpaperSampler, uv + vec2( 0.0892, -1.0167) * pxToUv) * 0.140966;
+        sum += texture2D(uWallpaperSampler, uv + vec2( 0.7605,  0.9920) * pxToUv) * 0.108646;
+        sum += texture2D(uWallpaperSampler, uv + vec2(-1.4213, -0.2514) * pxToUv) * 0.083737;
+        sum += texture2D(uWallpaperSampler, uv + vec2( 1.3616, -0.8661) * pxToUv) * 0.064539;
+        sum += texture2D(uWallpaperSampler, uv + vec2(-0.4589,  1.7072) * pxToUv) * 0.049742;
+        sum += texture2D(uWallpaperSampler, uv + vec2(-0.8801, -1.6945) * pxToUv) * 0.038338;
+        sum += texture2D(uWallpaperSampler, uv + vec2( 1.9174,  0.7002) * pxToUv) * 0.029548;
+        sum += texture2D(uWallpaperSampler, uv + vec2(-2.0013,  0.8261) * pxToUv) * 0.022774;
+        sum += texture2D(uWallpaperSampler, uv + vec2( 0.9673, -2.0670) * pxToUv) * 0.017552;
+        sum += texture2D(uWallpaperSampler, uv + vec2( 0.7164,  2.2839) * pxToUv) * 0.013528;
+        sum += texture2D(uWallpaperSampler, uv + vec2(-2.1630, -1.2535) * pxToUv) * 0.010426;
         wp = sum;
     }
 
@@ -199,21 +198,20 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
         vec2 pxToUv = radius * canvasPxToUvScale();
         vec4 sum = vec4(0.0);
         // Center (r=0)
-        sum += texture2D(uWallpaperSampler, uv) * 0.2218;
-        // Inner ring (r=0.5, 4 cardinals)
-        sum += texture2D(uWallpaperSampler, uv + vec2( 0.5,  0.0) * pxToUv) * 0.1345;
-        sum += texture2D(uWallpaperSampler, uv + vec2(-0.5,  0.0) * pxToUv) * 0.1345;
-        sum += texture2D(uWallpaperSampler, uv + vec2( 0.0,  0.5) * pxToUv) * 0.1345;
-        sum += texture2D(uWallpaperSampler, uv + vec2( 0.0, -0.5) * pxToUv) * 0.1345;
-        // Outer ring (r=1.0, 8 taps at 22.5° offsets)
-        sum += texture2D(uWallpaperSampler, uv + vec2( 0.9239,  0.3827) * pxToUv) * 0.0300;
-        sum += texture2D(uWallpaperSampler, uv + vec2( 0.3827,  0.9239) * pxToUv) * 0.0300;
-        sum += texture2D(uWallpaperSampler, uv + vec2(-0.3827,  0.9239) * pxToUv) * 0.0300;
-        sum += texture2D(uWallpaperSampler, uv + vec2(-0.9239,  0.3827) * pxToUv) * 0.0300;
-        sum += texture2D(uWallpaperSampler, uv + vec2(-0.9239, -0.3827) * pxToUv) * 0.0300;
-        sum += texture2D(uWallpaperSampler, uv + vec2(-0.3827, -0.9239) * pxToUv) * 0.0300;
-        sum += texture2D(uWallpaperSampler, uv + vec2( 0.3827, -0.9239) * pxToUv) * 0.0300;
-        sum += texture2D(uWallpaperSampler, uv + vec2( 0.9239, -0.3827) * pxToUv) * 0.0300;
+        sum += texture2D(uWallpaperSampler, uv) * 0.237306;
+        // Vogel spiral taps (σ=radius, max 2.5σ)
+        sum += texture2D(uWallpaperSampler, uv + vec2(-0.5322,  0.4875) * pxToUv) * 0.182899;
+        sum += texture2D(uWallpaperSampler, uv + vec2( 0.0892, -1.0167) * pxToUv) * 0.140966;
+        sum += texture2D(uWallpaperSampler, uv + vec2( 0.7605,  0.9920) * pxToUv) * 0.108646;
+        sum += texture2D(uWallpaperSampler, uv + vec2(-1.4213, -0.2514) * pxToUv) * 0.083737;
+        sum += texture2D(uWallpaperSampler, uv + vec2( 1.3616, -0.8661) * pxToUv) * 0.064539;
+        sum += texture2D(uWallpaperSampler, uv + vec2(-0.4589,  1.7072) * pxToUv) * 0.049742;
+        sum += texture2D(uWallpaperSampler, uv + vec2(-0.8801, -1.6945) * pxToUv) * 0.038338;
+        sum += texture2D(uWallpaperSampler, uv + vec2( 1.9174,  0.7002) * pxToUv) * 0.029548;
+        sum += texture2D(uWallpaperSampler, uv + vec2(-2.0013,  0.8261) * pxToUv) * 0.022774;
+        sum += texture2D(uWallpaperSampler, uv + vec2( 0.9673, -2.0670) * pxToUv) * 0.017552;
+        sum += texture2D(uWallpaperSampler, uv + vec2( 0.7164,  2.2839) * pxToUv) * 0.013528;
+        sum += texture2D(uWallpaperSampler, uv + vec2(-2.1630, -1.2535) * pxToUv) * 0.010426;
         wp = sum;
     }
 

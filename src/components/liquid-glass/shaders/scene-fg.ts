@@ -138,33 +138,31 @@ uniform float uTintIntensity;   // 0..1
 
 ${COVER_GLSL}
 
-// 13-tap multi-radius Gaussian blur (σ ≈ 0.5 in blur-radius units).
-// Offsets are inlined because GLSL ES 1.00 (WebGL 1) does not support
-// array constructors or const-array initializers.
-//   - 1 center (r=0), weight 0.2218
-//   - 4 inner (r=0.5, cardinals), weight 0.1345 each
-//   - 8 outer (r=1.0, 22.5° offsets), weight 0.0300 each
+// 13-tap Gaussian Vogel-disk blur (σ = radius, faithful to Skia BlurEffect).
+// Samples distributed on a Vogel spiral (golden-angle) up to 2.5σ with true
+// Gaussian weights exp(-r²/2σ²), normalized to sum=1.0.
+//   - 1 center (r=0), weight 0.237306
+//   - 12 spiral taps, weights 0.182899 .. 0.010426
 vec4 sampleBackdrop(vec2 canvasPx, float radius) {
     vec2 uvScale = canvasPxToUvScale();
     vec2 uv = coverUv(canvasPx);
     vec2 st = radius * uvScale;
     vec4 sum = vec4(0.0);
     // Center (r=0)
-    sum += texture2D(uBackdrop, uv) * 0.2218;
-    // Inner ring (r=0.5, 4 cardinals)
-    sum += texture2D(uBackdrop, uv + vec2( 0.5,  0.0) * st) * 0.1345;
-    sum += texture2D(uBackdrop, uv + vec2(-0.5,  0.0) * st) * 0.1345;
-    sum += texture2D(uBackdrop, uv + vec2( 0.0,  0.5) * st) * 0.1345;
-    sum += texture2D(uBackdrop, uv + vec2( 0.0, -0.5) * st) * 0.1345;
-    // Outer ring (r=1.0, 8 taps at 22.5° offsets)
-    sum += texture2D(uBackdrop, uv + vec2( 0.9239,  0.3827) * st) * 0.0300;
-    sum += texture2D(uBackdrop, uv + vec2( 0.3827,  0.9239) * st) * 0.0300;
-    sum += texture2D(uBackdrop, uv + vec2(-0.3827,  0.9239) * st) * 0.0300;
-    sum += texture2D(uBackdrop, uv + vec2(-0.9239,  0.3827) * st) * 0.0300;
-    sum += texture2D(uBackdrop, uv + vec2(-0.9239, -0.3827) * st) * 0.0300;
-    sum += texture2D(uBackdrop, uv + vec2(-0.3827, -0.9239) * st) * 0.0300;
-    sum += texture2D(uBackdrop, uv + vec2( 0.3827, -0.9239) * st) * 0.0300;
-    sum += texture2D(uBackdrop, uv + vec2( 0.9239, -0.3827) * st) * 0.0300;
+    sum += texture2D(uBackdrop, uv) * 0.237306;
+    // Vogel spiral taps (σ=radius, max 2.5σ)
+    sum += texture2D(uBackdrop, uv + vec2(-0.5322,  0.4875) * st) * 0.182899;
+    sum += texture2D(uBackdrop, uv + vec2( 0.0892, -1.0167) * st) * 0.140966;
+    sum += texture2D(uBackdrop, uv + vec2( 0.7605,  0.9920) * st) * 0.108646;
+    sum += texture2D(uBackdrop, uv + vec2(-1.4213, -0.2514) * st) * 0.083737;
+    sum += texture2D(uBackdrop, uv + vec2( 1.3616, -0.8661) * st) * 0.064539;
+    sum += texture2D(uBackdrop, uv + vec2(-0.4589,  1.7072) * st) * 0.049742;
+    sum += texture2D(uBackdrop, uv + vec2(-0.8801, -1.6945) * st) * 0.038338;
+    sum += texture2D(uBackdrop, uv + vec2( 1.9174,  0.7002) * st) * 0.029548;
+    sum += texture2D(uBackdrop, uv + vec2(-2.0013,  0.8261) * st) * 0.022774;
+    sum += texture2D(uBackdrop, uv + vec2( 0.9673, -2.0670) * st) * 0.017552;
+    sum += texture2D(uBackdrop, uv + vec2( 0.7164,  2.2839) * st) * 0.013528;
+    sum += texture2D(uBackdrop, uv + vec2(-2.1630, -1.2535) * st) * 0.010426;
     return sum;
 }
 
