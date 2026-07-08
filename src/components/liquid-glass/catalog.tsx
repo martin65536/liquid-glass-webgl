@@ -444,7 +444,7 @@ function makeLiquidSlider(
   fillEl.scroll = scroll
   elements.push(fillEl)
 
-  // Knob — frosted white at rest, glass when pressed
+  // Knob — frosted white at rest, glass when pressed (no highlight)
   const knobEl = makeGlassShape(
     `${idPrefix}-knob`,
     { x: knobBaseX, y: knobY, w: SLIDER_KNOB_W, h: SLIDER_KNOB_H },
@@ -455,7 +455,7 @@ function makeLiquidSlider(
       blurRadius: 8 * DP,
       saturation: 1.0,
       surfaceColor: [0, 0, 0, 0],
-      highlight: { mode: 1, color: [1, 1, 1], angle: 45 * Math.PI / 180, falloff: 1.0, alpha: 1.0, widthDp: 0.5 / 1.5 },
+      highlight: null,
       outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: (4 / 6) * DP, color: [0, 0, 0] },
       innerShadow: { radius: 4 * DP, alpha: 0.15, offsetX: 0, offsetY: 4 * DP },
       chromaticAberration: true,
@@ -1546,7 +1546,7 @@ function buildSlider(
       blurRadius: 8 * DP, // frosted blur at rest (renderer modulates)
       saturation: 1.0, // NO saturation boost — slider effects block only has blur+lens
       surfaceColor: [0, 0, 0, 0],
-      highlight: { mode: 1, color: [1, 1, 1], angle: 45 * Math.PI / 180, falloff: 1.0, alpha: 1.0, widthDp: 0.5 / 1.5 },
+      highlight: null,
       outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: (4 / 6) * DP, color: [0, 0, 0] },
       innerShadow: { radius: 4 * DP, alpha: 0.15, offsetX: 0, offsetY: 4 * DP },
       chromaticAberration: true,
@@ -1617,7 +1617,7 @@ function buildSlider(
       blurRadius: 8 * DP,
       saturation: 1.0, // NO saturation boost — slider effects block only has blur+lens
       surfaceColor: [0, 0, 0, 0],
-      highlight: { mode: 1, color: [1, 1, 1], angle: 45 * Math.PI / 180, falloff: 1.0, alpha: 1.0, widthDp: 0.5 / 1.5 },
+      highlight: null,
       outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: (4 / 6) * DP, color: [0, 0, 0] },
       innerShadow: { radius: 4 * DP, alpha: 0.15, offsetX: 0, offsetY: 4 * DP },
       chromaticAberration: true,
@@ -2944,6 +2944,141 @@ function buildScrollContainer(W: number, onBack: () => void, count: number, pale
 }
 
 /* ------------------------------------------------------------------ *
+ * makeSettingsSlider — a dedicated stepped slider for the Settings
+ * page. Unlike makeLiquidSlider (continuous), this snaps to fixed
+ * step increments and the knob has NO highlight (faithful to the
+ * simpler settings knob the user requested).
+ *
+ * - full [0,1] slider range maps linearly to [minVal, maxVal]
+ * - value snaps to the nearest `step` increment
+ * - knob: glass shape with highlight: null (no rim/gradient highlight)
+ * - drag: continuous knob follow + snap-to-detent on release
+ *   (renderer's toggle spring animates the knob to the nearest step)
+ * ------------------------------------------------------------------ */
+function makeSettingsSlider(
+  trackX: number,
+  trackY: number,
+  trackW: number,
+  groupId: string,
+  minVal: number,
+  maxVal: number,
+  step: number,
+  currentVal: number,
+  trackColor: [number, number, number, number],
+  accentColor: [number, number, number],
+  rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> | null,
+  onValueChange: (val: number) => void
+): { elements: GlassElementConfig[]; interactions: Record<string, ElementInteraction> } {
+  const elements: GlassElementConfig[] = []
+  const interactions: Record<string, ElementInteraction> = {}
+
+  const range = Math.max(1e-6, maxVal - minVal)
+  const stepCount = Math.max(1, Math.round(range / step))
+  const valToFrac = (v: number) => Math.max(0, Math.min(1, (v - minVal) / range))
+  const snapFrac = (f: number) => Math.max(0, Math.min(1, Math.round(f * stepCount) / stepCount))
+  const fracToVal = (f: number) => minVal + f * range
+
+  const dragW = trackW - SLIDER_KNOB_W / 2
+  const knobBaseX = trackX - SLIDER_KNOB_W / 4
+  const knobY = trackY + (SLIDER_TRACK_H - SLIDER_KNOB_H) / 2
+  const initFrac = valToFrac(currentVal)
+
+  // Track — full-width plain rect with an expanded 48dp touch target.
+  const trackEl = makePlainRect(
+    `${groupId}-track`,
+    { x: trackX, y: trackY, w: trackW, h: SLIDER_TRACK_H },
+    trackColor,
+    SLIDER_TRACK_H / 2
+  )
+  trackEl.hitRect = { x: trackX, y: trackY + (SLIDER_TRACK_H - SLIDER_HIT_H) / 2, w: trackW, h: SLIDER_HIT_H }
+  trackEl.scroll = true
+  elements.push(trackEl)
+
+  // Fill — width driven by the renderer via isSliderFill.
+  const fillEl = makePlainRect(
+    `${groupId}-fill`,
+    { x: trackX, y: trackY, w: Math.max(SLIDER_TRACK_H, initFrac * trackW), h: SLIDER_TRACK_H },
+    [...accentColor, 1],
+    SLIDER_TRACK_H / 2
+  )
+  fillEl.isSliderFill = { groupId, trackX, trackW, knobW: SLIDER_KNOB_W, minW: 0 }
+  fillEl.scroll = true
+  elements.push(fillEl)
+
+  // Knob — glass shape with NO highlight (highlight: null disables both
+  // the element-pass gradient highlight and the press-modulated highlight).
+  const knobEl = makeGlassShape(
+    `${groupId}-knob`,
+    { x: knobBaseX + initFrac * dragW, y: knobY, w: SLIDER_KNOB_W, h: SLIDER_KNOB_H },
+    {
+      cornerRadius: SLIDER_KNOB_H / 2,
+      refractionHeight: 10 * DP,
+      refractionAmount: -14 * DP,
+      blurRadius: 8 * DP,
+      saturation: 1.0,
+      surfaceColor: [0, 0, 0, 0],
+      highlight: null,
+      outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: (4 / 6) * DP, color: [0, 0, 0] },
+      innerShadow: { radius: 4 * DP, alpha: 0.15, offsetX: 0, offsetY: 4 * DP },
+      chromaticAberration: true,
+    },
+    true
+  )
+  knobEl.isToggleKnob = { groupId, dragWidth: dragW, velocityDivisor: 10 }
+  knobEl.hitRect = {
+    x: knobBaseX + initFrac * dragW,
+    y: knobY + (SLIDER_KNOB_H - SLIDER_HIT_H) / 2,
+    w: SLIDER_KNOB_W,
+    h: SLIDER_HIT_H,
+  }
+  elements.push(knobEl)
+
+  // Absolute-position drag: the knob jumps to the finger and follows it
+  // directly (via setSliderDragPosition), so no start-fraction / start-x
+  // needs to be tracked. The value snaps to the nearest step on release.
+
+  const fracFromPos = (px: number) => Math.max(0, Math.min(1, (px - trackX) / dragW))
+
+  const trackInteract: ElementInteraction = {
+    onTap: (pos) => {
+      const snappedF = snapFrac(fracFromPos(pos.x))
+      // Animate knob to the detent immediately (don't wait for React round-trip).
+      rendererRef?.current?.setToggleTarget(groupId, snappedF)
+      onValueChange(fracToVal(snappedF))
+    },
+    onDragStart: (pos) => {
+      const r = rendererRef?.current
+      if (!r) return
+      draggingGroups.add(groupId)
+      r.beginToggleDrag(groupId, r.getToggleFraction(groupId))
+      // Absolute: knob jumps to finger immediately (no delta lag).
+      r.setSliderDragPosition(groupId, fracFromPos(pos.x))
+    },
+    onDrag: (pos) => {
+      const r = rendererRef?.current
+      if (!r) return
+      // Absolute: knob follows finger position directly. Value commits on release.
+      r.setSliderDragPosition(groupId, fracFromPos(pos.x))
+    },
+    onDragEnd: () => {
+      const r = rendererRef?.current
+      if (!r) return
+      const rawF = r.endSliderDrag(groupId)
+      draggingGroups.delete(groupId)
+      // Spring the knob to the nearest detent.
+      const snappedF = snapFrac(rawF)
+      r.setToggleTarget(groupId, snappedF)
+      onValueChange(fracToVal(snappedF))
+    },
+  }
+  interactions[`${groupId}-track`] = trackInteract
+  // Knob shares the same gesture handlers (drag starts on knob OR track).
+  interactions[`${groupId}-knob`] = trackInteract
+
+  return { elements, interactions }
+}
+
+/* ------------------------------------------------------------------ *
  * SETTINGS — DPR override slider + info.
  * ------------------------------------------------------------------ */
 function buildSettings(
@@ -2975,11 +3110,8 @@ function buildSettings(
     )
   )
 
-  // DPR slider — max is the device DPR (not 2x).
-  // All elements on this page use scroll=true so applyVerticalCenter
-  // shifts them together (mixing scroll true/false splits the cluster).
-  // The slider's full [0,1] range maps linearly to [minDpr, maxDpr] so the
-  // whole track is usable (no dead zone at the low end).
+  // DPR slider — dedicated stepped slider (step 0.25, no knob highlight).
+  // Max is the device DPR; full [0,1] range maps linearly to [minDpr, maxDpr].
   const deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
   const minDpr = 0.5
   const maxDpr = deviceDpr
@@ -2990,35 +3122,23 @@ function buildSettings(
   const trackX = pad
   const trackW = W - 2 * pad
   const trackY = sliderY + (24 - 6) / 2
-  const dprFraction = Math.max(0, Math.min(1, (currentDpr - minDpr) / dprRange))
 
-  const dprSlider = makeLiquidSlider(
-    'settings-dpr',
+  const dprSlider = makeSettingsSlider(
     trackX,
     trackY,
     trackW,
     'settings-dpr',
+    minDpr,
+    maxDpr,
+    0.25, // step
+    currentDpr,
     palette.sliderTrackOff,
     palette.sliderAccent,
     rendererRef,
-    (f) => {
-      setState({ customDpr: minDpr + f * dprRange })
-    },
-    true,
-    true
+    (val) => {
+      setState({ customDpr: val })
+    }
   )
-  // Override knob/fill initial position
-  const dragW = trackW - SLIDER_KNOB_W / 2
-  const knobBaseX = trackX - SLIDER_KNOB_W / 4
-  const knobEl = dprSlider.elements.find(e => e.id === 'settings-dpr-knob')
-  if (knobEl) {
-    knobEl.rect = { ...knobEl.rect, x: knobBaseX + dprFraction * dragW }
-    knobEl.hitRect = { x: knobBaseX + dprFraction * dragW, y: sliderY, w: SLIDER_KNOB_W, h: 48 * DP }
-  }
-  const fillEl = dprSlider.elements.find(e => e.id === 'settings-dpr-fill')
-  if (fillEl) {
-    fillEl.rect = { ...fillEl.rect, w: Math.max(6, dprFraction * trackW) }
-  }
   elements.push(...dprSlider.elements)
   Object.assign(interactions, dprSlider.interactions)
 
