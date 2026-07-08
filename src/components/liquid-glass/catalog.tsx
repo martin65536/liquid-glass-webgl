@@ -44,6 +44,8 @@ const magDragStart: { x: number; y: number } = { x: 0, y: 0 }
 export const draggingGroups = new Set<string>()
 // Per-group drag state (survives re-renders during liveUpdate)
 const dragStates = new Map<string, { fraction: number; x: number }>()
+// GlassPlayground drag-start offset (survives re-renders)
+const gpDragStart = { x: 0, y: 0, ox: 0, oy: 0 }
 // Control-center snap animation handle (cancel previous if a new one starts)
 let ccAnimHandle: number | null = null
 /** Animate controlCenterEnter to `target` (0 or 1) via a simple lerp spring. */
@@ -344,6 +346,11 @@ export interface CatalogState {
   controlCenterEnter: number
   // GlassPlayground sheet expanded
   gpSheetExpanded: boolean
+  // GlassPlayground glass transform
+  gpOffsetX: number
+  gpOffsetY: number
+  gpZoom: number
+  gpRotation: number
 }
 
 export const DEFAULT_CATALOG_STATE: CatalogState = {
@@ -363,6 +370,10 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   controlCenterActive: 0,
   controlCenterEnter: 1,
   gpSheetExpanded: true,
+  gpOffsetX: 0,
+  gpOffsetY: 0,
+  gpZoom: 1,
+  gpRotation: 0,
 }
 
 /* ------------------------------------------------------------------ *
@@ -2534,30 +2545,51 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
   // dark theme (Material3 default). We mirror that here.
   const labelColor = palette.backIconColor
 
-  // Glass square (256dp, corner radius from slider)
+  // Glass square (256dp, corner radius from slider) — draggable + transformable
   const squareSize = 256 * DP
-  const squareX = (W - squareSize) / 2
-  const squareY = 0 // applyVerticalCenter shifts this if content fits
+  const squareX = (W - squareSize) / 2 + state.gpOffsetX
+  const squareY = 0 + state.gpOffsetY
   const cornerRadius = (squareSize / 2) * state.cornerRadiusFrac
   const minDim = squareSize
-  elements.push(
-    makeGlassShape(
-      'gp-square',
-      { x: squareX, y: squareY, w: squareSize, h: squareSize },
-      {
-        cornerRadius,
-        refractionHeight: state.refractionHeightFrac * minDim * 0.5,
-        refractionAmount: -state.refractionAmountFrac * minDim,
-        blurRadius: state.blurRadiusDp * DP,
-        saturation: 1.5,
-        surfaceColor: [0, 0, 0, 0],
-        highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, alpha: 0.38 },
-        outerShadow: null,
-        depthEffect: true,
-        chromaticAberration: state.chromaticAberration > 0,
-      }
-    )
+  const gpSquare = makeGlassShape(
+    'gp-square',
+    { x: squareX, y: squareY, w: squareSize, h: squareSize },
+    {
+      cornerRadius,
+      refractionHeight: state.refractionHeightFrac * minDim * 0.5,
+      refractionAmount: -state.refractionAmountFrac * minDim,
+      blurRadius: state.blurRadiusDp * DP,
+      saturation: 1.5,
+      surfaceColor: [0, 0, 0, 0],
+      highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, alpha: 0.38 },
+      outerShadow: null,
+      depthEffect: true,
+      chromaticAberration: state.chromaticAberration > 0,
+    }
   )
+  gpSquare.isInteractive = true
+  gpSquare.scroll = false
+  // Store zoom/rotation for the renderer to apply as layerBlock
+  // (the renderer doesn't have a generic layerBlock, so we approximate
+  // by scaling the element rect — but that changes the SDF. For now,
+  // just support drag pan; zoom/rotation need renderer changes.)
+  elements.push(gpSquare)
+  // Drag interaction — pan the glass square (module-level state)
+  interactions['gp-square'] = {
+    onDragStart: (pos) => {
+      gpDragStart.x = pos.x
+      gpDragStart.y = pos.y
+      gpDragStart.ox = state.gpOffsetX
+      gpDragStart.oy = state.gpOffsetY
+    },
+    onDrag: (pos) => {
+      setState({
+        gpOffsetX: gpDragStart.ox + (pos.x - gpDragStart.x),
+        gpOffsetY: gpDragStart.oy + (pos.y - gpDragStart.y),
+      })
+    },
+    onDragEnd: () => {},
+  }
 
   // Control sheet (bottom, glass card with sliders) — only when expanded
   const ORANGE = [0xff / 255, 0x8d / 255, 0x28 / 255, 1] as [number, number, number, number]
@@ -2684,6 +2716,10 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
       refractionHeightFrac: 0.2,
       refractionAmountFrac: 0.2,
       chromaticAberration: 0,
+      gpOffsetX: 0,
+      gpOffsetY: 0,
+      gpZoom: 1,
+      gpRotation: 0,
     }),
   }
 
