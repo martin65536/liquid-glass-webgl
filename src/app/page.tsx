@@ -190,7 +190,7 @@ export default function Page() {
         className="relative overflow-hidden shadow-2xl lg-frame"
         style={{
           width: 'min(420px, 100vw)',
-          height: 'min(900px, 100vh)',
+          height: 'min(900px, 100dvh)',
         }}
       >
         <LiquidGlassCanvas
