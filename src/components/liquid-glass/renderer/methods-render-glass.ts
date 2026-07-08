@@ -130,7 +130,8 @@ export const glassRenderMethods = {
       const hwCap = Math.min(height / width, 1)
       scaleX = scale + maxDragScale * Math.abs(Math.cos(offsetAngle) * dx / maxDim) * whCap
       scaleY = scale + maxDragScale * Math.abs(Math.sin(offsetAngle) * dy / maxDim) * hwCap
-    } else {
+    } else if (el.enterProgress == null) {
+      // Only override scaleX/Y if enterProgress didn't set them.
       scaleX = scale
       scaleY = scale
     }
