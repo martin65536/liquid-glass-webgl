@@ -138,45 +138,24 @@ uniform float uTintIntensity;   // 0..1
 
 ${COVER_GLSL}
 
-// 25-tap Gaussian Vogel-disk blur (σ = radius, 3σ range, Skia-faithful).
-// Samples distributed on a Vogel spiral (golden-angle) covering the full 3σ
-// disc with true Gaussian weights exp(-r²/2σ²), normalized to sum=1.0.
-// Matches Skia's BlurEffect(radius) (3-pass separable box → Gaussian).
-//   - 1 center (r=0), weight 0.172560
-//   - 24 spiral taps, weights 0.143057 .. 0.001917
+// 9-tap poisson disc — offsets are inlined because GLSL ES 1.00 (WebGL 1)
+// does not support array constructors or const-array initializers.
+// The offsets are normalized (unit disc), multiplied by step (radius in UV).
 vec4 sampleBackdrop(vec2 canvasPx, float radius) {
     vec2 uvScale = canvasPxToUvScale();
     vec2 uv = coverUv(canvasPx);
     vec2 st = radius * uvScale;
     vec4 sum = vec4(0.0);
-    // Center (r=0)
-    sum += texture2D(uBackdrop, uv) * 0.172560;
-    // Vogel spiral taps (σ=radius, 3σ range)
-    sum += texture2D(uBackdrop, uv + vec2(-0.4515,  0.4137) * st) * 0.143057;
-    sum += texture2D(uBackdrop, uv + vec2( 0.0757, -0.8627) * st) * 0.118599;
-    sum += texture2D(uBackdrop, uv + vec2( 0.6453,  0.8417) * st) * 0.098322;
-    sum += texture2D(uBackdrop, uv + vec2(-1.2060, -0.2133) * st) * 0.081512;
-    sum += texture2D(uBackdrop, uv + vec2( 1.1554, -0.7349) * st) * 0.067576;
-    sum += texture2D(uBackdrop, uv + vec2(-0.3894,  1.4486) * st) * 0.056022;
-    sum += texture2D(uBackdrop, uv + vec2(-0.7468, -1.4378) * st) * 0.046444;
-    sum += texture2D(uBackdrop, uv + vec2( 1.6270,  0.5942) * st) * 0.038503;
-    sum += texture2D(uBackdrop, uv + vec2(-1.6981,  0.7010) * st) * 0.031920;
-    sum += texture2D(uBackdrop, uv + vec2( 0.8208, -1.7539) * st) * 0.026463;
-    sum += texture2D(uBackdrop, uv + vec2( 0.6078,  1.9379) * st) * 0.021939;
-    sum += texture2D(uBackdrop, uv + vec2(-1.8354, -1.0636) * st) * 0.018188;
-    sum += texture2D(uBackdrop, uv + vec2( 2.1564, -0.4741) * st) * 0.015078;
-    sum += texture2D(uBackdrop, uv + vec2(-1.3178,  1.8744) * st) * 0.012500;
-    sum += texture2D(uBackdrop, uv + vec2(-0.3048, -2.3520) * st) * 0.010363;
-    sum += texture2D(uBackdrop, uv + vec2( 1.8730,  1.5786) * st) * 0.008591;
-    sum += texture2D(uBackdrop, uv + vec2(-2.5227,  0.1043) * st) * 0.007122;
-    sum += texture2D(uBackdrop, uv + vec2( 1.8416, -1.8326) * st) * 0.005905;
-    sum += texture2D(uBackdrop, uv + vec2(-0.1233,  2.6664) * st) * 0.004895;
-    sum += texture2D(uBackdrop, uv + vec2(-1.7547, -2.1027) * st) * 0.004058;
-    sum += texture2D(uBackdrop, uv + vec2( 2.7812,  0.3742) * st) * 0.003364;
-    sum += texture2D(uBackdrop, uv + vec2(-2.3577,  1.6405) * st) * 0.002789;
-    sum += texture2D(uBackdrop, uv + vec2( 0.6446, -2.8652) * st) * 0.002312;
-    sum += texture2D(uBackdrop, uv + vec2( 1.4915,  2.6029) * st) * 0.001917;
-    return sum;
+    sum += texture2D(uBackdrop, uv + vec2( 0.0000,  0.0000) * st);
+    sum += texture2D(uBackdrop, uv + vec2( 0.5000,  0.0000) * st);
+    sum += texture2D(uBackdrop, uv + vec2(-0.5000,  0.0000) * st);
+    sum += texture2D(uBackdrop, uv + vec2( 0.0000,  0.5000) * st);
+    sum += texture2D(uBackdrop, uv + vec2( 0.0000, -0.5000) * st);
+    sum += texture2D(uBackdrop, uv + vec2( 0.3536,  0.3536) * st);
+    sum += texture2D(uBackdrop, uv + vec2(-0.3536,  0.3536) * st);
+    sum += texture2D(uBackdrop, uv + vec2( 0.3536, -0.3536) * st);
+    sum += texture2D(uBackdrop, uv + vec2(-0.3536, -0.3536) * st);
+    return sum / 9.0;
 }
 
 void main() {

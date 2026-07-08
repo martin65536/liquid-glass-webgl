@@ -302,21 +302,6 @@ export const glassRenderMethods = {
     this.bindFBO(otherFbo)
     this.drawCopy(curTex)
 
-    // --- Step 1b: Pre-blur the scene FBO (curTex) with a 2-pass separable
-    // Gaussian (Skia-exact). Done here — after the scene copy but before the
-    // shadow/element passes — so state restoration is minimal: just re-bind
-    // otherFbo + re-enable blend. Toggle knobs / tab indicators / containers
-    // sample wallpaper (not scene), so they skip the blur.
-    let blurredSceneTex: WebGLTexture | null = null
-    const blurRadiusDev = el.blurRadius * Math.min(scaleX, scaleY) * this.dpr
-    if (blurRadiusDev >= 0.5 && !(el.isToggleKnob || el.isBottomTabIndicator || el.isBottomTabContainer)) {
-      blurredSceneTex = this.blurSceneFbo(curTex, blurRadiusDev)
-      // blurSceneFbo changed FBO/program/blend — restore otherFbo + blend.
-      this.bindFBO(otherFbo)
-      gl.enable(gl.BLEND)
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-    }
-
     // Re-enable blending after the copy (drawCopy disables it).
     gl.enable(gl.BLEND)
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
@@ -349,7 +334,7 @@ export const glassRenderMethods = {
     // SAMPLES curTex — the scene built up so far. This is the critical
     // fix: the glass now refracts the ACTUAL colors behind it (track
     // color, card background, other glass elements), not just the wallpaper.
-    this.renderGlassElementPass(state, curTex, otherFbo, blurredSceneTex)
+    this.renderGlassElementPass(state, curTex)
 
     // --- Steps 2c–2f: Press glow, white overlay, foreground, rim highlight ---
     this.renderGlassPostPasses(state)

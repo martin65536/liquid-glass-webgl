@@ -36,10 +36,3 @@ export {
   PLAIN_RECT_FRAGMENT_SHADER,
   PROGRESSIVE_BLUR_FRAGMENT_SHADER,
 } from './scene-fg'
-export {
-  BLUR_SEPARABLE_FRAGMENT_SHADER,
-  BLUR_SEPARABLE_VERTEX_SHADER,
-  BLUR_MAX_RADIUS,
-  computeGaussianKernel,
-  padKernelToShaderArray,
-} from './blur-separable'
