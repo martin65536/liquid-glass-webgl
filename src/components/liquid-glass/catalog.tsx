@@ -2047,28 +2047,22 @@ function buildControlCenter(W: number, H: number, onBack: () => void, state: Cat
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
-  const back = makeBackButton(onBack, palette)
-  elements.push(back.element)
-  interactions[back.element.id] = back.interaction
-
-  // Faithful to ControlCenterContent.kt:
-  //   accentColor = if (isLightTheme) Color(0xFF0088FF) else Color(0xFF0091FF)
-  //   containerColor = Color.Black.copy(0.05f)  (same in both themes)
-  //   inactiveItemColor = Color.White.copy(0.2f)  (same in both themes)
-  //   iconColorFilter = ColorFilter.tint(Color.White)  (same in both themes)
+  // Background dim overlay — pushed FIRST so it's behind everything in
+  // hit-test order (back button and tiles get priority). Faithful to
+  // ControlCenterContent.kt's backdrop: drawRect(dimColor * progress).
   const ACCENT_T = palette.controlCenterAccent
   const itemSpacing = 16 * DP
   const itemSize = 68 * DP
   const twoSpan = itemSize * 2 + itemSpacing
   const iconColor: [number, number, number, number] = [1, 1, 1, 1]
-
-  // Background dim overlay — faithful to ControlCenterContent.kt's backdrop:
-  //   drawRect(dimColor * progress) where dimColor = Black(0.4).
-  // Fades in as the control center expands (enterProgress → 1).
   const dimAlpha = state.controlCenterEnter * 0.4
   const dimEl = makePlainRect('cc-dim', { x: 0, y: 0, w: W, h: Math.max(H, 800) }, [0, 0, 0, dimAlpha], 0)
-  dimEl.scroll = false // fixed full-screen, not affected by scroll
+  dimEl.scroll = false
   elements.push(dimEl)
+
+  const back = makeBackButton(onBack, palette)
+  elements.push(back.element)
+  interactions[back.element.id] = back.interaction
 
   const startY = 0 // applyVerticalCenter shifts this
   // Row 1: [2-span with 3 inner items] [2-span empty]
