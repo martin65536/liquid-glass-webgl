@@ -846,8 +846,10 @@ function applyVerticalCenter(
   const yOffset = Math.max(0, (H - contentSize) / 2 - contentTop)
   if (yOffset <= 0) return contentHeight
   for (const el of elements) {
-    // Back button and theme button stay at top corners (not shifted).
+    // Back button, theme button, and full-screen overlays (scroll=false) stay
+    // at their fixed positions (not shifted by vertical centering).
     if (el.id === '__back__' || el.id === '__theme__') continue
+    if (el.scroll === false && el.id !== '__pickimage__') continue
     el.rect = { ...el.rect, y: el.rect.y + yOffset }
     // Shift hitRect too (if set) so expanded touch targets follow the element.
     if (el.hitRect) {
