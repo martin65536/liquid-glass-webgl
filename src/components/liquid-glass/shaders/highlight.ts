@@ -240,9 +240,9 @@ void main() {
         vec2 normal = vec2(cos(uHighlightAngle), sin(uHighlightAngle));
         float d = dot(grad, normal);
         float intensity = pow(abs(d), uHighlightFalloff);
-        float t = step(0.0, d);
+        // No step(0,d) — use full intensity on both sides (no black edge).
         float i = intensity * strokeMask * uHighlightAlpha;
-        gl_FragColor = vec4(vec3(t) * i, i);
+        gl_FragColor = vec4(uHighlightColor.rgb * i, i);
     } else {
         // Plain — even stroke, paint.color, Plus blend.
         vec3 c = uHighlightColor.rgb * strokeMask * uHighlightAlpha;
