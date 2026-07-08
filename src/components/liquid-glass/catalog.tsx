@@ -42,6 +42,8 @@ const magDragStart: { x: number; y: number } = { x: 0, y: 0 }
 // Track which toggle groups are being dragged — setToggleTarget is skipped
 // for these (in context.tsx) to avoid drift during liveUpdate.
 export const draggingGroups = new Set<string>()
+// Per-group drag state (survives re-renders during liveUpdate)
+const dragStates = new Map<string, { fraction: number; x: number }>()
 // Control-center snap animation handle (cancel previous if a new one starts)
 let ccAnimHandle: number | null = null
 /** Animate controlCenterEnter to `target` (0 or 1) via a simple lerp spring. */
@@ -444,8 +446,10 @@ function makeLiquidSlider(
   elements.push(knobEl)
 
   // Interactions — same as Slider page: relative drag via renderer
-  let dragStartFraction = 0
-  let dragStartX = 0
+  // Use module-level Map so dragStart values survive re-renders
+  // (liveUpdate causes setState → re-render → closure vars reset).
+  if (!dragStates.has(groupId)) dragStates.set(groupId, { fraction: 0, x: 0 })
+  const ds = dragStates.get(groupId)!
   const trackInteract: ElementInteraction = {
     onTap: (pos) => {
       onValueChange(Math.max(0, Math.min(1, (pos.x - trackX) / dragW)))
@@ -454,14 +458,14 @@ function makeLiquidSlider(
       const r = rendererRef?.current
       if (!r) return
       draggingGroups.add(groupId)
-      dragStartFraction = r.getToggleFraction(groupId)
-      dragStartX = pos.x
-      r.beginToggleDrag(groupId, dragStartFraction)
+      ds.fraction = r.getToggleFraction(groupId)
+      ds.x = pos.x
+      r.beginToggleDrag(groupId, ds.fraction)
     },
     onDrag: (pos) => {
       const r = rendererRef?.current
       if (!r) return
-      r.dragToggle(groupId, dragStartFraction, pos.x, dragStartX, dragW)
+      r.dragToggle(groupId, ds.fraction, pos.x, ds.x, dragW)
       if (liveUpdate) {
         const f = r.getToggleFraction(groupId)
         onValueChange(f)
@@ -480,14 +484,14 @@ function makeLiquidSlider(
       const r = rendererRef?.current
       if (!r) return
       draggingGroups.add(groupId)
-      dragStartFraction = r.getToggleFraction(groupId)
-      dragStartX = pos.x
-      r.beginToggleDrag(groupId, dragStartFraction)
+      ds.fraction = r.getToggleFraction(groupId)
+      ds.x = pos.x
+      r.beginToggleDrag(groupId, ds.fraction)
     },
     onDrag: (pos) => {
       const r = rendererRef?.current
       if (!r) return
-      r.dragToggle(groupId, dragStartFraction, pos.x, dragStartX, dragW)
+      r.dragToggle(groupId, ds.fraction, pos.x, ds.x, dragW)
       if (liveUpdate) {
         const f = r.getToggleFraction(groupId)
         onValueChange(f)
