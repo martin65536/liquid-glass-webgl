@@ -100,13 +100,27 @@ export default function Page() {
 
   React.useEffect(() => {
     const update = () => {
+      // Use window.innerHeight for the frame height — it accounts for the
+      // mobile browser's address bar / bottom bar (100vh does not).
+      const maxH = typeof window !== 'undefined' ? window.innerHeight : 900
+      const h = Math.min(900, maxH)
+      if (frameRef.current) {
+        frameRef.current.style.height = h + 'px'
+      }
       const r = frameRef.current?.getBoundingClientRect()
       if (r) setFrameSize({ w: r.width, h: r.height })
     }
     update()
     const ro = new ResizeObserver(update)
     if (frameRef.current) ro.observe(frameRef.current)
-    return () => ro.disconnect()
+    // Also update on resize / orientation change (mobile address bar show/hide)
+    window.addEventListener('resize', update)
+    window.addEventListener('orientationchange', update)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', update)
+      window.removeEventListener('orientationchange', update)
+    }
   }, [])
 
   const W = frameSize.w
@@ -190,7 +204,7 @@ export default function Page() {
         className="relative overflow-hidden shadow-2xl lg-frame"
         style={{
           width: 'min(420px, 100vw)',
-          height: 'min(900px, 100dvh)',
+          height: 'min(900px, 100vh)',
         }}
       >
         <LiquidGlassCanvas
