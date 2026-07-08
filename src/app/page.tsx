@@ -107,6 +107,11 @@ export default function Page() {
       if (frameRef.current) {
         frameRef.current.style.height = h + 'px'
       }
+      // Also set the outer div height to match (avoid body overflow)
+      const outer = frameRef.current?.parentElement
+      if (outer) {
+        outer.style.height = h + 'px'
+      }
       const r = frameRef.current?.getBoundingClientRect()
       if (r) setFrameSize({ w: r.width, h: r.height })
     }
@@ -192,11 +197,14 @@ export default function Page() {
 
   return (
     <div
-      className="min-h-screen w-full flex items-center justify-center"
+      className="w-full flex items-center justify-center"
       style={{
         // Outer page background follows the Android windowBackground
         // (white in light theme, black in dark theme) — themes.xml.
         background: isLightTheme ? '#FFFFFF' : '#000000',
+        minHeight: '100vh',
+        height: typeof window !== 'undefined' ? window.innerHeight + 'px' : '100vh',
+        overflow: 'hidden',
       }}
     >
       <div
