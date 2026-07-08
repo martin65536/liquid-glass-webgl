@@ -975,7 +975,7 @@ function buildHome(W: number, onNavigate: (d: CatalogDestination) => void, palet
         fontSizePx: TITLE_FONT_SIZE_PX,
         fontWeight: 500,
         align: 'left',
-        paddingPx: 16,
+        paddingPx: 0,
         halo: palette.homeTextHalo,
       }
     )
@@ -1002,7 +1002,7 @@ function buildHome(W: number, onNavigate: (d: CatalogDestination) => void, palet
           fontSizePx: SUBTITLE_FONT_SIZE_PX,
           fontWeight: 500,
           align: 'left',
-          paddingPx: 16,
+          paddingPx: 0,
           halo: palette.homeTextHalo,
         }
       )
