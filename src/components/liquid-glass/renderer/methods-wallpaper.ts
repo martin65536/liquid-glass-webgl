@@ -75,7 +75,11 @@ export const wallpaperMethods = {
    *  software shader pipeline cannot.
    */
   resize(this: LiquidGlassRenderer, cssW: number, cssH: number) {
-    this.dpr = Math.min(window.devicePixelRatio || 1, 1.5)
+    // Don't override dpr if it was set externally (e.g. Settings page).
+    // Only set the default cap on first call.
+    if (this.dpr <= 0) {
+      this.dpr = Math.min(window.devicePixelRatio || 1, 1.5)
+    }
     const w = Math.round(cssW * this.dpr)
     const h = Math.round(cssH * this.dpr)
     if (this.canvas.width !== w || this.canvas.height !== h) {

@@ -62,7 +62,7 @@ export class LiquidGlassRenderer {
   wallpaperReady = false
   wallpaperSize: [number, number] = [1, 1]
   canvas: HTMLCanvasElement
-  dpr = 1
+  dpr = 0 // 0 = not yet set; resize() sets default cap on first call
   buttonConfigs: GlassElementConfig[] = []
   buttonStates = new Map<string, ElementState>()
   /** Toggle group state — keyed by groupId. Faithful port of DampedDragAnimation.kt. */
