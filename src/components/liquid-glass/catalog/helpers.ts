@@ -173,7 +173,11 @@ export function makeLiquidSlider(
   const dragW = trackW - SLIDER_KNOB_W / 2
   const knobBaseX = trackX - SLIDER_KNOB_W / 4
   const knobY = trackY + (SLIDER_TRACK_H - SLIDER_KNOB_H) / 2
-  const knobX = knobBaseX + initFraction * dragW
+  // Knob rect.x is ALWAYS at fraction=0 (knobBaseX). The renderer's
+  // isToggleKnob.dragWidth drives the x offset via spring animation.
+  // Setting rect.x to initFraction would cause 2x displacement
+  // (rect.x + spring offset = initFraction*dragW + fraction*dragW).
+  const knobX = knobBaseX
 
   // Track
   const trackEl = makePlainRect(`${idPrefix}-track`, { x: trackX, y: trackY, w: trackW, h: SLIDER_TRACK_H }, trackColor, SLIDER_TRACK_H / 2)
