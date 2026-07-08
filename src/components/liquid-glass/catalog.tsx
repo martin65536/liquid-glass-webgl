@@ -2596,7 +2596,7 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
           refractionAmount: -32 * DP,
           blurRadius: 4 * DP,
           saturation: 1.5,
-          surfaceColor: [1, 1, 1, 0.5],
+          surfaceColor: palette.tabsContainer,
           highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, alpha: 0.38 },
           outerShadow: null,
         }
