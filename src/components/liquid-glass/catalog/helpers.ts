@@ -591,7 +591,7 @@ export function makeSettingsSlider(
   const knobY = trackY + (SLIDER_TRACK_H - SLIDER_KNOB_H) / 2
   const initFrac = valToFrac(currentVal)
 
-  // Track — full-width plain rect with an expanded 48dp touch target.
+  // Track — full-width plain rect with expanded 48dp touch target.
   const trackEl = makePlainRect(
     `${groupId}-track`,
     { x: trackX, y: trackY, w: trackW, h: SLIDER_TRACK_H },
@@ -613,7 +613,7 @@ export function makeSettingsSlider(
   fillEl.scroll = true
   elements.push(fillEl)
 
-  // Knob — glass shape with NO highlight.
+  // Knob — glass shape with NO highlight (faithful to settings knob).
   const knobEl = makeGlassShape(
     `${groupId}-knob`,
     { x: knobBaseX + initFrac * dragW, y: knobY, w: SLIDER_KNOB_W, h: SLIDER_KNOB_H },
@@ -644,9 +644,12 @@ export function makeSettingsSlider(
   if (!dragStates.has(groupId)) dragStates.set(groupId, { fraction: 0, x: 0 })
   const ds = dragStates.get(groupId)!
 
+  // Fraction from a screen-x position (for tap-jump).
   const fracFromPos = (px: number) => Math.max(0, Math.min(1, (px - trackX) / dragW))
 
-  const trackInteract: ElementInteraction = {
+  // Shared interaction for track + knob (same as makeLiquidSlider pattern).
+  const interact: ElementInteraction = {
+    // Tap → snap to nearest step at the tapped position.
     onTap: (pos) => {
       const snappedF = snapFrac(fracFromPos(pos.x))
       rendererRef?.current?.setToggleTarget(groupId, snappedF)
@@ -656,6 +659,7 @@ export function makeSettingsSlider(
       const r = rendererRef?.current
       if (!r) return
       draggingGroups.add(groupId)
+      // Relative drag: start from the knob's CURRENT visual fraction.
       ds.fraction = r.getToggleFraction(groupId)
       ds.x = pos.x
       r.beginToggleDrag(groupId, ds.fraction)
@@ -663,22 +667,26 @@ export function makeSettingsSlider(
     onDrag: (pos) => {
       const r = rendererRef?.current
       if (!r) return
+      // Relative: knob follows finger delta with spring lag.
       r.dragToggle(groupId, ds.fraction, pos.x, ds.x, dragW)
+      // Live update: push the current fraction to React state so the
+      // label + DPR apply in real-time.
+      const f = r.getToggleFraction(groupId)
+      onValueChange(fracToVal(f))
     },
     onDragEnd: () => {
       const r = rendererRef?.current
       if (!r) return
       const rawF = r.endSliderDrag(groupId)
       draggingGroups.delete(groupId)
-      // Snap to nearest step.
+      // Snap to nearest step (faithful to the stepped slider behavior).
       const snappedF = snapFrac(rawF)
       r.setToggleTarget(groupId, snappedF)
       onValueChange(fracToVal(snappedF))
     },
   }
-  interactions[`${groupId}-track`] = trackInteract
-  // Knob shares the same gesture handlers.
-  interactions[`${groupId}-knob`] = trackInteract
+  interactions[`${groupId}-track`] = interact
+  interactions[`${groupId}-knob`] = interact
 
   return { elements, interactions }
 }
