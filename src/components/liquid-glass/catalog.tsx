@@ -2087,7 +2087,9 @@ function buildDialog(W: number, H: number, onBack: () => void, palette: ThemePal
     )
   )
 
-  return { elements, interactions, contentHeight: scrimY + scrimH + 40 }
+  // Dialog page is NOT scrollable — all elements fixed.
+  for (const el of elements) el.scroll = false
+  return { elements, interactions, contentHeight: H }
 }
 
 /* ------------------------------------------------------------------ *
