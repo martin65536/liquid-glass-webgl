@@ -367,10 +367,15 @@ export function LiquidGlassCanvas({
       // immediately. If the gesture later becomes a scroll, we'll cancel.
       // Also support 'text' kind with isInteractive — used by the home page
       // list items, which get a subtle white tint on press.
-      // Also support 'glass-shape' with isInteractive + onTap (e.g. dialog
-      // Cancel/Okay buttons) — they get the InteractiveHighlight press glow.
-      if (hit && hit.isInteractive && (hit.kind === 'button' || hit.kind === 'text' || (hit.kind === 'glass-shape' && !!interactions?.[hit.id]?.onTap))) {
-        renderer.setPressed(hit.id, true, { x, y })
+      // Also support 'glass-shape' with isInteractive + onTap + NO onDrag
+      // (e.g. dialog Cancel/Okay buttons) — they get the InteractiveHighlight
+      // press glow. Elements WITH onDrag (toggle/slider knobs, CC tiles) are
+      // NOT included here — they don't use the button press highlight.
+      if (hit && hit.isInteractive) {
+        const hasDrag0 = !!interactions?.[hit.id]?.onDrag
+        if (hit.kind === 'button' || hit.kind === 'text' || (hit.kind === 'glass-shape' && !hasDrag0 && !!interactions?.[hit.id]?.onTap)) {
+          renderer.setPressed(hit.id, true, { x, y })
+        }
       }
 
       try {
@@ -469,10 +474,12 @@ export function LiquidGlassCanvas({
         const els = elementsRef.current
         const hitEl = id ? els.find((b) => b.id === id) : null
         const isButton = hitEl?.kind === 'button' && hitEl?.isInteractive
-        // glass-shape with onTap + isInteractive = button-like (e.g. dialog
-        // Cancel/Okay). Treat like a button: keep press, no scroll-takeover.
-        const isShapeButton = hitEl?.kind === 'glass-shape' && hitEl?.isInteractive && !!interactionsRef.current?.[id!]?.onTap
         const hasDrag = !!hitEl && !!interactionsRef.current?.[id!]?.onDrag
+        // glass-shape with onTap + isInteractive + NO onDrag = button-like
+        // (e.g. dialog Cancel/Okay). Treat like a button: keep press, no
+        // scroll-takeover. Elements WITH onDrag (toggle knobs, slider knobs,
+        // CC tiles, lock-screen glass) are handled by the hasDrag branch.
+        const isShapeButton = !hasDrag && hitEl?.kind === 'glass-shape' && hitEl?.isInteractive && !!interactionsRef.current?.[id!]?.onTap
 
         if (hasDrag) {
           // Element owns the gesture — commit to drag immediately.
@@ -583,8 +590,11 @@ export function LiquidGlassCanvas({
         if (id) {
           const els = elementsRef.current
           const el = els.find((b) => b.id === id)
-          if (el?.isInteractive && (el.kind === 'button' || el.kind === 'text' || (el.kind === 'glass-shape' && !!interactionsRef.current?.[id]?.onTap))) {
-            renderer.setPressed(id, false)
+          if (el?.isInteractive) {
+            const hasDrag1 = !!interactionsRef.current?.[id]?.onDrag
+            if (el.kind === 'button' || el.kind === 'text' || (el.kind === 'glass-shape' && !hasDrag1 && !!interactionsRef.current?.[id]?.onTap)) {
+              renderer.setPressed(id, false)
+            }
           }
         }
 
