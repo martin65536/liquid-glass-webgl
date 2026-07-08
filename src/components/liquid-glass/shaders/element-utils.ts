@@ -95,8 +95,26 @@ vec4 gaussianBlur(sampler2D tex, vec2 uv, vec2 pxToUv, float radiusPx) {
     return sum;
 }
 
-// Sample the scene backdrop (uBackdrop) with Gaussian blur.
+// Sample the WALLPAPER (uWallpaperSampler via coverUv) with Gaussian blur.
+//
+// The original Android source's root backdrop is a LayerBackdrop attached to
+// the wallpaper Image ONLY (BackdropDemoScaffold.kt) — sibling Composables
+// (back button, other glass elements, text) are NOT captured into the
+// backdrop. So every glass element that uses the root backdrop sees only
+// the wallpaper behind it, blurred.
+//
+// Previously this sampled uBackdrop (the scene FBO = wallpaper + ALL
+// previously-drawn elements), which caused glass elements to show OTHER
+// glass/text blurred through them — a visible difference from the original.
 vec4 sampleBackdrop(vec2 canvasPx, float radius) {
+    vec2 uv = coverUv(canvasPx);
+    return gaussianBlur(uWallpaperSampler, uv, canvasPxToUvScale(), radius);
+}
+
+// Sample the SCENE FBO (uBackdrop = wallpaper + sibling elements) with blur.
+// Used ONLY by the magnifier, whose CombinedBackdrop includes sibling content
+// (MagnifierContent.kt: rememberCombinedBackdrop(backdrop, contentBackdrop, cursorBackdrop)).
+vec4 sampleSceneBackdrop(vec2 canvasPx, float radius) {
     vec2 uv = sceneUv(canvasPx);
     return gaussianBlur(uBackdrop, uv, 1.0 / uCanvasSize, radius);
 }
@@ -262,11 +280,13 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
 
 // Magnifier backdrop sampling — zoom + offset toward cursor.
 // Faithful to MagnifierContent.kt: scale(1.5) + translate(-80dp).
+// Uses the SCENE FBO (not wallpaper) because the magnifier's CombinedBackdrop
+// includes sibling content (the text card + cursor) that must be magnified.
 vec4 sampleMagnifier(vec2 canvasPx, float radius) {
     vec2 magCenter = uElementOffset + uElementSize * 0.5;
     vec2 zoomedCoord = magCenter + (canvasPx - magCenter) / uMagnifierZoom;
     vec2 cursorCoord = vec2(zoomedCoord.x, zoomedCoord.y + uMagnifierOffsetY);
-    return sampleBackdrop(cursorCoord, radius);
+    return sampleSceneBackdrop(cursorCoord, radius);
 }
 
 // colorControls — exact port of ColorFilter.kt colorControlsColorFilter.

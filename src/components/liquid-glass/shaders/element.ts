@@ -77,19 +77,16 @@ void main() {
         float sdfMask = sdfData.y;
         vec2 normal = sdfData.zw;
 
-        // Sample the WALLPAPER directly (not the scene FBO) — faithful to
-        // LockScreenContent.kt's drawPlainBackdrop which uses the LayerBackdrop
-        // (raw wallpaper, before the dark scrim is drawn).
-        vec2 wpUv1 = coverUv(sampleCoord);
-        vec4 backdrop = texture2D(uWallpaperSampler, wpUv1);
+        // Sample the WALLPAPER (LayerBackdrop) with Gaussian blur — faithful
+        // to LockScreenContent.kt which applies blur(2dp) via the glassEffects.
+        vec4 backdrop = gaussianBlur(uWallpaperSampler, coverUv(sampleCoord), canvasPxToUvScale(), uBlurRadius);
         vec3 color = applyColorControls(backdrop.rgb, uBrightness, uContrast, uSaturation);
 
         // Refraction: coord - intensity * refractionHeight * normal
         vec2 refractedOffsetOrig = intensity * uRefractionHeight * normal;
         vec2 refractedOffsetScreen = refractedOffsetOrig * layerScale;
         vec2 refractedScreen = screenCoord + refractedOffsetScreen;
-        vec2 wpUv2 = coverUv(refractedScreen);
-        vec4 refracted = texture2D(uWallpaperSampler, wpUv2);
+        vec4 refracted = gaussianBlur(uWallpaperSampler, coverUv(refractedScreen), canvasPxToUvScale(), uBlurRadius);
         color = applyColorControls(refracted.rgb, uBrightness, uContrast, uSaturation);
 
         // Bevel lighting
