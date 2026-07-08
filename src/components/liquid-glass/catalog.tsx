@@ -2988,78 +2988,42 @@ function buildSettings(
     )
   )
 
-  // DPR slider
+  // DPR slider — reuse makeLiquidSlider
   const dprSliderY = dprLabelY + 16 + 12
   const dprTrackX = pad
   const dprTrackW = W - 2 * pad
   const dprTrackY = dprSliderY + (24 - 6) / 2
   const dprFraction = currentDpr / maxDpr
 
-  // Track
-  const trackEl = makePlainRect('settings-dpr-track', { x: dprTrackX, y: dprTrackY, w: dprTrackW, h: 6 * DP }, palette.sliderTrackOff, 3 * DP)
-  trackEl.hitRect = { x: dprTrackX, y: dprSliderY, w: dprTrackW, h: 48 * DP }
-  elements.push(trackEl)
-
-  // Fill
-  const fillW = dprFraction * dprTrackW
-  elements.push(makePlainRect('settings-dpr-fill', { x: dprTrackX, y: dprTrackY, w: Math.max(6, fillW), h: 6 * DP }, [...palette.sliderAccent, 1], 3 * DP))
-
-  // Knob
-  const dragW = dprTrackW - 40 * DP / 2
-  const knobBaseX = dprTrackX - 40 * DP / 4
-  const knobX = knobBaseX + dprFraction * dragW
-  const knobY = dprSliderY + (24 - 24) / 2
-  const knobEl = makeGlassShape(
-    'settings-dpr-knob',
-    { x: knobX, y: knobY, w: 40 * DP, h: 24 * DP },
-    {
-      cornerRadius: 12 * DP,
-      refractionHeight: 10 * DP,
-      refractionAmount: -14 * DP,
-      blurRadius: 8 * DP,
-      saturation: 1.0,
-      surfaceColor: [0, 0, 0, 0],
-      highlight: { mode: 1, color: [1, 1, 1], angle: 45 * Math.PI / 180, falloff: 1.0, alpha: 1.0, widthDp: 0.5 / 1.5 },
-      outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: (4 / 6) * DP, color: [0, 0, 0] },
-      innerShadow: { radius: 4 * DP, alpha: 0.15, offsetX: 0, offsetY: 4 * DP },
-      chromaticAberration: true,
-    }
+  const dprSlider = makeLiquidSlider(
+    'settings-dpr',
+    dprTrackX,
+    dprTrackY,
+    dprTrackW,
+    'settings-dpr',
+    palette.sliderTrackOff,
+    palette.sliderAccent,
+    null, // no renderer — settings slider uses direct state, not toggleStates
+    (f) => {
+      setState({ customDpr: Math.max(0.5, f * maxDpr) })
+    },
+    false, // scroll = false
+    true   // liveUpdate
   )
-  knobEl.isInteractive = true
-  knobEl.hitRect = { x: knobX, y: dprSliderY, w: 40 * DP, h: 48 * DP }
-  elements.push(knobEl)
-
-  // Drag interaction
-  let dprDragStartX = 0
-  let dprDragStartFrac = 0
-  interactions['settings-dpr-track'] = {
-    onTap: (pos) => {
-      const f = Math.max(0, Math.min(1, (pos.x - dprTrackX) / dragW))
-      setState({ customDpr: Math.max(0.5, f * maxDpr) })
-    },
-    onDragStart: (pos) => {
-      dprDragStartX = pos.x
-      dprDragStartFrac = currentDpr / maxDpr
-    },
-    onDrag: (pos) => {
-      const df = (pos.x - dprDragStartX) / dragW
-      const f = Math.max(0, Math.min(1, dprDragStartFrac + df))
-      setState({ customDpr: Math.max(0.5, f * maxDpr) })
-    },
-    onDragEnd: () => {},
+  // Override knob initial position from dprFraction
+  const dprDragW = dprTrackW - SLIDER_KNOB_W / 2
+  const dprKnobBaseX = dprTrackX - SLIDER_KNOB_W / 4
+  const dprKnobEl = dprSlider.elements.find(e => e.id === 'settings-dpr-knob')
+  if (dprKnobEl) {
+    dprKnobEl.rect = { ...dprKnobEl.rect, x: dprKnobBaseX + dprFraction * dprDragW }
+    dprKnobEl.hitRect = { x: dprKnobBaseX + dprFraction * dprDragW, y: dprSliderY, w: SLIDER_KNOB_W, h: 48 * DP }
   }
-  interactions['settings-dpr-knob'] = {
-    onDragStart: (pos) => {
-      dprDragStartX = pos.x
-      dprDragStartFrac = currentDpr / maxDpr
-    },
-    onDrag: (pos) => {
-      const df = (pos.x - dprDragStartX) / dragW
-      const f = Math.max(0, Math.min(1, dprDragStartFrac + df))
-      setState({ customDpr: Math.max(0.5, f * maxDpr) })
-    },
-    onDragEnd: () => {},
+  const dprFillEl = dprSlider.elements.find(e => e.id === 'settings-dpr-fill')
+  if (dprFillEl) {
+    dprFillEl.rect = { ...dprFillEl.rect, w: Math.max(6, dprFraction * dprTrackW) }
   }
+  elements.push(...dprSlider.elements)
+  Object.assign(interactions, dprSlider.interactions)
 
   // Reset button
   const resetBtn = makeButton(
