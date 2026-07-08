@@ -269,7 +269,10 @@ export const renderMethods = {
       this.bindFBO(curFbo)
       gl.useProgram(this.progressiveBlurProgram)
       this.setSdfUniforms(this.uPb, this.aPosLocPb, r2, el.cornerRadius)
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+      // Premultiplied alpha blending — the shader outputs premultiplied rgb
+      // (rgb * alpha) faithful to the original AGSL AlphaMask shader.
+      // Using SRC_ALPHA would double-apply alpha (rgb*a*a) → black band at bottom.
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
       gl.activeTexture(gl.TEXTURE0)
       gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture!)
       gl.uniform1i(this.uPb['uBackdrop'], 0)

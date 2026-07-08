@@ -175,8 +175,11 @@ void main() {
     // Sample the (cover-fit) backdrop at the canvas pixel, blurred.
     vec4 blurred = sampleBackdrop(screenCoord, uBlurRadius);
 
-    // Mix: blur * alpha  ->  tint * alpha * tintIntensity
-    vec3 rgb = mix(blurred.rgb * a, uTintColor.rgb * a, uTintIntensity);
-    gl_FragColor = vec4(rgb, a);
+    // Faithful to AlphaMask shader: mix(content * blurAlpha, tint * tintAlpha, tintIntensity)
+    // This is PREMULTIPLIED (rgb already scaled by alpha). The renderer uses
+    // premultiplied alpha blending for the progressive blur pass, so we output
+    // premultiplied rgb with the mask alpha.
+    vec3 premulRgb = mix(blurred.rgb * a, uTintColor.rgb * a, uTintIntensity);
+    gl_FragColor = vec4(premulRgb, a);
 }
 `
