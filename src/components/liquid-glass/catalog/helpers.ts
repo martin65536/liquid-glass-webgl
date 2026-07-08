@@ -405,23 +405,46 @@ export function makeTabDragInteractions(
   onSelect: (i: number) => void,
   rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> | null
 ): ElementInteraction {
-  // Tab fraction maps 0..1 to tab indices 0..(tabsCount-1).
-  // snap: round to nearest 1/(tabsCount-1) step.
-  // index: Math.round(fraction * (tabsCount-1)).
-  const maxIndex = tabsCount - 1
-  return makeDragInteractions({
-    groupId,
-    trackX: 0,
-    dragW: tabWidth,
-    rendererRef,
-    onValueChange: (f) => {
-      onSelect(Math.max(0, Math.min(maxIndex, Math.round(f * maxIndex))))
+  // Module-level drag state (survives catalog rebuilds).
+  if (!dragStates.has(groupId)) dragStates.set(groupId, { fraction: 0, x: 0, didDrag: false })
+  const ds = dragStates.get(groupId)!
+
+  return {
+    onTap: () => {
+      // Tab taps handled by tab-text interactions, not here.
     },
-    ...tabDragBindings,
-    count: tabsCount,
-    snap: (f) => Math.max(0, Math.min(1, Math.round(f * maxIndex) / maxIndex)),
-    onTapJump: false,
-  })
+    onDragStart: (pos) => {
+      const r = rendererRef?.current
+      if (!r) return
+      draggingGroups.add(groupId)
+      // Use TARGET index (not animated) — faithful to original's targetValue.
+      ds.fraction = r.getTabTarget(groupId)
+      ds.x = pos.x
+      ds.didDrag = false
+      r.beginTabDrag(groupId, ds.fraction, tabsCount)
+    },
+    onDrag: (pos) => {
+      const r = rendererRef?.current
+      if (!r) return
+      if (Math.abs(pos.x - ds.x) > 3) ds.didDrag = true
+      // Relative drag: indicator follows finger delta from drag start.
+      // startTabIndex + (currentX - startX) / tabWidth, clamped to [0, count-1].
+      r.dragTab(groupId, ds.fraction, pos.x, ds.x, tabWidth, tabsCount)
+    },
+    onDragEnd: () => {
+      const r = rendererRef?.current
+      if (!r) return
+      // endTabDrag snaps to nearest integer, sets targetFraction, returns index.
+      const finalIndex = r.endTabDrag(groupId, tabsCount)
+      // Call onSelect AFTER endTabDrag (so targetFraction is already set).
+      // Keep draggingGroups set during onSelect to prevent tabTargets effect
+      // from calling setTabSelected (which would zero velocity).
+      if (ds.didDrag) {
+        onSelect(finalIndex)
+      }
+      draggingGroups.delete(groupId)
+    },
+  }
 }
 
 export function makeGlassShape(
