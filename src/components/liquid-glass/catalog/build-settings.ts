@@ -79,7 +79,10 @@ export function buildSettings(
     rendererRef,
     (f) => { setState({ customDpr: fracToDpr(f) }) },
     true,    // scroll
-    true,    // liveUpdate
+    false,   // liveUpdate=false — setState during drag causes catalog rebuild
+             // which re-creates the knob at initFrac position, conflicting
+             // with the renderer's spring → knob jumps to 2x position.
+             // State is synced on dragEnd only (same as Slider page).
     initFrac,
     snapFrac,
   )
