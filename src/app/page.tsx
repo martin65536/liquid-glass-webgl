@@ -139,7 +139,7 @@ export default function Page() {
     if (state.customDpr > 0) {
       r.dpr = Math.max(0.5, Math.min(maxDpr, state.customDpr))
     } else {
-      r.dpr = Math.min(deviceDpr, 1.5)
+      r.dpr = deviceDpr
     }
     // Trigger resize to apply the new DPR
     const el = frameRef.current
@@ -201,7 +201,7 @@ export default function Page() {
       const minDpr = 0.5
       const maxDpr = deviceDpr
       const dprRange = Math.max(0.0001, maxDpr - minDpr)
-      const currentDpr = state.customDpr > 0 ? Math.max(minDpr, Math.min(maxDpr, state.customDpr)) : Math.min(deviceDpr, 1.5)
+      const currentDpr = state.customDpr > 0 ? Math.max(minDpr, Math.min(maxDpr, state.customDpr)) : deviceDpr
       targets['settings-dpr'] = Math.max(0, Math.min(1, (currentDpr - minDpr) / dprRange))
     }
     return targets

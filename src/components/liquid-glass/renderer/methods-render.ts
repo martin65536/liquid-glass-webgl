@@ -205,7 +205,12 @@ export const renderMethods = {
     let r2 = r
     if (el.enterProgress != null) {
       const ty = -48 * DP * (1 - el.enterProgress)
-      r2 = { x: r.x, y: r.y + ty, w: r.w, h: r.h }
+      // Overscroll row-stretch: when enterProgress > 1, grow inter-row
+      // spacing (faithful to ControlCenterContent.kt spacerLayoutModifier).
+      const stretch = el.enterStretchFactor != null && el.enterProgress > 1
+        ? el.enterStretchFactor * (el.enterProgress - 1) * 32 * DP
+        : 0
+      r2 = { x: r.x, y: r.y + ty + stretch, w: r.w, h: r.h }
     }
 
     // --- plain-rect ---

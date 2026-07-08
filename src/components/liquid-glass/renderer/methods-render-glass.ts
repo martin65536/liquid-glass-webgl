@@ -98,6 +98,11 @@ export const glassRenderMethods = {
     if (el.enterProgress != null) {
       const p = el.enterProgress
       translationY += -48 * DP * (1 - p)
+      // Overscroll row-stretch: when p > 1, grow inter-row spacing
+      // (faithful to ControlCenterContent.kt spacerLayoutModifier).
+      if (el.enterStretchFactor != null && p > 1) {
+        translationY += el.enterStretchFactor * (p - 1) * 32 * DP
+      }
       // EaseIn approx: smoothstep(0, 1, p)
       const easeIn = p * p * (3 - 2 * p)
       // scale: scaleX /= 1 + 0.1*max(0, p-1), scaleY *= 1 + 0.1*max(0, p-1)

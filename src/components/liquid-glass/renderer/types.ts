@@ -359,6 +359,16 @@ export interface GlassElementConfig extends GlassButtonConfig {
    * Applied in renderGlassElement when set.
    */
   enterProgress?: number
+  /**
+   * ControlCenter overscroll row-stretch. When set AND enterProgress > 1,
+   * the element's y is offset by `enterStretchFactor * max(0, progress-1) * 32dp`.
+   * Faithful to ControlCenterContent.kt's spacerLayoutModifier which grows
+   * inter-row spacing by 32dp (large spacer) or 16dp (small spacer) per unit
+   * of overshoot. enterStretchFactor encodes how many large-spacers above this
+   * element (so row-1 gets factor 1, row-2 gets factor 2; elements within a
+   * row share the row's factor).
+   */
+  enterStretchFactor?: number
 }
 
 /* Per-element interaction state — mirrors InteractiveHighlight.kt. */
