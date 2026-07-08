@@ -2319,11 +2319,16 @@ function buildControlCenter(W: number, H: number, onBack: () => void, state: Cat
     }
     interactions[id] = {
       onDragStart: () => {
+        // Cancel any ongoing spring animation
+        if (ccAnimHandle != null) { cancelAnimationFrame(ccAnimHandle); ccAnimHandle = null; }
+        if (ccDragRAF != null) { cancelAnimationFrame(ccDragRAF); ccDragRAF = null; ccDragPending = null; }
         ccDragStartEnter.v = state.controlCenterEnter
       },
       onDrag: (_pos, delta) => {
         const target = ccDragStartEnter.v + delta.y / MAX_DRAG
-        const clamped = Math.max(-0.2, target)
+        // Allow p > 1 (overshoot for scaleX/Y stretch), but never < 0
+        // (negative p would darken the glass / increase the dim overlay).
+        const clamped = Math.max(0, target)
         // Throttle setState to one per animation frame (avoid re-render storms)
         ccDragPending = clamped
         if (ccDragRAF == null) {
@@ -2357,11 +2362,13 @@ function buildControlCenter(W: number, H: number, onBack: () => void, state: Cat
   // so tiles get priority — but empty areas hit the dim.
   interactions['cc-dim'] = {
     onDragStart: () => {
+      if (ccAnimHandle != null) { cancelAnimationFrame(ccAnimHandle); ccAnimHandle = null; }
+      if (ccDragRAF != null) { cancelAnimationFrame(ccDragRAF); ccDragRAF = null; ccDragPending = null; }
       ccDragStartEnter.v = state.controlCenterEnter
     },
     onDrag: (_pos, delta) => {
       const target = ccDragStartEnter.v + delta.y / MAX_DRAG
-      const clamped = Math.max(-0.2, target)
+      const clamped = Math.max(0, target)
       ccDragPending = clamped
       if (ccDragRAF == null) {
         ccDragRAF = requestAnimationFrame(() => {
