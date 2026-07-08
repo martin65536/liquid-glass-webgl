@@ -1969,7 +1969,7 @@ function buildDialog(W: number, H: number, onBack: () => void, palette: ThemePal
   // Faithful to DialogContent.kt:
   //   dimColor = if (isLightTheme) Color(0xFF29293A).copy(0.23f) else Color(0xFF121212).copy(0.56f)
   const scrimY = 0
-  const scrimH = Math.max(H, 800)
+  const scrimH = H
   const dialogScrim = makePlainRect('dialog-scrim', { x: 0, y: scrimY, w: W, h: scrimH }, palette.dialogDim, 0)
   dialogScrim.scroll = false
   elements.push(dialogScrim)
@@ -1983,7 +1983,7 @@ function buildDialog(W: number, H: number, onBack: () => void, palette: ThemePal
   const DIALOG_W = W - 2 * DIALOG_PAD
   const DIALOG_H = 320 * DP
   const DIALOG_X = DIALOG_PAD
-  const DIALOG_Y = scrimY + (scrimH - DIALOG_H) / 2
+  const DIALOG_Y = (H - DIALOG_H) / 2
   elements.push(
     makeGlassShape(
       'dialog-card',
