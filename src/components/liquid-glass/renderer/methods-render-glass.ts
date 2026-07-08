@@ -196,28 +196,29 @@ export const glassRenderMethods = {
     }
 
     // --- Bottom tabs content transform (faithful to LiquidBottomTabs.kt) ---
-    // Tab content sits INSIDE the container Row, so it inherits the container's
-    // press scale (lerp(1, 1+16dp/width, progress)) AND has its own content
-    // scale (lerp(1, 1.2, pressProgress)) + translationX = panelOffset.
-    // The original applies both via nested graphicsLayer: the container's
-    // layerBlock scales the whole Row (including tab content), then each tab's
-    // own graphicsLayer adds the 1→1.2 content scale.
+    // Tab content sits INSIDE the container Row. In the original:
+    //   - Container's layerBlock: scale = lerp(1, 1+16dp/containerWidth, pressProgress)
+    //     applied to the ENTIRE Row (including tab content).
+    //   - Each tab's own graphicsLayer: scale = lerp(1, 1.2, pressProgress)
+    //     applied on top of the container scale.
+    //   - The Row has translationX = panelOffset.
+    //
+    // In our single-pass renderer, we apply both scales to the tab content's
+    // scaleX/Y (multiplied), and panelOffset to translationX. We do NOT
+    // scale the tab content's POSITION around the container center — that
+    // would shift tabs away from their hit-test rects. The container scale
+    // only affects the tab content SIZE, not position.
     if (el.isBottomTabContent) {
       const tg = this.toggleStates.get(el.isBottomTabContent.groupId)
       if (tg) {
-        // Container press scale (same as isBottomTabContainer above) — the
-        // tab content is a child of the container, so it scales with it.
-        // Faithful to: scale = lerp(1, 1 + 16dp/containerWidth, pressProgress).
-        // The container width is the full bar width (containerW = TABS_W),
-        // which is tabsCount * tabW. We approximate using el.rect.w * tabsCount.
-        const containerW = el.rect.w * 4 // approximate (tabsCount is 3 or 4, close enough)
+        // Use the actual container width from the element config (not a guess).
+        const containerW = el.isBottomTabContent.containerWidth ?? el.rect.w
         const containerScale = 1 + (16 * DP) / containerW * tg.pressProgress
         scaleX *= containerScale
-        scaleY *= containerScale
         // Content's own scale (lerp(1, 1.2, pressProgress)).
         const contentScale = 1 + 0.2 * tg.pressProgress
         scaleX *= contentScale
-        scaleY *= contentScale
+        scaleY *= containerScale * contentScale
         translationX += tg.panelOffset
       }
     }
@@ -276,17 +277,9 @@ export const glassRenderMethods = {
     }
 
     // Compute final on-screen rect (in CSS px, matching the original code).
-    // For bottom-tab indicator: position is NOT scaled around container
-    // center — the indicator follows the finger directly (toggleXOffset +
-    // panelOffset). Only the SIZE is scaled by the container.
     let cx: number, cy: number
-    if (el.isBottomTabIndicator) {
-      cx = r.x + el.rect.w / 2 + translationX + toggleXOffset
-      cy = r.y + el.rect.h / 2 + translationY
-    } else {
-      cx = r.x + el.rect.w / 2 + translationX + toggleXOffset
-      cy = r.y + el.rect.h / 2 + translationY
-    }
+    cx = r.x + el.rect.w / 2 + translationX + toggleXOffset
+    cy = r.y + el.rect.h / 2 + translationY
     const sw = el.rect.w * scaleX
     const sh = el.rect.h * scaleY
     const sx = cx - sw / 2
