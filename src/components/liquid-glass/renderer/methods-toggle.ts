@@ -201,17 +201,12 @@ export const toggleMethods = {
     st.isDragging = false
     const finalTarget = st.targetFraction >= 0.5 ? 1 : 0
     st.targetFraction = finalTarget
-    // Decay velocity target to 0. The original DampedDragAnimation keeps
-    // calling updateVelocity() during the value spring's update callback
-    // after release — VelocityTracker calculates a decreasing velocity as
-    // the value settles, so velocity target naturally → 0. We don't have
-    // that callback mechanism, so we explicitly set targetVelocity = 0 on
-    // release. The velocity spring (underdamped) still has the current
-    // velocity, so squash-stretch decays smoothly to 0 rather than freezing
-    // at the last drag velocity (which caused 'stays stretched on fast
-    // release').
-    st.targetVelocity = 0
-    st.lastFractionTime = 0
+    // Don't zero targetVelocity — the animation loop tracks the fraction's
+    // rate of change after release (faithful to DampedDragAnimation.kt's
+    // VelocityTracker which keeps updating velocity during the value spring).
+    // This gives the squash-stretch more persistence/bounce after release.
+    st.lastFractionTime = performance.now() / 1000
+    st.lastFractionForVelocity = st.fraction
     // Don't release press here — auto-release will fire when fraction
     // settles near finalTarget.
     this.startAnimation()
@@ -233,12 +228,10 @@ export const toggleMethods = {
     st.isDragging = false
     // NO snap — keep the continuous targetFraction as-is.
     const finalTarget = st.targetFraction
-    // Decay velocity target to 0 (same as endToggleDrag — see comment there
-    // for why this is needed: the original's VelocityTracker naturally
-    // decays velocity as the value settles, but we don't have that callback
-    // mechanism, so we explicitly zero the target on release).
-    st.targetVelocity = 0
-    st.lastFractionTime = 0
+    // Don't zero targetVelocity — the animation loop tracks the fraction's
+    // rate of change after release (same as endToggleDrag).
+    st.lastFractionTime = performance.now() / 1000
+    st.lastFractionForVelocity = st.fraction
     // Don't release press here — auto-release will fire when fraction
     // settles near finalTarget.
     this.startAnimation()

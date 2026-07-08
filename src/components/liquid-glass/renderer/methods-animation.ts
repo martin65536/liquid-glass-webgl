@@ -134,6 +134,7 @@ export const animationMethods = {
           fDelta > SPRING_THRESHOLD ||
           Math.abs(tg.fractionVelocity) > SPRING_THRESHOLD
         ) {
+          const prevFraction = tg.fraction
           const r = springStepCritical(
             tg.fraction,
             tg.fractionVelocity,
@@ -143,10 +144,30 @@ export const animationMethods = {
           )
           tg.fraction = r.current
           tg.fractionVelocity = r.velocity
+          // After drag release, continue tracking the fraction's rate of
+          // change as the velocity target (faithful to DampedDragAnimation.kt's
+          // VelocityTracker which keeps calling updateVelocity() during the
+          // value spring's animateTo callback). This gives the squash-stretch
+          // more persistence after release (the velocity decays smoothly as
+          // the fraction settles, rather than snapping to 0 immediately).
+          if (!tg.isDragging) {
+            const now = performance.now() / 1000
+            if (tg.lastFractionTime > 0) {
+              const dt2 = now - tg.lastFractionTime
+              if (dt2 > 0.001) {
+                const dv = (tg.fraction - prevFraction) / dt2
+                tg.targetVelocity = Math.max(-10, Math.min(10, dv))
+              }
+            }
+            tg.lastFractionForVelocity = tg.fraction
+            tg.lastFractionTime = now
+          }
           stillAnimating = true
         } else {
           tg.fraction = tg.targetFraction
           tg.fractionVelocity = 0
+          // Velocity has settled — clear the tracking target.
+          if (!tg.isDragging) tg.targetVelocity = 0
         }
 
         // Press progress: critically damped (spring(1f, 1000f)).
