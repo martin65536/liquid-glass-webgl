@@ -190,34 +190,60 @@ void main() {
         }
 
         if (uChromaticAberration > 0.5) {
-            // Dispersion intensity in original space (faithful to AGSL which
-            // uses centeredCoord * centeredCoord / (halfSize * halfSize)).
+            // Faithful 7-path chromatic dispersion (ROYGBV + purple).
+            // Original AGSL: dispersionIntensity = chromaticAberration * (cx*cy)/(hx*hy)
+            //                dispersedCoord = d * grad * dispersionIntensity
+            // 7 samples at dispersedCoord * {1, 2/3, 1/3, 0, -1/3, -2/3, -1}
+            // with weighted channel accumulation.
             float dispersionIntensity = 1.0 * ((centeredOrigRot.x * centeredOrigRot.y) / (origHalfSize.x * origHalfSize.y));
             vec2 dispersedOffsetOrig = refractedOffsetOrig * dispersionIntensity;
             vec2 dispersedOffsetScreen = rotateBy(dispersedOffsetOrig, rot) * layerScale;
 
-            // PERFORMANCE: Reduced from 7-path (ROYGBV) to 3-path (RGB).
-            vec4 redC, greenC, blueC;
-            if (uIndicatorBackdrop > 0.5) {
-                redC   = sampleIndicatorBackdrop(refractedScreen + dispersedOffsetScreen, uBlurRadius);
-                greenC = sampleIndicatorBackdrop(refractedScreen,                        uBlurRadius);
-                blueC  = sampleIndicatorBackdrop(refractedScreen - dispersedOffsetScreen, uBlurRadius);
-            } else if (uUseToggleBackdrop > 0.5) {
-                redC   = sampleToggleBackdrop(refractedScreen + dispersedOffsetScreen, uBlurRadius);
-                greenC = sampleToggleBackdrop(refractedScreen,                        uBlurRadius);
-                blueC  = sampleToggleBackdrop(refractedScreen - dispersedOffsetScreen, uBlurRadius);
-            } else if (uUseMagnifier > 0.5) {
-                redC   = sampleMagnifier(refractedScreen + dispersedOffsetScreen, uBlurRadius);
-                greenC = sampleMagnifier(refractedScreen,                        uBlurRadius);
-                blueC  = sampleMagnifier(refractedScreen - dispersedOffsetScreen, uBlurRadius);
-            } else {
-                redC   = sampleBackdrop(refractedSampleCoord + dispersedOffsetScreen, uBlurRadius);
-                greenC = sampleBackdrop(refractedSampleCoord,                        uBlurRadius);
-                blueC  = sampleBackdrop(refractedSampleCoord - dispersedOffsetScreen, uBlurRadius);
-            }
+            // Sample helper — pick the right backdrop sampler.
+            #define SAMPLE_DISPERSED(offset) \
+                (uIndicatorBackdrop > 0.5 ? sampleIndicatorBackdrop(refractedScreen + (offset), uBlurRadius) : \
+                 uUseToggleBackdrop > 0.5 ? sampleToggleBackdrop(refractedScreen + (offset), uBlurRadius) : \
+                 uUseMagnifier > 0.5 ? sampleMagnifier(refractedScreen + (offset), uBlurRadius) : \
+                 sampleBackdrop(refractedSampleCoord + (offset), uBlurRadius))
 
-            vec3 dispColor = vec3(redC.r, greenC.g, blueC.b);
-            float dispAlpha = (redC.a + greenC.a + blueC.a) / 3.0;
+            vec4 sRed    = SAMPLE_DISPERSED(+dispersedOffsetScreen);
+            vec4 sOrange = SAMPLE_DISPERSED(+dispersedOffsetScreen * (2.0 / 3.0));
+            vec4 sYellow = SAMPLE_DISPERSED(+dispersedOffsetScreen * (1.0 / 3.0));
+            vec4 sGreen  = SAMPLE_DISPERSED(vec2(0.0));
+            vec4 sCyan   = SAMPLE_DISPERSED(-dispersedOffsetScreen * (1.0 / 3.0));
+            vec4 sBlue   = SAMPLE_DISPERSED(-dispersedOffsetScreen * (2.0 / 3.0));
+            vec4 sPurple = SAMPLE_DISPERSED(-dispersedOffsetScreen);
+
+            #undef SAMPLE_DISPERSED
+
+            // Faithful channel weighting from the original AGSL shader.
+            vec3 dispColor = vec3(0.0);
+            float dispAlpha = 0.0;
+            // red
+            dispColor.r += sRed.r / 3.5;
+            dispAlpha  += sRed.a / 7.0;
+            // orange
+            dispColor.r += sOrange.r / 3.5;
+            dispColor.g += sOrange.g / 7.0;
+            dispAlpha  += sOrange.a / 7.0;
+            // yellow
+            dispColor.r += sYellow.r / 3.5;
+            dispColor.g += sYellow.g / 3.5;
+            dispAlpha  += sYellow.a / 7.0;
+            // green
+            dispColor.g += sGreen.g / 3.5;
+            dispAlpha  += sGreen.a / 7.0;
+            // cyan
+            dispColor.g += sCyan.g / 3.5;
+            dispColor.b += sCyan.b / 3.0;
+            dispAlpha  += sCyan.a / 7.0;
+            // blue
+            dispColor.b += sBlue.b / 3.0;
+            dispAlpha  += sBlue.a / 7.0;
+            // purple
+            dispColor.r += sPurple.r / 7.0;
+            dispColor.b += sPurple.b / 3.0;
+            dispAlpha  += sPurple.a / 7.0;
 
             color = applyColorControls(dispColor, uBrightness, uContrast, uSaturation);
             alpha = dispAlpha;
