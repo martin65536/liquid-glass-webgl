@@ -337,6 +337,8 @@ export interface CatalogState {
   controlCenterActive: number
   // ControlCenter — enter progress (0 = collapsed, 1 = expanded)
   controlCenterEnter: number
+  // GlassPlayground sheet expanded
+  gpSheetExpanded: boolean
 }
 
 export const DEFAULT_CATALOG_STATE: CatalogState = {
@@ -355,6 +357,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   lockScreenOffsetY: 0,
   controlCenterActive: 0,
   controlCenterEnter: 1,
+  gpSheetExpanded: true,
 }
 
 /* ------------------------------------------------------------------ *
@@ -2546,28 +2549,30 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
     )
   )
 
-  // Control sheet (bottom, glass card with sliders)
-  const sheetX = 16 * DP
-  const sheetY = squareY + squareSize + 24
-  const sheetW = W - 2 * sheetX
-  const sheetH = 340 * DP
-  const sheetRadius = 32 * DP
-  elements.push(
-    makeGlassShape(
-      'gp-sheet',
-      { x: sheetX, y: sheetY, w: sheetW, h: sheetH },
-      {
-        cornerRadius: sheetRadius,
-        refractionHeight: 16 * DP,
-        refractionAmount: -32 * DP,
-        blurRadius: 4 * DP,
-        saturation: 1.5,
-        surfaceColor: [1, 1, 1, 0.5],
-        highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, alpha: 0.38 },
-        outerShadow: null,
-      }
+  // Control sheet (bottom, glass card with sliders) — only when expanded
+  const ORANGE = [0xff / 255, 0x8d / 255, 0x28 / 255, 1] as [number, number, number, number]
+  if (state.gpSheetExpanded) {
+    const sheetX = 16 * DP
+    const sheetY = squareY + squareSize + 24
+    const sheetW = W - 2 * sheetX
+    const sheetH = 340 * DP
+    const sheetRadius = 32 * DP
+    elements.push(
+      makeGlassShape(
+        'gp-sheet',
+        { x: sheetX, y: sheetY, w: sheetW, h: sheetH },
+        {
+          cornerRadius: sheetRadius,
+          refractionHeight: 16 * DP,
+          refractionAmount: -32 * DP,
+          blurRadius: 4 * DP,
+          saturation: 1.5,
+          surfaceColor: [1, 1, 1, 0.5],
+          highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, alpha: 0.38 },
+          outerShadow: null,
+        }
+      )
     )
-  )
 
   // Slider labels + tracks
   const sliderLabels = [
@@ -2627,25 +2632,39 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
 
     labelY += 36
   }
+  } // end if (state.gpSheetExpanded)
 
-  // Reset button
-  const resetLabel = 'Reset'
-  const resetTextW = measureTextWidth(resetLabel, TEXT_FONT_SIZE_PX)
-  const resetW = Math.ceil(resetTextW + 2 * BUTTON_HORIZONTAL_PADDING)
-  const resetX = (W - resetW) / 2
-  const resetY = sheetY + sheetH + 16
-  elements.push(
-    makeButton(
-      'gp-reset',
-      { x: resetX, y: resetY, w: resetW, h: BUTTON_HEIGHT },
-      {
-        label: resetLabel,
-        tintColor: [0xff / 255, 0x8d / 255, 0x28 / 255, 1],
-        surfaceColor: [0, 0, 0, 0],
-        labelColor: [1, 1, 1, 1],
-      }
-    )
+  // Left bottom: orange circle button — toggle sheet expand/collapse
+  const toggleBtnSize = 56 * DP
+  const toggleBtn = makeButton(
+    'gp-toggle',
+    { x: 20 * DP, y: H - 20 * DP - toggleBtnSize, w: toggleBtnSize, h: toggleBtnSize },
+    {
+      label: state.gpSheetExpanded ? 'v' : '^',
+      tintColor: ORANGE,
+      surfaceColor: [0, 0, 0, 0],
+      labelColor: [1, 1, 1, 1],
+    },
+    false
   )
+  elements.push(toggleBtn)
+  interactions['gp-toggle'] = {
+    onTap: () => setState((prev) => ({ gpSheetExpanded: !prev.gpSheetExpanded })),
+  }
+
+  // Right bottom: orange circle button — Reset
+  const resetBtn = makeButton(
+    'gp-reset',
+    { x: W - 20 * DP - toggleBtnSize, y: H - 20 * DP - toggleBtnSize, w: toggleBtnSize, h: toggleBtnSize },
+    {
+      label: 'Reset',
+      tintColor: ORANGE,
+      surfaceColor: [0, 0, 0, 0],
+      labelColor: [1, 1, 1, 1],
+    },
+    false
+  )
+  elements.push(resetBtn)
   interactions['gp-reset'] = {
     onTap: () => setState({
       cornerRadiusFrac: 0.5,
@@ -2656,9 +2675,9 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
     }),
   }
 
-  const contentHeight = resetY + BUTTON_HEIGHT
-  const finalHeight = applyVerticalCenter(elements, 0, contentHeight, H)
-  return { elements, interactions, contentHeight: finalHeight }
+  // Glass playground is NOT scrollable
+  for (const el of elements) el.scroll = false
+  return { elements, interactions, contentHeight: H }
 }
 
 /* ------------------------------------------------------------------ *
