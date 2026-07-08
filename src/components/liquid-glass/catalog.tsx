@@ -47,6 +47,12 @@ export const draggingGroups = new Set<string>()
 const dragStates = new Map<string, { fraction: number; x: number }>()
 // GlassPlayground drag-start offset (survives re-renders)
 const gpDragStart = { x: 0, y: 0, ox: 0, oy: 0 }
+// AdaptiveLuminanceGlass drag-start offset (survives re-renders)
+const algDragStart = { x: 0, y: 0, ox: 0, oy: 0 }
+/** Linear interpolation. Faithful to androidx.compose.ui.util.lerp. */
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t
+}
 // Control-center snap animation handle (cancel previous if a new one starts)
 let ccAnimHandle: number | null = null
 /** Animate controlCenterEnter to `target` (0 or 1) via a simple lerp spring. */
@@ -365,6 +371,14 @@ export interface CatalogState {
   gpOffsetY: number
   gpZoom: number
   gpRotation: number
+  // AdaptiveLuminanceGlass drag offset
+  algOffsetX: number
+  algOffsetY: number
+  // AdaptiveLuminanceGlass — measured average luminance (0..1) of the
+  // backdrop behind the glass. Drives brightness/contrast/blur/contentColor
+  // per AdaptiveLuminanceGlassContent.kt. Updated via GPU readback in
+  // page.tsx (1px sample at glass center, throttled).
+  adaptiveLuminance: number
   // Settings — custom DPR override (0 = use default capped DPR)
   customDpr: number
 }
@@ -390,6 +404,9 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   gpOffsetY: 0,
   gpZoom: 1,
   gpRotation: 0,
+  algOffsetX: 0,
+  algOffsetY: 0,
+  adaptiveLuminance: 0.5,
   customDpr: 0,
 }
 
@@ -2801,7 +2818,14 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
  * (Full luminance sensing is not feasible in WebGL — we show a static
  * glass with the label.)
  * ------------------------------------------------------------------ */
-function buildAdaptiveLuminanceGlass(W: number, H: number, onBack: () => void, palette: ThemePalette = LIGHT_PALETTE): CatalogResult {
+function buildAdaptiveLuminanceGlass(
+  W: number,
+  H: number,
+  onBack: () => void,
+  state: CatalogState,
+  setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void,
+  palette: ThemePalette = LIGHT_PALETTE
+): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
@@ -2810,38 +2834,78 @@ function buildAdaptiveLuminanceGlass(W: number, H: number, onBack: () => void, p
   interactions[back.element.id] = back.interaction
 
   // Faithful to AdaptiveLuminanceGlassContent.kt:
-  //   contentColorAnimation initial = if (isLightTheme) Color.Black else Color.White
-  // The actual behavior is adaptive (driven by GPU readback of average
-  // luminance), but since we can't do GPU readback in this port we use
-  // the theme's initial content color as a static approximation.
-  const contentColor = palette.adaptiveContentColor
+  //   size = 160dp, RoundedRectangle(24dp)
+  //   effects: colorControls(brightness/contrast driven by luminance) + blur + lens(24dp, size/2, depthEffect)
+  //   highlight = Highlight.Plain
+  //   layerBlock: translationX/Y (drag), scaleX/Y=zoom, rotationZ
+  //   contentColor adapts (Black/White) based on average luminance
+  //
+  // The original samples the glass's rendered output (layer.toImageBitmap →
+  // scale(5,5) → readPixels) to compute average luminance and drive the
+  // effects. We approximate by reading the wallpaper pixel at the glass
+  // center via gl.readPixels in page.tsx (1px, throttled to ~10fps) and
+  // storing it in state.adaptiveLuminance. This gives a real-time adaptive
+  // effect as the glass is dragged over different backdrop regions.
+  const luminance = state.adaptiveLuminance
+  // l = (luminance * 2 - 1) with sign*it*it shaping (faithful to original).
+  const rawL = luminance * 2 - 1
+  const l = Math.sign(rawL) * rawL * rawL
+  const brightness = l > 0 ? lerp(0.1, 0.5, l) : lerp(0.1, -0.2, -l)
+  const contrast = l > 0 ? lerp(1, 0, l) : 1
+  const blurDp = l > 0 ? lerp(8, 16, l) : lerp(8, 2, -l)
+  const contentColor = luminance > 0.5 ? palette.adaptiveContentColor : (palette === LIGHT_PALETTE ? [1, 1, 1, 1] as [number, number, number, number] : [0, 0, 0, 1] as [number, number, number, number])
   const halo = palette.homeTextHalo
 
   const size = 160 * DP
-  const x = (W - size) / 2
-  const y = 0 // applyVerticalCenter shifts this
-  elements.push(
-    makeGlassShape(
-      'alg-square',
-      { x, y, w: size, h: size },
-      {
-        cornerRadius: 24 * DP,
-        refractionHeight: 24 * DP,
-        refractionAmount: -size / 2,
-        blurRadius: 8 * DP,
-        saturation: 1.5,
-        surfaceColor: [0, 0, 0, 0],
-        highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, alpha: 0.38 },
-        outerShadow: null,
-        depthEffect: true,
-      }
-    )
+  const x = (W - size) / 2 + state.algOffsetX
+  const y = 0 + state.algOffsetY
+  const minDim = size
+  const algSquare = makeGlassShape(
+    'alg-square',
+    { x, y, w: size, h: size },
+    {
+      cornerRadius: 24 * DP,
+      refractionHeight: 24 * DP,
+      refractionAmount: -minDim / 2, // faithful: lens(24dp, size.minDimension/2) — negative = inward refraction
+      blurRadius: blurDp * DP, // faithful: blur(8..16dp or 8..2dp) driven by luminance
+      saturation: 1.5,
+      brightness, // faithful: colorControls brightness
+      contrast, // faithful: colorControls contrast
+      surfaceColor: [0, 0, 0, 0],
+      highlight: { ...DEFAULT_HIGHLIGHT }, // Highlight.Plain = mode 0
+      outerShadow: null,
+      depthEffect: true,
+    }
   )
+  algSquare.isInteractive = true
+  elements.push(algSquare)
+  // Drag interaction — pan the glass square (module-level state, like gp-square).
+  interactions['alg-square'] = {
+    onDragStart: (pos) => {
+      algDragStart.x = pos.x
+      algDragStart.y = pos.y
+      algDragStart.ox = state.algOffsetX
+      algDragStart.oy = state.algOffsetY
+    },
+    onDrag: (pos) => {
+      setState({
+        algOffsetX: algDragStart.ox + (pos.x - algDragStart.x),
+        algOffsetY: algDragStart.oy + (pos.y - algDragStart.y),
+      })
+    },
+    onDragEnd: () => {},
+  }
+
+  // Label text inside the glass — faithful to original:
+  //   BasicText("luminance:\n${(luminanceAnimation.value * 100f).fastRoundToInt() / 100.0}",
+  //     style = TextStyle(Color.Unspecified, 16sp, textAlign = Center), color = { contentColorAnimation.value })
+  // Content color adapts: Black when luminance > 0.5, White otherwise.
+  const labelText = `luminance:\n${Math.round(luminance * 100) / 100}`
   elements.push(
     makeText(
       'alg-label',
       { x, y, w: size, h: size },
-      'luminance:\n0.50',
+      labelText,
       {
         color: contentColor,
         fontSizePx: 16,
@@ -2852,25 +2916,8 @@ function buildAdaptiveLuminanceGlass(W: number, H: number, onBack: () => void, p
       }
     )
   )
-  // Explanatory text below
-  elements.push(
-    makeText(
-      'alg-desc',
-      { x: 24, y: y + size + 32, w: W - 48, h: 60 },
-      'Adaptive luminance sensing adjusts glass brightness/contrast based on backdrop luminance. (Static demo — full sensing requires GPU readback.)',
-      {
-        color: [contentColor[0], contentColor[1], contentColor[2], 0.68],
-        fontSizePx: 14,
-        fontWeight: 400,
-        align: 'center',
-        wrap: true,
-        paddingPx: 0,
-        halo,
-      }
-    )
-  )
 
-  const contentHeight = size + 32 + 60
+  const contentHeight = size
   const finalHeight = applyVerticalCenter(elements, 0, contentHeight, H)
   return { elements, interactions, contentHeight: finalHeight }
 }
@@ -3294,7 +3341,7 @@ export function buildCatalog(
       result = buildGlassPlayground(W, H, onBack, state, setState, rendererRef, palette)
       break
     case CatalogDestination.AdaptiveLuminanceGlass:
-      result = buildAdaptiveLuminanceGlass(W, H, onBack, palette)
+      result = buildAdaptiveLuminanceGlass(W, H, onBack, state, setState, palette)
       break
     case CatalogDestination.ProgressiveBlur:
       result = buildProgressiveBlur(W, H, onBack, palette)

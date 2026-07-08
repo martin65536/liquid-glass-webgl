@@ -218,6 +218,50 @@ export default function Page() {
     return targets
   }, [destination, state.selectedTab, state.selectedTab2])
 
+  // AdaptiveLuminanceGlass: read the backdrop luminance at the glass center
+  // via gl.readPixels and update state.adaptiveLuminance. Faithful to
+  // AdaptiveLuminanceGlassContent.kt's layer.toImageBitmap → scale(5,5) →
+  // readPixels loop. We read 1px at the glass center (the glass samples a
+  // blurred backdrop anyway, so 1px is a good approximation). Throttled to
+  // ~10fps to avoid stalling the render loop with synchronous readPixels.
+  React.useEffect(() => {
+    if (destination !== CatalogDestination.AdaptiveLuminanceGlass) return
+    const r = rendererRef.current
+    if (!r) return
+    const gl = r.gl
+    const canvas = r.canvas
+    let raf = 0
+    let last = 0
+    const px = new Uint8Array(4)
+    const tick = (t: number) => {
+      raf = requestAnimationFrame(tick)
+      if (t - last < 100) return // ~10fps
+      last = t
+      // Glass center in CSS px = (W - size)/2 + algOffsetX, centered-y + algOffsetY.
+      // size = 160. Center = center + size/2.
+      const size = 160
+      const cx = Math.round((W - size) / 2 + state.algOffsetX + size / 2)
+      const cy = Math.round((H - size) / 2 + state.algOffsetY + size / 2)
+      // Convert to device px (canvas backing store) + Y-flip (canvas origin
+      // is bottom-left in WebGL).
+      const dx = Math.max(0, Math.min(canvas.width - 1, Math.round(cx * r.dpr)))
+      const dy = Math.max(0, Math.min(canvas.height - 1, Math.round((H - cy) * r.dpr)))
+      try {
+        gl.readPixels(dx, dy, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px)
+        const lum = (0.2126 * px[0] + 0.7152 * px[1] + 0.0722 * px[2]) / 255
+        // Avoid setState spam: only update if changed by > 0.02.
+        setState((prev) => {
+          if (Math.abs(prev.adaptiveLuminance - lum) < 0.02) return {}
+          return { adaptiveLuminance: lum }
+        })
+      } catch {
+        // readPixels can fail if the framebuffer is invalid; ignore.
+      }
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [destination, W, H, state.algOffsetX, state.algOffsetY, setState])
+
   return (
     <div
       className="w-full flex items-center justify-center"
