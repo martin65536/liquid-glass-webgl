@@ -347,9 +347,10 @@ export const glassElementPassMethods = {
     gl.uniform1f(this.uEl['uRefractionAmount'], elRefractionAmount * this.dpr)
     gl.uniform1f(this.uEl['uDepthEffect'], el.depthEffect ? 1 : 0)
     gl.uniform1f(this.uEl['uChromaticAberration'], el.chromaticAberration ? 1 : 0)
-    // Blur radius = Gaussian sigma (matches Skia's BlurEffect interpretation).
-    // The sampleBackdrop() shader function uses a 17-tap Gaussian disc
-    // (center + ring σ + ring 2σ) that naturally covers the ±2σ extent.
+    // Blur radius: applied to the backdrop SAMPLE in screen space. The original
+    // applies blur as a RenderEffect at original size, then graphicsLayer scales
+    // → blur appears as blurRadius * layerScale in screen space (isotropic approx
+    // via min(scaleX, scaleY); full anisotropy would need separable 2-pass blur).
     gl.uniform1f(this.uEl['uBlurRadius'], elBlurRadius * layerScale * this.dpr)
     gl.uniform1f(this.uEl['uSaturation'], el.saturation)
     gl.uniform1f(this.uEl['uBrightness'], el.brightness)
