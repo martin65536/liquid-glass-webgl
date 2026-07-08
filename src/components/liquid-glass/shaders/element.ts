@@ -257,11 +257,15 @@ void main() {
     if (uInnerShadowAlpha > 0.001 && uInnerShadowRadius > 0.5) {
         vec2 innerCenteredOrig = centeredOrig - uInnerShadowOffset;
         float innerSd = sdRoundedRect(innerCenteredOrig, origHalfSize, origRadius);
-        // innerSd > 0 means we're "inside" the offset shape (closer to edge)
+        // Faithful to InnerShadowModifier: blur the shape outline, offset inward,
+        // then SrcOver composite with the shadow color (Black 0.15 alpha).
+        // The shadow appears as a darkened band near the edge (innerSd > 0 = inside
+        // the offset shape, closer to the edge). Gaussian-like falloff via smoothstep.
         float band = smoothstep(uInnerShadowRadius, 0.0, innerSd);
-        // Only darken the outer band (between offset shape and real edge)
         band *= step(0.0, innerSd);
-        color *= 1.0 - band * uInnerShadowAlpha * 0.5;
+        // uInnerShadowAlpha already includes color alpha (0.15) * progress.
+        // No 0.5 reduction — the original composites at full alpha.
+        color *= 1.0 - band * uInnerShadowAlpha;
     }
 
     // --- 7. Edge anti-aliasing -----------------------------------
