@@ -21,6 +21,9 @@ import {
  * ------------------------------------------------------------------ */
 // Per-group drag state (survives re-renders during liveUpdate)
 const dragStates = new Map<string, { fraction: number; x: number }>()
+// Per-group tab drag state (survives re-renders — gravityAngle changes
+// can rebuild the catalog mid-drag, resetting closure variables).
+const tabDragStates = new Map<string, { tab: number; x: number; didDrag: boolean }>()
 
 export function makeLiquidSlider(
   idPrefix: string,
@@ -292,9 +295,8 @@ export function makeTabDragInteractions(
   onSelect: (i: number) => void,
   rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> | null
 ): ElementInteraction {
-  let dragStartTab = 0
-  let dragStartX = 0
-  let didDrag = false
+  if (!tabDragStates.has(groupId)) tabDragStates.set(groupId, { tab: 0, x: 0, didDrag: false })
+  const ds = tabDragStates.get(groupId)!
   return {
     onTap: () => {
       // Tap on container/indicator: no-op (tab taps are handled by tab-text interactions).
@@ -303,22 +305,22 @@ export function makeTabDragInteractions(
       const r = rendererRef?.current
       if (!r) return
       // Use the VISUAL fraction (not target) to avoid teleport on drag start.
-      dragStartTab = r.getTabFraction(groupId)
-      dragStartX = pos.x
-      didDrag = false
-      r.beginTabDrag(groupId, dragStartTab, tabsCount)
+      ds.tab = r.getTabFraction(groupId)
+      ds.x = pos.x
+      ds.didDrag = false
+      r.beginTabDrag(groupId, ds.tab, tabsCount)
     },
     onDrag: (pos: { x: number; y: number }) => {
       const r = rendererRef?.current
       if (!r) return
-      if (Math.abs(pos.x - dragStartX) > 3) didDrag = true
-      r.dragTab(groupId, dragStartTab, pos.x, dragStartX, tabWidth, tabsCount)
+      if (Math.abs(pos.x - ds.x) > 3) ds.didDrag = true
+      r.dragTab(groupId, ds.tab, pos.x, ds.x, tabWidth, tabsCount)
     },
     onDragEnd: () => {
       const r = rendererRef?.current
       if (!r) return
       const finalTab = r.endTabDrag(groupId, tabsCount)
-      if (didDrag) {
+      if (ds.didDrag) {
         onSelect(finalTab)
       }
     },
