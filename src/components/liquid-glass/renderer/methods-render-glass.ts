@@ -229,10 +229,26 @@ export const glassRenderMethods = {
     //   velocity = dampedDragAnimation.velocity / 10  (NOT 50 like toggle!)
     //   scaleX /= 1 - clamp(velocity * 0.75, -0.2, 0.2)
     //   scaleY *= 1 - clamp(velocity * 0.25, -0.2, 0.2)
+    //
+    // NOTE: the indicator is a CHILD of the container Row. In the original,
+    // the container's layerBlock (scale around center) applies to ALL children
+    // including the indicator. The indicator's own graphicsLayer (translationX,
+    // scaleX/Y, velocity stretch) is applied INSIDE the container's scaled
+    // space. So the indicator's translationX is ALSO scaled by the container.
+    //
+    // In our single-pass renderer, we can't nest graphicsLayer. Instead, we
+    // must NOT apply the container scale to the indicator — the indicator's
+    // position (toggleXOffset) is already in screen space, and applying
+    // container scale on top shifts it away from the finger.
+    // The container scale only affects the indicator's SIZE (scaleX/Y), not
+    // its position. We apply the container scale to the indicator's scale
+    // but NOT to its center position.
     if (el.isBottomTabIndicator) {
       const tg = this.toggleStates.get(el.isBottomTabIndicator.groupId)
       if (tg) {
         // Position: indicator slides between tabs + panelOffset.
+        // NO container scale applied to position — the indicator follows
+        // the finger directly. Container scale only affects size.
         toggleXOffset += tg.fraction * el.isBottomTabIndicator.dragWidth
         toggleXOffset += tg.panelOffset
         // Scale from DampedDragAnimation (1 → 78/56 on press).
@@ -249,37 +265,24 @@ export const glassRenderMethods = {
         // Drive white overlay alpha + surface color by pressProgress
         // (faithful to indicator onDrawSurface).
         togglePressProgress = Math.max(togglePressProgress, tg.pressProgress)
-        // Container layerBlock scale — the indicator scales around the
-        // CONTAINER center (like tab-content), as a child of the container.
-        // Faithful to LiquidBottomTabs.kt: container Row's layerBlock applies
-        // to the whole bar including the indicator.
+        // Container layerBlock scale — only affects indicator SIZE, not position.
+        // Applied to scaleX/Y below (not to center position).
         if (el.isBottomTabIndicator.containerWidth != null) {
           const containerScale = 1 + (16 * DP) / el.isBottomTabIndicator.containerWidth * tg.pressProgress
           scaleX *= containerScale
           scaleY *= containerScale
-          // Scale the indicator's center around the container center.
-          // Applied below in the final rect computation (see containerCenterX/Y).
         }
       }
     }
 
     // Compute final on-screen rect (in CSS px, matching the original code).
-    // For bottom-tab indicator with a container center, scale the indicator's
-    // center around the CONTAINER center (parent-child transform), matching
-    // how tab-content scales.
+    // For bottom-tab indicator: position is NOT scaled around container
+    // center — the indicator follows the finger directly (toggleXOffset +
+    // panelOffset). Only the SIZE is scaled by the container.
     let cx: number, cy: number
-    if (el.isBottomTabIndicator && el.isBottomTabIndicator.containerCenterX != null && el.isBottomTabIndicator.containerCenterY != null && el.isBottomTabIndicator.containerWidth != null) {
-      const tg2 = this.toggleStates.get(el.isBottomTabIndicator.groupId)
-      const containerScale = tg2 ? 1 + (16 * DP) / (el.isBottomTabIndicator.containerWidth ?? el.rect.w) * tg2.pressProgress : 1
-      const pivotX = el.isBottomTabIndicator.containerCenterX
-      const pivotY = el.isBottomTabIndicator.containerCenterY
-      // indicator center (before container scale, but after toggle offset + panelOffset)
-      const indCenterX = r.x + el.rect.w / 2 + translationX + toggleXOffset
-      const indCenterY = r.y + el.rect.h / 2 + translationY
-      // Scale around container center: the indicator's offset from the
-      // container center grows by containerScale.
-      cx = pivotX + (indCenterX - pivotX) * containerScale
-      cy = pivotY + (indCenterY - pivotY) * containerScale
+    if (el.isBottomTabIndicator) {
+      cx = r.x + el.rect.w / 2 + translationX + toggleXOffset
+      cy = r.y + el.rect.h / 2 + translationY
     } else {
       cx = r.x + el.rect.w / 2 + translationX + toggleXOffset
       cy = r.y + el.rect.h / 2 + translationY
