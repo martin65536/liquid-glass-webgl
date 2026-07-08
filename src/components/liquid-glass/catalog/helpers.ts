@@ -111,7 +111,14 @@ export function makeDragInteractions(opts: DragInteractionsOpts): ElementInterac
       // it from zeroing velocity and fighting the spring. Delete AFTER
       // onValueChange so the next render's effect can sync.
       const snappedF = applySnap(rawF)
-      if (snap) setTarget(r, groupId, snappedF, count)
+      // Only call setTarget if the endDrag didn't already snap.
+      // For toggle/slider: endToggleDrag/endSliderDrag DON'T snap (they
+      // return the raw fraction), so setTarget is needed.
+      // For tabs: endTabDrag DOES snap (sets targetFraction to rounded
+      // index), so setTarget would be redundant and would zero velocity
+      // (fighting the spring). Skip setTarget for tabs (count != undefined
+      // && endDrag already snapped).
+      if (snap && count == null) setTarget(r, groupId, snappedF, count)
       onValueChange(snappedF)
       draggingGroups.delete(groupId)
     },
