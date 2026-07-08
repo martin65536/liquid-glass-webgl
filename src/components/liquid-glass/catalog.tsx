@@ -1208,14 +1208,8 @@ function buildToggle(
   const KNOB_REFRACTION_HEIGHT = 5 * DP
   const KNOB_REFRACTION_AMOUNT = -10 * DP
   const KNOB_BLUR_RADIUS = 8 * DP
-  const KNOB_HIGHLIGHT: GlassHighlight = {
-    mode: 1, // Ambient
-    color: [1, 1, 1], // unused for Ambient (shader uses step(0,d)), but set for consistency
-    angle: 45 * Math.PI / 180,
-    falloff: 1.0,
-    alpha: 1.0, // renderer modulates by progress
-    widthDp: 0.5 / 1.5, // Highlight.Ambient.width / 1.5 = 0.5dp / 1.5
-  }
+  // No highlight on the toggle knob (per user request — all knobs plain).
+  const KNOB_HIGHLIGHT: GlassHighlight | null = null
   // Shadow(radius=4dp, color=Black.copy(alpha=0.05f))
   // Default offset = DpOffset(0, radius/6) = (0, 4/6 dp)
   const KNOB_OUTER_SHADOW = {
