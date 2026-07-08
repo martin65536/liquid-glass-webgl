@@ -15,8 +15,8 @@ import {
   applyVerticalCenter,
   makeBackButton,
   makeButton,
+  makeLiquidSlider,
   makeText,
-  makeSettingsSlider,
 } from './helpers'
 
 /* ------------------------------------------------------------------ *
@@ -51,34 +51,37 @@ export function buildSettings(
     )
   )
 
-  // DPR slider — dedicated stepped slider (step 0.25, no knob highlight).
-  // Max is the device DPR; full [0,1] range maps linearly to [minDpr, maxDpr].
+  // DPR slider — stepped (step 0.25), liveUpdate, initial position from currentDpr.
+  // Reuses makeLiquidSlider with initFraction + snap params.
   const deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
   const minDpr = 0.5
   const maxDpr = deviceDpr
   const dprRange = Math.max(0.0001, maxDpr - minDpr)
   const currentDpr = state.customDpr > 0 ? Math.max(minDpr, Math.min(maxDpr, state.customDpr)) : deviceDpr
+  const initFrac = (currentDpr - minDpr) / dprRange
+  const stepCount = Math.max(1, Math.round(dprRange / 0.25))
+  const snapFrac = (f: number) => Math.max(0, Math.min(1, Math.round(f * stepCount) / stepCount))
+  const fracToDpr = (f: number) => minDpr + f * dprRange
 
   const sliderY = 60
   const trackX = pad
   const trackW = W - 2 * pad
   const trackY = sliderY + (24 - 6) / 2
 
-  const dprSlider = makeSettingsSlider(
+  const dprSlider = makeLiquidSlider(
+    'settings-dpr',
     trackX,
     trackY,
     trackW,
     'settings-dpr',
-    minDpr,
-    maxDpr,
-    0.25, // step
-    currentDpr,
     palette.sliderTrackOff,
     palette.sliderAccent,
     rendererRef,
-    (val) => {
-      setState({ customDpr: val })
-    }
+    (f) => { setState({ customDpr: fracToDpr(f) }) },
+    true,    // scroll
+    true,    // liveUpdate
+    initFrac,
+    snapFrac,
   )
   elements.push(...dprSlider.elements)
   Object.assign(interactions, dprSlider.interactions)

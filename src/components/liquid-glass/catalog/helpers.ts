@@ -164,13 +164,16 @@ export function makeLiquidSlider(
   rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> | null,
   onValueChange: (fraction: number) => void,
   scroll = true,
-  liveUpdate = false
+  liveUpdate = false,
+  initFraction = 0,
+  snap?: (f: number) => number,
 ): { elements: GlassElementConfig[]; interactions: Record<string, ElementInteraction> } {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
   const dragW = trackW - SLIDER_KNOB_W / 2
   const knobBaseX = trackX - SLIDER_KNOB_W / 4
   const knobY = trackY + (SLIDER_TRACK_H - SLIDER_KNOB_H) / 2
+  const knobX = knobBaseX + initFraction * dragW
 
   // Track
   const trackEl = makePlainRect(`${idPrefix}-track`, { x: trackX, y: trackY, w: trackW, h: SLIDER_TRACK_H }, trackColor, SLIDER_TRACK_H / 2)
@@ -179,7 +182,8 @@ export function makeLiquidSlider(
   elements.push(trackEl)
 
   // Fill — width driven by renderer via isSliderFill
-  const fillEl = makePlainRect(`${idPrefix}-fill`, { x: trackX, y: trackY, w: SLIDER_TRACK_H, h: SLIDER_TRACK_H }, [...accentColor, 1], SLIDER_TRACK_H / 2)
+  const fillW = Math.max(SLIDER_TRACK_H, initFraction * trackW)
+  const fillEl = makePlainRect(`${idPrefix}-fill`, { x: trackX, y: trackY, w: fillW, h: SLIDER_TRACK_H }, [...accentColor, 1], SLIDER_TRACK_H / 2)
   fillEl.isSliderFill = { groupId, trackX, trackW, knobW: SLIDER_KNOB_W, minW: 0 }
   fillEl.scroll = scroll
   elements.push(fillEl)
@@ -187,7 +191,7 @@ export function makeLiquidSlider(
   // Knob — frosted white at rest, glass when pressed (no highlight)
   const knobEl = makeGlassShape(
     `${idPrefix}-knob`,
-    { x: knobBaseX, y: knobY, w: SLIDER_KNOB_W, h: SLIDER_KNOB_H },
+    { x: knobX, y: knobY, w: SLIDER_KNOB_W, h: SLIDER_KNOB_H },
     {
       cornerRadius: SLIDER_KNOB_H / 2,
       refractionHeight: 10 * DP,
@@ -203,13 +207,14 @@ export function makeLiquidSlider(
     scroll
   )
   knobEl.isToggleKnob = { groupId, dragWidth: dragW, velocityDivisor: 10 }
-  knobEl.hitRect = { x: knobBaseX, y: knobY + (SLIDER_KNOB_H - SLIDER_HIT_H) / 2, w: SLIDER_KNOB_W, h: SLIDER_HIT_H }
+  knobEl.hitRect = { x: knobX, y: knobY + (SLIDER_KNOB_H - SLIDER_HIT_H) / 2, w: SLIDER_KNOB_W, h: SLIDER_HIT_H }
   elements.push(knobEl)
 
   // Interactions — unified drag pattern via makeDragInteractions.
   const interact = makeDragInteractions({
     groupId, trackX, dragW, rendererRef, onValueChange,
     ...sliderDragBindings,
+    snap,
     liveUpdate,
   })
   interactions[`${idPrefix}-track`] = interact
@@ -608,103 +613,3 @@ export function applyVerticalCenter(
   return contentHeight + yOffset
 }
 
-/* ------------------------------------------------------------------ *
- * makeSettingsSlider — a dedicated stepped slider for the Settings
- * page. Uses the same relative-drag pattern as makeLiquidSlider
- * (dragStates Map survives re-renders), with step-snap on release.
- *
- * - full [0,1] slider range maps linearly to [minVal, maxVal]
- * - value snaps to the nearest `step` increment on release
- * - knob: glass shape with highlight: null (no rim highlight)
- * - drag: relative (knob follows finger delta) + snap-to-detent on release
- * ------------------------------------------------------------------ */
-export function makeSettingsSlider(
-  trackX: number,
-  trackY: number,
-  trackW: number,
-  groupId: string,
-  minVal: number,
-  maxVal: number,
-  step: number,
-  currentVal: number,
-  trackColor: [number, number, number, number],
-  accentColor: [number, number, number],
-  rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> | null,
-  onValueChange: (val: number) => void
-): { elements: GlassElementConfig[]; interactions: Record<string, ElementInteraction> } {
-  const elements: GlassElementConfig[] = []
-  const interactions: Record<string, ElementInteraction> = {}
-
-  const range = Math.max(1e-6, maxVal - minVal)
-  const stepCount = Math.max(1, Math.round(range / step))
-  const valToFrac = (v: number) => Math.max(0, Math.min(1, (v - minVal) / range))
-  const snapFrac = (f: number) => Math.max(0, Math.min(1, Math.round(f * stepCount) / stepCount))
-  const fracToVal = (f: number) => minVal + f * range
-
-  const dragW = trackW - SLIDER_KNOB_W / 2
-  const knobBaseX = trackX - SLIDER_KNOB_W / 4
-  const knobY = trackY + (SLIDER_TRACK_H - SLIDER_KNOB_H) / 2
-  const initFrac = valToFrac(currentVal)
-
-  // Track — full-width plain rect with expanded 48dp touch target.
-  const trackEl = makePlainRect(
-    `${groupId}-track`,
-    { x: trackX, y: trackY, w: trackW, h: SLIDER_TRACK_H },
-    trackColor,
-    SLIDER_TRACK_H / 2
-  )
-  trackEl.hitRect = { x: trackX, y: trackY + (SLIDER_TRACK_H - SLIDER_HIT_H) / 2, w: trackW, h: SLIDER_HIT_H }
-  trackEl.scroll = true
-  elements.push(trackEl)
-
-  // Fill — width driven by the renderer via isSliderFill.
-  const fillEl = makePlainRect(
-    `${groupId}-fill`,
-    { x: trackX, y: trackY, w: Math.max(SLIDER_TRACK_H, initFrac * trackW), h: SLIDER_TRACK_H },
-    [...accentColor, 1],
-    SLIDER_TRACK_H / 2
-  )
-  fillEl.isSliderFill = { groupId, trackX, trackW, knobW: SLIDER_KNOB_W, minW: 0 }
-  fillEl.scroll = true
-  elements.push(fillEl)
-
-  // Knob — glass shape with NO highlight (faithful to settings knob).
-  const knobEl = makeGlassShape(
-    `${groupId}-knob`,
-    { x: knobBaseX + initFrac * dragW, y: knobY, w: SLIDER_KNOB_W, h: SLIDER_KNOB_H },
-    {
-      cornerRadius: SLIDER_KNOB_H / 2,
-      refractionHeight: 10 * DP,
-      refractionAmount: -14 * DP,
-      blurRadius: 8 * DP,
-      saturation: 1.0,
-      surfaceColor: [0, 0, 0, 0],
-      highlight: null,
-      outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: (4 / 6) * DP, color: [0, 0, 0] },
-      innerShadow: { radius: 4 * DP, alpha: 0.15, offsetX: 0, offsetY: 4 * DP },
-      chromaticAberration: true,
-    },
-    true
-  )
-  knobEl.isToggleKnob = { groupId, dragWidth: dragW, velocityDivisor: 10 }
-  knobEl.hitRect = {
-    x: knobBaseX + initFrac * dragW,
-    y: knobY + (SLIDER_KNOB_H - SLIDER_HIT_H) / 2,
-    w: SLIDER_KNOB_W,
-    h: SLIDER_HIT_H,
-  }
-  elements.push(knobEl)
-
-  // Interactions — unified drag pattern with step snap + liveUpdate.
-  const interact = makeDragInteractions({
-    groupId, trackX, dragW, rendererRef,
-    onValueChange: (f) => onValueChange(fracToVal(f)),
-    ...sliderDragBindings,
-    snap: snapFrac,
-    liveUpdate: true,
-  })
-  interactions[`${groupId}-track`] = interact
-  interactions[`${groupId}-knob`] = interact
-
-  return { elements, interactions }
-}
