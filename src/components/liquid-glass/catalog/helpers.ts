@@ -160,7 +160,11 @@ export const toggleDragBindings = {
 export const tabDragBindings = {
   getFraction: (r: LiquidGlassRenderer, id: string, count?: number) => {
     const c = count ?? 3
-    return r.getTabFraction(id) / Math.max(1, c - 1)
+    // Use TARGET (not animated) fraction — faithful to the original which
+    // uses `targetValue` in onDrag, not the animated value. Starting a drag
+    // from the animated value (mid-spring) causes drift because the spring's
+    // residual motion adds to the finger delta.
+    return r.getTabTarget(id) / Math.max(1, c - 1)
   },
   beginDrag: (r: LiquidGlassRenderer, id: string, f: number, count?: number) => {
     const c = count ?? 3
