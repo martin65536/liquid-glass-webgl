@@ -4,7 +4,7 @@ import { DP } from './spring'
 
 declare module './index' {
   interface LiquidGlassRenderer {
-    renderGlassElementPass(state: GlassRenderState, curTex: WebGLTexture): void
+    renderGlassElementPass(state: GlassRenderState, curTex: WebGLTexture, destFbo: WebGLFramebuffer, blurredSceneTex: WebGLTexture | null): void
   }
 }
 
@@ -16,7 +16,9 @@ export const glassElementPassMethods = {
   renderGlassElementPass(
     this: LiquidGlassRenderer,
     state: GlassRenderState,
-    curTex: WebGLTexture
+    curTex: WebGLTexture,
+    destFbo: WebGLFramebuffer,
+    blurredSceneTex: WebGLTexture | null
   ) {
     const gl = this.gl
     const { el, sx, sy, sw, sh, radii, togglePressProgress, layerScale } = state
@@ -46,6 +48,13 @@ export const glassElementPassMethods = {
       gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture)
       gl.uniform1i(this.uEl['uWallpaperSampler'], 1)
     }
+
+    // Bind the pre-blurred scene FBO (2-pass separable Gaussian, Skia-exact)
+    // to TEXTURE12. The element shader's sampleBackdrop samples this when
+    // uBlurRadius >= 0.5. Falls back to curTex if no blur was computed.
+    gl.activeTexture(gl.TEXTURE12)
+    gl.bindTexture(gl.TEXTURE_2D, blurredSceneTex || curTex)
+    gl.uniform1i(this.uEl['uBlurredScene'], 12)
 
     // uTabsBackdropSampler (TEXTURE2) is no longer bound — the faithful
     // sampleIndicatorBackdrop computes the tinted layer inline (wallpaper +

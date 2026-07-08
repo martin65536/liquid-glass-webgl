@@ -14,6 +14,11 @@ import {
   COPY_FRAGMENT_SHADER,
   SOLID_FILL_FRAGMENT_SHADER,
   SCENE_TINT_FRAGMENT_SHADER,
+  BLUR_SEPARABLE_FRAGMENT_SHADER,
+  BLUR_SEPARABLE_VERTEX_SHADER,
+  BLUR_MAX_RADIUS,
+  computeGaussianKernel,
+  padKernelToShaderArray,
 } from '../shaders'
 import { createProgram } from './gl-utils'
 import type {
@@ -58,6 +63,7 @@ export class LiquidGlassRenderer {
   solidFillProgram: WebGLProgram
   sceneTintProgram: WebGLProgram
   quadBuffer: WebGLBuffer
+  blurProgram: WebGLProgram
   wallpaperTexture: WebGLTexture | null = null
   wallpaperReady = false
   wallpaperSize: [number, number] = [1, 1]
@@ -99,6 +105,14 @@ export class LiquidGlassRenderer {
   tabsBackdropFbo: WebGLFramebuffer | null = null
   tabsBackdropTex: WebGLTexture | null = null
   tabsBackdropDirty = true
+
+  // --- 2-pass separable Gaussian blur temp FBOs (Skia-exact) ---
+  blurTempFboA: WebGLFramebuffer | null = null
+  blurTempTexA: WebGLTexture | null = null
+  blurTempFboB: WebGLFramebuffer | null = null
+  blurTempTexB: WebGLTexture | null = null
+  _blurTempW = 0
+  _blurTempH = 0
   // SDF texture (clock_sdf) for LockScreen glass
   sdfTexture: WebGLTexture | null = null
   sdfTextureReady = false
@@ -125,6 +139,7 @@ export class LiquidGlassRenderer {
   aPosLocCp: number
   aPosLocSf: number
   aPosLocSt: number
+  aPosLocBl: number
 
   // Program uniform locations (cached)
   uEl: Record<string, WebGLUniformLocation | null> = {}
@@ -139,6 +154,7 @@ export class LiquidGlassRenderer {
   uCp: Record<string, WebGLUniformLocation | null> = {}
   uSf: Record<string, WebGLUniformLocation | null> = {}
   uSt: Record<string, WebGLUniformLocation | null> = {}
+  uBl: Record<string, WebGLUniformLocation | null> = {}
 
   /** The pressed scale for bottom tabs indicator (78f/56f in Kotlin). */
   static readonly TAB_PRESSED_SCALE = 78 / 56
@@ -166,6 +182,7 @@ export class LiquidGlassRenderer {
     this.copyProgram = createProgram(gl, VERTEX_SHADER, COPY_FRAGMENT_SHADER)
     this.solidFillProgram = createProgram(gl, VERTEX_SHADER, SOLID_FILL_FRAGMENT_SHADER)
     this.sceneTintProgram = createProgram(gl, VERTEX_SHADER, SCENE_TINT_FRAGMENT_SHADER)
+    this.blurProgram = createProgram(gl, BLUR_SEPARABLE_VERTEX_SHADER, BLUR_SEPARABLE_FRAGMENT_SHADER)
 
     // Fullscreen quad
     this.quadBuffer = gl.createBuffer()!
@@ -188,6 +205,7 @@ export class LiquidGlassRenderer {
     this.aPosLocCp = gl.getAttribLocation(this.copyProgram, 'aPos')
     this.aPosLocSf = gl.getAttribLocation(this.solidFillProgram, 'aPos')
     this.aPosLocSt = gl.getAttribLocation(this.sceneTintProgram, 'aPos')
+    this.aPosLocBl = gl.getAttribLocation(this.blurProgram, 'aPos')
 
     // Offscreen 2D canvas for the foreground texture.
     this.fgCanvas = typeof document !== 'undefined' ? document.createElement('canvas') : (null as any)
@@ -201,7 +219,7 @@ export class LiquidGlassRenderer {
   cacheUniforms() {
     const gl = this.gl
     const elNames = [
-      'uBackdrop', 'uWallpaperSampler', 'uTabsBackdropSampler', 'uCanvasSize', 'uWallpaperSize', 'uElementOffset', 'uElementSize',
+      'uBackdrop', 'uBlurredScene', 'uWallpaperSampler', 'uTabsBackdropSampler', 'uCanvasSize', 'uWallpaperSize', 'uElementOffset', 'uElementSize',
       'uCornerRadii', 'uRefractionHeight', 'uRefractionAmount', 'uDepthEffect',
       'uChromaticAberration', 'uBlurRadius', 'uSaturation', 'uBrightness',
       'uContrast', 'uTintColor', 'uSurfaceColor', 'uHighlightColor',
@@ -262,6 +280,14 @@ export class LiquidGlassRenderer {
     for (const n of sfNames) this.uSf[n] = gl.getUniformLocation(this.solidFillProgram, n)
     const stNames = ['uTexture', 'uCanvasSize', 'uTintColor']
     for (const n of stNames) this.uSt[n] = gl.getUniformLocation(this.sceneTintProgram, n)
+    // Blur separable uniforms
+    this.uBl['uTexture'] = gl.getUniformLocation(this.blurProgram, 'uTexture')
+    this.uBl['uTexelSize'] = gl.getUniformLocation(this.blurProgram, 'uTexelSize')
+    this.uBl['uDirection'] = gl.getUniformLocation(this.blurProgram, 'uDirection')
+    this.uBl['uRadius'] = gl.getUniformLocation(this.blurProgram, 'uRadius')
+    for (let i = 0; i < BLUR_MAX_RADIUS * 2 + 1; i++) {
+      this.uBl[`uWeights[${i}]`] = gl.getUniformLocation(this.blurProgram, `uWeights[${i}]`)
+    }
   }
 
   dispose() {
@@ -297,6 +323,11 @@ export class LiquidGlassRenderer {
     gl.deleteProgram(this.copyProgram)
     gl.deleteProgram(this.solidFillProgram)
     gl.deleteProgram(this.sceneTintProgram)
+    gl.deleteProgram(this.blurProgram)
+    if (this.blurTempFboA) gl.deleteFramebuffer(this.blurTempFboA)
+    if (this.blurTempTexA) gl.deleteTexture(this.blurTempTexA)
+    if (this.blurTempFboB) gl.deleteFramebuffer(this.blurTempFboB)
+    if (this.blurTempTexB) gl.deleteTexture(this.blurTempTexB)
     gl.deleteBuffer(this.quadBuffer)
   }
 }
@@ -316,6 +347,7 @@ import { renderMethods } from './methods-render'
 import { glassRenderMethods } from './methods-render-glass'
 import { glassElementPassMethods } from './methods-render-glass-element-pass'
 import { glassPostPassMethods } from './methods-render-glass-post-passes'
+import { blurMethods } from './methods-blur'
 
 Object.assign(
   LiquidGlassRenderer.prototype,
@@ -330,7 +362,8 @@ Object.assign(
   renderMethods,
   glassRenderMethods,
   glassElementPassMethods,
-  glassPostPassMethods
+  glassPostPassMethods,
+  blurMethods
 )
 
 // Re-export all public types so callers can `import type { GlassElementConfig, ... } from './renderer'`.

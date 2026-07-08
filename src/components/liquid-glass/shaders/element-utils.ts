@@ -51,51 +51,17 @@ vec2 sceneUv(vec2 canvasPx) {
     return vec2(canvasPx.x / uCanvasSize.x, 1.0 - canvasPx.y / uCanvasSize.y);
 }
 
-// 25-tap Gaussian Vogel-disk blur (σ = radius, 3σ range, Skia-faithful).
-// The original uses Compose BlurEffect(radius, radius) → Skia
-// RenderEffect.createBlurEffect with sigma = radius. Skia implements this as
-// a 3-pass separable box-blur converging to a true 2D Gaussian with 3σ range.
-// We approximate the exact 2D Gaussian in a single pass using 25 taps on a
-// Vogel spiral (golden-angle) covering the full 3σ disc, with true Gaussian
-// weights exp(-r²/2σ²) normalized to 1.0. This matches Skia's result to
-// within sampling noise. radius < 0.5 falls back to single tap.
+// 2-pass separable Gaussian blur is done OFFLINE (CPU side, via FBO passes
+// in methods-blur.ts) into uBlurredScene — faithful to Skia's
+// RenderEffect.createBlurEffect (sigma=radius*0.57735+0.5, half-width=
+// ceil(sigma*3), normalized exp kernel, clamp-to-edge). The shader samples
+// the pre-blurred scene texture. radius < 0.5 falls back to uBackdrop.
 vec4 sampleBackdrop(vec2 canvasPx, float radius) {
     vec2 uv = sceneUv(canvasPx);
     if (radius < 0.5) {
         return texture2D(uBackdrop, uv);
     }
-    vec2 pxToUv = radius / uCanvasSize;
-    vec4 sum = vec4(0.0);
-
-    // Center tap (r=0)
-    sum += texture2D(uBackdrop, uv) * 0.172560;
-    // Vogel spiral taps (r = sqrt(i/24)*3.0, theta = i*golden_angle, σ=1)
-    sum += texture2D(uBackdrop, uv + vec2(-0.4515,  0.4137) * pxToUv) * 0.143057;
-    sum += texture2D(uBackdrop, uv + vec2( 0.0757, -0.8627) * pxToUv) * 0.118599;
-    sum += texture2D(uBackdrop, uv + vec2( 0.6453,  0.8417) * pxToUv) * 0.098322;
-    sum += texture2D(uBackdrop, uv + vec2(-1.2060, -0.2133) * pxToUv) * 0.081512;
-    sum += texture2D(uBackdrop, uv + vec2( 1.1554, -0.7349) * pxToUv) * 0.067576;
-    sum += texture2D(uBackdrop, uv + vec2(-0.3894,  1.4486) * pxToUv) * 0.056022;
-    sum += texture2D(uBackdrop, uv + vec2(-0.7468, -1.4378) * pxToUv) * 0.046444;
-    sum += texture2D(uBackdrop, uv + vec2( 1.6270,  0.5942) * pxToUv) * 0.038503;
-    sum += texture2D(uBackdrop, uv + vec2(-1.6981,  0.7010) * pxToUv) * 0.031920;
-    sum += texture2D(uBackdrop, uv + vec2( 0.8208, -1.7539) * pxToUv) * 0.026463;
-    sum += texture2D(uBackdrop, uv + vec2( 0.6078,  1.9379) * pxToUv) * 0.021939;
-    sum += texture2D(uBackdrop, uv + vec2(-1.8354, -1.0636) * pxToUv) * 0.018188;
-    sum += texture2D(uBackdrop, uv + vec2( 2.1564, -0.4741) * pxToUv) * 0.015078;
-    sum += texture2D(uBackdrop, uv + vec2(-1.3178,  1.8744) * pxToUv) * 0.012500;
-    sum += texture2D(uBackdrop, uv + vec2(-0.3048, -2.3520) * pxToUv) * 0.010363;
-    sum += texture2D(uBackdrop, uv + vec2( 1.8730,  1.5786) * pxToUv) * 0.008591;
-    sum += texture2D(uBackdrop, uv + vec2(-2.5227,  0.1043) * pxToUv) * 0.007122;
-    sum += texture2D(uBackdrop, uv + vec2( 1.8416, -1.8326) * pxToUv) * 0.005905;
-    sum += texture2D(uBackdrop, uv + vec2(-0.1233,  2.6664) * pxToUv) * 0.004895;
-    sum += texture2D(uBackdrop, uv + vec2(-1.7547, -2.1027) * pxToUv) * 0.004058;
-    sum += texture2D(uBackdrop, uv + vec2( 2.7812,  0.3742) * pxToUv) * 0.003364;
-    sum += texture2D(uBackdrop, uv + vec2(-2.3577,  1.6405) * pxToUv) * 0.002789;
-    sum += texture2D(uBackdrop, uv + vec2( 0.6446, -2.8652) * pxToUv) * 0.002312;
-    sum += texture2D(uBackdrop, uv + vec2( 1.4915,  2.6029) * pxToUv) * 0.001917;
-
-    return sum;
+    return texture2D(uBlurredScene, uv);
 }
 
 // --- Toggle knob CombinedBackdrop sampling (faithful to LiquidToggle.kt) ---

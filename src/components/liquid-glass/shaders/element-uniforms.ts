@@ -5,6 +5,7 @@
  * ------------------------------------------------------------------ */
 export const ELEMENT_UNIFORMS_GLSL = /* glsl */ `
 uniform sampler2D uBackdrop;
+uniform sampler2D uBlurredScene;  // pre-blurred scene FBO (2-pass separable Gaussian, Skia-exact)
 uniform sampler2D uWallpaperSampler;  // wallpaper texture (unscaled backdrop for toggle knobs)
 uniform sampler2D uTabsBackdropSampler;  // tabsBackdrop FBO (tinted scene for indicator CombinedBackdrop)
 uniform vec2  uCanvasSize;        // canvas size in px
