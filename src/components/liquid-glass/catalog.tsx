@@ -373,6 +373,120 @@ function measureTextWidth(text: string, fontPx: number, weight = 400): number {
 }
 
 /* ------------------------------------------------------------------ *
+ * Shared LiquidSlider factory — used by both the Slider page and the
+ * Glass Playground. Creates track + fill + knob + interactions.
+ * ------------------------------------------------------------------ */
+const SLIDER_TRACK_H = 6 * DP
+const SLIDER_KNOB_W = 40 * DP
+const SLIDER_KNOB_H = 24 * DP
+const SLIDER_HIT_H = 48 * DP
+
+function makeLiquidSlider(
+  idPrefix: string,
+  trackX: number,
+  trackY: number,
+  trackW: number,
+  groupId: string,
+  trackColor: [number, number, number, number],
+  accentColor: [number, number, number],
+  rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> | null,
+  onValueChange: (fraction: number) => void,
+  scroll = true
+): { elements: GlassElementConfig[]; interactions: Record<string, ElementInteraction> } {
+  const elements: GlassElementConfig[] = []
+  const interactions: Record<string, ElementInteraction> = {}
+  const dragW = trackW - SLIDER_KNOB_W / 2
+  const knobBaseX = trackX - SLIDER_KNOB_W / 4
+  const knobY = trackY + (SLIDER_TRACK_H - SLIDER_KNOB_H) / 2
+
+  // Track
+  const trackEl = makePlainRect(`${idPrefix}-track`, { x: trackX, y: trackY, w: trackW, h: SLIDER_TRACK_H }, trackColor, SLIDER_TRACK_H / 2)
+  trackEl.hitRect = { x: trackX, y: trackY + (SLIDER_TRACK_H - SLIDER_HIT_H) / 2, w: trackW, h: SLIDER_HIT_H }
+  trackEl.scroll = scroll
+  elements.push(trackEl)
+
+  // Fill
+  const fillEl = makePlainRect(`${idPrefix}-fill`, { x: trackX, y: trackY, w: SLIDER_TRACK_H, h: SLIDER_TRACK_H }, [...accentColor, 1], SLIDER_TRACK_H / 2)
+  fillEl.isSliderFill = { groupId, trackX, trackW, knobW: SLIDER_KNOB_W, minW: 0 }
+  fillEl.scroll = scroll
+  elements.push(fillEl)
+
+  // Knob
+  const knobEl = makeGlassShape(
+    `${idPrefix}-knob`,
+    { x: knobBaseX, y: knobY, w: SLIDER_KNOB_W, h: SLIDER_KNOB_H },
+    {
+      cornerRadius: SLIDER_KNOB_H / 2,
+      refractionHeight: 10 * DP,
+      refractionAmount: -14 * DP,
+      blurRadius: 8 * DP,
+      saturation: 1.0,
+      surfaceColor: [0, 0, 0, 0],
+      highlight: { mode: 1, color: [1, 1, 1], angle: 45 * Math.PI / 180, falloff: 1.0, alpha: 1.0, widthDp: 0.5 / 1.5 },
+      outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: (4 / 6) * DP, color: [0, 0, 0] },
+      innerShadow: { radius: 4 * DP, alpha: 0.15, offsetX: 0, offsetY: 4 * DP },
+      chromaticAberration: true,
+    },
+    scroll
+  )
+  knobEl.isToggleKnob = { groupId, dragWidth: dragW, velocityDivisor: 10 }
+  knobEl.hitRect = { x: knobBaseX, y: knobY + (SLIDER_KNOB_H - SLIDER_HIT_H) / 2, w: SLIDER_KNOB_W, h: SLIDER_HIT_H }
+  elements.push(knobEl)
+
+  // Interactions — relative drag (same as Slider page)
+  let dragStartFraction = 0
+  let dragStartX = 0
+  const trackInteract: ElementInteraction = {
+    onTap: (pos) => {
+      const f = Math.max(0, Math.min(1, (pos.x - trackX) / dragW))
+      onValueChange(f)
+    },
+    onDragStart: (pos) => {
+      const r = rendererRef?.current
+      if (!r) return
+      dragStartFraction = r.getToggleFraction(groupId)
+      dragStartX = pos.x
+      r.beginToggleDrag(groupId, dragStartFraction)
+    },
+    onDrag: (pos) => {
+      const r = rendererRef?.current
+      if (!r) return
+      r.dragToggle(groupId, dragStartFraction, pos.x, dragStartX, dragW)
+    },
+    onDragEnd: () => {
+      const r = rendererRef?.current
+      if (!r) return
+      const f = r.endSliderDrag(groupId)
+      onValueChange(f)
+    },
+  }
+  const knobInteract: ElementInteraction = {
+    onDragStart: (pos) => {
+      const r = rendererRef?.current
+      if (!r) return
+      dragStartFraction = r.getToggleFraction(groupId)
+      dragStartX = pos.x
+      r.beginToggleDrag(groupId, dragStartFraction)
+    },
+    onDrag: (pos) => {
+      const r = rendererRef?.current
+      if (!r) return
+      r.dragToggle(groupId, dragStartFraction, pos.x, dragStartX, dragW)
+    },
+    onDragEnd: () => {
+      const r = rendererRef?.current
+      if (!r) return
+      const f = r.endSliderDrag(groupId)
+      onValueChange(f)
+    },
+  }
+  interactions[`${idPrefix}-track`] = trackInteract
+  interactions[`${idPrefix}-knob`] = knobInteract
+
+  return { elements, interactions }
+}
+
+/* ------------------------------------------------------------------ *
  * Element factory helpers (shared across all destinations).
  * ------------------------------------------------------------------ */
 function makeButton(
@@ -2421,12 +2535,9 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
     { key: 'chromaticAberration', label: 'Chromatic aberration', range: [0, 1], val: state.chromaticAberration },
   ] as const
 
-  const SLIDER_PAD = 24 * DP
-  const SLIDER_TRACK_H = 6 * DP
-  const SLIDER_KNOB_W = 40 * DP
-  const SLIDER_KNOB_H = 24 * DP
-  const SLIDER_HIT_H = 48 * DP
-  const trackW = sheetW - 2 * SLIDER_PAD - 48 // inner padding
+  const GP_PAD = 24 * DP
+  const gpTrackX = sheetX + 24
+  const gpTrackW = sheetW - 2 * GP_PAD - 48
 
   let labelY = sheetY + 24
   let sliderIdx = 0
@@ -2449,97 +2560,27 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
     )
     labelY += 24
 
-    // Track + fill + knob — same as the Slider page (isToggleKnob + isSliderFill)
+    // Slider — shared factory (same component as the Slider page)
     const groupId = `gp-slider-${sliderIdx++}`
-    const trackX = sheetX + 24
-    const fraction = (s.val - s.range[0]) / (s.range[1] - s.range[0])
-    const knobBaseX = trackX - SLIDER_KNOB_W / 4
-    const knobY = labelY + (SLIDER_TRACK_H - SLIDER_KNOB_H) / 2
-
-    // Track (background, off color)
-    const trackEl = makePlainRect(`gp-track-${s.key}`, { x: trackX, y: labelY, w: trackW, h: SLIDER_TRACK_H }, SLIDER_TRACK, SLIDER_TRACK_H / 2)
-    trackEl.hitRect = { x: trackX, y: labelY + (SLIDER_TRACK_H - SLIDER_HIT_H) / 2, w: trackW, h: SLIDER_HIT_H }
-    elements.push(trackEl)
-
-    // Fill (accent color) — width driven by renderer via isSliderFill
-    const fillEl = makePlainRect(`gp-fill-${s.key}`, { x: trackX, y: labelY, w: SLIDER_TRACK_H, h: SLIDER_TRACK_H }, [...SLIDER_ACCENT, 1], SLIDER_TRACK_H / 2)
-    fillEl.isSliderFill = { groupId, trackX, trackW, knobW: SLIDER_KNOB_W, minW: 0 }
-    elements.push(fillEl)
-
-    // Knob — same frosted-white-at-rest style as the Slider page
-    const knobEl = makeGlassShape(
-      `gp-knob-${s.key}`,
-      { x: knobBaseX, y: knobY, w: SLIDER_KNOB_W, h: SLIDER_KNOB_H },
-      {
-        cornerRadius: SLIDER_KNOB_H / 2,
-        refractionHeight: 10 * DP,
-        refractionAmount: -14 * DP,
-        blurRadius: 8 * DP,
-        saturation: 1.0,
-        surfaceColor: [0, 0, 0, 0],
-        highlight: { mode: 1, color: [1, 1, 1], angle: 45 * Math.PI / 180, falloff: 1.0, alpha: 1.0, widthDp: 0.5 / 1.5 },
-        outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: (4 / 6) * DP, color: [0, 0, 0] },
-        innerShadow: { radius: 4 * DP, alpha: 0.15, offsetX: 0, offsetY: 4 * DP },
-        chromaticAberration: true,
-      }
-    )
-    knobEl.isToggleKnob = { groupId, dragWidth: trackW - SLIDER_KNOB_W / 2, velocityDivisor: 10 }
-    knobEl.hitRect = { x: knobBaseX, y: knobY + (SLIDER_KNOB_H - SLIDER_HIT_H) / 2, w: SLIDER_KNOB_W, h: SLIDER_HIT_H }
-    elements.push(knobEl)
-
-    // Interactions — same pattern as the Slider page (relative drag on track + knob)
-    const key = s.key
     const range = s.range
-    const dragW = trackW - SLIDER_KNOB_W / 2
-    let dragStartFraction = 0
-    let dragStartX = 0
-    interactions[`gp-track-${key}`] = {
-      onTap: (pos) => {
-        const f = Math.max(0, Math.min(1, (pos.x - trackX) / dragW))
+    const slider = makeLiquidSlider(
+      `gp-${s.key}`,
+      gpTrackX,
+      labelY,
+      gpTrackW,
+      groupId,
+      SLIDER_TRACK,
+      SLIDER_ACCENT,
+      rendererRef,
+      (f) => {
         const v = range[0] + (range[1] - range[0]) * f
-        setState({ [key]: v } as Partial<CatalogState>)
+        setState({ [s.key]: v } as Partial<CatalogState>)
       },
-      onDragStart: (pos) => {
-        const r = rendererRef?.current
-        if (!r) return
-        dragStartFraction = r.getToggleFraction(groupId)
-        dragStartX = pos.x
-        r.beginToggleDrag(groupId, dragStartFraction)
-      },
-      onDrag: (pos) => {
-        const r = rendererRef?.current
-        if (!r) return
-        r.dragToggle(groupId, dragStartFraction, pos.x, dragStartX, dragW)
-      },
-      onDragEnd: () => {
-        const r = rendererRef?.current
-        if (!r) return
-        const f = r.endSliderDrag(groupId)
-        const v = range[0] + (range[1] - range[0]) * f
-        setState({ [key]: v } as Partial<CatalogState>)
-      },
-    }
-    interactions[`gp-knob-${key}`] = {
-      onDragStart: (pos) => {
-        const r = rendererRef?.current
-        if (!r) return
-        dragStartFraction = r.getToggleFraction(groupId)
-        dragStartX = pos.x
-        r.beginToggleDrag(groupId, dragStartFraction)
-      },
-      onDrag: (pos) => {
-        const r = rendererRef?.current
-        if (!r) return
-        r.dragToggle(groupId, dragStartFraction, pos.x, dragStartX, dragW)
-      },
-      onDragEnd: () => {
-        const r = rendererRef?.current
-        if (!r) return
-        const f = r.endSliderDrag(groupId)
-        const v = range[0] + (range[1] - range[0]) * f
-        setState({ [key]: v } as Partial<CatalogState>)
-      },
-    }
+      false // scroll = false (inside the fixed sheet)
+    )
+    elements.push(...slider.elements)
+    Object.assign(interactions, slider.interactions)
+
     labelY += 36
   }
 
