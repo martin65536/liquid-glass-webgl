@@ -2772,7 +2772,8 @@ export function buildCatalog(
   onBack: () => void,
   rendererRef?: React.MutableRefObject<LiquidGlassRenderer | null>,
   isLightTheme: boolean = true,
-  onToggleTheme?: () => void
+  onToggleTheme?: () => void,
+  onPickImage?: () => void
 ): CatalogResult {
   const palette = getPalette(isLightTheme)
   let result: CatalogResult
@@ -2831,6 +2832,36 @@ export function buildCatalog(
     const themeBtn = makeThemeToggleButton(onToggleTheme, palette, isLightTheme, W, false)
     result.elements.push(themeBtn.element)
     result.interactions[themeBtn.element.id] = themeBtn.interaction
+  }
+  // "Pick an image" button — faithful to BackdropDemoScaffold.kt's LiquidButton
+  // at the bottom center. Blue tint, 56dp tall capsule. Only on non-Home pages.
+  if (onPickImage && dest !== CatalogDestination.Home) {
+    const pickBtn = makeGlassShape(
+      '__pickimage__',
+      { x: W / 2 - 80, y: H - 16 - 56, w: 160, h: 56 },
+      {
+        cornerRadius: 28 * DP,
+        refractionHeight: 12 * DP,
+        refractionAmount: -24 * DP,
+        blurRadius: 2 * DP,
+        saturation: 1.0,
+        tintColor: palette.controlCenterAccent, // accentColor (blue)
+        surfaceColor: [0, 0, 0, 0],
+        highlight: { ...DEFAULT_HIGHLIGHT },
+        outerShadow: { ...DEFAULT_SHADOW, radius: 12 * DP, alpha: 0.08 },
+        label: 'Pick an image',
+      },
+      false // scroll = false (fixed at bottom)
+    )
+    pickBtn.isInteractive = true
+    pickBtn.scroll = false
+    result.elements.push(pickBtn)
+    result.interactions['__pickimage__'] = {
+      onTap: () => onPickImage(),
+      onDragStart: () => {},
+      onDrag: () => {},
+      onDragEnd: () => {},
+    }
   }
   return result
 }

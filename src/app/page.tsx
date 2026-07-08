@@ -119,7 +119,7 @@ export default function Page() {
   // Build the catalog for the current destination.
   // useMemo so we don't rebuild every render (only when dest/state/W/H/theme change).
   const catalog = React.useMemo(
-    () => buildCatalog(destination, W, H, state, setState, onNavigate, onBack, rendererRef, isLightTheme, toggleTheme),
+    () => buildCatalog(destination, W, H, state, setState, onNavigate, onBack, rendererRef, isLightTheme, toggleTheme, () => fileInputRef.current?.click()),
     [destination, W, H, state, setState, onNavigate, onBack, isLightTheme, toggleTheme]
   )
 
@@ -198,34 +198,7 @@ export default function Page() {
           rendererRef={rendererRef}
           className="w-full h-full"
         />
-        {/* "Pick an image" button — faithful to BackdropDemoScaffold.kt:
-            a LiquidButton at the bottom center that lets the user pick a
-            custom wallpaper image. Hidden on the Home page (no wallpaper). */}
-        {destination !== CatalogDestination.Home && (
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            style={{
-              position: 'absolute',
-              bottom: '16px',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              height: '56px',
-              padding: '0 24px',
-              borderRadius: '28px',
-              border: 'none',
-              background: 'rgba(0, 136, 255, 0.9)',
-              color: 'white',
-              fontSize: '16px',
-              fontWeight: 500,
-              cursor: 'pointer',
-              zIndex: 10,
-              boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-              backdropFilter: 'blur(8px)',
-            }}
-          >
-            Pick an image
-          </button>
-        )}
+        {/* Hidden file input for "Pick an image" — triggered by the canvas button */}
         <input
           ref={fileInputRef}
           type="file"
@@ -237,7 +210,7 @@ export default function Page() {
               const url = URL.createObjectURL(file)
               rendererRef.current?.loadWallpaper(url).catch(() => {})
             }
-            e.target.value = '' // reset so same file can be picked again
+            e.target.value = ''
           }}
         />
       </div>
