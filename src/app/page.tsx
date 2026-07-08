@@ -169,9 +169,13 @@ export default function Page() {
       targets.slider1 = target
       targets.slider2 = target
     }
-    // GlassPlayground sliders are driven by liveUpdate (onDrag → setState),
-    // NOT by toggleTargets (which would conflict with drag fraction).
-    // The knob initial position is set in makeLiquidSlider from the state value.
+    if (destination === CatalogDestination.GlassPlayground) {
+      targets['gp-slider-0'] = state.cornerRadiusFrac
+      targets['gp-slider-1'] = state.blurRadiusDp / 32
+      targets['gp-slider-2'] = state.refractionHeightFrac
+      targets['gp-slider-3'] = state.refractionAmountFrac
+      targets['gp-slider-4'] = state.chromaticAberration
+    }
     return targets
   }, [destination, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration])
 

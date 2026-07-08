@@ -397,17 +397,13 @@ function makeLiquidSlider(
   accentColor: [number, number, number],
   rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> | null,
   onValueChange: (fraction: number) => void,
-  scroll = true,
-  liveUpdate = false,
-  initialFraction = 0
+  scroll = true
 ): { elements: GlassElementConfig[]; interactions: Record<string, ElementInteraction> } {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
   const dragW = trackW - SLIDER_KNOB_W / 2
   const knobBaseX = trackX - SLIDER_KNOB_W / 4
   const knobY = trackY + (SLIDER_TRACK_H - SLIDER_KNOB_H) / 2
-  // Initial knob position from initialFraction
-  const knobX = knobBaseX + initialFraction * dragW
 
   // Track
   const trackEl = makePlainRect(`${idPrefix}-track`, { x: trackX, y: trackY, w: trackW, h: SLIDER_TRACK_H }, trackColor, SLIDER_TRACK_H / 2)
@@ -415,17 +411,16 @@ function makeLiquidSlider(
   trackEl.scroll = scroll
   elements.push(trackEl)
 
-  // Fill — initial width from initialFraction
-  const fillW = Math.max(SLIDER_TRACK_H, initialFraction * trackW)
-  const fillEl = makePlainRect(`${idPrefix}-fill`, { x: trackX, y: trackY, w: fillW, h: SLIDER_TRACK_H }, [...accentColor, 1], SLIDER_TRACK_H / 2)
+  // Fill — width driven by renderer via isSliderFill
+  const fillEl = makePlainRect(`${idPrefix}-fill`, { x: trackX, y: trackY, w: SLIDER_TRACK_H, h: SLIDER_TRACK_H }, [...accentColor, 1], SLIDER_TRACK_H / 2)
   fillEl.isSliderFill = { groupId, trackX, trackW, knobW: SLIDER_KNOB_W, minW: 0 }
   fillEl.scroll = scroll
   elements.push(fillEl)
 
-  // Knob
+  // Knob — frosted white at rest, glass when pressed
   const knobEl = makeGlassShape(
     `${idPrefix}-knob`,
-    { x: knobX, y: knobY, w: SLIDER_KNOB_W, h: SLIDER_KNOB_H },
+    { x: knobBaseX, y: knobY, w: SLIDER_KNOB_W, h: SLIDER_KNOB_H },
     {
       cornerRadius: SLIDER_KNOB_H / 2,
       refractionHeight: 10 * DP,
@@ -441,16 +436,15 @@ function makeLiquidSlider(
     scroll
   )
   knobEl.isToggleKnob = { groupId, dragWidth: dragW, velocityDivisor: 10 }
-  knobEl.hitRect = { x: knobX, y: knobY + (SLIDER_KNOB_H - SLIDER_HIT_H) / 2, w: SLIDER_KNOB_W, h: SLIDER_HIT_H }
+  knobEl.hitRect = { x: knobBaseX, y: knobY + (SLIDER_KNOB_H - SLIDER_HIT_H) / 2, w: SLIDER_KNOB_W, h: SLIDER_HIT_H }
   elements.push(knobEl)
 
-  // Interactions — relative drag (same as Slider page)
+  // Interactions — same as Slider page: relative drag via renderer
   let dragStartFraction = 0
   let dragStartX = 0
   const trackInteract: ElementInteraction = {
     onTap: (pos) => {
-      const f = Math.max(0, Math.min(1, (pos.x - trackX) / dragW))
-      onValueChange(f)
+      onValueChange(Math.max(0, Math.min(1, (pos.x - trackX) / dragW)))
     },
     onDragStart: (pos) => {
       const r = rendererRef?.current
@@ -463,16 +457,11 @@ function makeLiquidSlider(
       const r = rendererRef?.current
       if (!r) return
       r.dragToggle(groupId, dragStartFraction, pos.x, dragStartX, dragW)
-      if (liveUpdate) {
-        const f = r.getToggleFraction(groupId)
-        onValueChange(f)
-      }
     },
     onDragEnd: () => {
       const r = rendererRef?.current
       if (!r) return
-      const f = r.endSliderDrag(groupId)
-      onValueChange(f)
+      onValueChange(r.endSliderDrag(groupId))
     },
   }
   const knobInteract: ElementInteraction = {
@@ -487,16 +476,11 @@ function makeLiquidSlider(
       const r = rendererRef?.current
       if (!r) return
       r.dragToggle(groupId, dragStartFraction, pos.x, dragStartX, dragW)
-      if (liveUpdate) {
-        const f = r.getToggleFraction(groupId)
-        onValueChange(f)
-      }
     },
     onDragEnd: () => {
       const r = rendererRef?.current
       if (!r) return
-      const f = r.endSliderDrag(groupId)
-      onValueChange(f)
+      onValueChange(r.endSliderDrag(groupId))
     },
   }
   interactions[`${idPrefix}-track`] = trackInteract
@@ -2598,9 +2582,9 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
     )
 
     let rowY = sheetY + GP_INNER_PAD
+    let sliderIdx = 0
     for (const s of sliderDefs) {
       const val = state[s.key] as number
-      const fraction = (val - s.range[0]) / (s.range[1] - s.range[0])
       const range = s.range
       const key = s.key
 
@@ -2616,67 +2600,25 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
       // Slider row: track vertically centered in 24dp
       const sliderRowY = rowY + 16 + 12 // after label + gap
       const trackY = sliderRowY + (24 - SLIDER_TRACK_H) / 2 // center track in 24dp
-      const knobY = sliderRowY + (24 - SLIDER_KNOB_H) / 2 // center knob in 24dp
-      const fillW = fraction * trackW
-      const knobX = trackX - SLIDER_KNOB_W / 4 + fraction * dragW
 
-      // Track (background)
-      const trackEl = makePlainRect(`gp-track-${key}`, { x: trackX, y: trackY, w: trackW, h: SLIDER_TRACK_H }, SLIDER_TRACK, SLIDER_TRACK_H / 2)
-      trackEl.hitRect = { x: trackX, y: sliderRowY, w: trackW, h: 48 * DP }
-      trackEl.scroll = false
-      elements.push(trackEl)
-
-      // Fill (accent)
-      const fillEl = makePlainRect(`gp-fill-${key}`, { x: trackX, y: trackY, w: Math.max(SLIDER_TRACK_H, fillW), h: SLIDER_TRACK_H }, [...SLIDER_ACCENT, 1], SLIDER_TRACK_H / 2)
-      fillEl.scroll = false
-      elements.push(fillEl)
-
-      // Knob (glass)
-      const knobEl = makeGlassShape(
-        `gp-knob-${key}`,
-        { x: knobX, y: knobY, w: SLIDER_KNOB_W, h: SLIDER_KNOB_H },
-        {
-          cornerRadius: SLIDER_KNOB_H / 2,
-          refractionHeight: 10 * DP,
-          refractionAmount: -14 * DP,
-          blurRadius: 8 * DP,
-          saturation: 1.0,
-          surfaceColor: [0, 0, 0, 0],
-          highlight: { mode: 1, color: [1, 1, 1], angle: 45 * Math.PI / 180, falloff: 1.0, alpha: 1.0, widthDp: 0.5 / 1.5 },
-          outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: (4 / 6) * DP, color: [0, 0, 0] },
-          innerShadow: { radius: 4 * DP, alpha: 0.15, offsetX: 0, offsetY: 4 * DP },
-          chromaticAberration: true,
+      const groupId = `gp-slider-${sliderIdx++}`
+      const slider = makeLiquidSlider(
+        `gp-${key}`,
+        trackX,
+        trackY,
+        trackW,
+        groupId,
+        SLIDER_TRACK,
+        SLIDER_ACCENT,
+        rendererRef,
+        (f) => {
+          const v = range[0] + (range[1] - range[0]) * f
+          setState({ [key]: v } as Partial<CatalogState>)
         },
-        false
+        false // scroll = false
       )
-      knobEl.isInteractive = true
-      knobEl.hitRect = { x: knobX, y: sliderRowY, w: SLIDER_KNOB_W, h: 48 * DP }
-      elements.push(knobEl)
-
-      // Interactions — direct state update (no renderer toggleStates)
-      // Tap track → jump to position
-      interactions[`gp-track-${key}`] = {
-        onTap: (pos) => {
-          const f = Math.max(0, Math.min(1, (pos.x - trackX) / dragW))
-          setState({ [key]: range[0] + (range[1] - range[0]) * f } as Partial<CatalogState>)
-        },
-      }
-      // Drag knob → update state live
-      let dragStartVal = 0
-      let dragStartX = 0
-      interactions[`gp-knob-${key}`] = {
-        onDragStart: (pos) => {
-          dragStartVal = val
-          dragStartX = pos.x
-        },
-        onDrag: (pos) => {
-          const dx = pos.x - dragStartX
-          const df = dx / dragW
-          const f = Math.max(0, Math.min(1, (dragStartVal - range[0]) / (range[1] - range[0]) + df))
-          setState({ [key]: range[0] + (range[1] - range[0]) * f } as Partial<CatalogState>)
-        },
-        onDragEnd: () => {},
-      }
+      elements.push(...slider.elements)
+      Object.assign(interactions, slider.interactions)
 
       rowY += rowH
     }
