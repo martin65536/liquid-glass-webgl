@@ -77,14 +77,19 @@ void main() {
         float sdfMask = sdfData.y;
         vec2 normal = sdfData.zw;
 
-        vec4 backdrop = sampleBackdrop(sampleCoord, uBlurRadius);
+        // Sample the WALLPAPER directly (not the scene FBO) — faithful to
+        // LockScreenContent.kt's drawPlainBackdrop which uses the LayerBackdrop
+        // (raw wallpaper, before the dark scrim is drawn).
+        vec2 wpUv1 = coverUv(sampleCoord);
+        vec4 backdrop = texture2D(uWallpaperSampler, wpUv1);
         vec3 color = applyColorControls(backdrop.rgb, uBrightness, uContrast, uSaturation);
 
         // Refraction: coord - intensity * refractionHeight * normal
         vec2 refractedOffsetOrig = intensity * uRefractionHeight * normal;
         vec2 refractedOffsetScreen = refractedOffsetOrig * layerScale;
         vec2 refractedScreen = screenCoord + refractedOffsetScreen;
-        vec4 refracted = sampleBackdrop(refractedScreen, uBlurRadius);
+        vec2 wpUv2 = coverUv(refractedScreen);
+        vec4 refracted = texture2D(uWallpaperSampler, wpUv2);
         color = applyColorControls(refracted.rgb, uBrightness, uContrast, uSaturation);
 
         // Bevel lighting
