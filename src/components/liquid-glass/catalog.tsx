@@ -2350,7 +2350,7 @@ function buildMagnifier(W: number, H: number, onBack: () => void, state: Catalog
  * with 5 sliders (corner radius, blur, refraction height, refraction
  * amount, chromatic aberration) + a Reset button.
  * ------------------------------------------------------------------ */
-function buildGlassPlayground(W: number, H: number, onBack: () => void, state: CatalogState, setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void, palette: ThemePalette = LIGHT_PALETTE): CatalogResult {
+function buildGlassPlayground(W: number, H: number, onBack: () => void, state: CatalogState, setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void, rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> | null = null, palette: ThemePalette = LIGHT_PALETTE): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
@@ -2425,9 +2425,11 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
   const SLIDER_TRACK_H = 6 * DP
   const SLIDER_KNOB_W = 40 * DP
   const SLIDER_KNOB_H = 24 * DP
+  const SLIDER_HIT_H = 48 * DP
   const trackW = sheetW - 2 * SLIDER_PAD - 48 // inner padding
 
   let labelY = sheetY + 24
+  let sliderIdx = 0
   for (const s of sliderLabels) {
     // Label
     elements.push(
@@ -2446,68 +2448,76 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
       )
     )
     labelY += 24
-    // Track
+
+    // Track + fill + knob — same as the Slider page (isToggleKnob + isSliderFill)
+    const groupId = `gp-slider-${sliderIdx++}`
     const trackX = sheetX + 24
     const fraction = (s.val - s.range[0]) / (s.range[1] - s.range[0])
-    const fillW = trackW * fraction
-    elements.push(
-      makePlainRect(`gp-track-${s.key}`, { x: trackX, y: labelY, w: trackW, h: SLIDER_TRACK_H }, SLIDER_TRACK, SLIDER_TRACK_H / 2)
-    )
-    elements.push(
-      makePlainRect(`gp-fill-${s.key}`, { x: trackX, y: labelY, w: Math.max(SLIDER_TRACK_H, fillW), h: SLIDER_TRACK_H }, [...SLIDER_ACCENT, 1], SLIDER_TRACK_H / 2)
-    )
-    const knobX = trackX + fillW - SLIDER_KNOB_W / 2
+    const knobBaseX = trackX - SLIDER_KNOB_W / 4
     const knobY = labelY + (SLIDER_TRACK_H - SLIDER_KNOB_H) / 2
-    // Knob — same frosted-white-at-rest style as the main Slider page
-    // (solid white pebble at rest, glass refraction when pressed).
-    // We DON'T use isToggleKnob here (no spring animation) to keep the
-    // playground simple — the knob position is set directly from state.
-    // But we use the same surfaceColor=0 + blurRadius=8 + innerShadow
-    // combo so the visual style matches. The white overlay is drawn by
-    // the renderer's toggle-knob overlay pass ONLY when isToggleKnob is
-    // set, so we instead use surfaceColor=[1,1,1,1] to get the solid
-    // white appearance at rest (approximation).
-    elements.push(
-      makeGlassShape(
-        `gp-knob-${s.key}`,
-        { x: knobX, y: knobY, w: SLIDER_KNOB_W, h: SLIDER_KNOB_H },
-        {
-          cornerRadius: SLIDER_KNOB_H / 2,
-          refractionHeight: 10 * DP,
-          refractionAmount: -14 * DP,
-          blurRadius: 8 * DP,
-          saturation: 1.0, // NO saturation boost — LiquidSlider effects block only has blur+lens
-          // Solid white surface — approximates the frosted white pebble
-          // look of the main sliders (which use a separate white overlay
-          // pass driven by isToggleKnob). Without isToggleKnob we can't
-          // get the press-to-clear-glass transition, but the at-rest
-          // appearance matches.
-          surfaceColor: [1, 1, 1, 1],
-          highlight: { mode: 1, color: [1, 1, 1], angle: 45 * Math.PI / 180, falloff: 1.0, alpha: 1.0, widthDp: 0.5 / 1.5 },
-          outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: (4 / 6) * DP, color: [0, 0, 0] },
-          innerShadow: { radius: 4 * DP, alpha: 0.15, offsetX: 0, offsetY: 4 * DP },
-          chromaticAberration: true,
-        }
-      )
+
+    // Track (background, off color)
+    const trackEl = makePlainRect(`gp-track-${s.key}`, { x: trackX, y: labelY, w: trackW, h: SLIDER_TRACK_H }, SLIDER_TRACK, SLIDER_TRACK_H / 2)
+    trackEl.hitRect = { x: trackX, y: labelY + (SLIDER_TRACK_H - SLIDER_HIT_H) / 2, w: trackW, h: SLIDER_HIT_H }
+    elements.push(trackEl)
+
+    // Fill (accent color) — width driven by renderer via isSliderFill
+    const fillEl = makePlainRect(`gp-fill-${s.key}`, { x: trackX, y: labelY, w: SLIDER_TRACK_H, h: SLIDER_TRACK_H }, [...SLIDER_ACCENT, 1], SLIDER_TRACK_H / 2)
+    fillEl.isSliderFill = { groupId, trackX, trackW, knobW: SLIDER_KNOB_W, minW: 0 }
+    elements.push(fillEl)
+
+    // Knob — same frosted-white-at-rest style as the Slider page
+    const knobEl = makeGlassShape(
+      `gp-knob-${s.key}`,
+      { x: knobBaseX, y: knobY, w: SLIDER_KNOB_W, h: SLIDER_KNOB_H },
+      {
+        cornerRadius: SLIDER_KNOB_H / 2,
+        refractionHeight: 10 * DP,
+        refractionAmount: -14 * DP,
+        blurRadius: 8 * DP,
+        saturation: 1.0,
+        surfaceColor: [0, 0, 0, 0],
+        highlight: { mode: 1, color: [1, 1, 1], angle: 45 * Math.PI / 180, falloff: 1.0, alpha: 1.0, widthDp: 0.5 / 1.5 },
+        outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: (4 / 6) * DP, color: [0, 0, 0] },
+        innerShadow: { radius: 4 * DP, alpha: 0.15, offsetX: 0, offsetY: 4 * DP },
+        chromaticAberration: true,
+      }
     )
-    // Interaction
+    knobEl.isToggleKnob = { groupId, dragWidth: trackW - SLIDER_KNOB_W / 2, velocityDivisor: 10 }
+    knobEl.hitRect = { x: knobBaseX, y: knobY + (SLIDER_KNOB_H - SLIDER_HIT_H) / 2, w: SLIDER_KNOB_W, h: SLIDER_HIT_H }
+    elements.push(knobEl)
+
+    // Interactions — use renderer drag methods (same as Slider page)
     const key = s.key
     const range = s.range
+    const dragW = trackW - SLIDER_KNOB_W / 2
     interactions[`gp-track-${key}`] = {
       onTap: (pos) => {
-        const f = Math.max(0, Math.min(1, (pos.x - trackX) / trackW))
+        const f = Math.max(0, Math.min(1, (pos.x - trackX) / dragW))
         const v = range[0] + (range[1] - range[0]) * f
         setState({ [key]: v } as Partial<CatalogState>)
       },
     }
     interactions[`gp-knob-${key}`] = {
-      onDragStart: () => {},
+      onDragStart: (pos) => {
+        rendererRef?.current?.beginToggleDrag(groupId, fraction, pos.x)
+      },
       onDrag: (pos) => {
-        const f = Math.max(0, Math.min(1, (pos.x - trackX) / trackW))
+        rendererRef?.current?.dragToggle(groupId, pos.x, trackX, dragW)
+        // Update state live from the renderer's current fraction
+        const tg = rendererRef?.current?.toggleStates?.get(groupId)
+        const f = tg ? tg.fraction : Math.max(0, Math.min(1, (pos.x - trackX) / dragW))
         const v = range[0] + (range[1] - range[0]) * f
         setState({ [key]: v } as Partial<CatalogState>)
       },
-      onDragEnd: () => {},
+      onDragEnd: () => {
+        const r = rendererRef?.current
+        if (r) {
+          const f = r.endToggleDrag(groupId, 1)?.fraction ?? 0
+          const v = range[0] + (range[1] - range[0]) * f
+          setState({ [key]: v } as Partial<CatalogState>)
+        }
+      },
     }
     labelY += 36
   }
@@ -2806,7 +2816,7 @@ export function buildCatalog(
       result = buildMagnifier(W, H, onBack, state, setState, palette)
       break
     case CatalogDestination.GlassPlayground:
-      result = buildGlassPlayground(W, H, onBack, state, setState, palette)
+      result = buildGlassPlayground(W, H, onBack, state, setState, rendererRef, palette)
       break
     case CatalogDestination.AdaptiveLuminanceGlass:
       result = buildAdaptiveLuminanceGlass(W, H, onBack, palette)
