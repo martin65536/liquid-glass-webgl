@@ -391,7 +391,8 @@ function makeLiquidSlider(
   accentColor: [number, number, number],
   rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> | null,
   onValueChange: (fraction: number) => void,
-  scroll = true
+  scroll = true,
+  liveUpdate = false
 ): { elements: GlassElementConfig[]; interactions: Record<string, ElementInteraction> } {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
@@ -452,6 +453,10 @@ function makeLiquidSlider(
       const r = rendererRef?.current
       if (!r) return
       r.dragToggle(groupId, dragStartFraction, pos.x, dragStartX, dragW)
+      if (liveUpdate) {
+        const f = r.getToggleFraction(groupId)
+        onValueChange(f)
+      }
     },
     onDragEnd: () => {
       const r = rendererRef?.current
@@ -472,6 +477,10 @@ function makeLiquidSlider(
       const r = rendererRef?.current
       if (!r) return
       r.dragToggle(groupId, dragStartFraction, pos.x, dragStartX, dragW)
+      if (liveUpdate) {
+        const f = r.getToggleFraction(groupId)
+        onValueChange(f)
+      }
     },
     onDragEnd: () => {
       const r = rendererRef?.current
@@ -2576,7 +2585,8 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
         const v = range[0] + (range[1] - range[0]) * f
         setState({ [s.key]: v } as Partial<CatalogState>)
       },
-      true // scroll = true (playground page scrolls)
+      false, // scroll = false (playground doesn't scroll)
+      true   // liveUpdate = true (real-time parameter adjustment)
     )
     elements.push(...slider.elements)
     Object.assign(interactions, slider.interactions)
