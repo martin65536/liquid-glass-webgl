@@ -206,18 +206,13 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     }
 
     // 2. tabsBackdrop capsule SDF — the hidden Row's 56dp glass capsule.
-    //    Scales around the CONTAINER center (same as tab-content and
-    //    indicator) by uContainerScale, and shifts by panelOffset —
-    //    matching the original's container layerBlock (parent-child
-    //    transform applies uniformly to all children).
-    vec2 capsuleCenter = uContainerRect.xy;
-    // Scale the capsule center + half-size around the container center.
-    vec2 capsuleHalf = max(uContainerRect.zw * uContainerScale, vec2(0.0));
-    float cr = max(uContainerCornerRadius * uContainerScale, 0.0);
-    // Scaled center = containerCenter + (rectCenter - containerCenter) * scale
-    //                + panelOffset (whole-bar translation)
-    vec2 scaledCenter = uContainerCenter + (uContainerRect.xy - uContainerCenter) * uContainerScale
-                       + vec2(uIndicatorPanelOffset, 0.0);
+    //    Faithful to LiquidBottomTabs.kt: the hidden Row has NO layerBlock,
+    //    so its glass does NOT scale with the container. Only panelOffset
+    //    shifts it (translationX = panelOffset).
+    vec2 capsuleHalf = max(uContainerRect.zw, vec2(0.0));
+    float cr = max(uContainerCornerRadius, 0.0);
+    // Center = rectCenter + panelOffset (NO container scale).
+    vec2 scaledCenter = uContainerRect.xy + vec2(uIndicatorPanelOffset, 0.0);
     vec2 capsuleLocal = canvasPx - scaledCenter;
     vec2 cq = abs(capsuleLocal) - capsuleHalf + vec2(cr);
     float capsuleSd = length(max(cq, vec2(0.0))) + min(max(cq.x, cq.y), 0.0) - cr;
@@ -234,15 +229,21 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     //    Use each tab's fgTexture alpha as a hard mask (step) — pixels inside
     //    the icon/label shape become blue, everything else stays the glass
     //    layer's natural color. No white edges (hard replace, no mix).
+    //    Faithful to LiquidBottomTabs.kt: the hidden Row's tab content gets
+    //    LocalLiquidBottomTabScale = lerp(1, 1.2, pressProgress) + panelOffset
+    //    (NOT the container scale — the hidden Row is a sibling of the
+    //    container, not a child, so the container layerBlock doesn't apply).
+    float contentScale = 1.0 + 0.2 * uIndicatorPressProgress;
     float tabMask = 0.0;
     for (int i = 0; i < 8; i++) {
         if (float(i) >= uTabContentCount) break;
         vec4 r = uTabContentRects[i];
         if (r.z > 0.5 && r.w > 0.5) {
-            vec2 scaledCenter = uContainerCenter + (r.xy - uContainerCenter) * uContainerScale
-                              + vec2(uIndicatorPanelOffset, 0.0);
-            vec2 scaledHalf = r.zw * uContainerScale;
-            vec2 localPx = canvasPx - (scaledCenter - scaledHalf);
+            // Tab content scales around its OWN center (not container center)
+            // by contentScale, then shifts by panelOffset.
+            vec2 tabCenter = r.xy + vec2(uIndicatorPanelOffset, 0.0);
+            vec2 scaledHalf = r.zw * contentScale;
+            vec2 localPx = canvasPx - (tabCenter - scaledHalf);
             vec2 uv = localPx / (scaledHalf * 2.0);
             if (all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0)))) {
                 float a = 0.0;
@@ -275,7 +276,8 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     float highlightAlpha = uIndicatorPressProgress;
     if (highlightAlpha > 0.001) {
         // Stroke centered on capsuleSd=0, width ~1px (0.5dp * 2).
-        float strokeW = 1.0 * uContainerScale;
+        // No container scale — the capsule SDF is not scaled.
+        float strokeW = 1.0;
         // Band: capsuleSd in [-strokeW, strokeW], peak at 0.
         float band = 1.0 - smoothstep(0.0, strokeW, abs(capsuleSd));
         resultRgb += vec3(1.0) * band * highlightAlpha * 0.5;

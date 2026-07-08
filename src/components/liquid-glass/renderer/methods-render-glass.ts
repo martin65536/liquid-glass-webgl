@@ -266,13 +266,13 @@ export const glassRenderMethods = {
         // Drive white overlay alpha + surface color by pressProgress
         // (faithful to indicator onDrawSurface).
         togglePressProgress = Math.max(togglePressProgress, tg.pressProgress)
-        // Container layerBlock scale — only affects indicator SIZE, not position.
-        // Applied to scaleX/Y below (not to center position).
-        if (el.isBottomTabIndicator.containerWidth != null) {
-          const containerScale = 1 + (16 * DP) / el.isBottomTabIndicator.containerWidth * tg.pressProgress
-          scaleX *= containerScale
-          scaleY *= containerScale
-        }
+        // NOTE: the indicator does NOT get the container's layerBlock scale.
+        // In LiquidBottomTabs.kt, the indicator Box is a SIBLING of the
+        // container Row (both children of BoxWithConstraints), NOT a child
+        // of the container. The container's layerBlock (1 + 16dp/width)
+        // only applies to the container + its tab-content children. The
+        // indicator only gets its own DampedDragAnimation scale (78/56) +
+        // velocity stretch.
       }
     }
 

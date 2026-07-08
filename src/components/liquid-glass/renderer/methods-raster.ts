@@ -172,8 +172,10 @@ export const rasterMethods = {
     let textYOffset = 0
     if (t.icon) {
       const iconSize = t.icon.size
-      // Icon sits in the upper portion; text shifts down by iconSize + gap.
-      const gap = iconSize * 0.15
+      // Gap between icon and text — faithful to LiquidBottomTab.kt's
+      // Arrangement.spacedBy(2f.dp). Only applies when there's text content;
+      // icon-only tiles (control center) get gap=0 so the icon is centered.
+      const gap = t.content ? 2 : 0
       const totalBlockH = iconSize + gap + (t.content ? t.fontSizePx : 0)
       const blockTop = cssH / 2 - totalBlockH / 2
       const iconCx = cssW / 2
