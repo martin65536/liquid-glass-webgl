@@ -104,14 +104,9 @@ export default function Page() {
       // mobile browser's address bar / bottom bar (100vh does not).
       const maxH = typeof window !== 'undefined' ? window.innerHeight : 900
       const h = Math.min(900, maxH)
-      if (frameRef.current) {
-        frameRef.current.style.height = h + 'px'
-      }
-      // Also set the outer div height to match (avoid body overflow)
       const outer = frameRef.current?.parentElement
-      if (outer) {
-        outer.style.height = h + 'px'
-      }
+      if (outer) outer.style.height = h + 'px'
+      if (frameRef.current) frameRef.current.style.height = h + 'px'
       const r = frameRef.current?.getBoundingClientRect()
       if (r) setFrameSize({ w: r.width, h: r.height })
     }
@@ -202,8 +197,7 @@ export default function Page() {
         // Outer page background follows the Android windowBackground
         // (white in light theme, black in dark theme) — themes.xml.
         background: isLightTheme ? '#FFFFFF' : '#000000',
-        minHeight: '100vh',
-        height: typeof window !== 'undefined' ? window.innerHeight + 'px' : '100vh',
+        height: '100vh',
         overflow: 'hidden',
       }}
     >
@@ -212,7 +206,6 @@ export default function Page() {
         className="relative overflow-hidden shadow-2xl lg-frame"
         style={{
           width: 'min(420px, 100vw)',
-          height: 'min(900px, 100vh)',
         }}
       >
         <LiquidGlassCanvas
