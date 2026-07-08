@@ -105,10 +105,15 @@ export function makeDragInteractions(opts: DragInteractionsOpts): ElementInterac
       const r = rendererRef?.current
       if (!r) return
       const rawF = endDrag(r, groupId, count)
-      draggingGroups.delete(groupId)
+      // Keep draggingGroups flag set DURING onValueChange (which triggers
+      // setState → tabTargets/toggleTargets effect). The effect checks
+      // draggingGroups and skips setTabSelected/setToggleTarget, preventing
+      // it from zeroing velocity and fighting the spring. Delete AFTER
+      // onValueChange so the next render's effect can sync.
       const snappedF = applySnap(rawF)
       if (snap) setTarget(r, groupId, snappedF, count)
       onValueChange(snappedF)
+      draggingGroups.delete(groupId)
     },
   }
 }

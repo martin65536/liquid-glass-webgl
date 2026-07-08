@@ -242,6 +242,10 @@ export function LiquidGlassCanvas({
     const r = rendererRefInternal.current
     if (!r) return
     for (const [groupId, { tabIndex, tabsCount }] of Object.entries(tabTargets)) {
+      // Skip groups currently being dragged or recently released (spring
+      // still animating). setTabSelected would zero velocity and fight
+      // the spring, causing the indicator to jump/snapping wrong.
+      if (draggingGroups.has(groupId)) continue
       r.setTabSelected(groupId, tabIndex, tabsCount)
     }
   }, [tabTargets])
