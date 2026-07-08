@@ -2594,14 +2594,14 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
   const gpTrackX = sheetX + GP_PAD
   const gpTrackW = sheetW - 2 * GP_PAD
 
-  let labelY = sheetY + 24
+  let labelY = sheetY + 20
   let sliderIdx = 0
   for (const s of sliderLabels) {
     // Label
     elements.push(
       makeText(
         `gp-label-${s.key}`,
-        { x: sheetX + 24, y: labelY, w: sheetW - 48, h: 16 },
+        { x: sheetX + 24, y: labelY, w: sheetW - 48, h: 14 },
         s.label,
         {
           color: labelColor,
@@ -2613,7 +2613,7 @@ function buildGlassPlayground(W: number, H: number, onBack: () => void, state: C
         }
       )
     )
-    labelY += 16 + 8 // label height + 8dp gap to slider (spacedBy(8dp))
+    labelY += 14 + 10 // label height + 10dp gap to slider
 
     // Slider — shared factory (same component as the Slider page)
     const groupId = `gp-slider-${sliderIdx++}`
