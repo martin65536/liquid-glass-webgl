@@ -306,14 +306,16 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
 
         // Stroke mask — faithful to HighlightModifier.kt + BlurMaskFilter:
         //   paint.style = Stroke
-        //   paint.strokeWidth = ceil(0.5dp)*2 = 2px  (full, centered on edge)
-        //   paint.blur(0.25dp)  → BlurMaskFilter(NORMAL), sigma = 0.25/3 ≈ 0.083
+        //   paint.strokeWidth = ceil(0.5dp * dpr) * 2  (device px)
+        //   paint.blur(0.25dp * dpr)  → BlurMaskFilter(NORMAL, sigma=0.25*dpr)
         //   canvas.clipOutline → clip to INSIDE (capsuleSd <= 0)
+        // In Skia/Android, BlurMaskFilter's radius param IS the Gaussian sigma.
+        // capsuleSd is in device px (uContainerRect is dpr-scaled), so sigma
+        // and strokeHalf must also be in device px.
         // Implementation: hard-edge stroke band convolved with Gaussian kernel
-        // via 9-tap SDF sampling (same approach as highlight.ts). This mirrors
-        // the original's two-step process (draw stroke → blur).
-        float strokeHalf = 1.0; // ceil(0.5dp)*2 / 2 = 1px
-        float sigma2 = 1.0;    // 1px sigma for visible Gaussian softness
+        // via 9-tap SDF sampling (same approach as highlight.ts).
+        float strokeHalf = ceil(0.5 * uDpr) * 2.0 * 0.5;  // = ceil(0.5*dpr)
+        float sigma2 = max(0.25 * uDpr, 0.1);  // blurRadius = 0.25dp, sigma = blurRadius*dpr
         float strokeMask = 0.0;
         float wSum2 = 0.0;
         for (int j = -4; j <= 4; j++) {

@@ -209,8 +209,14 @@ void main() {
     //
     // The hard stroke band: sd in [-strokeHalf, +strokeHalf].
     // After clip (sd > 0 discarded by the outer if), only [-strokeHalf, 0] shows.
+    //
+    // Faithful to the original BlurMaskFilter:
+    //   paint.blur(blurRadius.toPx())  →  BlurMaskFilter(NORMAL, sigma=blurRadius_px)
+    // In Skia/Android, BlurMaskFilter's radius param IS the Gaussian sigma
+    // (not radius/3). blurRadius = width/2 = 0.25dp, so sigma = 0.25*dpr px.
+    // uHighlightBlur is already in device px (set by the renderer as widthDp*dpr*0.5).
     float strokeHalf = uHighlightStrokeWidth * 0.5;
-    float sigma = 1.0;  // 1px sigma for visible Gaussian softness
+    float sigma = max(uHighlightBlur, 0.1);
 
     // Gaussian convolution of the hard stroke mask: sample the SDF at offsets
     // along the outward gradient and weight by Gaussian kernel. This is the

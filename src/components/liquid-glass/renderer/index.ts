@@ -213,7 +213,7 @@ export class LiquidGlassRenderer {
       'uTrackColor', 'uTrackRect', 'uTrackCornerRadius',
       'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale',
       'uIndicatorBackdrop', 'uContainerRect', 'uContainerCornerRadius', 'uIndicatorAccent',
-      'uInsetPx', 'uIndicatorPressProgress', 'uIndicatorPanelOffset',
+      'uInsetPx', 'uIndicatorPressProgress', 'uIndicatorPanelOffset', 'uDpr',
       'uContainerCenter', 'uContainerScale',
       'uTabContentTex0', 'uTabContentTex1', 'uTabContentTex2', 'uTabContentTex3',
       'uTabContentTex4', 'uTabContentTex5', 'uTabContentTex6', 'uTabContentTex7',

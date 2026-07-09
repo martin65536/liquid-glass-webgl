@@ -82,6 +82,7 @@ uniform vec4  uIndicatorAccent;      // (r, g, b, a) — accentColor + unused
 uniform float uInsetPx;              // indicator backdrop inset in device px (4dp * dpr)
 uniform float uIndicatorPressProgress; // 0..1 press progress (for 2nd-layer scale)
 uniform float uIndicatorPanelOffset; // panel offset in device px (2nd-layer x translation)
+uniform float uDpr;                 // device pixel ratio (for dp→px conversion)
 uniform vec2  uContainerCenter;      // container center (scale origin) in canvas px (dpr-scaled)
 uniform float uContainerScale;       // container layerBlock scale (1 + 16dp/width * pressProgress)
 // Tab content fgTextures (icon+label alpha masks) for blue tint. Up to 8 tabs.

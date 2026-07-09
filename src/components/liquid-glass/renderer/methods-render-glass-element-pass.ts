@@ -302,6 +302,7 @@ export const glassElementPassMethods = {
       const tg = this.toggleStates.get(el.isBottomTabIndicator.groupId)
       gl.uniform1f(this.uEl['uIndicatorPressProgress'], tg ? tg.pressProgress : 0)
       gl.uniform1f(this.uEl['uIndicatorPanelOffset'], tg ? tg.panelOffset * this.dpr : 0)
+      gl.uniform1f(this.uEl['uDpr'], this.dpr)
       // 容器 center + scale (for 内层背景板 to scale around the 容器
       // center, same as tab-content and indicator).
       const ccx = el.isBottomTabIndicator.containerCenterX ?? 0
@@ -349,6 +350,7 @@ export const glassElementPassMethods = {
     } else {
       gl.uniform1f(this.uEl['uIndicatorPressProgress'], 0)
       gl.uniform1f(this.uEl['uIndicatorPanelOffset'], 0)
+      gl.uniform1f(this.uEl['uDpr'], this.dpr)
       gl.uniform2f(this.uEl['uContainerCenter'], 0, 0)
       gl.uniform1f(this.uEl['uContainerScale'], 1)
       gl.uniform1f(this.uEl['uTabContentCount'], 0)
