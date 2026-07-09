@@ -384,6 +384,14 @@ export interface GlassElementConfig extends GlassButtonConfig {
     sampleOffsetY: number
   }
   /**
+   * Separable 2-pass blur flag — when true, the element pass renders to a
+   * dedicated FBO (refraction reads CLEAR backdrop, uBlurRadius=0), then that
+   * FBO is blurred via horizontal+vertical 1D Gaussian passes, then composited
+   * back with alpha blend. Mirrors the original's createChainEffect(refraction, blur).
+   * Only enabled for Glass Playground square (large adjustable radius).
+   */
+  useSeparableBlur?: boolean
+  /**
    * Control-center RAW enter progress (can go <0 / >1 for overscroll).
    * Faithful to ControlCenterContent.kt enterProgressAnimation.
    * The renderer applies ProgressConverter to derive the visual progress:
@@ -421,6 +429,12 @@ export interface GlassElementConfig extends GlassButtonConfig {
    * unaffected (still array order).
    */
   renderOnTop?: boolean
+  /** Sample the WALLPAPER (not the scene FBO) as the glass backdrop. Used by
+   *  the back button / theme toggle on pages with a dark scrim/dim overlay
+   *  (Dialog, ControlCenter) so the glass refracts the clean wallpaper instead
+   *  of the darkened scene — the button stays bright and visible over the
+   *  scrim without the scrim showing through the translucent glass. */
+  sampleWallpaper?: boolean
 }
 
 /* Per-element interaction state — mirrors InteractiveHighlight.kt. */

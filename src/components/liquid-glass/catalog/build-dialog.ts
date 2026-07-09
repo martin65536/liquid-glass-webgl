@@ -21,7 +21,7 @@ export function buildDialog(W: number, H: number, onBack: () => void, palette: T
   const interactions: Record<string, ElementInteraction> = {}
 
   const back = makeBackButton(onBack, palette, true) // scroll-anchored so it stays
-  back.element.renderOnTop = true // render after the dim scrim, sampling wallpaper (not the darkened scene)
+  back.element.sampleWallpaper = true // refract clean wallpaper, not the darkened scrim scene
   elements.push(back.element)
   interactions[back.element.id] = back.interaction
 

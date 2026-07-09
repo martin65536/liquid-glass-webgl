@@ -68,7 +68,7 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
   elements.push(ccDrag)
 
   const back = makeBackButton(onBack, palette)
-  back.element.renderOnTop = true // render after the dim overlay, sampling wallpaper (not the darkened scene)
+  back.element.sampleWallpaper = true // refract clean wallpaper, not the darkened dim scene
   elements.push(back.element)
   interactions[back.element.id] = back.interaction
 

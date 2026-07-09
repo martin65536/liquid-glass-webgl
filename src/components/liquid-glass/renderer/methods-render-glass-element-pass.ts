@@ -28,7 +28,16 @@ export const glassElementPassMethods = {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
     gl.activeTexture(gl.TEXTURE0)
-    gl.bindTexture(gl.TEXTURE_2D, curTex)
+    // sampleWallpaper: bind the WALLPAPER (not curTex) as uBackdrop so the
+    // glass refracts the clean wallpaper instead of the darkened scene
+    // (e.g. back button over a Dialog scrim / ControlCenter dim). The
+    // element's own surface/shadow/icon still composite on the current
+    // scene FBO normally (handled by renderGlassElement's ping-pong).
+    if (el.sampleWallpaper && this.wallpaperTexture && this.wallpaperReady) {
+      gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture)
+    } else {
+      gl.bindTexture(gl.TEXTURE_2D, curTex)
+    }
     gl.uniform1i(this.uEl['uBackdrop'], 0)
 
     // Bind wallpaper texture to TEXTURE1 for the toggle knob CombinedBackdrop
@@ -365,11 +374,12 @@ export const glassElementPassMethods = {
     gl.uniform1f(this.uEl['uRefractionAmount'], elRefractionAmount * this.dpr)
     gl.uniform1f(this.uEl['uDepthEffect'], el.depthEffect ? 1 : 0)
     gl.uniform1f(this.uEl['uChromaticAberration'], el.chromaticAberration ? 1 : 0)
-    // Blur radius: applied to the backdrop SAMPLE in screen space. The original
-    // applies blur as a RenderEffect at original size, then graphicsLayer scales
-    // → blur appears as blurRadius * layerScale in screen space (isotropic approx
-    // via min(scaleX, scaleY); full anisotropy would need separable 2-pass blur).
-    gl.uniform1f(this.uEl['uBlurRadius'], elBlurRadius * layerScale * this.dpr)
+    // Blur radius: for useSeparableBlur elements (GP), the blur is applied
+    // as a separate 2-pass post-process on the element pass output, so the
+    // inline shader blur is disabled (uBlurRadius=0). For all other elements,
+    // the inline 16-tap Vogel disc applies as before.
+    const inlineBlurRadius = el.useSeparableBlur ? 0 : elBlurRadius
+    gl.uniform1f(this.uEl['uBlurRadius'], inlineBlurRadius * layerScale * this.dpr)
     gl.uniform1f(this.uEl['uSaturation'], el.saturation)
     gl.uniform1f(this.uEl['uBrightness'], el.brightness)
     gl.uniform1f(this.uEl['uContrast'], el.contrast)

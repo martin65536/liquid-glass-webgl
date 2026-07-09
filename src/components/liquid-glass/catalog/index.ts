@@ -147,10 +147,9 @@ export function buildCatalog(
   if (onToggleTheme) {
     const themeBtn = makeThemeToggleButton(onToggleTheme, palette, isLightTheme, W, false)
     // On pages with a dark scrim/dim overlay (Dialog, ControlCenter),
-    // render the theme toggle on top (after the scrim) sampling the
-    // wallpaper so the scrim doesn't darken it — same as the back button.
+    // sample the wallpaper (not the darkened scene) so the glass stays bright.
     if (dest === CatalogDestination.Dialog || dest === CatalogDestination.ControlCenter) {
-      themeBtn.element.renderOnTop = true
+      themeBtn.element.sampleWallpaper = true
     }
     result.elements.push(themeBtn.element)
     result.interactions[themeBtn.element.id] = themeBtn.interaction
