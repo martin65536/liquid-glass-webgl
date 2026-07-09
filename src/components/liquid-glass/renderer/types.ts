@@ -429,6 +429,13 @@ export interface GlassElementConfig extends GlassButtonConfig {
    * unaffected (still array order).
    */
   renderOnTop?: boolean
+  /** Sample the WALLPAPER (not the scene FBO) as the glass backdrop for
+   *  refraction. Used by the back button / theme toggle on pages with a
+   *  dark scrim/dim overlay (Dialog, ControlCenter) so the glass refracts
+   *  the clean wallpaper instead of the darkened scene. Only affects the
+   *  uBackdrop texture binding in renderGlassElementPass — the element
+   *  still composites onto the scene FBO normally. */
+  sampleWallpaper?: boolean
 }
 
 /* Per-element interaction state — mirrors InteractiveHighlight.kt. */

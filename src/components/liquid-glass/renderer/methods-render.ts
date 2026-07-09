@@ -143,17 +143,34 @@ export const renderMethods = {
       }
     }
 
-    // --- Second pass: render renderOnTop elements (e.g. CC dim overlay) ---
-    // Faithful to ControlCenterContent.kt's drawWithContent:
-    //   drawContent()  ← first pass (tiles)
-    //   drawRect(dim)  ← second pass (dim on top)
+    // --- Second pass: render renderOnTop elements ---
+    // Faithful to ControlCenterContent.kt / DialogContent.kt's drawWithContent:
+    //   drawContent()  ← first pass (card/tiles)
+    //   drawRect(dim)  ← second pass (dim/scrim on top, like the original)
+    // Also renders glass renderOnTop elements (back button / theme toggle)
+    // via normal ping-pong — they composite on top of the scrim. If they
+    // have sampleWallpaper=true, the refraction samples the clean wallpaper
+    // (handled in renderGlassElementPass), so the scrim doesn't darken them.
     for (const el of this.buttonConfigs) {
       if (!el.renderOnTop) continue
       const y = el.scroll ? el.rect.y - scrollY : el.rect.y
       if (y + el.rect.h < viewportTop || y > viewportBottom) continue
       const r = effRect(el)
       const st = this.buttonStates.get(el.id)
-      this.renderNonGlassElement(el, r, st, curFbo)
+
+      // Non-glass renderOnTop elements (scrim/dim) render directly on curFbo.
+      if (this.renderNonGlassElement(el, r, st, curFbo)) continue
+
+      // Glass renderOnTop elements (back button / theme toggle): normal
+      // ping-pong. The blit copies curTex (which now contains the scrim) to
+      // otherFbo, then the glass element renders on top. sampleWallpaper
+      // (if set) only changes the refraction sample, not the blit — so the
+      // scene is preserved and the button composites correctly on top.
+      const result = this.renderGlassElement(el, st, curFbo, curTex, otherFbo, otherTex, r)
+      curFbo = result.curFbo
+      curTex = result.curTex
+      otherFbo = result.otherFbo
+      otherTex = result.otherTex
     }
 
     // --- Final: blit curFbo → default framebuffer (visible canvas) ---

@@ -28,7 +28,18 @@ export const glassElementPassMethods = {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
     gl.activeTexture(gl.TEXTURE0)
-    gl.bindTexture(gl.TEXTURE_2D, curTex)
+    // sampleWallpaper: bind the WALLPAPER (not curTex) as uBackdrop so the
+    // glass refracts the clean wallpaper instead of the darkened scene
+    // (e.g. back button over a Dialog scrim / ControlCenter dim). The
+    // element's own surface/shadow/icon still composite on the current
+    // scene FBO normally (the ping-pong blit in renderGlassElement uses
+    // curTex, so the scene is preserved — only the refraction sample
+    // changes).
+    if (el.sampleWallpaper && this.wallpaperTexture && this.wallpaperReady) {
+      gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture)
+    } else {
+      gl.bindTexture(gl.TEXTURE_2D, curTex)
+    }
     gl.uniform1i(this.uEl['uBackdrop'], 0)
 
     // Bind wallpaper texture to TEXTURE1 for the toggle knob CombinedBackdrop

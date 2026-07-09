@@ -56,6 +56,7 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
   const dimAlpha = Math.max(0, Math.min(1, state.controlCenterSafeEnter)) * 0.4
   const dimEl = makePlainRect('cc-dim', { x: 0, y: 0, w: W, h: Math.max(H, 800) }, [0, 0, 0, dimAlpha], 0)
   dimEl.scroll = false
+  dimEl.renderOnTop = true // second pass (on top of tiles), matching original drawRect(dim) after drawContent()
   elements.push(dimEl)
 
   // Invisible full-screen drag-catcher for empty areas. Pushed AFTER dim
@@ -68,6 +69,8 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
   elements.push(ccDrag)
 
   const back = makeBackButton(onBack, palette)
+  back.element.sampleWallpaper = true // refract clean wallpaper, not the darkened dim scene
+  back.element.renderOnTop = true // render in second pass, on top of the dim
   elements.push(back.element)
   interactions[back.element.id] = back.interaction
 
