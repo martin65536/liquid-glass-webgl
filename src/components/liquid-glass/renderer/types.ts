@@ -333,12 +333,12 @@ export interface GlassElementConfig extends GlassButtonConfig {
      *    drawRect(Color.Black.copy(alpha = 0.03f * progress))
      *  The renderer draws both overlays in the post-pass, modulated by pressProgress. */
     dimColor?: [number, number, number, number]
-    /** CombinedBackdrop (faithful to LiquidBottomTabs.kt indicator):
+    /** CombinedBackdrop (faithful to LiquidBottomTabs.kt 指示器):
      *  backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop)
-     *  - backdrop = outer LayerBackdrop (wallpaper)
-     *  - tabsBackdrop = hidden Row capturing the container glass capsule,
-     *    inset 4dp on all sides relative to the indicator.
-     *  The indicator samples wallpaper (outer) + the scene FBO (container
+     *  - backdrop (outer) = LayerBackdrop (wallpaper)
+     *  - tabsBackdrop (inner) = 内层背景板 (hidden Row's 56dp glass),
+     *    inset 4dp on all sides relative to the 指示器.
+     *  The 指示器 samples wallpaper (outer) + the scene FBO (容器
      *  glass + content) composited inside an inset capsule SDF. */
     accentColor?: [number, number, number]
     /** Container rect (full container bar position/size). The inset capsule

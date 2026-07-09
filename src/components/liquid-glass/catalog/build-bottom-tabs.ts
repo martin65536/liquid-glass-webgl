@@ -226,16 +226,16 @@ export function buildBottomTabs(W: number, H: number, onBack: () => void, state:
       groupId: idPrefix,
       dragWidth: tabW,
       dimColor: palette.backIconColor,
-      // CombinedBackdrop: faithful to LiquidBottomTabs.kt indicator's
+      // CombinedBackdrop: faithful to LiquidBottomTabs.kt 指示器's
       //   rememberCombinedBackdrop(backdrop, tabsBackdrop)
-      // - backdrop = outer LayerBackdrop (wallpaper)
-      // - tabsBackdrop = hidden Row capturing the container glass capsule,
-      //   inset 4dp on all sides relative to the indicator.
-      // The indicator samples wallpaper (outer) + the scene FBO (container
+      // - backdrop (outer) = LayerBackdrop (wallpaper)
+      // - tabsBackdrop (inner) = 内层背景板 (hidden Row's 56dp glass),
+      //   inset 4dp on all sides relative to the 指示器.
+      // The 指示器 samples wallpaper (outer) + the scene FBO (容器
       // glass + content) composited inside an inset capsule SDF.
       accentColor: [...accentT] as [number, number, number],
-      // containerRect = the tabsBackdrop capsule (hidden Row's 56dp glass),
-      // inset 4dp on all sides from the container. Faithful to LiquidBottomTabs.kt:
+      // containerRect = the 内层背景板 capsule (hidden Row's 56dp glass),
+      // inset 4dp on all sides from the 容器. Faithful to LiquidBottomTabs.kt:
       //   hidden Row = height(56dp).fillMaxWidth().padding(horizontal=4dp)
       //   drawBackdrop paints 56dp × (TABS_W - 8dp) = 56dp × glassW.
       containerRect: { x: glassX, y: glassY, w: glassW, h: GLASS_H },

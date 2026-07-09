@@ -257,12 +257,12 @@ export const glassElementPassMethods = {
       elInnerShadowOffsetX = (el.innerShadow?.offsetX ?? 0) * progress
       elInnerShadowOffsetY = (el.innerShadow?.offsetY ?? 0) * progress
 
-      // --- CombinedBackdrop (faithful to LiquidBottomTabs.kt indicator) ---
-      // The original indicator's backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop)
-      //   - backdrop = outer LayerBackdrop (wallpaper)
-      //   - tabsBackdrop = hidden Row capturing the container glass capsule,
-      //     inset 4dp on all sides relative to the indicator.
-      // The indicator samples wallpaper (outer) + scene FBO (container glass)
+      // --- CombinedBackdrop (faithful to LiquidBottomTabs.kt 指示器) ---
+      // The original 指示器's backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop)
+      //   - backdrop (outer) = LayerBackdrop (wallpaper)
+      //   - tabsBackdrop (inner) = hidden Row's 56dp glass (内层背景板),
+      //     inset 4dp on all sides relative to the 指示器.
+      // The 指示器 samples wallpaper (outer) + scene FBO (容器 glass)
       // composited inside an inset capsule SDF.
       if (el.isBottomTabIndicator.accentColor && el.isBottomTabIndicator.containerRect) {
         const ac = el.isBottomTabIndicator.accentColor
@@ -291,7 +291,7 @@ export const glassElementPassMethods = {
     gl.uniform4f(this.uEl['uContainerRect'], containerRectX, containerRectY, containerHalfW, containerHalfH)
     gl.uniform1f(this.uEl['uContainerCornerRadius'], containerCornerRadius)
     gl.uniform4f(this.uEl['uIndicatorAccent'], indicatorAccentR, indicatorAccentG, indicatorAccentB, indicatorAccentA)
-    // Indicator backdrop inset: 4dp (the tabsBackdrop capsule is inset 4dp
+    // 指示器 backdrop inset: 4dp (the 内层背景板 capsule is inset 4dp
     // from the indicator's draw area on every side).
     gl.uniform1f(this.uEl['uInsetPx'], 4 * this.dpr)
     // 2nd-layer (inset capsule) press progress + panelOffset — the inset
@@ -302,7 +302,7 @@ export const glassElementPassMethods = {
       const tg = this.toggleStates.get(el.isBottomTabIndicator.groupId)
       gl.uniform1f(this.uEl['uIndicatorPressProgress'], tg ? tg.pressProgress : 0)
       gl.uniform1f(this.uEl['uIndicatorPanelOffset'], tg ? tg.panelOffset * this.dpr : 0)
-      // Container center + scale (for mini-glass to scale around the container
+      // 容器 center + scale (for 内层背景板 to scale around the 容器
       // center, same as tab-content and indicator).
       const ccx = el.isBottomTabIndicator.containerCenterX ?? 0
       const ccy = el.isBottomTabIndicator.containerCenterY ?? 0

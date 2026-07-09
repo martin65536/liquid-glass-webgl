@@ -69,12 +69,12 @@ uniform vec4  uSolidBackdropColor;  // rgba 0..1; used when uUseSolidBackdrop = 
 uniform vec4  uTrackColor;        // rgba 0..1; alpha 0 = no track color
 uniform vec4  uTrackRect;         // (centerX, centerY, halfW, halfH) in canvas px (dpr-scaled)
 uniform float uTrackCornerRadius; // canvas px (dpr-scaled)
-// --- Bottom tab indicator CombinedBackdrop (faithful to LiquidBottomTabs.kt) ---
-// The indicator's backdrop = CombinedBackdrop(wallpaper, tabsBackdrop) where
-// tabsBackdrop is a hidden Row with ColorFilter.tint(accentColor). Only the
-// opaque tab content (icons/labels) becomes blue after tint — the glass part
+// --- Bottom tab 指示器 CombinedBackdrop (faithful to LiquidBottomTabs.kt) ---
+// The 指示器's backdrop = CombinedBackdrop(wallpaper, 内层背景板) where
+// 内层背景板 (tabsBackdrop) is a hidden Row with ColorFilter.tint(accentColor). Only the
+// opaque 标签内容 (icons/labels) becomes blue after tint — the glass part
 // is transparent. We pass up to 8 tab content rects; pixels inside any rect
-// (clipped to the container capsule) are tinted accentColor.
+// (clipped to the 容器 capsule) are tinted accentColor.
 uniform float uIndicatorBackdrop;    // 0 or 1
 uniform vec4  uContainerRect;        // (centerX, centerY, halfW, halfH) in canvas px (dpr-scaled)
 uniform float uContainerCornerRadius; // canvas px (dpr-scaled)

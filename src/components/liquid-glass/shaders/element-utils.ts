@@ -20,7 +20,7 @@ vec3 hsv2rgb(vec3 c);
 vec3 blendHue(vec3 dst, vec3 src);
 
 // erf approximation (Abramowitz & Stegun 7.1.26) — for Gaussian edge profile.
-// Same as in highlight.ts, used by the mini-glass rim highlight stroke mask.
+// Same as in highlight.ts, used by the 内层背景板 rim highlight stroke mask.
 float erfApprox(float x) {
     float t = 1.0 / (1.0 + 0.3275911 * abs(x));
     float y = 1.0 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * exp(-x * x);
@@ -180,10 +180,17 @@ vec4 sampleToggleBackdrop(vec2 canvasPx, float radius) {
 
 // sampleIndicatorBackdrop — faithful to LiquidBottomTabs.kt indicator.
 //
+// Naming convention (used throughout the bottom-tabs code):
+//   - 容器 (Container)  = outer visible glass bar (64dp), Container Row in Kotlin
+//   - 指示器 (Indicator) = selected sliding glass capsule (56dp), Indicator Box in Kotlin
+//   - 内层背景板 (Inner backdrop) = hidden 56dp glass captured by tabsBackdrop,
+//     tinted blue by ColorFilter.tint(accentColor), sampled by the indicator
+//   - 标签内容 (Tab content) = icon + label inside each tab slot
+//
 // Original: indicator.drawBackdrop(backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop))
-//   - backdrop = outer LayerBackdrop = wallpaper (sampled via coverUv)
-//   - tabsBackdrop = hidden Row capturing the container glass capsule,
-//     inset 4dp on all sides relative to the indicator's draw area.
+//   - backdrop (outer) = LayerBackdrop = wallpaper (sampled via coverUv)
+//   - tabsBackdrop (inner) = hidden Row's 56dp glass, inset 4dp from the
+//     indicator's draw area on all sides.
 //
 // Implementation (mirrors sampleToggleBackdrop):
 //   1. Sample wallpaper (outer backdrop) with blur — same as toggle's outer.
@@ -213,7 +220,7 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
         wp = sum / total;
     }
 
-    // 2. tabsBackdrop capsule SDF — the hidden Row's 56dp glass capsule.
+    // 2. 内层背景板 (Inner backdrop) SDF — the hidden Row's 56dp glass capsule.
     //    Faithful to LiquidBottomTabs.kt: the hidden Row has NO layerBlock,
     //    so its glass does NOT scale with the container. Only panelOffset
     //    shifts it (translationX = panelOffset).
@@ -233,7 +240,7 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     vec2 sceneUv2 = sceneUv(canvasPx - vec2(uIndicatorPanelOffset, 0.0));
     vec4 scene = texture2D(uTabsGlassLayer, sceneUv2);
 
-    // 4. Draw blue tab-content (icons/labels) on top of the glass layer.
+    // 4. Draw blue 标签内容 (tab content: icons/labels) on top of the glass layer.
     //    Use each tab's fgTexture alpha as a hard mask (step) — pixels inside
     //    the icon/label shape become blue, everything else stays the glass
     //    layer's natural color. No white edges (hard replace, no mix).
@@ -276,7 +283,7 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     float a = scene.a * mask;
     vec3 resultRgb = mix(wp.rgb, sceneColor, a);
 
-    // 6. Mini-glass rim highlight — faithful to LiquidBottomTabs.kt hidden Row:
+    // 6. 内层背景板 rim highlight — faithful to LiquidBottomTabs.kt hidden Row:
     //    highlight = { Highlight.Default.copy(alpha = progress) }
     //    The HighlightModifier draws a STROKE (width=0.5dp, strokeWidth=2px)
     //    blurred by 0.25dp, clipped inside the capsule, colored by the
@@ -290,10 +297,10 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     //    The stroke's outward half (capsuleSd > 0) is clipped, leaving the inner
     //    half. Final contribution = White(1.0) * intensity * strokeMask * progress,
     //    added with Plus blend (additive).
-    //    NOTE: this is the SAME as the indicator's own rim highlight (step 2f in
+    //    NOTE: this is the SAME as the 指示器's own rim highlight (step 2f in
     //    post-passes) — both use Highlight.Default. The only difference is the
-    //    SDF: here it's the tabsBackdrop capsule (inset 4dp), there it's the
-    //    indicator's own capsule. The shader math is identical.
+    //    SDF: here it's the 内层背景板 capsule (inset 4dp), there it's the
+    //    指示器's own capsule. The shader math is identical.
     float highlightAlpha = uIndicatorPressProgress;
     if (highlightAlpha > 0.001) {
         // SDF gradient + Default highlight intensity (angle=45°, falloff=1).

@@ -292,8 +292,8 @@ export const glassRenderMethods = {
     // --- tabsBackdrop FBO pass removed ---
     // The faithful sampleIndicatorBackdrop (element-utils.ts) computes the
     // tinted layer inline (wallpaper + accentColor at containerColor alpha
-    // inside the container capsule SDF), approximating LiquidBottomTabs.kt's
-    // ColorFilter.tint(SrcIn) on the hidden Row's content. No separate FBO
+    // inside the 容器 capsule SDF), approximating LiquidBottomTabs.kt's
+    // ColorFilter.tint(SrcIn) on the 内层背景板 (hidden Row)'s content. No separate FBO
     // capture is needed.
 
     // --- Step 1: Blit curFbo → otherFbo ---

@@ -264,10 +264,10 @@ export const glassPostPassMethods = {
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
     }
 
-    // --- Step 2g: Mini-glass rim highlight (bottom-tab indicator only) ---
-    // The mini-glass (tabsBackdrop capsule inside the indicator) has its own
+    // --- Step 2g: 内层背景板 rim highlight (指示器 only) ---
+    // The 内层背景板 (hidden Row's 56dp glass inside the 指示器) has its own
     // Highlight.Default.copy(alpha=progress). This is drawn INSIDE the
-    // indicator's element shader (sampleIndicatorBackdrop) so it's clipped by
-    // the indicator's capsule SDF — no separate pass needed here.
+    // 指示器's element shader (sampleIndicatorBackdrop) so it's clipped by
+    // the 指示器's capsule SDF — no separate pass needed here.
   },
 }

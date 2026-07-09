@@ -73,8 +73,8 @@ void main() {
 
 /* ------------------------------------------------------------------ *
  * TINT_FRAGMENT_SHADER — fullscreen texture copy with ColorFilter.tint.
- * Used by the bottom-tabs indicator's tabsBackdrop FBO pass: the current
- * scene (container glass + tab content) is copied into the tabsBackdrop FBO
+ * Used by the bottom-tabs 指示器's 内层背景板 (tabsBackdrop) FBO pass: the current
+ * scene (容器 glass + 标签内容) is copied into the tabsBackdrop FBO
  * with a blue tint applied, faithful to LiquidBottomTabs.kt's hidden Row
  * which has ColorFilter.tint(accentColor).
  *
