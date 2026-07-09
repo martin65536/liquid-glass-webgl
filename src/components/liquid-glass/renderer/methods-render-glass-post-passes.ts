@@ -254,7 +254,13 @@ export const glassPostPassMethods = {
       // along with the layer, which our original-space SDF already models.
       const widthPx = el.highlight.widthDp * this.dpr
       const strokeWidthDevice = Math.ceil(widthPx) * 2
-      const blurDevice = widthPx * 0.5
+      // Effective sigma: the original's BlurMaskFilter is a 2D Gaussian blur.
+      // Our shader does a 1D convolution along the SDF normal. To compensate
+      // for the missing tangential diffusion (which widens the visible band
+      // in 2D), we use a slightly larger sigma. The 2D blur of a line stroke
+      // has effective 1D profile sigma_eff = sigma * sqrt(2), so we scale by
+      // sqrt(2) to match the visible width.
+      const blurDevice = widthPx * 0.5 * Math.SQRT2
       gl.uniform1f(this.uRm['uHighlightStrokeWidth'], strokeWidthDevice)
       gl.uniform1f(this.uRm['uHighlightBlur'], blurDevice)
       if (rimAlpha > 0.001) {
