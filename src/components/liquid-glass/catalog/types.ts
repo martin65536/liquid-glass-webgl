@@ -85,6 +85,7 @@ export function animateControlCenterEnter(
       const done = Math.abs(target - pos) < 0.002 && Math.abs(vel) < 0.05
       if (done) {
         ccAnim.handle = null
+        ccAnim.lastVelocity = 0 // reset for next animation
         return { controlCenterEnter: target }
       }
       ccAnim.handle = requestAnimationFrame(step)

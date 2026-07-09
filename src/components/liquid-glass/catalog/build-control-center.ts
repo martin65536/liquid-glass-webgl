@@ -222,7 +222,13 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
         }
       },
       onDragEnd: () => {
+        // Apply any pending drag state before reading position
         if (ccDragRAF != null) { cancelAnimationFrame(ccDragRAF); ccDragRAF = null; }
+        const finalEnter = ccDragPending ?? state.controlCenterEnter
+        if (ccDragPending != null) {
+          setState({ controlCenterEnter: ccDragPending })
+          ccDragPending = null
+        }
         // Faithful to ControlCenterContent.kt onDragStopped:
         //   velocity < 0 (fling up) → collapse (0)
         //   velocity > 0 (fling down) → expand (1)
@@ -230,8 +236,10 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
         const vel = ccDragVelocity.v
         const target = vel < -FLING_THRESHOLD ? 0
           : vel > FLING_THRESHOLD ? 1
-          : (state.controlCenterEnter < 0.5 ? 0 : 1)
-        ccAnim.lastVelocity = vel * MAX_DRAG // pass velocity to spring
+          : (finalEnter < 0.5 ? 0 : 1)
+        // Pass velocity to spring in progress/s units.
+        // vel is px/ms; progress/s = vel * 1000 / MAX_DRAG.
+        ccAnim.lastVelocity = vel * 1000 / MAX_DRAG
         animateControlCenterEnter(setState, target)
       },
     }
@@ -279,11 +287,16 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
     },
     onDragEnd: () => {
       if (ccDragRAF != null) { cancelAnimationFrame(ccDragRAF); ccDragRAF = null; }
+      const finalEnter = ccDragPending ?? state.controlCenterEnter
+      if (ccDragPending != null) {
+        setState({ controlCenterEnter: ccDragPending })
+        ccDragPending = null
+      }
       const vel = ccDragVelocity.v
       const target = vel < -FLING_THRESHOLD ? 0
         : vel > FLING_THRESHOLD ? 1
-        : (state.controlCenterEnter < 0.5 ? 0 : 1)
-      ccAnim.lastVelocity = vel * MAX_DRAG
+        : (finalEnter < 0.5 ? 0 : 1)
+      ccAnim.lastVelocity = vel * 1000 / MAX_DRAG
       animateControlCenterEnter(setState, target)
     },
   }

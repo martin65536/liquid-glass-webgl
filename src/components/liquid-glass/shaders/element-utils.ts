@@ -346,15 +346,13 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
         float wSum2 = 0.0;
         for (int j = -32; j <= 32; j++) {
             float offset = float(j) * tapSpacing2;
-            if (abs(offset) > threeSigma2) {
-                if (j > 0) break;
-                continue;
+            if (abs(offset) <= threeSigma2) {
+                float sampleSd = capsuleSd - offset;
+                float hard = (abs(sampleSd) < strokeHalf) ? 1.0 : 0.0;
+                float w = exp(-0.5 * (offset * offset) / (sigma2 * sigma2));
+                strokeMask += hard * w;
+                wSum2 += w;
             }
-            float sampleSd = capsuleSd - offset;
-            float hard = (abs(sampleSd) < strokeHalf) ? 1.0 : 0.0;
-            float w = exp(-0.5 * (offset * offset) / (sigma2 * sigma2));
-            strokeMask += hard * w;
-            wSum2 += w;
         }
         strokeMask /= wSum2;
         strokeMask *= 0.5;  // clip halves the symmetric stroke at the edge

@@ -244,15 +244,14 @@ void main() {
     float wSum = 0.0;
     for (int i = -32; i <= 32; i++) {
         float offset = float(i) * tapSpacing;
-        if (abs(offset) > threeSigma) {
-            if (i > 0) break;
-            continue;
+        // Only sample within ±3σ; skip taps outside the kernel.
+        if (abs(offset) <= threeSigma) {
+            float sampleSd = sd - offset;
+            float hard = (abs(sampleSd) < strokeHalf) ? 1.0 : 0.0;
+            float w = exp(-0.5 * (offset * offset) / (sigma * sigma));
+            strokeMask += hard * w;
+            wSum += w;
         }
-        float sampleSd = sd - offset;
-        float hard = (abs(sampleSd) < strokeHalf) ? 1.0 : 0.0;
-        float w = exp(-0.5 * (offset * offset) / (sigma * sigma));
-        strokeMask += hard * w;
-        wSum += w;
     }
     strokeMask /= wSum;
     strokeMask *= 0.5;  // clip halves the symmetric stroke at the edge
