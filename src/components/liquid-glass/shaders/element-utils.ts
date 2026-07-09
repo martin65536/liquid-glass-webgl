@@ -313,8 +313,7 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
         // via 9-tap SDF sampling (same approach as highlight.ts). This mirrors
         // the original's two-step process (draw stroke → blur).
         float strokeHalf = 1.0; // ceil(0.5dp)*2 / 2 = 1px
-        float blurRad = 0.25;   // 0.25dp
-        float sigma2 = blurRad / 3.0;  // sigma = radius/3
+        float sigma2 = 1.0;    // 1px sigma for visible Gaussian softness
         float strokeMask = 0.0;
         float wSum2 = 0.0;
         for (int j = -4; j <= 4; j++) {

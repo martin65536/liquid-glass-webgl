@@ -210,8 +210,7 @@ void main() {
     // The hard stroke band: sd in [-strokeHalf, +strokeHalf].
     // After clip (sd > 0 discarded by the outer if), only [-strokeHalf, 0] shows.
     float strokeHalf = uHighlightStrokeWidth * 0.5;
-    float blurRadius = max(uHighlightBlur, 0.1);
-    float sigma = blurRadius / 3.0;  // Skia BlurMaskFilter: sigma = radius/3
+    float sigma = 1.0;  // 1px sigma for visible Gaussian softness
 
     // Gaussian convolution of the hard stroke mask: sample the SDF at offsets
     // along the outward gradient and weight by Gaussian kernel. This is the
