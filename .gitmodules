@@ -1,0 +1,3 @@
+[submodule "AndroidLiquidGlass"]
+	path = AndroidLiquidGlass
+	url = https://github.com/Kyant0/AndroidLiquidGlass.git
