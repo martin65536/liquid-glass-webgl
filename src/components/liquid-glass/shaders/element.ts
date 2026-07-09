@@ -99,8 +99,8 @@ void main() {
         // The content is the wallpaper after colorControls + blur(2dp).
         // FAITHFUL ORDERING: the original's onDrawBackdrop draws the wallpaper
         // AND drawRect(White 0.25) into the same buffer, THEN applies the
-        // RenderEffect chain (colorControls → blur → SDF shader). So the white
-        // overlay is PART of the SDF shader's `content` input — it gets
+        // RenderEffect chain (colorControls, blur, SDF shader). So the white
+        // overlay is PART of the SDF shader content input — it gets
         // refracted and bevel-lit along with the wallpaper.
         // We replicate by sampling the wallpaper, applying colorControls, then
         // mixing in the white overlay BEFORE refraction/bevel.
