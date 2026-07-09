@@ -63,3 +63,29 @@ export function wrapText(
   if (cur) lines.push(cur)
   return lines
 }
+
+/* ------------------------------------------------------------------ *
+ * EaseIn — faithful port of androidx.compose.animation.core.EaseIn
+ *   = CubicBezierEasing(0.42f, 0f, 1f, 1f)
+ *
+ * Solves the cubic bezier for x(s) = t, returns y(s).
+ * Used by the control-center enter alpha (faithful to
+ * ControlCenterContent.kt: alpha = EaseIn.transform(safeProgress)).
+ * ------------------------------------------------------------------ */
+export function easeIn(t: number): number {
+  if (t <= 0) return 0
+  if (t >= 1) return 1
+  // Control points: P0=(0,0) P1=(0.42,0) P2=(1,1) P3=(1,1)
+  const x1 = 0.42, y1 = 0, x2 = 1, y2 = 1
+  // Newton-Raphson to find parameter s where x(s) = t
+  let s = t
+  for (let i = 0; i < 8; i++) {
+    const xs = 3 * (1 - s) * (1 - s) * s * x1 + 3 * (1 - s) * s * s * x2 + s * s * s
+    const dxs = 3 * (1 - s) * (1 - s) * x1 + 6 * (1 - s) * s * (x2 - x1) + 3 * s * s * (1 - x2)
+    if (Math.abs(xs - t) < 0.001) break
+    if (Math.abs(dxs) < 1e-6) break
+    s -= (xs - t) / dxs
+    s = Math.max(0, Math.min(1, s))
+  }
+  return 3 * (1 - s) * (1 - s) * s * y1 + 3 * (1 - s) * s * s * y2 + s * s * s
+}

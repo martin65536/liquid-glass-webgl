@@ -65,11 +65,10 @@ export const rasterMethods = {
     }
 
     // --- Label -------------------------------------------------------
-    // Text size scales with the button rect height (rect.h = 48 * DP in
-    // page.tsx, and the original Kotlin spec uses 15.sp). So
-    // fontPx = rect.h * (15/48). This keeps measurement (in page.tsx)
-    // and rasterization (here) consistent at any DP factor.
-    const fontPx = cssH * (15 / 48)
+    // Text size: if labelFontSizePx is set (fixed sp), use it directly.
+    // Otherwise auto-scale from button height (cssH * 15/48, matching 15sp
+    // on a 48dp button — the LiquidButton default).
+    const fontPx = cfg.labelFontSizePx ?? cssH * (15 / 48)
     const fontFamily =
       '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
     ctx.font = `400 ${fontPx}px ${fontFamily}`

@@ -138,15 +138,14 @@ export function buildCatalog(
   // "Pick an image" button — faithful to BackdropDemoScaffold.kt's LiquidButton
   // at the bottom center. Blue tint, 56dp tall capsule (the original wraps
   // LiquidButton with Modifier.height(56f.dp), overriding the default 48dp).
-  // The renderer scales button label font as cssH*(15/48); for a 56dp button
-  // that yields 17.5px, so we measure width with that same size to keep the
-  // capsule tight around the text. Horizontal padding = 16dp (button) + 8dp
-  // (text) per side = 48dp total, matching LiquidButton + BasicText padding.
+  // The original uses BasicText("Pick an image", TextStyle(White, 16f.sp)) —
+  // a FIXED 16sp, NOT scaled from button height. Horizontal padding = 16dp
+  // (button) + 8dp (text) per side = 48dp total.
   // Only on non-Home pages.
   if (onPickImage && dest !== CatalogDestination.Home) {
     const pickLabel = 'Pick an image'
     const pickH = 56 * DP
-    const pickFontPx = pickH * (15 / 48)
+    const pickFontPx = 16 // 16sp fixed (original: TextStyle(White, 16f.sp))
     const pickW = Math.ceil(measureTextWidth(pickLabel, pickFontPx) + 2 * (16 * DP + 8 * DP))
     const pickBtn = makeButton(
       '__pickimage__',
@@ -156,6 +155,7 @@ export function buildCatalog(
         tintColor: [0x00 / 255, 0x88 / 255, 0xff / 255, 1], // accentColor (blue)
         surfaceColor: [0, 0, 0, 0],
         labelColor: [1, 1, 1, 1], // white text
+        labelFontSizePx: pickFontPx,
       },
       false // scroll = false (fixed at bottom)
     )

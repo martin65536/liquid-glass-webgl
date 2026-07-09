@@ -147,7 +147,12 @@ void main() {
         backdrop = sampleBackdrop(sampleCoord, uBlurRadius);
     }
     vec3 color = applyColorControls(backdrop.rgb, uBrightness, uContrast, uSaturation);
-    float alpha = backdrop.a;
+    // Magnifier glass is always OPAQUE — faithful to the original which
+    // samples rememberCombinedBackdrop (wallpaper + content + cursor all
+    // composited onto the opaque wallpaper). The port's scene texture may
+    // carry partial alpha (e.g. card 0.9), which would make the glass
+    // translucent. Force alpha=1 for magnifier.
+    float alpha = (uUseMagnifier > 0.5) ? 1.0 : backdrop.a;
 
     // --- 2. Lens refraction (SDF + circleMap) ---------------------
     // Faithful port of RoundedRectRefractionWithDispersionShaderString.
@@ -250,7 +255,8 @@ void main() {
             dispAlpha  += sPurple.a / 7.0;
 
             color = applyColorControls(dispColor, uBrightness, uContrast, uSaturation);
-            alpha = dispAlpha;
+            // Magnifier chromatic aberration also forces opaque.
+            alpha = (uUseMagnifier > 0.5) ? 1.0 : dispAlpha;
         } else {
             vec4 refracted;
             if (uIndicatorBackdrop > 0.5) {
@@ -263,7 +269,8 @@ void main() {
                 refracted = sampleBackdrop(refractedSampleCoord, uBlurRadius);
             }
             color = applyColorControls(refracted.rgb, uBrightness, uContrast, uSaturation);
-            alpha = refracted.a;
+            // Magnifier refraction also forces opaque (see backdrop sample above).
+            alpha = (uUseMagnifier > 0.5) ? 1.0 : refracted.a;
         }
     }
 

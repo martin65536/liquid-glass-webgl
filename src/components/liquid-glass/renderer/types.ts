@@ -57,6 +57,11 @@ export interface GlassButtonConfig {
   label: string
   /** Label color (black or white depending on tint). */
   labelColor: [number, number, number, number]
+  /** Optional fixed label font size in CSS px. If not set, the rasterizer
+   *  auto-scales from the button height (cssH * 15/48, matching 15sp on a
+   *  48dp button). Set this for buttons that specify a fixed sp size in the
+   *  original (e.g. Pick an image = 16sp on a 56dp button). */
+  labelFontSizePx?: number
   /** Show the right chevron. */
   showChevron: boolean
   /** Whether to apply InteractiveHighlight press effect. */
@@ -379,25 +384,43 @@ export interface GlassElementConfig extends GlassButtonConfig {
     sampleOffsetY: number
   }
   /**
-   * Control-center enter progress (0 = collapsed, 1 = expanded).
-   * Faithful to ControlCenterContent.kt glassLayer:
-   *   translationY = -48dp * (1 - progress)
-   *   alpha = EaseIn.transform(progress)  (approx smoothstep)
-   *   scaleX /= 1 + 0.1 * max(0, progress - 1)
-   *   scaleY *= 1 + 0.1 * max(0, progress - 1)
-   * Applied in renderGlassElement when set.
+   * Control-center RAW enter progress (can go <0 / >1 for overscroll).
+   * Faithful to ControlCenterContent.kt enterProgressAnimation.
+   * The renderer applies ProgressConverter to derive the visual progress:
+   *   derived = p<0 ? convert(p) : p<=1 ? p : 1+convert(p-1)
+   *   where convert(x) = (1 - exp(-|x|)) * sign(x)
+   * Then:
+   *   translationY = -48dp * (1 - derived)
+   *   scaleX /= 1 + 0.1 * max(0, derived - 1)
+   *   scaleY *= 1 + 0.1 * max(0, derived - 1)
    */
   enterProgress?: number
   /**
-   * ControlCenter overscroll row-stretch. When set AND enterProgress > 1,
-   * the element's y is offset by `enterStretchFactor * max(0, progress-1) * 32dp`.
+   * Control-center SAFE enter progress (clamped 0..1). Faithful to
+   * ControlCenterContent.kt safeEnterProgressAnimation. Drives alpha:
+   *   alpha = EaseIn.transform(safeProgress)
+   *   where EaseIn = CubicBezierEasing(0.42, 0, 1, 1)
+   * The safe progress animates independently (critical spring, no velocity)
+   * so alpha/dim/blur never overshoot even when the raw progress bounces.
+   */
+  enterSafeProgress?: number
+  /**
+   * ControlCenter overscroll row-stretch. When set AND derived progress > 1,
+   * the element's y is offset by `enterStretchFactor * max(0, derived-1) * 32dp`.
    * Faithful to ControlCenterContent.kt's spacerLayoutModifier which grows
    * inter-row spacing by 32dp (large spacer) or 16dp (small spacer) per unit
-   * of overshoot. enterStretchFactor encodes how many large-spacers above this
-   * element (so row-1 gets factor 1, row-2 gets factor 2; elements within a
-   * row share the row's factor).
+   * of DERIVED overshoot (not raw — the ProgressConverter dampens it).
    */
   enterStretchFactor?: number
+  /**
+   * Render ON TOP of all other elements (after the main render loop).
+   * Used by the control-center dim overlay, which must composite above
+   * the glass tiles (faithful to ControlCenterContent.kt's drawWithContent
+   * which draws drawRect(dim) AFTER drawContent()). Elements with this
+   * flag are collected and rendered in a second pass. Hit-test order is
+   * unaffected (still array order).
+   */
+  renderOnTop?: boolean
 }
 
 /* Per-element interaction state — mirrors InteractiveHighlight.kt. */

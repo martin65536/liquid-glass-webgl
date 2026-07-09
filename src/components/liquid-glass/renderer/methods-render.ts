@@ -1,6 +1,7 @@
 import type { LiquidGlassRenderer } from './index'
 import type { GlassElementConfig, ElementState } from './types'
 import { DP } from './spring'
+import { easeIn } from './gl-utils'
 
 declare module './index' {
   interface LiquidGlassRenderer {
@@ -103,6 +104,11 @@ export const renderMethods = {
     let otherTex: WebGLTexture = this.fboBTex!
 
     for (const el of this.buttonConfigs) {
+      // Skip renderOnTop elements — they are rendered in a second pass
+      // after all other elements (faithful to ControlCenterContent.kt's
+      // drawWithContent which draws the dim AFTER drawContent).
+      if (el.renderOnTop) continue
+
       // Compute the element's effective y in VIEWPORT coords (after scroll).
       const y = el.scroll ? el.rect.y - scrollY : el.rect.y
       if (y + el.rect.h < viewportTop || y > viewportBottom) continue
@@ -135,6 +141,19 @@ export const renderMethods = {
         this.gl.enable(this.gl.BLEND)
         this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA)
       }
+    }
+
+    // --- Second pass: render renderOnTop elements (e.g. CC dim overlay) ---
+    // Faithful to ControlCenterContent.kt's drawWithContent:
+    //   drawContent()  ← first pass (tiles)
+    //   drawRect(dim)  ← second pass (dim on top)
+    for (const el of this.buttonConfigs) {
+      if (!el.renderOnTop) continue
+      const y = el.scroll ? el.rect.y - scrollY : el.rect.y
+      if (y + el.rect.h < viewportTop || y > viewportBottom) continue
+      const r = effRect(el)
+      const st = this.buttonStates.get(el.id)
+      this.renderNonGlassElement(el, r, st, curFbo)
     }
 
     // --- Final: blit curFbo → default framebuffer (visible canvas) ---
@@ -202,19 +221,32 @@ export const renderMethods = {
     const gl = this.gl
 
     // Apply enterProgress translationY (ControlCenter) to the rect.
+    // Uses DERIVED progress (with ProgressConverter) — faithful to
+    // ControlCenterContent.kt glassLayer which reads the derivedStateOf progress.
     let r2 = r
     if (el.enterProgress != null) {
-      const ty = -48 * DP * (1 - el.enterProgress)
-      // Overscroll row-stretch: when enterProgress > 1, grow inter-row
-      // spacing (faithful to ControlCenterContent.kt spacerLayoutModifier).
-      const stretch = el.enterStretchFactor != null && el.enterProgress > 1
-        ? el.enterStretchFactor * (el.enterProgress - 1) * 32 * DP
+      const raw = el.enterProgress
+      const derived = raw < 0
+        ? (1 - Math.exp(-Math.abs(raw))) * -1
+        : raw <= 1 ? raw
+        : 1 + (1 - Math.exp(-(raw - 1)))
+      const ty = -48 * DP * (1 - derived)
+      // Overscroll row-stretch: when derived > 1, grow inter-row spacing
+      // by 32dp per unit of DERIVED overshoot.
+      const stretch = el.enterStretchFactor != null && derived > 1
+        ? el.enterStretchFactor * (derived - 1) * 32 * DP
         : 0
       r2 = { x: r.x, y: r.y + ty + stretch, w: r.w, h: r.h }
     }
 
     // --- plain-rect ---
     if (el.kind === 'plain-rect' && el.plainRect) {
+      // Skip rendering fully-transparent plain-rects (e.g. invisible drag
+      // catchers). They have no visual effect but would otherwise waste a
+      // draw call and (with SRC_ALPHA blending) could interfere with the
+      // scene. Alpha=0 → no contribution → skip.
+      const baseC = el.isToggleTrack ? null : el.plainRect.color
+      if (baseC && baseC[3] <= 0) return true
       this.bindFBO(curFbo)
       // Toggle tracks: lerp between offColor and onColor based on the
       // group's animated fraction. Faithful to LiquidToggle.kt's
@@ -253,7 +285,14 @@ export const renderMethods = {
       this.setSdfUniforms(this.uPr, this.aPosLocPr, fillRect, el.cornerRadius)
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
       // Apply enterProgress alpha (ControlCenter fade) to plainRects.
-      const enterA = el.enterProgress != null ? (() => { const p = Math.max(0, Math.min(1, el.enterProgress!)); return p * p * (3 - 2 * p); })() : 1
+      // Uses SAFE progress (clamped 0..1) — faithful to ControlCenterContent.kt
+      // which uses safeEnterProgressAnimation.value for alpha/dim/blur.
+      const enterA = el.enterProgress != null ? (() => {
+        const sp = el.enterSafeProgress != null
+          ? Math.max(0, Math.min(1, el.enterSafeProgress))
+          : Math.max(0, Math.min(1, el.enterProgress!))
+        return easeIn(sp)
+      })() : 1
       gl.uniform4f(this.uPr['uColor'], c[0], c[1], c[2], c[3] * enterA)
       gl.drawArrays(gl.TRIANGLES, 0, 6)
       return true
@@ -380,7 +419,12 @@ export const renderMethods = {
         gl.uniform2f(this.uFg['uOriginalSize'], el.rect.w * this.dpr, el.rect.h * this.dpr)
         gl.uniform1f(this.uFg['uOriginalCornerRadius'], el.cornerRadius * this.dpr)
         gl.uniform2f(this.uFg['uLayerScale'], fgScaleX, fgScaleY)
-        gl.uniform1f(this.uFg['uAlpha'], el.enterProgress != null ? (() => { const p = Math.max(0, Math.min(1, el.enterProgress!)); return p * p * (3 - 2 * p); })() : 1.0)
+        gl.uniform1f(this.uFg['uAlpha'], el.enterProgress != null ? (() => {
+          const sp = el.enterSafeProgress != null
+            ? Math.max(0, Math.min(1, el.enterSafeProgress))
+            : Math.max(0, Math.min(1, el.enterProgress!))
+          return easeIn(sp)
+        })() : 1.0)
         gl.drawArrays(gl.TRIANGLES, 0, 6)
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
       }

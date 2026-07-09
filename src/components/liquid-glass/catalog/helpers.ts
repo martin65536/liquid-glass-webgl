@@ -270,6 +270,8 @@ export function makeButton(
     tintColor: [number, number, number, number]
     surfaceColor: [number, number, number, number]
     labelColor: [number, number, number, number]
+    /** Optional fixed font size in CSS px (default: auto-scale from height). */
+    labelFontSizePx?: number
   },
   scroll = true
 ): GlassElementConfig {
@@ -285,6 +287,7 @@ export function makeButton(
     outerShadow: { ...DEFAULT_SHADOW },
     label: spec.label,
     labelColor: spec.labelColor,
+    labelFontSizePx: spec.labelFontSizePx,
     showChevron: false,
     isInteractive: true,
     scroll,

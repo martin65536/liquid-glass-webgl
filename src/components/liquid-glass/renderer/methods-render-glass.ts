@@ -1,6 +1,7 @@
 import type { LiquidGlassRenderer } from './index'
 import type { GlassElementConfig, ElementState } from './types'
 import { DP } from './spring'
+import { easeIn } from './gl-utils'
 
 /** Shared state between renderGlassElement and its sub-passes.
  *  Rect/radius values are in CSS px (same units as the original code —
@@ -97,25 +98,30 @@ export const glassRenderMethods = {
     let scaleX = 1
     let scaleY = 1
     // Control-center enter progress (faithful to ControlCenterContent.kt glassLayer)
+    // The original applies a DERIVED progress (via ProgressConverter) for
+    // translation/scale, and a SEPARATE safe progress (clamped 0..1) for alpha.
     if (el.enterProgress != null) {
-      const p = el.enterProgress
-      translationY += -48 * DP * (1 - p)
-      // Overscroll row-stretch: when p > 1, grow inter-row spacing
-      // (faithful to ControlCenterContent.kt spacerLayoutModifier).
-      if (el.enterStretchFactor != null && p > 1) {
-        translationY += el.enterStretchFactor * (p - 1) * 32 * DP
+      // ProgressConverter: dampens overscroll exponentially.
+      //   p < 0  → (1 - e^-|p|) * -1   (approaches -1)
+      //   0..1   → p                    (linear)
+      //   p > 1  → 1 + (1 - e^-(p-1))  (approaches 2)
+      const raw = el.enterProgress
+      const derived = raw < 0
+        ? (1 - Math.exp(-Math.abs(raw))) * -1
+        : raw <= 1 ? raw
+        : 1 + (1 - Math.exp(-(raw - 1)))
+      // translationY = -48dp * (1 - derived) — slides up 48dp when collapsed
+      translationY += -48 * DP * (1 - derived)
+      // Overscroll row-stretch: when derived > 1, grow inter-row spacing
+      // by 32dp per unit of DERIVED overshoot (faithful to spacerLayoutModifier
+      // which uses the derived progress, not raw).
+      if (el.enterStretchFactor != null && derived > 1) {
+        translationY += el.enterStretchFactor * (derived - 1) * 32 * DP
       }
-      // EaseIn approx: smoothstep(0, 1, p)
-      const easeIn = p * p * (3 - 2 * p)
-      // scale: scaleX /= 1 + 0.1*max(0, p-1), scaleY *= 1 + 0.1*max(0, p-1)
-      // For p in [0,1], max(0,p-1)=0 → scale=1. Only p>1 affects scale.
-      const sFactor = 1 + 0.1 * Math.max(0, p - 1)
+      // scale: scaleX /= 1 + 0.1*max(0, derived-1), scaleY *= 1 + 0.1*max(0, derived-1)
+      const sFactor = 1 + 0.1 * Math.max(0, derived - 1)
       scaleX /= sFactor
       scaleY *= sFactor
-      // Store alpha for later use (element-pass can't easily set alpha; we
-      // approximate by scaling surfaceColor alpha — but the glass is opaque
-      // so we use it as a global alpha via the final composite). For now,
-      // skip alpha (visual: tiles slide up + scale, no fade).
     }
     if (isButton && el.isInteractive && st) {
       const width = el.rect.w
@@ -312,7 +318,16 @@ export const glassRenderMethods = {
       // here, and renderGlassElementPass overrides it to alpha*progress when
       // progress > 0. For non-toggle elements, use the static highlight alpha.
       elHighlightAlpha: (el.isToggleKnob || el.isBottomTabIndicator) ? 0 : (el.highlight ? el.highlight.alpha : 0),
-      enterAlpha: el.enterProgress != null ? (() => { const p = Math.max(0, Math.min(1, el.enterProgress!)); return p * p * (3 - 2 * p); })() : 1,
+      enterAlpha: el.enterProgress != null ? (() => {
+        // Faithful to ControlCenterContent.kt: alpha = EaseIn.transform(safeProgress)
+        // where safeProgress = safeEnterProgressAnimation.value (clamped 0..1).
+        // EaseIn = CubicBezierEasing(0.42, 0, 1, 1). Use enterSafeProgress
+        // if available, else fall back to clamped enterProgress.
+        const sp = el.enterSafeProgress != null
+          ? Math.max(0, Math.min(1, el.enterSafeProgress))
+          : Math.max(0, Math.min(1, el.enterProgress!))
+        return easeIn(sp)
+      })() : 1,
       layerScaleX: scaleX,
       layerScaleY: scaleY,
       layerScale: Math.min(scaleX, scaleY),

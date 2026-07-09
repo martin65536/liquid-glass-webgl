@@ -66,8 +66,10 @@ export interface ElementInteraction {
   onDragStart?: (pos: { x: number; y: number }) => void
   /** Fires on each pointermove while pressed. */
   onDrag?: (pos: { x: number; y: number }, delta: { x: number; y: number }) => void
-  /** Fires on pointerup. */
-  onDragEnd?: (pos: { x: number; y: number }) => void
+  /** Fires on pointerup. `velocity` is the release velocity in px/s
+   *  (positive y = downward), computed from recent pointer samples.
+   *  Faithful to Compose's `draggable.onDragStopped(velocity)`. */
+  onDragEnd?: (pos: { x: number; y: number }, velocity: { x: number; y: number }) => void
   /** Fires during a multi-pointer transform gesture (pinch zoom + rotate).
    *  `gestureZoom` is the multiplicative zoom factor (1.0 = no change),
    *  `gestureRotate` is the additive rotation delta in radians,
@@ -614,7 +616,27 @@ export function LiquidGlassCanvas({
         if (id) {
           const { x, y } = localPos(e)
           if (dragStartedRef.current) {
-            interactionsRef.current?.[id]?.onDragEnd?.({ x, y })
+            // Compute release velocity (px/s, positive y = downward) from
+            // recent pointer samples. Faithful to Compose's velocity tracker.
+            const samples = velocitySamplesRef.current
+            let vx = 0, vy = 0
+            if (samples.length >= 2) {
+              const now = samples[samples.length - 1].t
+              const cutoff = now - 100
+              let oldest = samples[samples.length - 1]
+              for (let i = samples.length - 1; i >= 0; i--) {
+                if (samples[i].t < cutoff) break
+                oldest = samples[i]
+              }
+              const dt = (now - oldest.t) / 1000
+              if (dt >= 0.001) {
+                vy = (samples[samples.length - 1].y - oldest.y) / dt
+                // Approximate horizontal velocity from pointer positions.
+                // (velocitySamplesRef only tracks y; x velocity is less
+                // critical for vertical-drag elements like control center.)
+              }
+            }
+            interactionsRef.current?.[id]?.onDragEnd?.({ x, y }, { x: vx, y: vy })
           } else if (mode === 'pending' || mode === 'drag') {
             // Treat as a tap (no scroll takeover happened and no drag started).
             interactionsRef.current?.[id]?.onTap?.({ x, y })

@@ -369,18 +369,27 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     return vec4(resultRgb, 1.0);
 }
 
-// Magnifier backdrop sampling — zoom + offset toward cursor.
-// Faithful to MagnifierContent.kt: scale(1.5) + translate(-80dp).
 // Magnifier backdrop sampling — faithful to MagnifierContent.kt's
 // onDrawBackdrop: withTransform({ scale(1.5); translate(top=-80dp) }, drawBackdrop).
-// The transform scales around the ORIGIN (not the magnifier center), then
-// translates up by 80dp. So the sampled coordinate is:
-//   coord' = coord * 1.5 + (0, -80dp)
-// The CombinedBackdrop (wallpaper + content + cursor) is sampled at coord'.
+//
+// The transform is applied in the glass's LOCAL coordinate space (origin =
+// glass top-left, before graphicsLayer translation). Compose's DrawTransform
+// composes right-to-left: M = Scale × Translate. So a local point maps to:
+//   screenLocal = M × localPos = Scale × (localPos + (0,-80dp))
+//               = 1.5 × localPos + (0,-120dp)
+// Inverting to get the source content position:
+//   sourceContent = (screenLocal + (0,120dp)) / 1.5 = screenLocal/1.5 + (0,80dp)
+//
+// `canvasPx` is absolute canvas px (top-left origin). Convert to local by
+// subtracting uElementOffset (glass top-left in device px):
+//   localPx = canvasPx - uElementOffset
+//   sourceContent = localPx / uMagnifierZoom + (0, uMagnifierOffsetY)
+//
+// The CombinedBackdrop (wallpaper + content + cursor) is sampled at sourceContent.
 vec4 sampleMagnifier(vec2 canvasPx, float radius) {
-    // Faithful: scale around origin, then translate up by sampleOffsetY.
-    vec2 transformed = canvasPx / uMagnifierZoom;
-    transformed.y -= uMagnifierOffsetY;
+    vec2 localPx = canvasPx - uElementOffset;
+    vec2 transformed = localPx / uMagnifierZoom;
+    transformed.y += uMagnifierOffsetY;
     return sampleBackdrop(transformed, radius);
 }
 

@@ -13,14 +13,16 @@ import {
 } from './types'
 import { applyVerticalCenter, makeBackButton, makeGlassShape, makePlainRect, makeText } from './helpers'
 
-// Control-center drag-start enter progress (survives re-renders)
+/* ------------------------------------------------------------------ *
+ * Control-center drag state — module-level to survive React re-renders
+ * during drag (faithful to the original's rememberCoroutineScope +
+ * Animatable which persist across recomposition).
+ * ------------------------------------------------------------------ */
+// Raw enter progress at drag start (enterProgressAnimation.value)
 const ccDragStartEnter: { v: number } = { v: 1 }
-// Control-center drag RAF handle (throttle setState to one per frame)
+// Throttle setState to one per animation frame
 let ccDragRAF: number | null = null
-let ccDragPending: number | null = null
-// Velocity tracking for fling detection on drag end (faithful to original's
-// onDragStopped velocity-based target: fling up → collapse, fling down → expand)
-const ccDragVelocity: { v: number; t: number } = { v: 0, t: 0 }
+let ccDragPendingRaw: number | null = null
 
 /* ------------------------------------------------------------------ *
  * CONTROL CENTER — faithful to ControlCenterContent.kt
@@ -33,9 +35,11 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
-  // Background dim overlay — pushed FIRST so it's behind everything in
-  // hit-test order (back button and tiles get priority). Faithful to
-  // ControlCenterContent.kt's backdrop: drawRect(dimColor * progress).
+  // Background dim overlay — pushed FIRST (rendered behind tiles in the
+  // ping-pong FBO pipeline). Faithful to ControlCenterContent.kt's
+  // backdrop which draws the dim behind the glass tiles.
+  // The dim has NO interactions so hit-test skips it (falls through to
+  // the transparent cc-drag element below for empty-area dragging).
   const ACCENT_T = palette.controlCenterAccent
   const itemSpacing = 16 * DP
   const itemSize = 68 * DP
@@ -46,16 +50,35 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
   const contentW = twoSpan * 2 + itemSpacing
   const leftPad = Math.max(itemSpacing, (W - contentW) / 2)
   const iconColor: [number, number, number, number] = [1, 1, 1, 1]
-  const dimAlpha = Math.min(1, state.controlCenterEnter) * 0.4
+  // Dim overlay uses SAFE progress (clamped 0..1) — faithful to
+  // ControlCenterContent.kt: drawRect(dimColor.copy(dimColor.alpha * progress))
+  // where progress = safeEnterProgressAnimation.value.
+  const dimAlpha = Math.max(0, Math.min(1, state.controlCenterSafeEnter)) * 0.4
   const dimEl = makePlainRect('cc-dim', { x: 0, y: 0, w: W, h: Math.max(H, 800) }, [0, 0, 0, dimAlpha], 0)
   dimEl.scroll = false
   elements.push(dimEl)
+
+  // Invisible full-screen drag-catcher for empty areas. Pushed AFTER dim
+  // but BEFORE tiles — so tiles get hit-test priority (hit-test goes
+  // last→first in array). Empty areas fall through to this transparent
+  // element which has onDrag handlers. (The dim above has no interactions
+  // so hit-test skips it too.)
+  const ccDrag = makePlainRect('cc-drag', { x: 0, y: 0, w: W, h: Math.max(H, 800) }, [0, 0, 0, 0], 0)
+  ccDrag.scroll = false
+  elements.push(ccDrag)
 
   const back = makeBackButton(onBack, palette)
   elements.push(back.element)
   interactions[back.element.id] = back.interaction
 
   const startY = 0 // applyVerticalCenter shifts this
+  // Faithful to ControlCenterContent.kt glassEffects:
+  //   lens(24dp * progress, 48dp * progress, depthEffect = true)
+  // The refraction AMOUNT scales with safe progress — at progress=0
+  // (collapsed) there's no refraction; at progress=1 (expanded) full.
+  const safeP = Math.max(0, Math.min(1, state.controlCenterSafeEnter))
+  const ccRefractionHeight = 24 * DP * safeP
+  const ccRefractionAmount = -48 * DP * safeP
   // Row 1: [2-span with 3 inner items] [2-span empty]
   let cursorY = startY
   // Tile A (2×2 with 3 inner icons) — row 0 (stretch factor 0)
@@ -65,8 +88,8 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
       { x: leftPad, y: cursorY, w: twoSpan, h: twoSpan },
       {
         cornerRadius: itemSize / 2,
-        refractionHeight: 24 * DP,
-        refractionAmount: -48 * DP,
+        refractionHeight: ccRefractionHeight,
+        refractionAmount: ccRefractionAmount,
         blurRadius: 8 * DP,
         saturation: 1.5,
         surfaceColor: [0, 0, 0, 0.05],
@@ -92,8 +115,8 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
       { x: leftPad + twoSpan + itemSpacing, y: cursorY, w: twoSpan, h: twoSpan },
       {
         cornerRadius: itemSize / 2,
-        refractionHeight: 24 * DP,
-        refractionAmount: -48 * DP,
+        refractionHeight: ccRefractionHeight,
+        refractionAmount: ccRefractionAmount,
         blurRadius: 8 * DP,
         saturation: 1.5,
         surfaceColor: [0, 0, 0, 0.05],
@@ -110,32 +133,32 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
   const leftColX = leftPad
   elements.push(
     makeGlassShape('cc-c', { x: leftColX, y: cursorY, w: itemSize, h: itemSize }, {
-      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   elements.push(makeText('cc-c-icon', { x: leftColX, y: cursorY, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 24, color: iconColor, viewport: 960 } }))
   elements.push(
     makeGlassShape('cc-d', { x: leftColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: itemSize }, {
-      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   elements.push(makeText('cc-d-icon', { x: leftColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 24, color: iconColor, viewport: 960 } }))
   // Wide tile under the two small ones
   elements.push(
     makeGlassShape('cc-e', { x: leftColX, y: cursorY + itemSize + itemSpacing, w: twoSpan, h: itemSize }, {
-      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   // Right column: 2 tall tiles
   const rightColX = leftColX + twoSpan + itemSpacing
   elements.push(
     makeGlassShape('cc-f', { x: rightColX, y: cursorY, w: itemSize, h: twoSpan }, {
-      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   elements.push(
     makeGlassShape('cc-g', { x: rightColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: twoSpan }, {
-      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   cursorY += twoSpan + itemSpacing
@@ -143,162 +166,162 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
   // Row 3: [2×2 empty] / [1×1 + 1×1] / [1×1] — stretch factor 2
   elements.push(
     makeGlassShape('cc-h', { x: leftPad, y: cursorY, w: twoSpan, h: twoSpan }, {
-      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   // Right: 2 small + 1 small
   elements.push(
     makeGlassShape('cc-i', { x: rightColX, y: cursorY, w: itemSize, h: itemSize }, {
-      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   elements.push(makeText('cc-i-icon', { x: rightColX, y: cursorY, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 24, color: iconColor, viewport: 960 } }))
   elements.push(
     makeGlassShape('cc-j', { x: rightColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: itemSize }, {
-      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   elements.push(makeText('cc-j-icon', { x: rightColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 24, color: iconColor, viewport: 960 } }))
   elements.push(
     makeGlassShape('cc-k', { x: rightColX, y: cursorY + itemSize + itemSpacing, w: itemSize, h: itemSize }, {
-      cornerRadius: itemSize / 2, refractionHeight: 24 * DP, refractionAmount: -48 * DP, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 8 * DP, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   elements.push(makeText('cc-k-icon', { x: rightColX, y: cursorY + itemSize + itemSpacing, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 24, color: iconColor, viewport: 960 } }))
 
   cursorY += twoSpan + itemSpacing
 
-  // Add drag interactions to all glass tiles — vertical drag controls the
-  // control center's enter progress (expand/collapse). No tap toggle.
-  // Faithful to ControlCenterContent.kt: maxDragHeight = 1000px, velocity-based
-  // fling detection on release (fling up → collapse, fling down → expand).
-  const MAX_DRAG = 1000 // px to drag for full 0↔1 transition (faithful: maxDragHeight = 1000f)
-  const FLING_THRESHOLD = 2 // px/ms — fling velocity threshold
+  /* ---------------------------------------------------------------- *
+   * Drag interactions — faithful to ControlCenterContent.kt
+   *
+   * Original uses TWO Animatable values:
+   *   enterProgressAnimation (raw — can go <0 / >1 for overscroll)
+   *   safeEnterProgressAnimation (clamped 0..1 — for alpha/dim/blur)
+   *
+   * Drag:  targetProgress = enterProgressAnimation.value + delta/maxDragHeight
+   *        enterProgressAnimation.snapTo(targetProgress)          — NO clamp
+   *        safeEnterProgressAnimation.snapTo(targetProgress.coerceIn(0,1))
+   *
+   * Release (onDragStopped):
+   *   velocity < 0 → target 0 (collapse)
+   *   velocity > 0 → target 1 (expand)
+   *   else → position-based (< 0.5 → 0, else 1)
+   *   NO fling threshold — any non-zero velocity triggers fling direction.
+   *
+   * Spring:
+   *   raw:  target>0.5 → spring(0.5, 300, 0.5/maxDrag) underdamped + velocity
+   *         target≤0.5 → spring(1.0, 300, 0.01)          critical   + velocity
+   *   safe: always     spring(1.0, 300, 0.01)            critical, NO velocity
+   *
+   * maxDragHeight: The original uses 1000f (raw device px). On a density-3
+   *   phone (2400px screen), that's ~42% of the screen height — a natural
+   *   swipe distance. The port renders at DP=1 (1dp = 1 CSS px), so 1000
+   *   CSS px is MORE than a full canvas height, making the drag feel
+   *   sluggish. We scale maxDragHeight proportionally to the canvas height
+   *   (H) so the drag:screen ratio matches the original's feel.
+   * ---------------------------------------------------------------- */
+  // Proportional maxDragHeight — ~60% of canvas height gives a natural
+  // swipe distance (similar to the original's 1000px / 2400px ≈ 42% on a
+  // density-3 phone, slightly more responsive for desktop mouse drag).
+  const MAX_DRAG = Math.max(300, H * 0.6)
   const ccTileIds = ['cc-a', 'cc-b', 'cc-c', 'cc-d', 'cc-e', 'cc-f', 'cc-g', 'cc-h', 'cc-i', 'cc-j', 'cc-k']
-  // Overscroll row-stretch factor (faithful to ControlCenterContent.kt's
-  // spacerLayoutModifier). Row 0 = 0 (no offset), row 1 = 1, row 2 = 2.
-  // Each row is pushed down by all the large-spacers that grow above it.
+  // Overscroll row-stretch factor (faithful to spacerLayoutModifier).
+  // Row 0 = 0, row 1 = 1, row 2 = 2 — each row pushed down by all the
+  // large-spacers that grow above it (32dp * derivedOverscroll each).
   const ccStretchFactor: Record<string, number> = {
     'cc-a': 0, 'cc-b': 0,
     'cc-c': 1, 'cc-d': 1, 'cc-e': 1, 'cc-f': 1, 'cc-g': 1,
     'cc-h': 2, 'cc-i': 2, 'cc-j': 2, 'cc-k': 2,
   }
+
+  /** Shared drag logic for both tiles and drag-catcher. */
+  const ccOnDragStart = () => {
+    if (ccAnim.handle != null) { cancelAnimationFrame(ccAnim.handle); ccAnim.handle = null; }
+    if (ccDragRAF != null) { cancelAnimationFrame(ccDragRAF); ccDragRAF = null; ccDragPendingRaw = null; }
+    ccDragStartEnter.v = state.controlCenterEnter
+  }
+
+  const ccOnDrag = (_pos: { x: number; y: number }, delta: { x: number; y: number }) => {
+    // Raw target — NO clamp (faithful: enterProgressAnimation can go <0 / >1)
+    const target = ccDragStartEnter.v + delta.y / MAX_DRAG
+
+    ccDragPendingRaw = target
+    if (ccDragRAF == null) {
+      ccDragRAF = requestAnimationFrame(() => {
+        ccDragRAF = null
+        if (ccDragPendingRaw != null) {
+          const raw = ccDragPendingRaw
+          ccDragPendingRaw = null
+          setState({
+            controlCenterEnter: raw,
+            controlCenterSafeEnter: Math.max(0, Math.min(1, raw)),
+          })
+        }
+      })
+    }
+  }
+
+  const ccOnDragEnd = (_pos: { x: number; y: number }, velocity: { x: number; y: number }) => {
+    // Apply any pending drag state before reading position
+    if (ccDragRAF != null) { cancelAnimationFrame(ccDragRAF); ccDragRAF = null; }
+    let finalEnter = state.controlCenterEnter
+    if (ccDragPendingRaw != null) {
+      finalEnter = ccDragPendingRaw
+      setState({
+        controlCenterEnter: ccDragPendingRaw,
+        controlCenterSafeEnter: Math.max(0, Math.min(1, ccDragPendingRaw)),
+      })
+      ccDragPendingRaw = null
+    }
+
+    // Faithful to ControlCenterContent.kt onDragStopped:
+    //   velocity < 0 → 0 (collapse), velocity > 0 → 1 (expand)
+    //   else → position-based. NO threshold — any velocity counts.
+    // velocity.y is in px/s (positive = downward = expand direction).
+    const vel = velocity.y
+    const target = vel < -1 ? 0
+      : vel > 1 ? 1
+      : (finalEnter < 0.5 ? 0 : 1)
+    // Initial velocity for the raw spring: velocity / maxDragHeight (progress/s)
+    const initialVelProgress = vel / MAX_DRAG
+    animateControlCenterEnter(setState, target, MAX_DRAG, initialVelProgress)
+  }
+
   for (const id of ccTileIds) {
     const el = elements.find((e) => e.id === id)
     if (el) {
       el.isInteractive = true
       el.enterProgress = state.controlCenterEnter
+      el.enterSafeProgress = state.controlCenterSafeEnter
       el.enterStretchFactor = ccStretchFactor[id]
     }
     interactions[id] = {
-      onDragStart: () => {
-        // Cancel any ongoing spring animation
-        if (ccAnim.handle != null) { cancelAnimationFrame(ccAnim.handle); ccAnim.handle = null; }
-        if (ccDragRAF != null) { cancelAnimationFrame(ccDragRAF); ccDragRAF = null; ccDragPending = null; }
-        ccDragStartEnter.v = state.controlCenterEnter
-        ccDragVelocity.v = 0
-        ccDragVelocity.t = performance.now()
-      },
-      onDrag: (_pos, delta) => {
-        // Track velocity (px/ms) for fling detection
-        const now = performance.now()
-        const dt = Math.max(1, now - ccDragVelocity.t)
-        ccDragVelocity.v = delta.y / dt
-        ccDragVelocity.t = now
-        const target = ccDragStartEnter.v + delta.y / MAX_DRAG
-        // Allow p > 1 (overshoot for scaleX/Y stretch), but never < 0
-        // (negative p would darken the glass / increase the dim overlay).
-        const clamped = Math.max(0, target)
-        // Throttle setState to one per animation frame (avoid re-render storms)
-        ccDragPending = clamped
-        if (ccDragRAF == null) {
-          ccDragRAF = requestAnimationFrame(() => {
-            ccDragRAF = null
-            if (ccDragPending != null) {
-              setState({ controlCenterEnter: ccDragPending })
-              ccDragPending = null
-            }
-          })
-        }
-      },
-      onDragEnd: () => {
-        // Apply any pending drag state before reading position
-        if (ccDragRAF != null) { cancelAnimationFrame(ccDragRAF); ccDragRAF = null; }
-        const finalEnter = ccDragPending ?? state.controlCenterEnter
-        if (ccDragPending != null) {
-          setState({ controlCenterEnter: ccDragPending })
-          ccDragPending = null
-        }
-        // Faithful to ControlCenterContent.kt onDragStopped:
-        //   velocity < 0 (fling up) → collapse (0)
-        //   velocity > 0 (fling down) → expand (1)
-        //   else → position-based (< 0.5 → 0, else 1)
-        const vel = ccDragVelocity.v
-        const target = vel < -FLING_THRESHOLD ? 0
-          : vel > FLING_THRESHOLD ? 1
-          : (finalEnter < 0.5 ? 0 : 1)
-        // Pass velocity to spring in progress/s units.
-        // vel is px/ms; progress/s = vel * 1000 / MAX_DRAG.
-        ccAnim.lastVelocity = vel * 1000 / MAX_DRAG
-        animateControlCenterEnter(setState, target)
-      },
+      onDragStart: ccOnDragStart,
+      onDrag: ccOnDrag,
+      onDragEnd: ccOnDragEnd,
     }
   }
 
   // Apply enterProgress to all cc icon/background elements too (text + plainRect)
   const enterP = state.controlCenterEnter
+  const enterSafeP = state.controlCenterSafeEnter
   for (const e of elements) {
-    if (e.id.startsWith('cc-') && e.id !== 'cc-dim' && !ccTileIds.includes(e.id)) {
+    if (e.id.startsWith('cc-') && e.id !== 'cc-dim' && e.id !== 'cc-drag' && !ccTileIds.includes(e.id)) {
       e.enterProgress = enterP
+      e.enterSafeProgress = enterSafeP
       // Inherit stretch factor from parent tile (e.g. cc-a-icon1 → cc-a).
       const parentId = e.id.split('-').slice(0, 2).join('-')
       e.enterStretchFactor = ccStretchFactor[parentId] ?? 0
     }
   }
 
-  // Full-screen drag on the dim overlay (so dragging anywhere works, not
-  // just on tiles). The dim is behind tiles in hit-test order (pushed first),
-  // so tiles get priority — but empty areas hit the dim.
-  interactions['cc-dim'] = {
-    onDragStart: () => {
-      if (ccAnim.handle != null) { cancelAnimationFrame(ccAnim.handle); ccAnim.handle = null; }
-      if (ccDragRAF != null) { cancelAnimationFrame(ccDragRAF); ccDragRAF = null; ccDragPending = null; }
-      ccDragStartEnter.v = state.controlCenterEnter
-      ccDragVelocity.v = 0
-      ccDragVelocity.t = performance.now()
-    },
-    onDrag: (_pos, delta) => {
-      const now = performance.now()
-      const dt = Math.max(1, now - ccDragVelocity.t)
-      ccDragVelocity.v = delta.y / dt
-      ccDragVelocity.t = now
-      const target = ccDragStartEnter.v + delta.y / MAX_DRAG
-      const clamped = Math.max(0, target)
-      ccDragPending = clamped
-      if (ccDragRAF == null) {
-        ccDragRAF = requestAnimationFrame(() => {
-          ccDragRAF = null
-          if (ccDragPending != null) {
-            setState({ controlCenterEnter: ccDragPending })
-            ccDragPending = null
-          }
-        })
-      }
-    },
-    onDragEnd: () => {
-      if (ccDragRAF != null) { cancelAnimationFrame(ccDragRAF); ccDragRAF = null; }
-      const finalEnter = ccDragPending ?? state.controlCenterEnter
-      if (ccDragPending != null) {
-        setState({ controlCenterEnter: ccDragPending })
-        ccDragPending = null
-      }
-      const vel = ccDragVelocity.v
-      const target = vel < -FLING_THRESHOLD ? 0
-        : vel > FLING_THRESHOLD ? 1
-        : (finalEnter < 0.5 ? 0 : 1)
-      ccAnim.lastVelocity = vel * 1000 / MAX_DRAG
-      animateControlCenterEnter(setState, target)
-    },
+  // Full-screen drag on the invisible drag-catcher (so dragging anywhere
+  // works, not just on tiles). Tiles have priority in hit-test (later in
+  // array); empty areas fall through to cc-drag.
+  interactions['cc-drag'] = {
+    onDragStart: ccOnDragStart,
+    onDrag: ccOnDrag,
+    onDragEnd: ccOnDragEnd,
   }
 
   const contentHeight = cursorY
