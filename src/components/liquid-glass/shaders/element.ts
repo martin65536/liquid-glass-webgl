@@ -87,20 +87,22 @@ void main() {
         // Sample the WALLPAPER directly (not the scene FBO) — faithful to
         // LockScreenContent.kt's drawPlainBackdrop which uses the LayerBackdrop
         // (raw wallpaper, before the dark scrim is drawn).
-        vec2 wpUv1 = coverUv(sampleCoord);
-        vec4 backdrop = texture2D(uWallpaperSampler, wpUv1);
-        vec3 color = applyColorControls(backdrop.rgb, uBrightness, uContrast, uSaturation);
-
-        // Refraction: coord - intensity * refractionHeight * normal
-        // (faithful to SdfShader.kt: refractedCoord = coord - intensity * H * normal).
-        // The offset is in ORIGINAL space (normal is from the SDF texture),
-        // mapped to SCREEN space via layerScale.
+        // The original applies blur(2dp) BEFORE the SDF shader (in the effects
+        // block), so 'content' (the SDF shader's input) is already blurred.
+        // We replicate by sampling the wallpaper with a 9-tap poisson blur at
+        // the refracted coordinate.
         vec2 refractedOffsetOrig = intensity * uRefractionHeight * normal;
         vec2 refractedOffsetScreen = refractedOffsetOrig * layerScale;
         vec2 refractedScreen = screenCoord - refractedOffsetScreen;
-        vec2 wpUv2 = coverUv(refractedScreen);
-        vec4 refracted = texture2D(uWallpaperSampler, wpUv2);
-        color = applyColorControls(refracted.rgb, uBrightness, uContrast, uSaturation);
+
+        // Faithful to SdfShader.kt: color = content.eval(refractedCoord) * v.a
+        // The content is the wallpaper after colorControls + blur(2dp).
+        vec4 content = sampleWallpaperBlurred(refractedScreen, uBlurRadius);
+        vec3 color = applyColorControls(content.rgb, uBrightness, uContrast, uSaturation);
+        // Multiply by sdfMask (v.a) — faithful to 'content * v.a'. This makes
+        // the color fade at AA edges, giving the glass a soft boundary instead
+        // of a hard flat fill.
+        color *= sdfMask;
 
         // Bevel lighting
         float angleRad = uSdfLightAngle * 3.1415926 / 180.0;
@@ -110,9 +112,11 @@ void main() {
         float bevel2 = clamp(dot(normal, -lightDir), 0.0, 1.0);
         color.rgb *= 1.0 + 0.5 * bevel2 * min(1.0, smoothstep(1.0, 0.0, abs(intensity - 0.25) * 6.0));
 
-        // onDrawSurface: surfaceColor (White 0.25 alpha)
+        // onDrawBackdrop: drawRect(White 0.25) SrcOver on top of the refracted
+        // content. Faithful: result = White*0.25 + color*0.75 (NOT mix — the
+        // original draws a solid white rect over the backdrop).
         if (uSurfaceColor.a > 0.001) {
-            color = mix(color, uSurfaceColor.rgb, uSurfaceColor.a);
+            color = uSurfaceColor.rgb * uSurfaceColor.a + color * (1.0 - uSurfaceColor.a);
         }
 
         gl_FragColor = vec4(color, sdfMask * uEnterAlpha);

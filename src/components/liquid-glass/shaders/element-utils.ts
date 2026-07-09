@@ -87,6 +87,29 @@ vec4 sampleBackdrop(vec2 canvasPx, float radius) {
     return sum / total;
 }
 
+// 9-tap poisson blur sampling the WALLPAPER (uWallpaperSampler via coverUv).
+// Used by the SDF-texture glass path (LockScreen) — faithful to the original's
+// blur(2dp) effect applied before the SDF shader.
+vec4 sampleWallpaperBlurred(vec2 canvasPx, float radius) {
+    vec2 uv = coverUv(canvasPx);
+    if (radius < 0.5) {
+        return texture2D(uWallpaperSampler, uv);
+    }
+    vec2 pxToUv = radius * canvasPxToUvScale();
+    vec4 sum = vec4(0.0);
+    float total = 0.0;
+    sum += texture2D(uWallpaperSampler, uv) * 0.25; total += 0.25;
+    sum += texture2D(uWallpaperSampler, uv + vec2( 1.000,  0.000) * pxToUv) * 0.12; total += 0.12;
+    sum += texture2D(uWallpaperSampler, uv + vec2(-1.000,  0.000) * pxToUv) * 0.12; total += 0.12;
+    sum += texture2D(uWallpaperSampler, uv + vec2( 0.000,  1.000) * pxToUv) * 0.12; total += 0.12;
+    sum += texture2D(uWallpaperSampler, uv + vec2( 0.000, -1.000) * pxToUv) * 0.12; total += 0.12;
+    sum += texture2D(uWallpaperSampler, uv + vec2( 0.707,  0.707) * pxToUv) * 0.0675; total += 0.0675;
+    sum += texture2D(uWallpaperSampler, uv + vec2( 0.707, -0.707) * pxToUv) * 0.0675; total += 0.0675;
+    sum += texture2D(uWallpaperSampler, uv + vec2(-0.707,  0.707) * pxToUv) * 0.0675; total += 0.0675;
+    sum += texture2D(uWallpaperSampler, uv + vec2(-0.707, -0.707) * pxToUv) * 0.0675; total += 0.0675;
+    return sum / total;
+}
+
 // --- Toggle knob CombinedBackdrop sampling (faithful to LiquidToggle.kt) ---
 // The knob's backdrop is a CombinedBackdrop of:
 //   1. Outer backdrop:
