@@ -1,10 +1,30 @@
 import type { ElementInteraction } from '../context'
 import type { GlassElementConfig } from '../renderer'
-import { DEFAULT_HIGHLIGHT, DEFAULT_SHADOW, DP, LIGHT_PALETTE, LOREM_IPSUM, type CatalogResult, type CatalogState, type ThemePalette } from './types'
+import { DEFAULT_HIGHLIGHT, DEFAULT_SHADOW, DP, FONT_FAMILY, LIGHT_PALETTE, LOREM_IPSUM, measureTextWidth, type CatalogResult, type CatalogState, type ThemePalette } from './types'
 import { applyVerticalCenter, makeBackButton, makeGlassShape, makePlainRect, makeText } from './helpers'
 
 // Magnifier drag-start offset (survives re-renders)
 const magDragStart: { x: number; y: number } = { x: 0, y: 0 }
+
+/** Measure the wrapped height of `text` at `fontPx` within `maxW`.
+ *  Uses the same greedy word-wrap as the rasterizer (gl-utils.ts wrapText). */
+function measureWrappedHeight(text: string, fontPx: number, maxW: number): number {
+  const lineH = fontPx * 1.35
+  const words = text.split(/\s+/)
+  let cur = ''
+  let lines = 0
+  for (const word of words) {
+    const test = cur ? cur + ' ' + word : word
+    if (measureTextWidth(test, fontPx) <= maxW || !cur) {
+      cur = test
+    } else {
+      lines++
+      cur = word
+    }
+  }
+  if (cur) lines++
+  return lines * lineH
+}
 
 /* ------------------------------------------------------------------ *
  * MAGNIFIER — faithful to MagnifierContent.kt
@@ -28,20 +48,27 @@ export function buildMagnifier(W: number, H: number, onBack: () => void, state: 
   //   Card uses backgroundColor.copy(alpha = 0.9f).
 
   // Card with text — theme-aware background.
+  // Faithful to MagnifierContent.kt: the card is auto-sized to the text
+  // content with two 24dp paddings (outer clip + inner text). We measure
+  // the wrapped text height to size the card correctly.
   const cardX = 24 * DP
   const cardY = 0 // applyVerticalCenter shifts this
   const cardW = W - 2 * cardX
-  const cardH = 280 * DP
   const cardRadius = 32 * DP
+  const innerPad = 24 * DP
+  const textW = cardW - 2 * innerPad
+  const fontPx = 16
+  const textH = measureWrappedHeight(LOREM_IPSUM, fontPx, textW)
+  const cardH = textH + 2 * innerPad
   elements.push(makePlainRect('mag-card', { x: cardX, y: cardY, w: cardW, h: cardH }, palette.magnifierCardBg, cardRadius))
   elements.push(
     makeText(
       'mag-text',
-      { x: cardX + 24, y: cardY + 24, w: cardW - 48, h: cardH - 48 },
+      { x: cardX + innerPad, y: cardY + innerPad, w: textW, h: textH },
       LOREM_IPSUM,
       {
         color: palette.magnifierContentColor,
-        fontSizePx: 16,
+        fontSizePx: fontPx,
         fontWeight: 400,
         align: 'left',
         wrap: true,

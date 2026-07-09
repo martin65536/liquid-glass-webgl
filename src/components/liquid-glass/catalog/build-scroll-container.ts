@@ -31,7 +31,7 @@ export function buildScrollContainer(W: number, onBack: () => void, count: numbe
           cornerRadius: 32 * DP,
           refractionHeight: 16 * DP,
           refractionAmount: -32 * DP,
-          blurRadius: 2 * DP,
+          blurRadius: 0, // Original has NO blur — only vibrancy() + lens()
           saturation: 1.5,
           surfaceColor: [0, 0, 0, 0],
           highlight: { ...DEFAULT_HIGHLIGHT },

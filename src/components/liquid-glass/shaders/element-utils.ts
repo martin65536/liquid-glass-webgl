@@ -336,15 +336,15 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
         // capsuleSd is in device px (uContainerRect is dpr-scaled), so sigma
         // and strokeHalf must also be in device px.
         // Implementation: hard-edge stroke band convolved with Gaussian kernel
-        // via adaptive SDF sampling (same approach as highlight.ts). Tap count
-        // scales with sigma to cover ±3σ; max 32 taps with early break.
+        // via adaptive SDF sampling (same approach as highlight.ts). Fixed 1px
+        // tap spacing — tap count scales with sigma (2*ceil(3σ)+1, max 64).
         float strokeHalf = ceil(0.5 * uDpr) * 2.0 * 0.5;  // = ceil(0.5*dpr)
         float sigma2 = max(0.25 * uDpr, 0.1);  // blurRadius = 0.25dp, sigma = blurRadius*dpr
-        float tapSpacing2 = max(sigma2 * 0.75, 0.5);
+        float tapSpacing2 = 1.0; // fixed 1px — tap count scales with sigma
         float threeSigma2 = sigma2 * 3.0;
         float strokeMask = 0.0;
         float wSum2 = 0.0;
-        for (int j = -16; j <= 16; j++) {
+        for (int j = -32; j <= 32; j++) {
             float offset = float(j) * tapSpacing2;
             if (abs(offset) > threeSigma2) {
                 if (j > 0) break;
@@ -373,11 +373,17 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
 
 // Magnifier backdrop sampling — zoom + offset toward cursor.
 // Faithful to MagnifierContent.kt: scale(1.5) + translate(-80dp).
+// Magnifier backdrop sampling — faithful to MagnifierContent.kt's
+// onDrawBackdrop: withTransform({ scale(1.5); translate(top=-80dp) }, drawBackdrop).
+// The transform scales around the ORIGIN (not the magnifier center), then
+// translates up by 80dp. So the sampled coordinate is:
+//   coord' = coord * 1.5 + (0, -80dp)
+// The CombinedBackdrop (wallpaper + content + cursor) is sampled at coord'.
 vec4 sampleMagnifier(vec2 canvasPx, float radius) {
-    vec2 magCenter = uElementOffset + uElementSize * 0.5;
-    vec2 zoomedCoord = magCenter + (canvasPx - magCenter) / uMagnifierZoom;
-    vec2 cursorCoord = vec2(zoomedCoord.x, zoomedCoord.y + uMagnifierOffsetY);
-    return sampleBackdrop(cursorCoord, radius);
+    // Faithful: scale around origin, then translate up by sampleOffsetY.
+    vec2 transformed = canvasPx / uMagnifierZoom;
+    transformed.y -= uMagnifierOffsetY;
+    return sampleBackdrop(transformed, radius);
 }
 
 // colorControls — exact port of ColorFilter.kt colorControlsColorFilter.
