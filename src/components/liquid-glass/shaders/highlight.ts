@@ -240,26 +240,33 @@ void main() {
     // stroke was clipped away). This makes the peak at sd=0 ≈ 0.5 (half the
     // kernel clipped) while the inner band (sd ≈ -strokeHalf) stays ≈ 1.0
     // (full kernel inside) — faithful to the original's clip-then-blur.
+    //
+    // PEAK PRESERVATION: normalize by the weight sum of taps that are INSIDE
+    // the stroke band (hard > 0), not all taps. This ensures the peak at the
+    // stroke center reaches 1.0 (matching the original's un-clipped peak),
+    // while the falloff away from the edge drops naturally. Normalizing by
+    // all taps would dilute the peak, making the highlight flat and low-
+    // contrast (the "暗部比它亮，亮部没它亮" problem).
     float tapSpacing = 1.0; // fixed 1px spacing — tap count scales with sigma
     float threeSigma = sigma * 3.0;
     float strokeMask = 0.0;
-    float wSum = 0.0;
+    float strokeWSum = 0.0;  // weight sum of IN-BAND taps only (for peak=1.0)
     for (int i = -32; i <= 32; i++) {
         float offset = float(i) * tapSpacing;
-        // Only sample within ±3σ; skip taps outside the kernel.
         if (abs(offset) <= threeSigma) {
             float sampleSd = sd - offset;
-            // Hard stroke mask: 1.0 inside the stroke band, 0.0 outside.
             float hard = (abs(sampleSd) < strokeHalf) ? 1.0 : 0.0;
-            // Clip: zero out taps that fall outside the shape (sd > 0).
-            // This faithfully models canvas.clipOutline before blur.
+            // Clip: zero out taps outside the shape (sd > 0).
             float clipped = (sampleSd > 0.0) ? 0.0 : hard;
             float w = exp(-0.5 * (offset * offset) / (sigma * sigma));
             strokeMask += clipped * w;
-            wSum += w;
+            if (hard > 0.5) strokeWSum += w;  // in-band weight (pre-clip)
         }
     }
-    strokeMask /= wSum;
+    // Normalize by in-band weight so the peak reaches 1.0 where the full
+    // kernel is inside the stroke band. At the edge (sd=0), half the kernel
+    // is clipped → peak ≈ 0.5, matching the original's clip behavior.
+    strokeMask /= max(strokeWSum, 1e-6);
 
     if (uHighlightMode < 0.5) {
         // Default — shader returns color * intensity, Plus blend.
