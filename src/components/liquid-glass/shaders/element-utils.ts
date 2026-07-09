@@ -19,6 +19,14 @@ vec3 rgb2hsv(vec3 c);
 vec3 hsv2rgb(vec3 c);
 vec3 blendHue(vec3 dst, vec3 src);
 
+// erf approximation (Abramowitz & Stegun 7.1.26) — for Gaussian edge profile.
+// Same as in highlight.ts, used by the mini-glass rim highlight stroke mask.
+float erfApprox(float x) {
+    float t = 1.0 / (1.0 + 0.3275911 * abs(x));
+    float y = 1.0 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * exp(-x * x);
+    return sign(x) * y;
+}
+
 float circleMap(float x) {
     return 1.0 - sqrt(1.0 - x * x);
 }
@@ -297,19 +305,21 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
         float d = dot(grad, normal);
         float intensity = pow(abs(d), 1.0);
 
-        // Stroke mask — faithful to HighlightModifier.kt:
+        // Stroke mask — faithful to HighlightModifier.kt + BlurMaskFilter:
         //   paint.style = Stroke
         //   paint.strokeWidth = ceil(0.5dp)*2 = 2px  (full, centered on edge)
-        //   canvas.clipOutline(outline)   // clip to INSIDE the shape
-        //   canvas.drawOutline(outline, paint)  // stroke centered on edge
-        // The stroke is a BAND centered on capsuleSd=0, width 2px (±1px).
-        // clipOutline removes the outward half (capsuleSd > 0), leaving only
-        // the inner half-band: capsuleSd in [-1, 0].
-        //   capsuleSd = 0  (edge)         → 1.0 (peak)
-        //   capsuleSd = -1 (1px inward)   → 0.0
-        //   capsuleSd < -1 (deep inside)  → 0.0 (no flood)
-        //   capsuleSd > 0  (outside tabsBackdrop) → 0.0 (no highlight outside)
-        float strokeMask = capsuleSd > 0.0 ? 0.0 : smoothstep(-1.0, 0.0, capsuleSd);
+        //   paint.blur(0.25dp)  → BlurMaskFilter(NORMAL), sigma = 0.25/3 ≈ 0.083
+        //   canvas.clipOutline → clip to INSIDE (capsuleSd <= 0)
+        // Uses the SAME erf-difference approach as the regular rim highlight
+        // (highlight.ts): sigma clamped to 0.5 minimum, giving a ~2-3px visible
+        // band (not the 1px hard band from smoothstep). This matches the width
+        // of other glass elements' Highlight.Default.
+        float sigma = max(0.25 / 3.0, 0.5);
+        float strokeHalf = 1.0; // ceil(0.5dp)*2 / 2 = 1px
+        float invSqrt2 = 0.70710678;
+        float innerTerm = 0.5 * (1.0 + erfApprox((capsuleSd - (-strokeHalf)) * invSqrt2 / sigma));
+        float outerTerm = 0.5 * (1.0 + erfApprox((capsuleSd - strokeHalf) * invSqrt2 / sigma));
+        float strokeMask = (capsuleSd > 0.0) ? 0.0 : (innerTerm - outerTerm);
 
         // White(1.0) * intensity * strokeMask * progress, Plus blend (additive).
         // (color.copy(alpha=1) * highlightLayer.alpha=progress — the 0.5 alpha
