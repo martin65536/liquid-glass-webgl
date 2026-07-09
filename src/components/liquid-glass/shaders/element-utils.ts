@@ -60,8 +60,8 @@ function generateBlurGLSL(taps: Array<{ x: number; y: number; w: number }>, samp
 }
 
 /** Default tap count for the Gaussian blur. Higher = better quality but
- *  more fillrate. 25 taps gives smooth Gaussian blur at any radius. */
-export const DEFAULT_BLUR_TAPS = 25
+ *  more fillrate. 16 taps gives good Gaussian blur without GPU instability. */
+export const DEFAULT_BLUR_TAPS = 16
 
 /** Build the full ELEMENT_UTILS_GLSL string with a given tap count.
  *  Called by the renderer at shader-compile time. */
