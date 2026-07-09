@@ -380,7 +380,7 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
 // Inverting to get the source content position:
 //   sourceContent = (screenLocal + (0,120dp)) / 1.5 = screenLocal/1.5 + (0,80dp)
 //
-// `canvasPx` is absolute canvas px (top-left origin). Convert to local by
+// canvasPx is absolute canvas px (top-left origin). Convert to local by
 // subtracting uElementOffset (glass top-left in device px):
 //   localPx = canvasPx - uElementOffset
 //   sourceContent = localPx / uMagnifierZoom + (0, uMagnifierOffsetY)
