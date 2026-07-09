@@ -474,3 +474,4 @@ vec3 blendHue(vec3 dst, vec3 src) {
     return hsv2rgb(vec3(sh.x, dh.y, dh.z));
 }
 `
+}
