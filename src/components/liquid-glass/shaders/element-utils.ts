@@ -307,8 +307,9 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
         // the inner half-band: capsuleSd in [-1, 0].
         //   capsuleSd = 0  (edge)         → 1.0 (peak)
         //   capsuleSd = -1 (1px inward)   → 0.0
-        //   capsuleSd < -1 (deep inside)  → 0.0 (no flood — highlight ONLY on edge)
-        float strokeMask = smoothstep(-1.0, 0.0, capsuleSd);
+        //   capsuleSd < -1 (deep inside)  → 0.0 (no flood)
+        //   capsuleSd > 0  (outside tabsBackdrop) → 0.0 (no highlight outside)
+        float strokeMask = capsuleSd > 0.0 ? 0.0 : smoothstep(-1.0, 0.0, capsuleSd);
 
         // White(1.0) * intensity * strokeMask * progress, Plus blend (additive).
         // (color.copy(alpha=1) * highlightLayer.alpha=progress — the 0.5 alpha
