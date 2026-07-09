@@ -10,7 +10,8 @@
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:reset": "prisma migrate reset"
+    "db:reset": "prisma migrate reset",
+    "cf:build": "npx @opennextjs/cloudflare"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -90,11 +91,8 @@
     "tailwindcss": "^4",
     "tw-animate-css": "^1.3.5",
     "typescript": "^5",
-    "@cloudflare/next-on-pages": "^1.13.16",
-    "wrangler": "^3.28.2"
+    "wrangler": "^4.86.0",
+    "@opennextjs/cloudflare": "^1.20.1"
   },
-  "overrides": {
-    "@cloudflare/workers-types": "^4.20240208.0",
-    "wrangler": "^3.28.2"
-  }
+  "overrides": {}
 }
