@@ -171,14 +171,6 @@ uniform float uElementRotation;     // rotation in radians (graphicsLayer rotati
 
 ${SDF_GLSL}
 
-// erf approximation (Abramowitz & Stegun 7.1.26) — for Gaussian edge profile.
-// Used by the stroke mask to model BlurMaskFilter(Blur.NORMAL) convolution.
-float erfApprox(float x) {
-    float t = 1.0 / (1.0 + 0.3275911 * abs(x));
-    float y = 1.0 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * exp(-x * x);
-    return sign(x) * y;
-}
-
 void main() {
     vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
     // elementCenter is the SAME for scaled and original rects (scaling is
@@ -202,35 +194,43 @@ void main() {
         discard;
     }
 
-    // Stroke mask — faithful to BlurMaskFilter(radius, Blur.NORMAL).
-    //
-    // Original (HighlightModifier.kt):
+    // Stroke mask — faithful to HighlightModifier.kt:
     //   paint.style = Stroke
     //   paint.strokeWidth = ceil(width.toPx()) * 2     // full stroke, centered on edge
     //   paint.blur(blurRadius.toPx())                   // BlurMaskFilter, Blur.NORMAL
     //   canvas.clipOutline(outline)                     // clip to inside the shape
     //   canvas.drawOutline(outline, paint)              // stroke centered on edge
     //
-    // BlurMaskFilter(NORMAL) convolves a solid stroke mask with a Gaussian
-    // kernel (sigma = radius/3). For a 2px stroke centered on the edge (sd=0),
-    // the convolved alpha profile is an erfc-like curve with peak ≈ 0.5 at
-    // the edge, fading over ~3σ ≈ radius px. The clip removes the outer half
-    // (sd > 0), leaving the inner half with peak 0.5 at the edge.
+    // Implementation: first compute a HARD-EDGE stroke mask (1.0 inside the
+    // stroke band, 0.0 outside), then convolve it with a Gaussian kernel by
+    // sampling the SDF at multiple offsets along the gradient direction.
+    // This mirrors the original's two-step process (draw stroke → blur),
+    // rather than using an analytic erf approximation.
     //
-    // Previously a smoothstep triangle peaking at 1.0 was used — twice the
-    // correct 0.5 (too bright) and too thin. We now model the convolved
-    // stroke as the difference of two erf edges (inner + outer stroke edges),
-    // giving a true Gaussian profile with peak 0.5.
-    // Faithful to BlurMaskFilter(blurRadius, Blur.NORMAL): sigma = blurRadius/3.
-    // The previous clamp to 0.5 made the band ~6x too wide (0.5 vs 0.083).
-    // Now use the real sigma, clamped only to avoid div-by-zero.
-    float sigma = max(uHighlightBlur / 3.0, 0.1);
-    float strokeInner = -uHighlightStrokeWidth * 0.5;
-    float strokeOuter = uHighlightStrokeWidth * 0.5;
-    float invSqrt2 = 0.70710678;
-    float innerTerm = 0.5 * (1.0 + erfApprox((sd - strokeInner) * invSqrt2 / sigma));
-    float outerTerm = 0.5 * (1.0 + erfApprox((sd - strokeOuter) * invSqrt2 / sigma));
-    float strokeMask = innerTerm - outerTerm;
+    // The hard stroke band: sd in [-strokeHalf, +strokeHalf].
+    // After clip (sd > 0 discarded by the outer if), only [-strokeHalf, 0] shows.
+    float strokeHalf = uHighlightStrokeWidth * 0.5;
+    float blurRadius = max(uHighlightBlur, 0.1);
+    float sigma = blurRadius / 3.0;  // Skia BlurMaskFilter: sigma = radius/3
+
+    // Gaussian convolution of the hard stroke mask: sample the SDF at offsets
+    // along the outward gradient and weight by Gaussian kernel. This is the
+    // shader equivalent of BlurMaskFilter(NORMAL) — a true Gaussian blur of
+    // the stroke's alpha mask.
+    //   hardMask(sd) = 1.0 if |sd| < strokeHalf, else 0.0
+    //   blurred(sd) = ∫ hardMask(sd - t) * gauss(t, sigma) dt
+    // We approximate the integral with a 9-tap kernel (±3σ, 0.75σ spacing).
+    float strokeMask = 0.0;
+    float wSum = 0.0;
+    for (int i = -4; i <= 4; i++) {
+        float offset = float(i) * sigma * 0.75;
+        float sampleSd = sd - offset;
+        float hard = (abs(sampleSd) < strokeHalf) ? 1.0 : 0.0;
+        float w = exp(-0.5 * (offset * offset) / (sigma * sigma));
+        strokeMask += hard * w;
+        wSum += w;
+    }
+    strokeMask /= wSum;
 
     if (uHighlightMode < 0.5) {
         // Default — shader returns color * intensity, Plus blend.

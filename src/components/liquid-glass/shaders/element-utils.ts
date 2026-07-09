@@ -19,14 +19,6 @@ vec3 rgb2hsv(vec3 c);
 vec3 hsv2rgb(vec3 c);
 vec3 blendHue(vec3 dst, vec3 src);
 
-// erf approximation (Abramowitz & Stegun 7.1.26) — for Gaussian edge profile.
-// Same as in highlight.ts, used by the 内层背景板 rim highlight stroke mask.
-float erfApprox(float x) {
-    float t = 1.0 / (1.0 + 0.3275911 * abs(x));
-    float y = 1.0 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * exp(-x * x);
-    return sign(x) * y;
-}
-
 float circleMap(float x) {
     return 1.0 - sqrt(1.0 - x * x);
 }
@@ -317,16 +309,25 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
         //   paint.strokeWidth = ceil(0.5dp)*2 = 2px  (full, centered on edge)
         //   paint.blur(0.25dp)  → BlurMaskFilter(NORMAL), sigma = 0.25/3 ≈ 0.083
         //   canvas.clipOutline → clip to INSIDE (capsuleSd <= 0)
-        // Uses the SAME erf-difference approach as the regular rim highlight
-        // (highlight.ts): faithful sigma = blurRadius/3 (NOT clamped to 0.5,
-        // which made the band ~6x too wide). This gives a thin, sharp highlight
-        // matching other glass elements' Highlight.Default.
-        float sigma = max(0.25 / 3.0, 0.1);
+        // Implementation: hard-edge stroke band convolved with Gaussian kernel
+        // via 9-tap SDF sampling (same approach as highlight.ts). This mirrors
+        // the original's two-step process (draw stroke → blur).
         float strokeHalf = 1.0; // ceil(0.5dp)*2 / 2 = 1px
-        float invSqrt2 = 0.70710678;
-        float innerTerm = 0.5 * (1.0 + erfApprox((capsuleSd - (-strokeHalf)) * invSqrt2 / sigma));
-        float outerTerm = 0.5 * (1.0 + erfApprox((capsuleSd - strokeHalf) * invSqrt2 / sigma));
-        float strokeMask = (capsuleSd > 0.0) ? 0.0 : (innerTerm - outerTerm);
+        float blurRad = 0.25;   // 0.25dp
+        float sigma2 = blurRad / 3.0;  // sigma = radius/3
+        float strokeMask = 0.0;
+        float wSum2 = 0.0;
+        for (int j = -4; j <= 4; j++) {
+            float offset = float(j) * sigma2 * 0.75;
+            float sampleSd = capsuleSd - offset;
+            float hard = (abs(sampleSd) < strokeHalf) ? 1.0 : 0.0;
+            float w = exp(-0.5 * (offset * offset) / (sigma2 * sigma2));
+            strokeMask += hard * w;
+            wSum2 += w;
+        }
+        strokeMask /= wSum2;
+        // Clip to inside (outside the 内层背景板 → no highlight)
+        strokeMask = (capsuleSd > 0.0) ? 0.0 : strokeMask;
 
         // White(1.0) * intensity * strokeMask * progress, Plus blend (additive).
         // (color.copy(alpha=1) * highlightLayer.alpha=progress — the 0.5 alpha
