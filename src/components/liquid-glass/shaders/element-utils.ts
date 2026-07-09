@@ -318,10 +318,10 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
         //   paint.blur(0.25dp)  → BlurMaskFilter(NORMAL), sigma = 0.25/3 ≈ 0.083
         //   canvas.clipOutline → clip to INSIDE (capsuleSd <= 0)
         // Uses the SAME erf-difference approach as the regular rim highlight
-        // (highlight.ts): sigma clamped to 0.5 minimum, giving a ~2-3px visible
-        // band (not the 1px hard band from smoothstep). This matches the width
-        // of other glass elements' Highlight.Default.
-        float sigma = max(0.25 / 3.0, 0.5);
+        // (highlight.ts): faithful sigma = blurRadius/3 (NOT clamped to 0.5,
+        // which made the band ~6x too wide). This gives a thin, sharp highlight
+        // matching other glass elements' Highlight.Default.
+        float sigma = max(0.25 / 3.0, 0.1);
         float strokeHalf = 1.0; // ceil(0.5dp)*2 / 2 = 1px
         float invSqrt2 = 0.70710678;
         float innerTerm = 0.5 * (1.0 + erfApprox((capsuleSd - (-strokeHalf)) * invSqrt2 / sigma));

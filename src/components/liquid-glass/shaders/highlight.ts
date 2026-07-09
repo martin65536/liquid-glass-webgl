@@ -221,7 +221,10 @@ void main() {
     // correct 0.5 (too bright) and too thin. We now model the convolved
     // stroke as the difference of two erf edges (inner + outer stroke edges),
     // giving a true Gaussian profile with peak 0.5.
-    float sigma = max(uHighlightBlur / 3.0, 0.5);
+    // Faithful to BlurMaskFilter(blurRadius, Blur.NORMAL): sigma = blurRadius/3.
+    // The previous clamp to 0.5 made the band ~6x too wide (0.5 vs 0.083).
+    // Now use the real sigma, clamped only to avoid div-by-zero.
+    float sigma = max(uHighlightBlur / 3.0, 0.1);
     float strokeInner = -uHighlightStrokeWidth * 0.5;
     float strokeOuter = uHighlightStrokeWidth * 0.5;
     float invSqrt2 = 0.70710678;
