@@ -268,19 +268,40 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     float a = scene.a * mask;
     vec3 resultRgb = mix(wp.rgb, sceneColor, a);
 
-    // 6. Mini-glass rim highlight — Highlight.Default.copy(alpha=progress).
-    //    A thin white stroke on the mini-glass capsule edge, press-modulated.
-    //    Drawn here (inside the indicator's element shader) so it's clipped by
-    //    the indicator's capsule SDF (the main shader discards sd > 0.5).
-    //    Plus blend (additive white), ~0.5dp stroke.
+    // 6. Mini-glass rim highlight — faithful port of Highlight.Default.copy(alpha=progress).
+    //    The original draws a STROKE of width=0.5dp (strokeWidth = ceil(0.5dp)*2 = 2px),
+    //    blurred by blurRadius=0.25dp, clipped inside the capsule shape, colored by the
+    //    DefaultHighlightShaderString AGSL shader:
+    //      float2 grad = gradSdRoundedRect(centeredCoord, halfSize, gradRadius);
+    //      float2 normal = float2(cos(angle), sin(angle));
+    //      float d = dot(grad, normal);
+    //      float intensity = pow(abs(d), falloff);
+    //      return color * intensity;   // color = White(1.0), alpha=0.5, Plus blend
+    //    with angle=45°, falloff=1, gradRadius = min(radius*1.5, min(halfW, halfH)).
+    //    The stroke's outward half (sd > 0) is clipped by the shape, leaving the inner
+    //    half with peak ~0.5 at the edge (after BlurMaskFilter convolution).
+    //    Final contribution = White(0.5) * intensity * strokeMask * pressProgress,
+    //    added with Plus blend (additive).
     float highlightAlpha = uIndicatorPressProgress;
     if (highlightAlpha > 0.001) {
-        // Stroke centered on capsuleSd=0, width ~1px (0.5dp * 2).
-        // No container scale — the capsule SDF is not scaled.
-        float strokeW = 1.0;
-        // Band: capsuleSd in [-strokeW, strokeW], peak at 0.
-        float band = 1.0 - smoothstep(0.0, strokeW, abs(capsuleSd));
-        resultRgb += vec3(1.0) * band * highlightAlpha * 0.5;
+        // SDF gradient + Default highlight intensity (angle=45°, falloff=1).
+        float indRadius = max(cr, 0.0);
+        float indHalfMin = min(capsuleHalf.x, capsuleHalf.y);
+        float gradRadius = min(indRadius * 1.5, indHalfMin);
+        vec2 grad = gradSdRoundedRect(capsuleLocal, capsuleHalf, gradRadius);
+        vec2 normal = vec2(0.70710678, 0.70710678); // cos(45°), sin(45°)
+        float d = dot(grad, normal);
+        float intensity = pow(abs(d), 1.0);
+
+        // Stroke mask — faithful to BlurMaskFilter(blurRadius, Blur.NORMAL).
+        // strokeWidth = ceil(0.5dp)*2 = 2px (full), blurRadius = 0.25dp → sigma ≈ 0.083px
+        // (sub-pixel — effectively a hard stroke). The stroke is centered on the
+        // edge (capsuleSd=0), width 2px, clipped inside (sd <= 0 by the outer discard).
+        // We model the visible inner half as a smoothstep from 1.0 at sd=0 to 0 at sd=-2px.
+        float strokeMask = 1.0 - smoothstep(-1.0, 0.0, capsuleSd);
+
+        // White(0.5) * intensity * strokeMask * progress, Plus blend (additive).
+        resultRgb += vec3(1.0) * intensity * strokeMask * highlightAlpha * 0.5;
     }
 
     return vec4(resultRgb, 1.0);
