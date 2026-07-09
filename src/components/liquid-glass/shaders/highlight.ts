@@ -232,12 +232,14 @@ void main() {
     // WebGL1 requires constant loop bounds, so we use a max of 64 taps (±32)
     // and break early when the offset exceeds 3σ.
     //
-    // CLIP HALVING: the original clips the stroke to INSIDE the shape
-    // (canvas.clipOutline). The stroke is centered on the edge (sd=0), so the
-    // clip removes the outer half (sd > 0). At the edge (sd=0), the convolved
-    // value is ~1.0 but the clip cuts it in half → peak ≈ 0.5. We replicate
-    // this by zeroing sd > 0 (already done by the outer discard) and halving
-    // the remaining mask to account for the clipped outer half.
+    // CLIP-AWARE CONVOLUTION: the original clips the stroke to INSIDE the
+    // shape (canvas.clipOutline → sd <= 0). The stroke is centered on the
+    // edge (sd=0), so clip removes the outer half (sd > 0). Rather than
+    // applying a global *0.5 (which incorrectly darkens the inner band),
+    // we zero out each convolved tap whose sampleSd > 0 (that part of the
+    // stroke was clipped away). This makes the peak at sd=0 ≈ 0.5 (half the
+    // kernel clipped) while the inner band (sd ≈ -strokeHalf) stays ≈ 1.0
+    // (full kernel inside) — faithful to the original's clip-then-blur.
     float tapSpacing = 1.0; // fixed 1px spacing — tap count scales with sigma
     float threeSigma = sigma * 3.0;
     float strokeMask = 0.0;
@@ -247,14 +249,17 @@ void main() {
         // Only sample within ±3σ; skip taps outside the kernel.
         if (abs(offset) <= threeSigma) {
             float sampleSd = sd - offset;
+            // Hard stroke mask: 1.0 inside the stroke band, 0.0 outside.
             float hard = (abs(sampleSd) < strokeHalf) ? 1.0 : 0.0;
+            // Clip: zero out taps that fall outside the shape (sd > 0).
+            // This faithfully models canvas.clipOutline before blur.
+            float clipped = (sampleSd > 0.0) ? 0.0 : hard;
             float w = exp(-0.5 * (offset * offset) / (sigma * sigma));
-            strokeMask += hard * w;
+            strokeMask += clipped * w;
             wSum += w;
         }
     }
     strokeMask /= wSum;
-    strokeMask *= 0.5;  // clip halves the symmetric stroke at the edge
 
     if (uHighlightMode < 0.5) {
         // Default — shader returns color * intensity, Plus blend.
