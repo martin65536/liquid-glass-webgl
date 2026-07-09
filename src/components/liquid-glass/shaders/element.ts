@@ -100,18 +100,20 @@ void main() {
         // FAITHFUL ORDERING: the original's onDrawBackdrop draws the wallpaper
         // AND drawRect(White 0.25) into the same buffer, THEN applies the
         // RenderEffect chain (colorControls, blur, SDF shader). So the white
-        // overlay is PART of the SDF shader content input — it gets
-        // refracted and bevel-lit along with the wallpaper.
-        // We replicate by sampling the wallpaper, applying colorControls, then
-        // mixing in the white overlay BEFORE refraction/bevel.
+        // overlay is PART of the SDF shader content input, and colorControls
+        // is applied to the COMBINED (wallpaper + white) buffer.
+        // We replicate: mix white into raw wallpaper FIRST, then apply
+        // colorControls — so colorControls darkens the white too (matching
+        // the original where contrast=0.75, brightness=-0.1 dims the white).
         vec4 content = sampleWallpaperBlurred(refractedScreen, uBlurRadius);
-        vec3 contentColor = applyColorControls(content.rgb, uBrightness, uContrast, uSaturation);
-        // Mix in white overlay (White 0.25 SrcOver) before refraction/bevel —
-        // faithful to the original's renderEffect pipeline ordering.
+        vec3 rawContent = content.rgb;
+        // Mix in white overlay (White 0.25 SrcOver) on RAW wallpaper first.
         if (uSurfaceColor.a > 0.001) {
-            contentColor = uSurfaceColor.rgb * uSurfaceColor.a + contentColor * (1.0 - uSurfaceColor.a);
+            rawContent = uSurfaceColor.rgb * uSurfaceColor.a + rawContent * (1.0 - uSurfaceColor.a);
         }
-        // Multiply by sdfMask (v.a) — faithful to 'content * v.a'.
+        // THEN apply colorControls to the combined buffer.
+        vec3 contentColor = applyColorControls(rawContent, uBrightness, uContrast, uSaturation);
+        // Multiply by sdfMask (v.a) — faithful to content * v.a.
         vec3 color = contentColor * sdfMask;
 
         // Bevel lighting
