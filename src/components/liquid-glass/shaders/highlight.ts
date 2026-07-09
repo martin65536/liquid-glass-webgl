@@ -232,41 +232,29 @@ void main() {
     // WebGL1 requires constant loop bounds, so we use a max of 64 taps (±32)
     // and break early when the offset exceeds 3σ.
     //
-    // CLIP-AWARE CONVOLUTION: the original clips the stroke to INSIDE the
-    // shape (canvas.clipOutline → sd <= 0). The stroke is centered on the
-    // edge (sd=0), so clip removes the outer half (sd > 0). Rather than
-    // applying a global *0.5 (which incorrectly darkens the inner band),
-    // we zero out each convolved tap whose sampleSd > 0 (that part of the
-    // stroke was clipped away). This makes the peak at sd=0 ≈ 0.5 (half the
-    // kernel clipped) while the inner band (sd ≈ -strokeHalf) stays ≈ 1.0
-    // (full kernel inside) — faithful to the original's clip-then-blur.
-    //
-    // PEAK PRESERVATION: normalize by the weight sum of taps that are INSIDE
-    // the stroke band (hard > 0), not all taps. This ensures the peak at the
-    // stroke center reaches 1.0 (matching the original's un-clipped peak),
-    // while the falloff away from the edge drops naturally. Normalizing by
-    // all taps would dilute the peak, making the highlight flat and low-
-    // contrast (the "暗部比它亮，亮部没它亮" problem).
+    // CLIP HALVING: the original clips the stroke to INSIDE the shape
+    // (canvas.clipOutline). The stroke is centered on the edge (sd=0), so the
+    // clip removes the outer half (sd > 0). At the edge (sd=0), the convolved
+    // value is ~1.0 but the clip cuts it in half → peak ≈ 0.5. We replicate
+    // this by zeroing sd > 0 (already done by the outer discard) and halving
+    // the remaining mask to account for the clipped outer half.
     float tapSpacing = 1.0; // fixed 1px spacing — tap count scales with sigma
     float threeSigma = sigma * 3.0;
     float strokeMask = 0.0;
-    float strokeWSum = 0.0;  // weight sum of IN-BAND taps only (for peak=1.0)
+    float wSum = 0.0;
     for (int i = -32; i <= 32; i++) {
         float offset = float(i) * tapSpacing;
+        // Only sample within ±3σ; skip taps outside the kernel.
         if (abs(offset) <= threeSigma) {
             float sampleSd = sd - offset;
             float hard = (abs(sampleSd) < strokeHalf) ? 1.0 : 0.0;
-            // Clip: zero out taps outside the shape (sd > 0).
-            float clipped = (sampleSd > 0.0) ? 0.0 : hard;
             float w = exp(-0.5 * (offset * offset) / (sigma * sigma));
-            strokeMask += clipped * w;
-            if (hard > 0.5) strokeWSum += w;  // in-band weight (pre-clip)
+            strokeMask += hard * w;
+            wSum += w;
         }
     }
-    // Normalize by in-band weight so the peak reaches 1.0 where the full
-    // kernel is inside the stroke band. At the edge (sd=0), half the kernel
-    // is clipped → peak ≈ 0.5, matching the original's clip behavior.
-    strokeMask /= max(strokeWSum, 1e-6);
+    strokeMask /= wSum;
+    strokeMask *= 0.5;  // clip halves the symmetric stroke at the edge
 
     if (uHighlightMode < 0.5) {
         // Default — shader returns color * intensity, Plus blend.

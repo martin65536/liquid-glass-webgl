@@ -254,7 +254,6 @@ export const glassPostPassMethods = {
       // along with the layer, which our original-space SDF already models.
       const widthPx = el.highlight.widthDp * this.dpr
       const strokeWidthDevice = Math.ceil(widthPx) * 2
-      // Faithful: blurRadius = width/2 = 0.25dp, sigma = blurRadius*dpr.
       const blurDevice = widthPx * 0.5
       gl.uniform1f(this.uRm['uHighlightStrokeWidth'], strokeWidthDevice)
       gl.uniform1f(this.uRm['uHighlightBlur'], blurDevice)
