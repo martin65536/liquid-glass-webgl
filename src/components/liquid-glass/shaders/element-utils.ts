@@ -373,18 +373,15 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
 // Faithful to MagnifierContent.kt: scale(1.5) + translate(-80dp).
 // Magnifier backdrop sampling — faithful to MagnifierContent.kt's
 // onDrawBackdrop: withTransform({ scale(1.5); translate(top=-80dp) }, drawBackdrop).
-// The DrawScope's origin is the glass element's top-left. The transform scales
-// around that origin, then translates up by 80dp. So for a screen pixel at
-// canvasPx, the local coord relative to glass origin is:
-//   local = canvasPx - uElementOffset
-// The transformed sample position (in screen space) is:
-//   sample = uElementOffset + local * zoom + (0, -offsetY)
-//          = uElementOffset + (canvasPx - uElementOffset) * zoom - (0, offsetY)
+// The transform scales around the ORIGIN (not the magnifier center), then
+// translates up by 80dp. So the sampled coordinate is:
+//   coord' = coord * 1.5 + (0, -80dp)
+// The CombinedBackdrop (wallpaper + content + cursor) is sampled at coord'.
 vec4 sampleMagnifier(vec2 canvasPx, float radius) {
-    vec2 local = canvasPx - uElementOffset;
-    vec2 samplePos = uElementOffset + local * uMagnifierZoom;
-    samplePos.y -= uMagnifierOffsetY;
-    return sampleBackdrop(samplePos, radius);
+    // Faithful: scale around origin, then translate up by sampleOffsetY.
+    vec2 transformed = canvasPx / uMagnifierZoom;
+    transformed.y -= uMagnifierOffsetY;
+    return sampleBackdrop(transformed, radius);
 }
 
 // colorControls — exact port of ColorFilter.kt colorControlsColorFilter.

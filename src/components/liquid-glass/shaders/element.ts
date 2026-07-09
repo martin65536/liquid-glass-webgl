@@ -148,12 +148,6 @@ void main() {
     }
     vec3 color = applyColorControls(backdrop.rgb, uBrightness, uContrast, uSaturation);
     float alpha = backdrop.a;
-    // Magnifier glass is always opaque (faithful to CombinedBackdrop which
-    // includes the opaque wallpaper as the bottom layer). The scene FBO may
-    // have transparent areas, so force alpha=1 for the magnifier.
-    if (uUseMagnifier > 0.5) {
-        alpha = 1.0;
-    }
 
     // --- 2. Lens refraction (SDF + circleMap) ---------------------
     // Faithful port of RoundedRectRefractionWithDispersionShaderString.
@@ -270,10 +264,6 @@ void main() {
             }
             color = applyColorControls(refracted.rgb, uBrightness, uContrast, uSaturation);
             alpha = refracted.a;
-            // Magnifier is always opaque (see comment above).
-            if (uUseMagnifier > 0.5) {
-                alpha = 1.0;
-            }
         }
     }
 
