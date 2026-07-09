@@ -225,6 +225,13 @@ void main() {
     //   hardMask(sd) = 1.0 if |sd| < strokeHalf, else 0.0
     //   blurred(sd) = ∫ hardMask(sd - t) * gauss(t, sigma) dt
     // We approximate the integral with a 9-tap kernel (±3σ, 0.75σ spacing).
+    //
+    // CLIP HALVING: the original clips the stroke to INSIDE the shape
+    // (canvas.clipOutline). The stroke is centered on the edge (sd=0), so the
+    // clip removes the outer half (sd > 0). At the edge (sd=0), the convolved
+    // value is ~1.0 but the clip cuts it in half → peak ≈ 0.5. We replicate
+    // this by zeroing sd > 0 (already done by the outer discard) and halving
+    // the remaining mask to account for the clipped outer half.
     float strokeMask = 0.0;
     float wSum = 0.0;
     for (int i = -4; i <= 4; i++) {
@@ -236,6 +243,7 @@ void main() {
         wSum += w;
     }
     strokeMask /= wSum;
+    strokeMask *= 0.5;  // clip halves the symmetric stroke at the edge
 
     if (uHighlightMode < 0.5) {
         // Default — shader returns color * intensity, Plus blend.

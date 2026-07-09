@@ -327,6 +327,7 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
             wSum2 += w;
         }
         strokeMask /= wSum2;
+        strokeMask *= 0.5;  // clip halves the symmetric stroke at the edge
         // Clip to inside (outside the 内层背景板 → no highlight)
         strokeMask = (capsuleSd > 0.0) ? 0.0 : strokeMask;
 
