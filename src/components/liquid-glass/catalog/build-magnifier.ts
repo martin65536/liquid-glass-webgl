@@ -1,6 +1,6 @@
 import type { ElementInteraction } from '../context'
 import type { GlassElementConfig } from '../renderer'
-import { DP, LIGHT_PALETTE, LOREM_IPSUM, type CatalogResult, type CatalogState, type ThemePalette } from './types'
+import { DEFAULT_HIGHLIGHT, DEFAULT_SHADOW, DP, LIGHT_PALETTE, LOREM_IPSUM, type CatalogResult, type CatalogState, type ThemePalette } from './types'
 import { applyVerticalCenter, makeBackButton, makeGlassShape, makePlainRect, makeText } from './helpers'
 
 // Magnifier drag-start offset (survives re-renders)
@@ -81,9 +81,13 @@ export function buildMagnifier(W: number, H: number, onBack: () => void, state: 
       blurRadius: 0,
       saturation: 1.0,
       surfaceColor: [0, 0, 0, 0],
-      highlight: null,
-      outerShadow: null,
-      innerShadow: { radius: 16 * DP, alpha: 1, offsetX: 0, offsetY: 0 },
+      // Faithful to MagnifierContent.kt: drawBackdrop uses default highlight
+      // (Highlight.Default, alpha=1) and default shadow (Shadow.Default).
+      highlight: { ...DEFAULT_HIGHLIGHT },
+      outerShadow: { ...DEFAULT_SHADOW },
+      // Faithful to InnerShadow(radius = 16f.dp) — defaults: offset=(0,radius),
+      // color=Black(0.15), alpha=1.
+      innerShadow: { radius: 16 * DP, alpha: 0.15, offsetX: 0, offsetY: 16 * DP },
       depthEffect: true,
       chromaticAberration: true,
     }

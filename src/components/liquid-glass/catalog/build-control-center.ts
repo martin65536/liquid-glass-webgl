@@ -18,6 +18,9 @@ const ccDragStartEnter: { v: number } = { v: 1 }
 // Control-center drag RAF handle (throttle setState to one per frame)
 let ccDragRAF: number | null = null
 let ccDragPending: number | null = null
+// Velocity tracking for fling detection on drag end (faithful to original's
+// onDragStopped velocity-based target: fling up → collapse, fling down → expand)
+const ccDragVelocity: { v: number; t: number } = { v: 0, t: 0 }
 
 /* ------------------------------------------------------------------ *
  * CONTROL CENTER — faithful to ControlCenterContent.kt
@@ -167,7 +170,10 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
 
   // Add drag interactions to all glass tiles — vertical drag controls the
   // control center's enter progress (expand/collapse). No tap toggle.
-  const MAX_DRAG = 600 // px to drag for full 0↔1 transition
+  // Faithful to ControlCenterContent.kt: maxDragHeight = 1000px, velocity-based
+  // fling detection on release (fling up → collapse, fling down → expand).
+  const MAX_DRAG = 1000 // px to drag for full 0↔1 transition (faithful: maxDragHeight = 1000f)
+  const FLING_THRESHOLD = 2 // px/ms — fling velocity threshold
   const ccTileIds = ['cc-a', 'cc-b', 'cc-c', 'cc-d', 'cc-e', 'cc-f', 'cc-g', 'cc-h', 'cc-i', 'cc-j', 'cc-k']
   // Overscroll row-stretch factor (faithful to ControlCenterContent.kt's
   // spacerLayoutModifier). Row 0 = 0 (no offset), row 1 = 1, row 2 = 2.
@@ -190,8 +196,15 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
         if (ccAnim.handle != null) { cancelAnimationFrame(ccAnim.handle); ccAnim.handle = null; }
         if (ccDragRAF != null) { cancelAnimationFrame(ccDragRAF); ccDragRAF = null; ccDragPending = null; }
         ccDragStartEnter.v = state.controlCenterEnter
+        ccDragVelocity.v = 0
+        ccDragVelocity.t = performance.now()
       },
       onDrag: (_pos, delta) => {
+        // Track velocity (px/ms) for fling detection
+        const now = performance.now()
+        const dt = Math.max(1, now - ccDragVelocity.t)
+        ccDragVelocity.v = delta.y / dt
+        ccDragVelocity.t = now
         const target = ccDragStartEnter.v + delta.y / MAX_DRAG
         // Allow p > 1 (overshoot for scaleX/Y stretch), but never < 0
         // (negative p would darken the glass / increase the dim overlay).
@@ -210,7 +223,15 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
       },
       onDragEnd: () => {
         if (ccDragRAF != null) { cancelAnimationFrame(ccDragRAF); ccDragRAF = null; }
-        const target = state.controlCenterEnter < 0.5 ? 0 : 1
+        // Faithful to ControlCenterContent.kt onDragStopped:
+        //   velocity < 0 (fling up) → collapse (0)
+        //   velocity > 0 (fling down) → expand (1)
+        //   else → position-based (< 0.5 → 0, else 1)
+        const vel = ccDragVelocity.v
+        const target = vel < -FLING_THRESHOLD ? 0
+          : vel > FLING_THRESHOLD ? 1
+          : (state.controlCenterEnter < 0.5 ? 0 : 1)
+        ccAnim.lastVelocity = vel * MAX_DRAG // pass velocity to spring
         animateControlCenterEnter(setState, target)
       },
     }
@@ -235,8 +256,14 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
       if (ccAnim.handle != null) { cancelAnimationFrame(ccAnim.handle); ccAnim.handle = null; }
       if (ccDragRAF != null) { cancelAnimationFrame(ccDragRAF); ccDragRAF = null; ccDragPending = null; }
       ccDragStartEnter.v = state.controlCenterEnter
+      ccDragVelocity.v = 0
+      ccDragVelocity.t = performance.now()
     },
     onDrag: (_pos, delta) => {
+      const now = performance.now()
+      const dt = Math.max(1, now - ccDragVelocity.t)
+      ccDragVelocity.v = delta.y / dt
+      ccDragVelocity.t = now
       const target = ccDragStartEnter.v + delta.y / MAX_DRAG
       const clamped = Math.max(0, target)
       ccDragPending = clamped
@@ -252,7 +279,11 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
     },
     onDragEnd: () => {
       if (ccDragRAF != null) { cancelAnimationFrame(ccDragRAF); ccDragRAF = null; }
-      const target = state.controlCenterEnter < 0.5 ? 0 : 1
+      const vel = ccDragVelocity.v
+      const target = vel < -FLING_THRESHOLD ? 0
+        : vel > FLING_THRESHOLD ? 1
+        : (state.controlCenterEnter < 0.5 ? 0 : 1)
+      ccAnim.lastVelocity = vel * MAX_DRAG
       animateControlCenterEnter(setState, target)
     },
   }

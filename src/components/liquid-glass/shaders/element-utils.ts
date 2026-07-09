@@ -336,13 +336,20 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
         // capsuleSd is in device px (uContainerRect is dpr-scaled), so sigma
         // and strokeHalf must also be in device px.
         // Implementation: hard-edge stroke band convolved with Gaussian kernel
-        // via 9-tap SDF sampling (same approach as highlight.ts).
+        // via adaptive SDF sampling (same approach as highlight.ts). Tap count
+        // scales with sigma to cover ±3σ; max 32 taps with early break.
         float strokeHalf = ceil(0.5 * uDpr) * 2.0 * 0.5;  // = ceil(0.5*dpr)
         float sigma2 = max(0.25 * uDpr, 0.1);  // blurRadius = 0.25dp, sigma = blurRadius*dpr
+        float tapSpacing2 = max(sigma2 * 0.75, 0.5);
+        float threeSigma2 = sigma2 * 3.0;
         float strokeMask = 0.0;
         float wSum2 = 0.0;
-        for (int j = -4; j <= 4; j++) {
-            float offset = float(j) * sigma2 * 0.75;
+        for (int j = -16; j <= 16; j++) {
+            float offset = float(j) * tapSpacing2;
+            if (abs(offset) > threeSigma2) {
+                if (j > 0) break;
+                continue;
+            }
             float sampleSd = capsuleSd - offset;
             float hard = (abs(sampleSd) < strokeHalf) ? 1.0 : 0.0;
             float w = exp(-0.5 * (offset * offset) / (sigma2 * sigma2));

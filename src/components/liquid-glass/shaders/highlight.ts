@@ -224,7 +224,13 @@ void main() {
     // the stroke's alpha mask.
     //   hardMask(sd) = 1.0 if |sd| < strokeHalf, else 0.0
     //   blurred(sd) = ∫ hardMask(sd - t) * gauss(t, sigma) dt
-    // We approximate the integral with a 9-tap kernel (±3σ, 0.75σ spacing).
+    //
+    // ADAPTIVE TAP COUNT: the number of taps scales with sigma so that the
+    // kernel always covers ±3σ (99.7% of the Gaussian energy). Tap spacing =
+    // max(sigma * 0.75, 0.5) px. For small sigma (sub-pixel), fewer taps are
+    // needed; for large sigma, more taps are used. WebGL1 requires constant
+    // loop bounds, so we use a max of 32 taps (±16) and break early when
+    // the offset exceeds 3σ.
     //
     // CLIP HALVING: the original clips the stroke to INSIDE the shape
     // (canvas.clipOutline). The stroke is centered on the edge (sd=0), so the
@@ -232,10 +238,16 @@ void main() {
     // value is ~1.0 but the clip cuts it in half → peak ≈ 0.5. We replicate
     // this by zeroing sd > 0 (already done by the outer discard) and halving
     // the remaining mask to account for the clipped outer half.
+    float tapSpacing = max(sigma * 0.75, 0.5);
+    float threeSigma = sigma * 3.0;
     float strokeMask = 0.0;
     float wSum = 0.0;
-    for (int i = -4; i <= 4; i++) {
-        float offset = float(i) * sigma * 0.75;
+    for (int i = -16; i <= 16; i++) {
+        float offset = float(i) * tapSpacing;
+        if (abs(offset) > threeSigma) {
+            if (i > 0) break;
+            continue;
+        }
         float sampleSd = sd - offset;
         float hard = (abs(sampleSd) < strokeHalf) ? 1.0 : 0.0;
         float w = exp(-0.5 * (offset * offset) / (sigma * sigma));
