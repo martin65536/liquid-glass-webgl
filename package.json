@@ -10,8 +10,7 @@
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:reset": "prisma migrate reset",
-    "cf:build": "npx @opennextjs/cloudflare build"
+    "db:reset": "prisma migrate reset"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -90,9 +89,6 @@
     "sharp": "^0.34.3",
     "tailwindcss": "^4",
     "tw-animate-css": "^1.3.5",
-    "typescript": "^5",
-    "wrangler": "^4.86.0",
-    "@opennextjs/cloudflare": "^1.20.1"
-  },
-  "overrides": {}
+    "typescript": "^5"
+  }
 }
