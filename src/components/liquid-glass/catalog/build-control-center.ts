@@ -67,7 +67,7 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
   ccDrag.scroll = false
   elements.push(ccDrag)
 
-  const back = makeBackButton(onBack, palette)
+  const back = makeBackButton(onBack, palette, false, 0.7) // higher surface alpha so the dim overlay doesn't darken it
   elements.push(back.element)
   interactions[back.element.id] = back.interaction
 

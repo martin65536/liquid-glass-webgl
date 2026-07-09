@@ -49,6 +49,11 @@ interface DragInteractionsOpts {
   dragW: number
   rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> | null
   onValueChange: (fraction: number) => void
+  /** Optional lightweight callback fired on every drag move (regardless of
+   *  liveUpdate). Use this to update a display-only label WITHOUT triggering
+   *  a catalog rebuild (e.g. settings slider labels). onValueChange is still
+   *  fired on dragEnd (or every move if liveUpdate=true) for the real state. */
+  onLiveValue?: (fraction: number) => void
   // Control-specific renderer calls:
   getFraction: (r: LiquidGlassRenderer, groupId: string) => number
   beginDrag: (r: LiquidGlassRenderer, groupId: string, fraction: number, count?: number) => void
@@ -64,7 +69,7 @@ interface DragInteractionsOpts {
 
 export function makeDragInteractions(opts: DragInteractionsOpts): ElementInteraction {
   const {
-    groupId, trackX, dragW, rendererRef, onValueChange,
+    groupId, trackX, dragW, rendererRef, onValueChange, onLiveValue,
     getFraction, beginDrag, drag, endDrag, setTarget,
     count, snap, liveUpdate = false, onTapJump = true, didDragThreshold = 3,
   } = opts
@@ -97,8 +102,10 @@ export function makeDragInteractions(opts: DragInteractionsOpts): ElementInterac
       if (!r) return
       if (Math.abs(pos.x - ds.x) > didDragThreshold) ds.didDrag = true
       drag(r, groupId, ds.fraction, pos.x, ds.x, dragW, count)
+      const f = getFraction(r, groupId)
+      if (onLiveValue) onLiveValue(f)
       if (liveUpdate) {
-        onValueChange(getFraction(r, groupId))
+        onValueChange(f)
       }
     },
     onDragEnd: () => {
@@ -199,6 +206,7 @@ export function makeLiquidSlider(
   liveUpdate = false,
   initFraction = 0,
   snap?: (f: number) => number,
+  onLiveValue?: (fraction: number) => void,
 ): { elements: GlassElementConfig[]; interactions: Record<string, ElementInteraction> } {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
@@ -248,7 +256,7 @@ export function makeLiquidSlider(
 
   // Interactions — unified drag pattern via makeDragInteractions.
   const interact = makeDragInteractions({
-    groupId, trackX, dragW, rendererRef, onValueChange,
+    groupId, trackX, dragW, rendererRef, onValueChange, onLiveValue,
     ...sliderDragBindings,
     snap,
     liveUpdate,
@@ -518,7 +526,8 @@ const MOON_ICON_PATH =
 export function makeBackButton(
   onBack: () => void,
   palette: ThemePalette,
-  scroll = false
+  scroll = false,
+  surfaceAlpha?: number
 ): { element: GlassElementConfig; interaction: ElementInteraction } {
   // Circular button: 56dp diameter, centered arrow_back icon (32dp).
   // Per user request: "玻璃退出按钮不要有边缘高光" — no edge highlight
@@ -527,8 +536,15 @@ export function makeBackButton(
   // Per user request: "把退出按钮改大一点" — increased from 40dp to 56dp.
   // Arrow color flips with theme (black on light, white on dark) to
   // match the original catalog's `contentColor` behavior.
+  // surfaceAlpha: override the glass surface opacity (default
+  // palette.buttonSurface[3]=0.3). Pass a higher value (e.g. 0.7) on
+  // pages with a dark scrim/dim overlay so the button stays visible
+  // instead of being darkened by the scrim showing through the glass.
   const size = 56 * DP
   const iconSize = 32 * DP
+  const surf = surfaceAlpha != null
+    ? [palette.buttonSurface[0], palette.buttonSurface[1], palette.buttonSurface[2], surfaceAlpha]
+    : palette.buttonSurface
   const element: GlassElementConfig = {
     id: '__back__',
     kind: 'button',
@@ -536,7 +552,7 @@ export function makeBackButton(
     ...GLASS_PARAMS,
     cornerRadius: size / 2, // circular
     tintColor: [0, 0, 0, 0],
-    surfaceColor: palette.buttonSurface,
+    surfaceColor: surf,
     highlight: null, // no edge highlight on the back button
     outerShadow: { ...DEFAULT_SHADOW, radius: 12 * DP, alpha: 0.08 },
     label: '', // no text label — icon replaces it
@@ -571,10 +587,14 @@ export function makeThemeToggleButton(
   palette: ThemePalette,
   isLightTheme: boolean,
   canvasW: number,
-  scroll = false
+  scroll = false,
+  surfaceAlpha?: number
 ): { element: GlassElementConfig; interaction: ElementInteraction } {
   const size = 56 * DP
   const iconSize = 32 * DP
+  const surf = surfaceAlpha != null
+    ? [palette.buttonSurface[0], palette.buttonSurface[1], palette.buttonSurface[2], surfaceAlpha]
+    : palette.buttonSurface
   // Mirrored position: back button is at (16, 16); theme button is at
   // (W - 16 - size, 16) so the two buttons are symmetric across the
   // horizontal centerline.
@@ -585,7 +605,7 @@ export function makeThemeToggleButton(
     ...GLASS_PARAMS,
     cornerRadius: size / 2, // circular
     tintColor: [0, 0, 0, 0],
-    surfaceColor: palette.buttonSurface,
+    surfaceColor: surf,
     highlight: null, // no edge highlight (matches back button)
     outerShadow: { ...DEFAULT_SHADOW, radius: 12 * DP, alpha: 0.08 },
     label: '',

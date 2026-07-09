@@ -119,6 +119,20 @@ export function buildCatalog(
       result = buildHome(W, onNavigate, palette)
       break
   }
+  // Global separable 2-pass blur: when enabled in Settings, apply useSeparableBlur
+  // to all glass elements (buttons + glass-shapes). Skip special elements that
+  // have their own backdrop semantics (toggle knob, indicator, magnifier, SDF
+  // texture) — those keep inline blur for correctness. Glass Playground square
+  // always has useSeparableBlur regardless of this setting.
+  if (state.globalSeparableBlur) {
+    for (const el of result.elements) {
+      if ((el.kind === 'button' || el.kind === 'glass-shape') &&
+          !el.isSdfTexture && !el.isToggleKnob &&
+          !el.isBottomTabIndicator && !el.isMagnifier) {
+        el.useSeparableBlur = true
+      }
+    }
+  }
   // Move the back button to the end of the element list so it's on top of
   // all layers (scrims, overlays, glass elements). It was pushed first by
   // each builder, but scrims/overlays pushed after it would cover it.
@@ -131,7 +145,13 @@ export function buildCatalog(
   // z-order (tappable even over other glass elements). The button is
   // non-scrolling (stays at top-right when the page scrolls).
   if (onToggleTheme) {
-    const themeBtn = makeThemeToggleButton(onToggleTheme, palette, isLightTheme, W, false)
+    // Pages with a dark scrim/dim overlay (Dialog, ControlCenter) need a
+    // higher surface alpha on the theme toggle too, matching the back button,
+    // so the scrim doesn't darken it through the glass.
+    const needsHighAlpha =
+      dest === CatalogDestination.Dialog ||
+      dest === CatalogDestination.ControlCenter
+    const themeBtn = makeThemeToggleButton(onToggleTheme, palette, isLightTheme, W, false, needsHighAlpha ? 0.7 : undefined)
     result.elements.push(themeBtn.element)
     result.interactions[themeBtn.element.id] = themeBtn.interaction
   }
