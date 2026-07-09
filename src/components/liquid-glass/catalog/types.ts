@@ -389,7 +389,7 @@ export const DIALOG_ACCENT: [number, number, number, number] = LIGHT_PALETTE.dia
 export const DIALOG_DIM: [number, number, number, number] = LIGHT_PALETTE.dialogDim
 
 export const LOREM_IPSUM =
-  'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.'
+  'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.'
 
 // Flight icon SVG path (960×960 viewport) — faithful port of FlightIcon.kt.
 // Original is a Compose ImageVector with mixed absolute/relative commands.

@@ -189,7 +189,6 @@ export function LiquidGlassCanvas({
       rendererRefInternal.current = null
       if (rendererRef) rendererRef.current = null
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wallpaperSrc])
 
   // Push backgroundColor changes (e.g. destination switch Home → other).
