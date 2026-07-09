@@ -97,22 +97,12 @@ void main() {
 
         // Faithful to SdfShader.kt: color = content.eval(refractedCoord) * v.a
         // The content is the wallpaper after colorControls + blur(2dp).
-        // FAITHFUL ORDERING: the original's onDrawBackdrop draws the wallpaper
-        // AND drawRect(White 0.25) into the same buffer, THEN applies the
-        // RenderEffect chain (colorControls, blur, SDF shader). So the white
-        // overlay is PART of the SDF shader content input — it gets
-        // refracted and bevel-lit along with the wallpaper.
-        // We replicate by sampling the wallpaper, applying colorControls, then
-        // mixing in the white overlay BEFORE refraction/bevel.
         vec4 content = sampleWallpaperBlurred(refractedScreen, uBlurRadius);
-        vec3 contentColor = applyColorControls(content.rgb, uBrightness, uContrast, uSaturation);
-        // Mix in white overlay (White 0.25 SrcOver) before refraction/bevel —
-        // faithful to the original's renderEffect pipeline ordering.
-        if (uSurfaceColor.a > 0.001) {
-            contentColor = uSurfaceColor.rgb * uSurfaceColor.a + contentColor * (1.0 - uSurfaceColor.a);
-        }
-        // Multiply by sdfMask (v.a) — faithful to 'content * v.a'.
-        vec3 color = contentColor * sdfMask;
+        vec3 color = applyColorControls(content.rgb, uBrightness, uContrast, uSaturation);
+        // Multiply by sdfMask (v.a) — faithful to 'content * v.a'. This makes
+        // the color fade at AA edges, giving the glass a soft boundary instead
+        // of a hard flat fill.
+        color *= sdfMask;
 
         // Bevel lighting
         float angleRad = uSdfLightAngle * 3.1415926 / 180.0;
@@ -121,6 +111,13 @@ void main() {
         color.rgb *= 1.0 + 0.5 * intensity * bevel1;
         float bevel2 = clamp(dot(normal, -lightDir), 0.0, 1.0);
         color.rgb *= 1.0 + 0.5 * bevel2 * min(1.0, smoothstep(1.0, 0.0, abs(intensity - 0.25) * 6.0));
+
+        // onDrawBackdrop: drawRect(White 0.25) SrcOver on top of the refracted
+        // content. Faithful: result = White*0.25 + color*0.75 (NOT mix — the
+        // original draws a solid white rect over the backdrop).
+        if (uSurfaceColor.a > 0.001) {
+            color = uSurfaceColor.rgb * uSurfaceColor.a + color * (1.0 - uSurfaceColor.a);
+        }
 
         gl_FragColor = vec4(color, sdfMask * uEnterAlpha);
         return;
