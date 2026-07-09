@@ -340,11 +340,30 @@ export function LiquidGlassCanvas({
         // This lets slider tracks (visually 6dp tall) have a ~48dp touch target.
         const hr = el.hitRect ?? el.rect
         const visibleHY = el.scroll ? hr.y - scrollY : hr.y
+        // If the element has a rotation (e.g. Glass Playground square), the
+        // visual shape is rotated but the hit-test rect is the un-rotated
+        // AABB. To match the visual shape, un-rotate the pointer point
+        // around the rect center, then test against the un-rotated rect.
+        // Faithful to graphicsLayer { rotationZ } which rotates the visual
+        // but not the touch target (Compose's pointerInput works in the
+        // un-rotated local space).
+        let testX = x, testY = y
+        const elRot = (el as GlassElementConfig & { elementRotation?: number }).elementRotation
+        if (elRot && Math.abs(elRot) > 0.001) {
+          const cx = hr.x + hr.w * 0.5
+          const cy = (el.scroll ? hr.y - scrollY : hr.y) + hr.h * 0.5
+          const dx = x - cx
+          const dy = y - cy
+          const cos = Math.cos(-elRot)
+          const sin = Math.sin(-elRot)
+          testX = cx + dx * cos - dy * sin
+          testY = cy + dx * sin + dy * cos
+        }
         if (
-          x >= hr.x &&
-          x <= hr.x + hr.w &&
-          y >= visibleHY &&
-          y <= visibleHY + hr.h
+          testX >= hr.x &&
+          testX <= hr.x + hr.w &&
+          testY >= visibleHY &&
+          testY <= visibleHY + hr.h
         ) {
           const hasInteraction = !!interactions0?.[el.id]
           if (!hasInteraction && !el.isInteractive) {
