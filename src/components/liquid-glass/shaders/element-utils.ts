@@ -297,12 +297,18 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
         float d = dot(grad, normal);
         float intensity = pow(abs(d), 1.0);
 
-        // Stroke mask — faithful to BlurMaskFilter(blurRadius, Blur.NORMAL).
-        // strokeWidth = ceil(0.5dp)*2 = 2px (full, centered on edge).
-        // The outward half (capsuleSd > 0) is clipped by the main shader's
-        // discard. We model the visible inner half as a smoothstep from
-        // 1.0 at the edge (capsuleSd=0) fading to 0 at capsuleSd=-2px.
-        float strokeMask = 1.0 - smoothstep(-1.0, 0.0, capsuleSd);
+        // Stroke mask — faithful to HighlightModifier.kt:
+        //   paint.style = Stroke
+        //   paint.strokeWidth = ceil(0.5dp)*2 = 2px  (full, centered on edge)
+        //   canvas.clipOutline(outline)   // clip to INSIDE the shape
+        //   canvas.drawOutline(outline, paint)  // stroke centered on edge
+        // The stroke is a BAND centered on capsuleSd=0, width 2px (±1px).
+        // clipOutline removes the outward half (capsuleSd > 0), leaving only
+        // the inner half-band: capsuleSd in [-1, 0].
+        //   capsuleSd = 0  (edge)         → 1.0 (peak)
+        //   capsuleSd = -1 (1px inward)   → 0.0
+        //   capsuleSd < -1 (deep inside)  → 0.0 (no flood — highlight ONLY on edge)
+        float strokeMask = smoothstep(-1.0, 0.0, capsuleSd);
 
         // White(1.0) * intensity * strokeMask * progress, Plus blend (additive).
         // (color.copy(alpha=1) * highlightLayer.alpha=progress — the 0.5 alpha
