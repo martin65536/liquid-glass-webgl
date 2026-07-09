@@ -371,10 +371,15 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
 
 // Magnifier backdrop sampling — faithful to MagnifierContent.kt's
 // onDrawBackdrop: withTransform({ scale(1.5); translate(top=-80dp) }, drawBackdrop).
-// scale around origin, then translate up by sampleOffsetY.
+// The transform is in the glass's LOCAL space (origin = glass top-left).
+// Compose composes right-to-left: M = Scale × Translate, so
+//   screenLocal = 1.5 × (localPos + (0,-80dp)) = 1.5×localPos + (0,-120dp)
+// Invert: sourceContent = (screenLocal + (0,120dp)) / 1.5 = localPos/1.5 + (0,80dp)
+// where localPos = canvasPx - uElementOffset (glass top-left in device px).
 vec4 sampleMagnifier(vec2 canvasPx, float radius) {
-    vec2 transformed = canvasPx / uMagnifierZoom;
-    transformed.y -= uMagnifierOffsetY;
+    vec2 localPx = canvasPx - uElementOffset;
+    vec2 transformed = localPx / uMagnifierZoom;
+    transformed.y += uMagnifierOffsetY;
     return sampleBackdrop(transformed, radius);
 }
 
