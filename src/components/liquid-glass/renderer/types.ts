@@ -429,12 +429,6 @@ export interface GlassElementConfig extends GlassButtonConfig {
    * unaffected (still array order).
    */
   renderOnTop?: boolean
-  /** Sample the WALLPAPER (not the scene FBO) as the glass backdrop. Used by
-   *  the back button / theme toggle on pages with a dark scrim/dim overlay
-   *  (Dialog, ControlCenter) so the glass refracts the clean wallpaper instead
-   *  of the darkened scene — the button stays bright and visible over the
-   *  scrim without the scrim showing through the translucent glass. */
-  sampleWallpaper?: boolean
 }
 
 /* Per-element interaction state — mirrors InteractiveHighlight.kt. */

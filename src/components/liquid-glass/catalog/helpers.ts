@@ -526,8 +526,7 @@ const MOON_ICON_PATH =
 export function makeBackButton(
   onBack: () => void,
   palette: ThemePalette,
-  scroll = false,
-  surfaceAlpha?: number
+  scroll = false
 ): { element: GlassElementConfig; interaction: ElementInteraction } {
   // Circular button: 56dp diameter, centered arrow_back icon (32dp).
   // Per user request: "玻璃退出按钮不要有边缘高光" — no edge highlight
@@ -536,15 +535,8 @@ export function makeBackButton(
   // Per user request: "把退出按钮改大一点" — increased from 40dp to 56dp.
   // Arrow color flips with theme (black on light, white on dark) to
   // match the original catalog's `contentColor` behavior.
-  // surfaceAlpha: override the glass surface opacity (default
-  // palette.buttonSurface[3]=0.3). Pass a higher value (e.g. 0.7) on
-  // pages with a dark scrim/dim overlay so the button stays visible
-  // instead of being darkened by the scrim showing through the glass.
   const size = 56 * DP
   const iconSize = 32 * DP
-  const surf = surfaceAlpha != null
-    ? [palette.buttonSurface[0], palette.buttonSurface[1], palette.buttonSurface[2], surfaceAlpha]
-    : palette.buttonSurface
   const element: GlassElementConfig = {
     id: '__back__',
     kind: 'button',
@@ -552,7 +544,7 @@ export function makeBackButton(
     ...GLASS_PARAMS,
     cornerRadius: size / 2, // circular
     tintColor: [0, 0, 0, 0],
-    surfaceColor: surf,
+    surfaceColor: palette.buttonSurface,
     highlight: null, // no edge highlight on the back button
     outerShadow: { ...DEFAULT_SHADOW, radius: 12 * DP, alpha: 0.08 },
     label: '', // no text label — icon replaces it
@@ -587,14 +579,10 @@ export function makeThemeToggleButton(
   palette: ThemePalette,
   isLightTheme: boolean,
   canvasW: number,
-  scroll = false,
-  surfaceAlpha?: number
+  scroll = false
 ): { element: GlassElementConfig; interaction: ElementInteraction } {
   const size = 56 * DP
   const iconSize = 32 * DP
-  const surf = surfaceAlpha != null
-    ? [palette.buttonSurface[0], palette.buttonSurface[1], palette.buttonSurface[2], surfaceAlpha]
-    : palette.buttonSurface
   // Mirrored position: back button is at (16, 16); theme button is at
   // (W - 16 - size, 16) so the two buttons are symmetric across the
   // horizontal centerline.
@@ -605,7 +593,7 @@ export function makeThemeToggleButton(
     ...GLASS_PARAMS,
     cornerRadius: size / 2, // circular
     tintColor: [0, 0, 0, 0],
-    surfaceColor: surf,
+    surfaceColor: palette.buttonSurface,
     highlight: null, // no edge highlight (matches back button)
     outerShadow: { ...DEFAULT_SHADOW, radius: 12 * DP, alpha: 0.08 },
     label: '',

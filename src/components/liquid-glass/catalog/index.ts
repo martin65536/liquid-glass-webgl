@@ -146,11 +146,6 @@ export function buildCatalog(
   // non-scrolling (stays at top-right when the page scrolls).
   if (onToggleTheme) {
     const themeBtn = makeThemeToggleButton(onToggleTheme, palette, isLightTheme, W, false)
-    // On pages with a dark scrim/dim overlay (Dialog, ControlCenter),
-    // sample the wallpaper (not the darkened scene) so the glass stays bright.
-    if (dest === CatalogDestination.Dialog || dest === CatalogDestination.ControlCenter) {
-      themeBtn.element.sampleWallpaper = true
-    }
     result.elements.push(themeBtn.element)
     result.interactions[themeBtn.element.id] = themeBtn.interaction
   }

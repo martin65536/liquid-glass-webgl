@@ -68,7 +68,6 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
   elements.push(ccDrag)
 
   const back = makeBackButton(onBack, palette)
-  back.element.sampleWallpaper = true // refract clean wallpaper, not the darkened dim scene
   elements.push(back.element)
   interactions[back.element.id] = back.interaction
 
