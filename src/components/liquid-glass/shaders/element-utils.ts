@@ -371,11 +371,12 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
 
 // Magnifier backdrop sampling — faithful to MagnifierContent.kt's
 // onDrawBackdrop: withTransform({ scale(1.5); translate(top=-80dp) }, drawBackdrop).
-// scale around origin, then translate up by sampleOffsetY.
+// Zoom around the magnifier center, then offset Y toward cursor.
 vec4 sampleMagnifier(vec2 canvasPx, float radius) {
-    vec2 transformed = canvasPx / uMagnifierZoom;
-    transformed.y -= uMagnifierOffsetY;
-    return sampleBackdrop(transformed, radius);
+    vec2 magCenter = uElementOffset + uElementSize * 0.5;
+    vec2 zoomedCoord = magCenter + (canvasPx - magCenter) / uMagnifierZoom;
+    vec2 cursorCoord = vec2(zoomedCoord.x, zoomedCoord.y + uMagnifierOffsetY);
+    return sampleBackdrop(cursorCoord, radius);
 }
 
 // colorControls — exact port of ColorFilter.kt colorControlsColorFilter.
