@@ -169,23 +169,32 @@ export const rasterMethods = {
     ctx.fillStyle = colorStr
 
     // --- Optional icon (drawn above the text, centered horizontally) --
+    // Faithful to the original Compose layout:
+    //   LiquidBottomTab: Column(spacedBy(2dp, CenterVertically)) {
+    //     Box(size(28dp).paint(icon))   // icon intrinsic 24dp, ContentScale.Inside
+    //     BasicText("Tab N", 12sp)
+    //   }
+    // The icon's "layout box" (28dp) is larger than the drawing (24dp) — the
+    // icon is centered within the box. We use layoutSize for positioning and
+    // size for drawing to replicate this exactly.
     let textYOffset = 0
     if (t.icon) {
-      const iconSize = t.icon.size
-      // Gap between icon and text — faithful to LiquidBottomTab.kt's
+      const iconDrawSize = t.icon.size
+      const iconLayoutSize = t.icon.layoutSize ?? iconDrawSize
+      // Gap between icon layout box and text — faithful to LiquidBottomTab.kt's
       // Arrangement.spacedBy(2f.dp). Only applies when there's text content;
       // icon-only tiles (control center) get gap=0 so the icon is centered.
       const gap = t.content ? 2 : 0
-      const totalBlockH = iconSize + gap + (t.content ? t.fontSizePx : 0)
+      const totalBlockH = iconLayoutSize + gap + (t.content ? t.fontSizePx : 0)
       const blockTop = cssH / 2 - totalBlockH / 2
       const iconCx = cssW / 2
-      const iconCy = blockTop + iconSize / 2
-      // Draw the icon path scaled from a 24×24 viewport to iconSize×iconSize,
-      // centered at (iconCx, iconCy).
+      // Icon center = center of the layout box (icon is centered in box)
+      const iconCy = blockTop + iconLayoutSize / 2
+      // Draw the icon path at iconDrawSize, centered at (iconCx, iconCy).
       ctx.save()
-      ctx.translate(iconCx - iconSize / 2, iconCy - iconSize / 2)
+      ctx.translate(iconCx - iconDrawSize / 2, iconCy - iconDrawSize / 2)
       const vp = t.icon.viewport ?? 24
-      ctx.scale(iconSize / vp, iconSize / vp)
+      ctx.scale(iconDrawSize / vp, iconDrawSize / vp)
       const p = new Path2D(t.icon.path)
       const ic = t.icon.color
       ctx.fillStyle = `rgba(${Math.round(ic[0] * 255)}, ${Math.round(
@@ -193,7 +202,7 @@ export const rasterMethods = {
       )}, ${Math.round(ic[2] * 255)}, ${ic[3]})`
       ctx.fill(p)
       ctx.restore()
-      textYOffset = (iconSize + gap) / 2
+      textYOffset = (iconLayoutSize + gap) / 2
     }
 
     if (t.align === 'center') {

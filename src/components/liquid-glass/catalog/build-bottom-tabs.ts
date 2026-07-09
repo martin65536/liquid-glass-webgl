@@ -137,7 +137,7 @@ export function buildBottomTabs(W: number, H: number, onBack: () => void, state:
           align: 'center',
           paddingPx: 0,
           halo: palette.tabsTextHalo,
-          icon: { path: FLIGHT_ICON_PATH, size: 28, color: iconColor, viewport: 960 },
+          icon: { path: FLIGHT_ICON_PATH, size: 24, layoutSize: 28, color: iconColor, viewport: 960 },
         }
       )
       tabEl.isBottomTabContent = {

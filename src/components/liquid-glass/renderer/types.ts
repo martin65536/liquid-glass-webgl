@@ -125,11 +125,18 @@ export interface TextSpec {
    *  `viewport` (default 24), scaled to `iconSize` px and centered. */
   icon?: {
     path: string
-    size: number // px
+    /** Actual drawing size in px (matches the painter's intrinsic size,
+     *  e.g. 24 for Material icons with defaultWidth=24.dp). */
+    size: number
     color: [number, number, number, number]
     /** SVG viewport size the path is defined in (default 24). Use 960 for
      *  paths ported from Compose ImageVector (Material icons). */
     viewport?: number
+    /** Layout box size in px (default = size). When the icon sits in a
+     *  Compose `Box(size(N))` larger than the painter's intrinsic size,
+     *  this is N — the icon is centered within this box for layout
+     *  purposes (matching ContentScale.Inside behavior). */
+    layoutSize?: number
   }
 }
 
@@ -149,6 +156,8 @@ export interface GlassElementConfig extends GlassButtonConfig {
     /** SVG viewport size the path is defined in (default 24). Use 960 for
      *  paths ported from Compose ImageVector (Material icons). */
     viewport?: number
+    /** Layout box size in px (default = size). See TextSpec.icon. */
+    layoutSize?: number
   }
   /** Inner shadow (optional, for toggle/slider knobs). */
   innerShadow?: {

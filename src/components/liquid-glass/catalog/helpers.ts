@@ -305,7 +305,7 @@ export function makeText(
     valign?: 'top' | 'center' | 'bottom'
     maxLines?: number
     halo?: 'auto' | 'light' | 'dark' | 'none'
-    icon?: { path: string; size: number; color: [number, number, number, number]; viewport?: number }
+    icon?: { path: string; size: number; color: [number, number, number, number]; viewport?: number; layoutSize?: number }
     /** Press tint color for interactive text items (ripple color).
      *  Faithful to MainContent.kt: black in light theme, white in dark. */
     pressTintColor?: [number, number, number, number]
