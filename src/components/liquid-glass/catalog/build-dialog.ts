@@ -20,7 +20,8 @@ export function buildDialog(W: number, H: number, onBack: () => void, palette: T
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
-  const back = makeBackButton(onBack, palette, true, 0.7) // scroll-anchored + higher surface alpha so the dim scrim doesn't darken it
+  const back = makeBackButton(onBack, palette, true) // scroll-anchored so it stays
+  back.element.renderOnTop = true // render after the dim scrim, sampling wallpaper (not the darkened scene)
   elements.push(back.element)
   interactions[back.element.id] = back.interaction
 

@@ -143,17 +143,39 @@ export const renderMethods = {
       }
     }
 
-    // --- Second pass: render renderOnTop elements (e.g. CC dim overlay) ---
-    // Faithful to ControlCenterContent.kt's drawWithContent:
-    //   drawContent()  ← first pass (tiles)
-    //   drawRect(dim)  ← second pass (dim on top)
+    // --- Second pass: render renderOnTop elements ---
+    // Two kinds of renderOnTop elements:
+    //   1. Non-glass (e.g. CC dim overlay) — rendered directly on curFbo.
+    //   2. Glass (e.g. back button / theme toggle on Dialog/ControlCenter) —
+    //      rendered with the WALLPAPER as uBackdrop (not curTex, which now
+    //      contains the scrim/dim). This makes the glass refract the clean
+    //      wallpaper instead of the darkened scene, so the button stays
+    //      bright and fully visible OVER the scrim. The button's own
+    //      surface + shadow + icon are then composited on curFbo on top of
+    //      the scrim — truly "on top".
     for (const el of this.buttonConfigs) {
       if (!el.renderOnTop) continue
       const y = el.scroll ? el.rect.y - scrollY : el.rect.y
       if (y + el.rect.h < viewportTop || y > viewportBottom) continue
       const r = effRect(el)
       const st = this.buttonStates.get(el.id)
-      this.renderNonGlassElement(el, r, st, curFbo)
+
+      // Non-glass renderOnTop elements (dim/scrim) render directly.
+      if (this.renderNonGlassElement(el, r, st, curFbo)) continue
+
+      // Glass renderOnTop elements (back button / theme toggle): render
+      // via ping-pong but sample the WALLPAPER (not curTex) so the scrim
+      // doesn't darken the glass. We swap curTex → wallpaperTexture for
+      // this element's pass, then restore.
+      const savedCurTex = curTex
+      if (this.wallpaperTexture && this.wallpaperReady) {
+        curTex = this.wallpaperTexture
+      }
+      const result = this.renderGlassElement(el, st, curFbo, curTex, otherFbo, otherTex, r)
+      curFbo = result.curFbo
+      curTex = result.curTex
+      otherFbo = result.otherFbo
+      otherTex = result.otherTex
     }
 
     // --- Final: blit curFbo → default framebuffer (visible canvas) ---

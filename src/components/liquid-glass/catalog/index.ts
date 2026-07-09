@@ -145,13 +145,13 @@ export function buildCatalog(
   // z-order (tappable even over other glass elements). The button is
   // non-scrolling (stays at top-right when the page scrolls).
   if (onToggleTheme) {
-    // Pages with a dark scrim/dim overlay (Dialog, ControlCenter) need a
-    // higher surface alpha on the theme toggle too, matching the back button,
-    // so the scrim doesn't darken it through the glass.
-    const needsHighAlpha =
-      dest === CatalogDestination.Dialog ||
-      dest === CatalogDestination.ControlCenter
-    const themeBtn = makeThemeToggleButton(onToggleTheme, palette, isLightTheme, W, false, needsHighAlpha ? 0.7 : undefined)
+    const themeBtn = makeThemeToggleButton(onToggleTheme, palette, isLightTheme, W, false)
+    // On pages with a dark scrim/dim overlay (Dialog, ControlCenter),
+    // render the theme toggle on top (after the scrim) sampling the
+    // wallpaper so the scrim doesn't darken it — same as the back button.
+    if (dest === CatalogDestination.Dialog || dest === CatalogDestination.ControlCenter) {
+      themeBtn.element.renderOnTop = true
+    }
     result.elements.push(themeBtn.element)
     result.interactions[themeBtn.element.id] = themeBtn.interaction
   }
