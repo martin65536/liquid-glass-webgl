@@ -1,17 +1,76 @@
 /* ------------------------------------------------------------------ *
  * Element shader utilities — GLSL helper functions used by the element
- * fragment shader: backdrop sampling (9-tap poisson disc), color
+ * fragment shader: backdrop sampling (Gaussian disc), color
  * controls (saturation/brightness/contrast), HSV conversion + Hue blend.
  *
- * PERFORMANCE: Reduced from 43 taps to 9 taps. The original 43-tap disc
- * was overkill and caused severe overheating on mobile GPUs. 9 taps with
- * well-chosen weights gives a visually similar Gaussian-ish result at
- * ~5x less fillrate cost. For large blur radii (8-16dp), the result is
- * slightly less smooth but acceptable — matching Skia's RenderEffect
- * exactly would require separable two-pass blur which isn't possible in
- * a single-pass WebGL 1 setup.
+ * The blur sampling functions are dynamically generated with a tap count
+ * that scales with quality needs. WebGL1 requires constant loop bounds,
+ * so we unroll the Gaussian kernel in JS and emit a fixed sequence of
+ * texture2D calls. This gives high-quality Gaussian blur at any radius.
  * ------------------------------------------------------------------ */
-export const ELEMENT_UTILS_GLSL = /* glsl */ `
+
+/** Generate a Gaussian disc sampling pattern in JS.
+ *  Returns an array of {x, y, w} for a Gaussian blur with sigma=1.0
+ *  (the shader scales offsets by the actual radius at runtime).
+ *  Uses a golden-angle spiral (Vogel's method) for even disc coverage.
+ *  `tapCount` controls quality (more taps = smoother).
+ */
+function generateGaussianDisc(tapCount: number): Array<{ x: number; y: number; w: number }> {
+  const taps: Array<{ x: number; y: number; w: number }> = []
+  if (tapCount <= 1) {
+    taps.push({ x: 0, y: 0, w: 1.0 })
+    return taps
+  }
+  const goldenAngle = Math.PI * (3.0 - Math.sqrt(5.0))
+  const maxRadius = 3.0 // 3-sigma cutoff
+  let totalW = 0
+  for (let i = 0; i < tapCount; i++) {
+    const t = (i + 0.5) / tapCount
+    const r = maxRadius * Math.sqrt(t)
+    const angle = i * goldenAngle
+    const x = r * Math.cos(angle)
+    const y = r * Math.sin(angle)
+    const dist2 = x * x + y * y
+    const w = Math.exp(-0.5 * dist2)
+    taps.push({ x, y, w })
+    totalW += w
+  }
+  if (totalW > 0) {
+    for (const t of taps) t.w /= totalW
+  }
+  return taps
+}
+
+/** Generate GLSL texture2D calls for a Gaussian blur.
+ *  Offsets are in units of radius (sigma = radius). The shader multiplies
+ *  by pxToUv to convert to UV-space offset.
+ */
+function generateBlurGLSL(taps: Array<{ x: number; y: number; w: number }>, sampler: string, uvVar: string, pxToUvExpr: string): string {
+  if (taps.length === 1) {
+    return `    return texture2D(${sampler}, ${uvVar});\n`
+  }
+  let code = ''
+  for (const t of taps) {
+    const ox = t.x.toFixed(6)
+    const oy = t.y.toFixed(6)
+    const w = t.w.toFixed(8)
+    code += `    sum += texture2D(${sampler}, ${uvVar} + vec2(${ox}, ${oy}) * ${pxToUvExpr}) * ${w};\n`
+  }
+  return code
+}
+
+/** Default tap count for the Gaussian blur. Higher = better quality but
+ *  more fillrate. 25 taps gives smooth Gaussian blur at any radius. */
+export const DEFAULT_BLUR_TAPS = 25
+
+/** Build the full ELEMENT_UTILS_GLSL string with a given tap count.
+ *  Called by the renderer at shader-compile time. */
+export function generateElementUtilsGLSL(tapCount: number = DEFAULT_BLUR_TAPS): string {
+  const taps = generateGaussianDisc(tapCount)
+  const backdropBlurCode = generateBlurGLSL(taps, 'uBackdrop', 'uv', 'pxToUv')
+  const wallpaperBlurCode = generateBlurGLSL(taps, 'uWallpaperSampler', 'uv', 'pxToUv')
+
+  return /* glsl */ `
 // Forward declarations — blendHue/rgb2hsv/hsv2rgb are defined later but used
 // by sampleIndicatorBackdrop (which must come before sampleToggleBackdrop in
 // the file for readability). GLSL ES 1.00 requires declaration before use.
@@ -51,15 +110,9 @@ vec2 sceneUv(vec2 canvasPx) {
     return vec2(canvasPx.x / uCanvasSize.x, 1.0 - canvasPx.y / uCanvasSize.y);
 }
 
-// 9-tap poisson disc blur — good balance of quality vs performance.
-// 1 center tap + 8-ring taps at radius 1.0, with Gaussian-ish weights.
-// Total weight = 1.0 (normalized). radius < 0.5 falls back to single tap.
-//
-// Weight distribution (approximates Gaussian with σ ≈ 0.5):
-//   center: 0.25
-//   4 cardinal (distance 1.0): 0.12 each = 0.48
-//   4 diagonal (distance 0.707): 0.0675 each = 0.27
-//   total = 1.0
+// Gaussian disc blur — ${tapCount} taps, dynamically generated in JS.
+// Offsets are in units of radius (sigma = radius), scaled at runtime.
+// radius < 0.5 falls back to single tap (no visible blur).
 vec4 sampleBackdrop(vec2 canvasPx, float radius) {
     vec2 uv = sceneUv(canvasPx);
     if (radius < 0.5) {
@@ -67,27 +120,10 @@ vec4 sampleBackdrop(vec2 canvasPx, float radius) {
     }
     vec2 pxToUv = radius / uCanvasSize;
     vec4 sum = vec4(0.0);
-    float total = 0.0;
-
-    // Center tap (highest weight)
-    sum += texture2D(uBackdrop, uv) * 0.25; total += 0.25;
-
-    // 4 cardinal directions at radius 1.0
-    sum += texture2D(uBackdrop, uv + vec2( 1.000,  0.000) * pxToUv) * 0.12; total += 0.12;
-    sum += texture2D(uBackdrop, uv + vec2(-1.000,  0.000) * pxToUv) * 0.12; total += 0.12;
-    sum += texture2D(uBackdrop, uv + vec2( 0.000,  1.000) * pxToUv) * 0.12; total += 0.12;
-    sum += texture2D(uBackdrop, uv + vec2( 0.000, -1.000) * pxToUv) * 0.12; total += 0.12;
-
-    // 4 diagonal directions at radius ~0.707 (corner of unit square)
-    sum += texture2D(uBackdrop, uv + vec2( 0.707,  0.707) * pxToUv) * 0.0675; total += 0.0675;
-    sum += texture2D(uBackdrop, uv + vec2( 0.707, -0.707) * pxToUv) * 0.0675; total += 0.0675;
-    sum += texture2D(uBackdrop, uv + vec2(-0.707,  0.707) * pxToUv) * 0.0675; total += 0.0675;
-    sum += texture2D(uBackdrop, uv + vec2(-0.707, -0.707) * pxToUv) * 0.0675; total += 0.0675;
-
-    return sum / total;
+${backdropBlurCode}    return sum;
 }
 
-// 9-tap poisson blur sampling the WALLPAPER (uWallpaperSampler via coverUv).
+// Gaussian disc blur of the WALLPAPER (uWallpaperSampler via coverUv).
 // Used by the SDF-texture glass path (LockScreen) — faithful to the original's
 // blur(2dp) effect applied before the SDF shader.
 vec4 sampleWallpaperBlurred(vec2 canvasPx, float radius) {
@@ -97,17 +133,7 @@ vec4 sampleWallpaperBlurred(vec2 canvasPx, float radius) {
     }
     vec2 pxToUv = radius * canvasPxToUvScale();
     vec4 sum = vec4(0.0);
-    float total = 0.0;
-    sum += texture2D(uWallpaperSampler, uv) * 0.25; total += 0.25;
-    sum += texture2D(uWallpaperSampler, uv + vec2( 1.000,  0.000) * pxToUv) * 0.12; total += 0.12;
-    sum += texture2D(uWallpaperSampler, uv + vec2(-1.000,  0.000) * pxToUv) * 0.12; total += 0.12;
-    sum += texture2D(uWallpaperSampler, uv + vec2( 0.000,  1.000) * pxToUv) * 0.12; total += 0.12;
-    sum += texture2D(uWallpaperSampler, uv + vec2( 0.000, -1.000) * pxToUv) * 0.12; total += 0.12;
-    sum += texture2D(uWallpaperSampler, uv + vec2( 0.707,  0.707) * pxToUv) * 0.0675; total += 0.0675;
-    sum += texture2D(uWallpaperSampler, uv + vec2( 0.707, -0.707) * pxToUv) * 0.0675; total += 0.0675;
-    sum += texture2D(uWallpaperSampler, uv + vec2(-0.707,  0.707) * pxToUv) * 0.0675; total += 0.0675;
-    sum += texture2D(uWallpaperSampler, uv + vec2(-0.707, -0.707) * pxToUv) * 0.0675; total += 0.0675;
-    return sum / total;
+${wallpaperBlurCode}    return sum;
 }
 
 // --- Toggle knob CombinedBackdrop sampling (faithful to LiquidToggle.kt) ---

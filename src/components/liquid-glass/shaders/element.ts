@@ -1,6 +1,6 @@
 import { SDF_GLSL, COVER_GLSL } from './sdf'
 import { ELEMENT_UNIFORMS_GLSL } from './element-uniforms'
-import { ELEMENT_UTILS_GLSL } from './element-utils'
+import { generateElementUtilsGLSL, DEFAULT_BLUR_TAPS } from './element-utils'
 
 /* ------------------------------------------------------------------ *
  * Full per-element fragment shader.
@@ -20,8 +20,14 @@ import { ELEMENT_UTILS_GLSL } from './element-utils'
  *
  * Outer drop shadow is drawn as a separate expanded quad pass below
  * the main element (see renderer).
+ *
+ * The blur tap count is dynamically generated (WebGL1 requires constant
+ * loop bounds, so we unroll in JS). Higher tapCount = better blur quality
+ * at large radii.
  * ------------------------------------------------------------------ */
-export const ELEMENT_FRAGMENT_SHADER = /* glsl */ `
+export function generateElementFragmentShader(tapCount: number = DEFAULT_BLUR_TAPS): string {
+  const utilsGlsl = generateElementUtilsGLSL(tapCount)
+  return /* glsl */ `
 precision highp float;
 
 ${ELEMENT_UNIFORMS_GLSL}
@@ -30,7 +36,7 @@ ${SDF_GLSL}
 
 ${COVER_GLSL}
 
-${ELEMENT_UTILS_GLSL}
+${utilsGlsl}
 
 void main() {
     // gl_FragCoord origin is bottom-left in WebGL; flip to top-left.
@@ -347,3 +353,7 @@ void main() {
     gl_FragColor = vec4(color, alpha * edgeAlpha * uEnterAlpha);
 }
 `
+}
+
+/** Default element fragment shader (25 taps). */
+export const ELEMENT_FRAGMENT_SHADER = generateElementFragmentShader(DEFAULT_BLUR_TAPS)
