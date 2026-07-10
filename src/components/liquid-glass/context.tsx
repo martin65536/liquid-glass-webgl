@@ -58,6 +58,11 @@ export interface LiquidGlassCanvasProps {
   /** Device pixel ratio override (0 = use device DPR, capped at 1.5 by
    *  the renderer's resize). Applied on renderer init + when it changes. */
   dpr?: number
+  /** Max 1D taps per separable blur pass (1..33). Performance knob for
+   *  useSeparableBlur elements. Applied on renderer init + when it changes.
+   *  Small blur radii automatically use fewer taps (computeBlur1DTapCount);
+   *  this caps the MAXIMUM. */
+  blurTapCap?: number
 }
 
 export interface ElementInteraction {
@@ -99,6 +104,7 @@ export function LiquidGlassCanvas({
   rendererRef,
   className,
   dpr,
+  blurTapCap,
 }: LiquidGlassCanvasProps) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
   const containerRef = React.useRef<HTMLDivElement>(null)
@@ -166,6 +172,8 @@ export function LiquidGlassCanvas({
       const deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
       renderer.dpr = dpr > 0 ? Math.max(0.5, Math.min(deviceDpr, dpr)) : deviceDpr
     }
+    // Apply blur tap cap (Settings slider) so 2-pass separable blur uses it.
+    if (blurTapCap != null) renderer.blurTapCap = Math.max(1, Math.min(33, blurTapCap | 0))
     resize()
     const ro = new ResizeObserver(resize)
     ro.observe(containerRef.current)
@@ -205,6 +213,13 @@ export function LiquidGlassCanvas({
     const r = containerRef.current?.getBoundingClientRect()
     if (r) renderer.resize(r.width, r.height)
   }, [dpr])
+
+  // Apply blur tap cap when it changes (Settings page slider).
+  React.useEffect(() => {
+    const renderer = rendererRefInternal.current
+    if (!renderer || blurTapCap == null) return
+    renderer.blurTapCap = Math.max(1, Math.min(33, blurTapCap | 0))
+  }, [blurTapCap])
 
   // Push the latest element list to the renderer.
   React.useEffect(() => {
