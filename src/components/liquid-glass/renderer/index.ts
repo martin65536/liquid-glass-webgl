@@ -14,8 +14,10 @@ import {
   COPY_FRAGMENT_SHADER,
   SOLID_FILL_FRAGMENT_SHADER,
   SCENE_TINT_FRAGMENT_SHADER,
+  generateSeparableBlurShader,
+  computeBlur1DTapCount,
 } from '../shaders'
-import { createProgram } from './gl-utils'
+import { compileShader, createProgram } from './gl-utils'
 import type {
   GlassElementConfig,
   ElementState,
@@ -99,6 +101,27 @@ export class LiquidGlassRenderer {
   tabsBackdropFbo: WebGLFramebuffer | null = null
   tabsBackdropTex: WebGLTexture | null = null
   tabsBackdropDirty = true
+
+  // --- Separable 2-pass blur infrastructure (Glass Playground only) ---
+  // gpElementFbo: element pass renders here (refraction on CLEAR backdrop,
+  // uBlurRadius=0) for useSeparableBlur elements. Transparent background;
+  // the element shader's discard leaves only the glass shape's refracted content.
+  // blurFboA/blurFboB: ping-pong for the 2-pass Gaussian (H then V).
+  // The blurred result is alpha-composited back into the scene (otherFbo).
+  gpElementFbo: WebGLFramebuffer | null = null
+  gpElementTex: WebGLTexture | null = null
+  blurFboA: WebGLFramebuffer | null = null
+  blurFboATex: WebGLTexture | null = null
+  blurFboB: WebGLFramebuffer | null = null
+  blurFboBTex: WebGLTexture | null = null
+  /** Blur shader variants keyed by 1D tap count (H + V programs each). */
+  blurPrograms = new Map<number, { hProg: WebGLProgram; vProg: WebGLProgram; uH: Record<string, WebGLUniformLocation | null>; uV: Record<string, WebGLUniformLocation | null>; aPosH: number; aPosV: number }>()
+  /** Max 1D taps per blur pass (1..33). Lower = faster, Higher = better quality.
+   *  Set from CatalogState.blurTapCap. Default 17. */
+  blurTapCap = 17
+  /** Blur downsample factor (1=full-res, 2=half-res, 4=quarter). Higher = much
+   *  faster but slightly lower quality. Set from CatalogState.blurDownsample. */
+  blurDownsample = 1
   // SDF texture (clock_sdf) for LockScreen glass
   sdfTexture: WebGLTexture | null = null
   sdfTextureReady = false
@@ -265,6 +288,93 @@ export class LiquidGlassRenderer {
     for (const n of stNames) this.uSt[n] = gl.getUniformLocation(this.sceneTintProgram, n)
   }
 
+  /** Lazy-compile horizontal + vertical blur programs for a 1D tap count. */
+  ensureBlurPrograms(tapCount: number): void {
+    if (this.blurPrograms.has(tapCount)) return
+    const gl = this.gl
+    const hFs = compileShader(gl, gl.FRAGMENT_SHADER, generateSeparableBlurShader(tapCount, 'horizontal'))
+    const vFs = compileShader(gl, gl.FRAGMENT_SHADER, generateSeparableBlurShader(tapCount, 'vertical'))
+    const mk = (fs: WebGLShader) => {
+      const vs = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER)
+      const p = gl.createProgram()!
+      gl.attachShader(p, vs)
+      gl.attachShader(p, fs)
+      gl.bindAttribLocation(p, 0, 'aPos')
+      gl.linkProgram(p)
+      gl.deleteShader(vs)
+      gl.deleteShader(fs)
+      if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+        const log = gl.getProgramInfoLog(p)
+        gl.deleteProgram(p)
+        throw new Error('Blur program link error (taps=' + tapCount + '): ' + log)
+      }
+      return p
+    }
+    const hProg = mk(hFs)
+    const vProg = mk(vFs)
+    const uH: Record<string, WebGLUniformLocation | null> = {
+      uTexture: gl.getUniformLocation(hProg, 'uTexture'),
+      uTexSize: gl.getUniformLocation(hProg, 'uTexSize'),
+      uRadius: gl.getUniformLocation(hProg, 'uRadius'),
+    }
+    const uV: Record<string, WebGLUniformLocation | null> = {
+      uTexture: gl.getUniformLocation(vProg, 'uTexture'),
+      uTexSize: gl.getUniformLocation(vProg, 'uTexSize'),
+      uRadius: gl.getUniformLocation(vProg, 'uRadius'),
+    }
+    this.blurPrograms.set(tapCount, { hProg, vProg, uH, uV, aPosH: 0, aPosV: 0 })
+  }
+
+  /** 2-pass blur a source texture by `radius` px. Reads srcTex, writes the
+   *  blurred result into blurFboB, returns blurFboBTex.
+   *  Saves/restores the currently-bound framebuffer.
+   *  Uses this.blurTapCap to cap 1D tap count (performance knob).
+   *  (blurDownsample is reserved for future use — currently always full-res.) */
+  blurTexture(srcTex: WebGLTexture, radius: number): WebGLTexture {
+    const gl = this.gl
+    const w = this.fboW
+    const h = this.fboH
+    // Compute tap count, capped by blurTapCap (performance knob).
+    let taps = computeBlur1DTapCount(radius)
+    taps = Math.min(taps, Math.max(1, this.blurTapCap | 0))
+    this.ensureBlurPrograms(taps)
+    const entry = this.blurPrograms.get(taps)!
+    const savedFb = gl.getParameter(gl.FRAMEBUFFER_BINDING)
+    gl.disable(gl.BLEND)
+
+    // Pass 1: horizontal — srcTex → blurFboA
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurFboA)
+    gl.viewport(0, 0, w, h)
+    gl.useProgram(entry.hProg)
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+    gl.enableVertexAttribArray(entry.aPosH)
+    gl.vertexAttribPointer(entry.aPosH, 2, gl.FLOAT, false, 0, 0)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, srcTex)
+    gl.uniform1i(entry.uH['uTexture'], 0)
+    gl.uniform2f(entry.uH['uTexSize'], w, h)
+    gl.uniform1f(entry.uH['uRadius'], radius)
+    gl.drawArrays(gl.TRIANGLES, 0, 6)
+
+    // Pass 2: vertical — blurFboATex → blurFboB
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurFboB)
+    gl.viewport(0, 0, w, h)
+    gl.useProgram(entry.vProg)
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+    gl.enableVertexAttribArray(entry.aPosV)
+    gl.vertexAttribPointer(entry.aPosV, 2, gl.FLOAT, false, 0, 0)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, this.blurFboATex!)
+    gl.uniform1i(entry.uV['uTexture'], 0)
+    gl.uniform2f(entry.uV['uTexSize'], w, h)
+    gl.uniform1f(entry.uV['uRadius'], radius)
+    gl.drawArrays(gl.TRIANGLES, 0, 6)
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, savedFb)
+    gl.viewport(0, 0, w, h)
+    return this.blurFboBTex!
+  }
+
   dispose() {
     if (this.rafId !== null) cancelAnimationFrame(this.rafId)
     this.rafId = null
@@ -284,6 +394,20 @@ export class LiquidGlassRenderer {
     if (this.tabsBackdropTex) gl.deleteTexture(this.tabsBackdropTex)
     this.tabsBackdropFbo = null
     this.tabsBackdropTex = null
+    // GP element FBO + blur FBOs + programs
+    if (this.gpElementFbo) gl.deleteFramebuffer(this.gpElementFbo)
+    if (this.gpElementTex) gl.deleteTexture(this.gpElementTex)
+    if (this.blurFboA) gl.deleteFramebuffer(this.blurFboA)
+    if (this.blurFboATex) gl.deleteTexture(this.blurFboATex)
+    if (this.blurFboB) gl.deleteFramebuffer(this.blurFboB)
+    if (this.blurFboBTex) gl.deleteTexture(this.blurFboBTex)
+    this.gpElementFbo = this.blurFboA = this.blurFboB = null
+    this.gpElementTex = this.blurFboATex = this.blurFboBTex = null
+    for (const { hProg, vProg } of this.blurPrograms.values()) {
+      gl.deleteProgram(hProg)
+      gl.deleteProgram(vProg)
+    }
+    this.blurPrograms.clear()
     if (this.sdfTexture) gl.deleteTexture(this.sdfTexture)
     this.sdfTexture = null
     gl.deleteProgram(this.elementProgram)

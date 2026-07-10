@@ -55,6 +55,22 @@ export const fboMethods = {
     this.tabsBackdropFbo = tb.fb
     this.tabsBackdropTex = tb.tex
     this.tabsBackdropDirty = true
+    // GP element FBO (useSeparableBlur element pass output) + blur ping-pong FBOs.
+    if (this.gpElementFbo) gl.deleteFramebuffer(this.gpElementFbo)
+    if (this.gpElementTex) gl.deleteTexture(this.gpElementTex)
+    if (this.blurFboA) gl.deleteFramebuffer(this.blurFboA)
+    if (this.blurFboATex) gl.deleteTexture(this.blurFboATex)
+    if (this.blurFboB) gl.deleteFramebuffer(this.blurFboB)
+    if (this.blurFboBTex) gl.deleteTexture(this.blurFboBTex)
+    const ge = this.createFBO(w, h)
+    const ba = this.createFBO(w, h)
+    const bb = this.createFBO(w, h)
+    this.gpElementFbo = ge.fb
+    this.gpElementTex = ge.tex
+    this.blurFboA = ba.fb
+    this.blurFboATex = ba.tex
+    this.blurFboB = bb.fb
+    this.blurFboBTex = bb.tex
     this.fboW = w
     this.fboH = h
   },
