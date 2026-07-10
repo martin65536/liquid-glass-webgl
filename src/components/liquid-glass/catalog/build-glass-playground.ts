@@ -193,6 +193,12 @@ export function buildGlassPlayground(W: number, H: number, onBack: () => void, s
       const trackY = sliderRowY + (24 - SLIDER_TRACK_H) / 2 // center track in 24dp
 
       const groupId = `gp-slider-${sliderIdx++}`
+      // initFraction from current state value — prevents knob jumping to 0
+      // on catalog rebuild (liveUpdate=true triggers setState every drag
+      // move → catalog rebuild → makeLiquidSlider recreates knob; without
+      // initFraction it defaults to 0, conflicting with the renderer's
+      // spring → knob stuck at 0).
+      const initFrac = (val - range[0]) / (range[1] - range[0])
       const slider = makeLiquidSlider(
         `gp-${key}`,
         trackX,
@@ -207,7 +213,8 @@ export function buildGlassPlayground(W: number, H: number, onBack: () => void, s
           setState({ [key]: v } as Partial<CatalogState>)
         },
         false, // scroll = false
-        true   // liveUpdate = true
+        true,  // liveUpdate = true — GP needs real-time blur/refraction preview
+        initFrac
       )
       elements.push(...slider.elements)
       Object.assign(interactions, slider.interactions)
