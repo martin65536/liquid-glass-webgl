@@ -49,6 +49,7 @@ export const renderMethods = {
     this._blurredBackdropFrame++
 
     if (!this.wallpaperReady && !this.backgroundColor) return
+    const gl = this.gl
     // Ensure FBOs exist (created lazily on first render after resize).
     this.resizeFBOs(this.canvas.width, this.canvas.height)
 
