@@ -49,7 +49,25 @@ export default function Page() {
   const isLightTheme = theme === 'light'
 
   const [destination, setDestination] = React.useState<CatalogDestination>(CatalogDestination.Home)
-  const [state, setStateRaw] = React.useState<CatalogState>(DEFAULT_CATALOG_STATE)
+  // Load persisted Settings fields from localStorage (customDpr,
+  // globalSeparableBlur, blurTapCap, blurDownsample). These are the
+  // user's preferences and should survive page reloads.
+  const SETTINGS_KEY = 'liquid-glass-settings'
+  const loadPersistedSettings = (): Partial<CatalogState> => {
+    if (typeof window === 'undefined') return {}
+    try {
+      const raw = window.localStorage.getItem(SETTINGS_KEY)
+      if (!raw) return {}
+      const parsed = JSON.parse(raw)
+      return {
+        customDpr: typeof parsed.customDpr === 'number' ? parsed.customDpr : 0,
+        globalSeparableBlur: typeof parsed.globalSeparableBlur === 'boolean' ? parsed.globalSeparableBlur : true,
+        blurTapCap: typeof parsed.blurTapCap === 'number' ? parsed.blurTapCap : 17,
+        blurDownsample: typeof parsed.blurDownsample === 'number' ? parsed.blurDownsample : 1,
+      }
+    } catch { return {} }
+  }
+  const [state, setStateRaw] = React.useState<CatalogState>({ ...DEFAULT_CATALOG_STATE, ...loadPersistedSettings() })
   const [frameSize, setFrameSize] = React.useState({ w: 420, h: 900 })
   const fileInputRef = React.useRef<HTMLInputElement>(null)
   const frameRef = React.useRef<HTMLDivElement>(null)
@@ -66,11 +84,27 @@ export default function Page() {
   // The functional form is critical for drag callbacks (slider, magnifier,
   // lock screen, toggle) so they always read the latest state — avoiding
   // stale closures when multiple pointermove events fire between React renders.
+  // Also persists Settings fields (customDpr, globalSeparableBlur, blurTapCap,
+  // blurDownsample) to localStorage so they survive page reloads.
   const setState = React.useCallback(
     (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => {
       setStateRaw((prev) => {
         const p = typeof patch === 'function' ? patch(prev) : patch
-        return { ...prev, ...p }
+        const next = { ...prev, ...p }
+        // Persist Settings fields to localStorage (skip live* display values).
+        if (typeof window !== 'undefined' &&
+            (p.customDpr !== undefined || p.globalSeparableBlur !== undefined ||
+             p.blurTapCap !== undefined || p.blurDownsample !== undefined)) {
+          try {
+            window.localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+              customDpr: next.customDpr,
+              globalSeparableBlur: next.globalSeparableBlur,
+              blurTapCap: next.blurTapCap,
+              blurDownsample: next.blurDownsample,
+            }))
+          } catch { /* ignore quota errors */ }
+        }
+        return next
       })
     },
     []
@@ -368,6 +402,8 @@ export default function Page() {
           tabTargets={tabTargets}
           rendererRef={rendererRef}
           dpr={state.customDpr}
+          blurTapCap={state.blurTapCap}
+          blurDownsample={state.blurDownsample}
           className="w-full h-full"
         />
         {/* Hidden file input for "Pick an image" — triggered by the canvas button */}

@@ -491,6 +491,15 @@ export interface CatalogState {
   adaptiveLuminance: number
   // Settings — custom DPR override (0 = use default capped DPR)
   customDpr: number
+  // Settings — global separable 2-pass blur toggle
+  globalSeparableBlur: boolean
+  // Settings — blur tap cap (1..33, max 1D taps per separable pass)
+  blurTapCap: number
+  // Settings — blur downsample factor (1=full-res, 2/4=downsampled)
+  blurDownsample: number
+  // Settings — live (drag-in-progress) display values for slider labels
+  liveDpr: number | null
+  liveTapCap: number | null
 }
 
 export const DEFAULT_CATALOG_STATE: CatalogState = {
@@ -519,6 +528,11 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   algOffsetY: 0,
   adaptiveLuminance: 0.5,
   customDpr: 0,
+  globalSeparableBlur: true,
+  blurTapCap: 17,
+  blurDownsample: 1,
+  liveDpr: null,
+  liveTapCap: null,
 }
 
 /* ------------------------------------------------------------------ *
