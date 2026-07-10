@@ -122,6 +122,15 @@ export class LiquidGlassRenderer {
   /** Blur downsample factor (1=full-res, 2=half-res, 4=quarter). Higher = much
    *  faster but slightly lower quality. Set from CatalogState.blurDownsample. */
   blurDownsample = 1
+
+  /** Per-frame backdrop blur cache. Keyed by blurRadiusPx.
+   *  Multiple useSeparableBlur elements with the same blurRadius share
+   *  one blurred backdrop texture (e.g. 9 CC tiles all blurRadius=8 →
+   *  1 blur instead of 9). FBOs are reused across frames; content is
+   *  recomputed when _blurredBackdropFrame changes (every render()). */
+  _blurredBackdropCache = new Map<number, { fbo: WebGLFramebuffer; tex: WebGLTexture; frame: number }>()
+  _blurredBackdropFrame = 0
+
   // SDF texture (clock_sdf) for LockScreen glass
   sdfTexture: WebGLTexture | null = null
   sdfTextureReady = false
@@ -401,6 +410,12 @@ export class LiquidGlassRenderer {
     if (this.blurFboATex) gl.deleteTexture(this.blurFboATex)
     if (this.blurFboB) gl.deleteFramebuffer(this.blurFboB)
     if (this.blurFboBTex) gl.deleteTexture(this.blurFboBTex)
+    // Blurred backdrop cache FBOs
+    for (const { fbo, tex } of this._blurredBackdropCache.values()) {
+      gl.deleteFramebuffer(fbo)
+      gl.deleteTexture(tex)
+    }
+    this._blurredBackdropCache.clear()
     this.gpElementFbo = this.blurFboA = this.blurFboB = null
     this.gpElementTex = this.blurFboATex = this.blurFboBTex = null
     for (const { hProg, vProg } of this.blurPrograms.values()) {

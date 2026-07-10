@@ -357,9 +357,33 @@ export const glassRenderMethods = {
     // For normal elements: render the element pass directly to otherFbo
     // (sampling curTex) with inline 16-tap Vogel disc blur.
     if (el.useSeparableBlur && el.blurRadius >= 0.5) {
-      // 2-pass blur the backdrop (curTex) → blurFboBTex.
+      // 2-pass blur the backdrop (curTex) → blurred texture.
+      // CACHE: multiple elements with the same blurRadius share one
+      // blurred backdrop (e.g. 9 CC tiles all blurRadius=8 → 1 blur
+      // instead of 9). FBOs are reused across frames; content is
+      // recomputed once per frame (tracked by _blurredBackdropFrame).
       const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr
-      const blurredBackdrop = this.blurTexture(curTex, blurRadiusPx)
+      const radiusKey = Math.round(blurRadiusPx)
+      let entry = this._blurredBackdropCache.get(radiusKey)
+      if (!entry || entry.frame !== this._blurredBackdropFrame) {
+        // Cache miss (or stale): blur curTex into this FBO.
+        if (!entry) {
+          const created = this.createFBO(this.fboW, this.fboH)
+          entry = { fbo: created.fbo, tex: created.tex, frame: -1 }
+          this._blurredBackdropCache.set(radiusKey, entry)
+        }
+        // blurTexture writes to blurFboB — copy result to our cache FBO.
+        const tmp = this.blurTexture(curTex, blurRadiusPx)
+        const gl3 = this.gl
+        const savedFb = gl3.getParameter(gl3.FRAMEBUFFER_BINDING)
+        gl3.disable(gl3.BLEND)
+        gl3.bindFramebuffer(gl3.FRAMEBUFFER, entry.fbo)
+        gl3.viewport(0, 0, this.fboW, this.fboH)
+        this.drawCopy(tmp)
+        gl3.bindFramebuffer(gl3.FRAMEBUFFER, savedFb)
+        entry.frame = this._blurredBackdropFrame
+      }
+      const blurredBackdrop = entry.tex
       // blurTexture disables BLEND — re-enable it so renderGlassElementPass
       // composites the glass onto otherFbo with alpha blending (otherwise
       // the glass's transparent pixels overwrite the scene → black).

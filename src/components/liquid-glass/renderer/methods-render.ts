@@ -43,7 +43,11 @@ export const renderMethods = {
     if (!this.needsRedraw) return
     this.needsRedraw = false
 
-    const gl = this.gl
+    // Mark per-frame backdrop blur cache as stale (curTex changes every
+    // frame). FBOs are reused across frames (keyed by radius); only the
+    // blur CONTENT is recomputed on first use each frame.
+    this._blurredBackdropFrame++
+
     if (!this.wallpaperReady && !this.backgroundColor) return
     // Ensure FBOs exist (created lazily on first render after resize).
     this.resizeFBOs(this.canvas.width, this.canvas.height)
