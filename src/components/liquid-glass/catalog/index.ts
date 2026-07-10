@@ -146,6 +146,11 @@ export function buildCatalog(
   // non-scrolling (stays at top-right when the page scrolls).
   if (onToggleTheme) {
     const themeBtn = makeThemeToggleButton(onToggleTheme, palette, isLightTheme, W, false)
+    // Apply global separable blur to the theme toggle too (it's created
+    // AFTER the globalSeparableBlur loop above, so it misses the mark).
+    if (state.globalSeparableBlur) {
+      themeBtn.element.useSeparableBlur = true
+    }
     result.elements.push(themeBtn.element)
     result.interactions[themeBtn.element.id] = themeBtn.interaction
   }
