@@ -345,44 +345,27 @@ export const glassRenderMethods = {
     this.renderGlassShadowPass(state)
 
     // --- Step 2b: Element pass (refraction + vibrancy + tint) ---
-    // For useSeparableBlur elements: render the element pass to a dedicated
-    // gpElementFbo (transparent background) with inline blur disabled, then
-    // 2-pass blur gpElementTex via blurTexture(), then alpha-composite the
-    // blurred result back into otherFbo. This mirrors the original's
-    // createChainEffect(refraction, blur): refraction on clear content
-    // first, blur applied to the refraction output.
+    // For useSeparableBlur elements: blur the BACKDROP first (via 2-pass
+    // separable Gaussian on curTex), then render the element pass sampling
+    // the blurred backdrop. This matches the original's RenderEffect chain
+    // createChainEffect(blur, lens): blur is applied to the backdrop BEFORE
+    // the SDF/refraction shader, not to the glass output afterwards.
+    // The element pass renders directly to otherFbo (like inline blur),
+    // with inlineBlurRadius=0 (handled in renderGlassElementPass) since the
+    // backdrop is already blurred.
     //
     // For normal elements: render the element pass directly to otherFbo
     // (sampling curTex) with inline 16-tap Vogel disc blur.
-    if (el.useSeparableBlur && this.gpElementFbo && this.gpElementTex && el.blurRadius >= 0.5) {
-      const gl2 = this.gl
-      // Render element pass into gpElementFbo (starts transparent).
-      this.bindFBO(this.gpElementFbo)
-      gl2.clearColor(0, 0, 0, 0)
-      gl2.clear(gl2.COLOR_BUFFER_BIT)
-      this.renderGlassElementPass(state, curTex)
-
-      // 2-pass separable Gaussian blur: gpElementTex → blurFboB (returns blurFboBTex).
+    if (el.useSeparableBlur && el.blurRadius >= 0.5) {
+      // 2-pass blur the backdrop (curTex) → blurFboBTex.
       const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr
-      const blurredTex = this.blurTexture(this.gpElementTex, blurRadiusPx)
-
-      // Composite blurred element back into otherFbo with ALPHA BLEND.
-      // (drawCopy disables blend — would overwrite the wallpaper with the
-      // element's transparent pixels → black background. We inline the copy
-      // draw here with blend ENABLED so the element's alpha shapes how much
-      // of the existing scene shows through.)
+      const blurredBackdrop = this.blurTexture(curTex, blurRadiusPx)
+      // Render element pass to otherFbo, sampling the blurred backdrop.
+      // inlineBlurRadius is already 0 (useSeparableBlur + blurRadius>=0.5
+      // in renderGlassElementPass), so no double blur.
       this.bindFBO(otherFbo)
-      gl2.useProgram(this.copyProgram)
-      gl2.bindBuffer(gl2.ARRAY_BUFFER, this.quadBuffer)
-      gl2.enableVertexAttribArray(this.aPosLocCp)
-      gl2.vertexAttribPointer(this.aPosLocCp, 2, gl2.FLOAT, false, 0, 0)
-      gl2.activeTexture(gl2.TEXTURE0)
-      gl2.bindTexture(gl2.TEXTURE_2D, blurredTex)
-      gl2.uniform1i(this.uCp['uTexture'], 0)
-      gl2.uniform2f(this.uCp['uCanvasSize'], this.fboW, this.fboH)
-      gl2.enable(gl2.BLEND)
-      gl2.blendFunc(gl2.SRC_ALPHA, gl2.ONE_MINUS_SRC_ALPHA)
-      gl2.drawArrays(gl2.TRIANGLES, 0, 6)
+      this.gl.viewport(0, 0, this.fboW, this.fboH)
+      this.renderGlassElementPass(state, blurredBackdrop)
     } else {
       this.renderGlassElementPass(state, curTex)
     }
