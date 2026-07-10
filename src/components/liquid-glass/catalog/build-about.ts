@@ -55,7 +55,7 @@ export function buildAbout(W: number, H: number, onBack: () => void, palette: Th
     makeText(
       'about-author',
       { x: pad, y: cursorY, w: W - 2 * pad, h: 20 },
-      'Ported by Z.ai Code',
+      'Ported by Z.ai Agent',
       { color: labelColor, fontSizePx: 16, fontWeight: 500, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
     )
   )
