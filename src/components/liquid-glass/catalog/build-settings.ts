@@ -51,8 +51,11 @@ export function buildSettings(
     )
   )
 
-  // DPR slider — stepped (step 0.25), liveUpdate, initial position from currentDpr.
-  // Reuses makeLiquidSlider with initFraction + snap params.
+  // DPR slider — stepped (step 0.25). liveUpdate=false so the real
+  // customDpr only updates on dragEnd (avoids catalog rebuild mid-drag
+  // which would conflict with the renderer's spring). But onLiveValue
+  // fires every drag move → updates state.liveDpr (display-only) so the
+  // label text shows the current finger position in real time.
   const deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
   const minDpr = 0.5
   const maxDpr = deviceDpr
@@ -77,37 +80,119 @@ export function buildSettings(
     palette.sliderTrackOff,
     palette.sliderAccent,
     rendererRef,
-    (f) => { setState({ customDpr: fracToDpr(f) }) },
+    // onValueChange (dragEnd / tap): commit the real value + clear live.
+    (f) => { setState({ customDpr: fracToDpr(f), liveDpr: null }) },
     true,    // scroll
-    false,   // liveUpdate=false — setState during drag causes catalog rebuild
-             // which re-creates the knob at initFrac position, conflicting
-             // with the renderer's spring → knob jumps to 2x position.
-             // State is synced on dragEnd only (same as Slider page).
+    false,   // liveUpdate=false — real value updates on dragEnd only.
     initFrac,
     snapFrac,
+    // onLiveValue (every drag move): update display-only liveDpr for the label.
+    (f) => { setState({ liveDpr: fracToDpr(snapFrac(f)) }) },
   )
   elements.push(...dprSlider.elements)
   Object.assign(interactions, dprSlider.interactions)
 
-  // Indicator label (below slider)
+  // Indicator label (below slider) — shows live value during drag, real value at rest.
   const labelY = sliderY + 24 + 12
+  const displayDpr = state.liveDpr != null ? state.liveDpr : currentDpr
   elements.push(
     makeText(
       'settings-dpr-label',
       { x: pad, y: labelY, w: W - 2 * pad, h: 16 },
-      `DPR: ${currentDpr.toFixed(2)}  (device ${deviceDpr}, range ${minDpr.toFixed(1)}–${maxDpr.toFixed(2)})`,
+      `DPR: ${displayDpr.toFixed(2)}  (device ${deviceDpr}, range ${minDpr.toFixed(1)}–${maxDpr.toFixed(2)})`,
       { color: labelColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
     )
   )
 
-  // Reset button (orange, below label)
+  // --- Separable 2-pass blur: global toggle + tap cap slider ---
+  let nextY = labelY + 16 + 24
+
+  // Section title
+  elements.push(
+    makeText(
+      'settings-blur-title',
+      { x: pad, y: nextY, w: W - 2 * pad, h: 20 },
+      'Separable 2-pass blur',
+      { color: labelColor, fontSizePx: 16, fontWeight: 600, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
+    )
+  )
+  nextY += 20 + 8
+
+  // Global toggle button — orange when ON, gray when OFF
+  const toggleLabel = state.globalSeparableBlur ? 'ON' : 'OFF'
+  const toggleBtnColor = state.globalSeparableBlur
+    ? ([0x00 / 255, 0x88 / 255, 0xff / 255, 1] as [number, number, number, number]) // blue accent
+    : ([0.5, 0.5, 0.5, 1] as [number, number, number, number]) // gray
+  const toggleTextW = measureTextWidth('Global: ' + toggleLabel, TEXT_FONT_SIZE_PX)
+  const toggleBtnW = Math.ceil(toggleTextW + 2 * BUTTON_HORIZONTAL_PADDING)
+  const toggleBtn = makeButton(
+    'settings-blur-global',
+    { x: pad, y: nextY, w: toggleBtnW, h: BUTTON_HEIGHT },
+    {
+      label: 'Global: ' + toggleLabel,
+      tintColor: toggleBtnColor,
+      surfaceColor: [0, 0, 0, 0],
+      labelColor: [1, 1, 1, 1],
+    },
+    true
+  )
+  elements.push(toggleBtn)
+  interactions['settings-blur-global'] = {
+    onTap: () => setState((prev) => ({ globalSeparableBlur: !prev.globalSeparableBlur })),
+  }
+  nextY += BUTTON_HEIGHT + 12
+
+  // Tap cap slider (1..33, step 2) — same pattern as DPR: liveUpdate=false
+  // (real blurTapCap updates on dragEnd), onLiveValue updates liveTapCap
+  // (display-only) every move so the label shows the current value.
+  const minTaps = 1
+  const maxTaps = 33
+  const tapRange = maxTaps - minTaps
+  const tapInitFrac = (state.blurTapCap - minTaps) / tapRange
+  const tapStepCount = Math.round(tapRange / 2) // step 2
+  const tapSnapFrac = (f: number) => Math.max(0, Math.min(1, Math.round(f * tapStepCount) / tapStepCount))
+  const tapFracToTaps = (f: number) => minTaps + Math.round(f * tapRange)
+  const tapTrackY = nextY + (24 - 6) / 2
+  const tapSlider = makeLiquidSlider(
+    'settings-blur-taps',
+    pad,
+    tapTrackY,
+    W - 2 * pad,
+    'settings-blur-taps',
+    palette.sliderTrackOff,
+    palette.sliderAccent,
+    rendererRef,
+    // onValueChange (dragEnd / tap): commit real value + clear live.
+    (f) => { setState({ blurTapCap: tapFracToTaps(f), liveTapCap: null }) },
+    true,
+    false, // liveUpdate=false — real value updates on dragEnd only.
+    tapInitFrac,
+    tapSnapFrac,
+    // onLiveValue (every drag move): update display-only liveTapCap for the label.
+    (f) => { setState({ liveTapCap: tapFracToTaps(tapSnapFrac(f)) }) },
+  )
+  elements.push(...tapSlider.elements)
+  Object.assign(interactions, tapSlider.interactions)
+  nextY += 24 + 4
+  const displayTapCap = state.liveTapCap != null ? state.liveTapCap : state.blurTapCap
+  elements.push(
+    makeText(
+      'settings-blur-taps-label',
+      { x: pad, y: nextY, w: W - 2 * pad, h: 16 },
+      `Tap cap: ${displayTapCap}  (1=fast, 33=best quality)`,
+      { color: labelColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
+    )
+  )
+  nextY += 16 + 16
+
+  // Reset button (orange, below blur settings)
   const ORANGE = [0xff / 255, 0x8d / 255, 0x28 / 255, 1] as [number, number, number, number]
   const resetLabel = 'Reset'
   const resetTextW = measureTextWidth(resetLabel, TEXT_FONT_SIZE_PX)
   const resetW = Math.ceil(resetTextW + 2 * BUTTON_HORIZONTAL_PADDING)
   const resetBtn = makeButton(
     'settings-reset',
-    { x: pad, y: labelY + 16 + 16, w: resetW, h: BUTTON_HEIGHT },
+    { x: pad, y: nextY, w: resetW, h: BUTTON_HEIGHT },
     {
       label: resetLabel,
       tintColor: ORANGE,
@@ -118,10 +203,21 @@ export function buildSettings(
   )
   elements.push(resetBtn)
   interactions['settings-reset'] = {
-    onTap: () => setState({ customDpr: 0 }),
+    onTap: () => {
+      setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 17, blurDownsample: 1, liveDpr: null, liveTapCap: null })
+      // Directly animate both slider knobs to their reset positions so they
+      // visually spring back (the toggleTargets effect should do this, but a
+      // direct call guarantees it even if React bails out of the state update
+      // or the effect is skipped). DPR reset → device DPR (fraction≈1.0);
+      // tap cap reset → 17/32 ≈ 0.5.
+      const d = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+      const dprFrac = (d - 0.5) / Math.max(0.0001, d - 0.5)
+      rendererRef?.current?.setToggleTarget('settings-dpr', dprFrac)
+      rendererRef?.current?.setToggleTarget('settings-blur-taps', (17 - 1) / 32)
+    },
   }
 
-  const contentHeight = labelY + 16 + 16 + BUTTON_HEIGHT + 20
+  const contentHeight = nextY + BUTTON_HEIGHT + 20
   const finalHeight = applyVerticalCenter(elements, 0, contentHeight, H)
   return { elements, interactions, contentHeight: finalHeight }
 }

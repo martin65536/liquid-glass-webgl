@@ -86,6 +86,9 @@ export function buildGlassPlayground(W: number, H: number, onBack: () => void, s
   ;(gpSquare as GlassElementConfig & { elementRotation?: number }).elementRotation = state.gpRotation
   gpSquare.isInteractive = true
   gpSquare.scroll = false
+  // Use separable 2-pass blur: element pass renders to a dedicated FBO (clear
+  // refraction), then that FBO is 2-pass blurred and composited back.
+  gpSquare.useSeparableBlur = true
   elements.push(gpSquare)
   // Drag + transform interaction — pan (1 finger) / pinch zoom + rotate (2 fingers).
   // Faithful to GlassPlaygroundContent.kt's detectTransformGestures:

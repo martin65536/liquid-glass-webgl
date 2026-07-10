@@ -45,7 +45,7 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     "no-useless-escape": "off",
   },
 }, {
-  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "examples/**", "skills", "tool-results/**", "apk_extract/**", "apk_decompiled/**", "tools/**", "scripts/**", "artworks/**"]
+  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "examples/**", "skills", "tool-results/**", "apk_extract/**", "apk_decompiled/**", "tools/**", "scripts/**", "artworks/**", "liquid-glass-webgl/**", "AndroidLiquidGlass/**"]
 }];
 
 export default eslintConfig;

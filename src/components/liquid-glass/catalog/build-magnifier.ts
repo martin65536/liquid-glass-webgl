@@ -140,25 +140,7 @@ export function buildMagnifier(W: number, H: number, onBack: () => void, state: 
   interactions['mag-glass'] = magDragHandler
   interactions['mag-cursor'] = magDragHandler
 
-  // contentHeight must cover the FULL content block: from the magnifier
-  // glass top (which sits 80dp above the cursor, i.e. above the card center)
-  // down to the card bottom. Faithful to MagnifierContent.kt, where the
-  // three elements (card / cursor / glass) are stacked in a Center-aligned
-  // Box — the centered "block" is the union of all three, not just the card.
-  //
-  // Geometry (cardY = 0 before applyVerticalCenter):
-  //   cursor center  = cardH/2
-  //   glass center   = cardH/2 - 80dp
-  //   glass top      = cardH/2 - 80dp - magH/2 = cardH/2 - 128dp
-  //   card bottom    = cardH
-  // When glass top < 0 (cardH < 256dp), the glass sticks out above the
-  // card. applyVerticalCenter takes (contentTop, contentHeight) describing
-  // the content block's [contentTop, contentHeight) range; we pass the
-  // union so the whole block (glass + card) is centered as a unit,
-  // matching the original's Center-aligned Box.
-  const glassTop = cardH / 2 - 80 * DP - magH / 2   // = cardH/2 - 128
-  const contentTop = Math.min(0, glassTop)           // negative when glass exceeds card top
-  const contentHeight = cardH - contentTop            // block height = cardH + |glassTop| when glassTop<0
-  const finalHeight = applyVerticalCenter(elements, contentTop, contentHeight, H)
+  const contentHeight = cardH
+  const finalHeight = applyVerticalCenter(elements, 0, contentHeight, H)
   return { elements, interactions, contentHeight: finalHeight }
 }
