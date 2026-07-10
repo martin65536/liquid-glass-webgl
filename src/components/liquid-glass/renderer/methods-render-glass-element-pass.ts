@@ -376,11 +376,14 @@ export const glassElementPassMethods = {
     gl.uniform1f(this.uEl['uRefractionAmount'], elRefractionAmount * this.dpr)
     gl.uniform1f(this.uEl['uDepthEffect'], el.depthEffect ? 1 : 0)
     gl.uniform1f(this.uEl['uChromaticAberration'], el.chromaticAberration ? 1 : 0)
-    // Blur radius: for useSeparableBlur elements (GP), the blur is applied
-    // as a separate 2-pass post-process on the element pass output, so the
-    // inline shader blur is disabled (uBlurRadius=0). For all other elements,
-    // the inline 16-tap Vogel disc applies as before.
-    const inlineBlurRadius = el.useSeparableBlur ? 0 : elBlurRadius
+    // Blur radius: for useSeparableBlur elements with blurRadius >= 0.5,
+    // the blur is applied as a separate 2-pass post-process on the element
+    // pass output, so the inline shader blur is disabled (uBlurRadius=0).
+    // For useSeparableBlur elements with blurRadius < 0.5, the 2-pass branch
+    // in renderGlassElement won't run (no blur needed), so keep inline blur
+    // (which is also ~0 anyway) to avoid losing blur entirely.
+    // For non-useSeparableBlur elements, the inline 16-tap Vogel disc applies.
+    const inlineBlurRadius = (el.useSeparableBlur && el.blurRadius >= 0.5) ? 0 : elBlurRadius
     gl.uniform1f(this.uEl['uBlurRadius'], inlineBlurRadius * layerScale * this.dpr)
     gl.uniform1f(this.uEl['uSaturation'], el.saturation)
     gl.uniform1f(this.uEl['uBrightness'], el.brightness)
