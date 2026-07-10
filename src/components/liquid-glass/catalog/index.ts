@@ -146,11 +146,10 @@ export function buildCatalog(
   // non-scrolling (stays at top-right when the page scrolls).
   if (onToggleTheme) {
     const themeBtn = makeThemeToggleButton(onToggleTheme, palette, isLightTheme, W, false)
-    // On pages with a dark scrim/dim overlay (Dialog, ControlCenter), the
-    // theme toggle must render on top of the scrim (renderOnTop) and sample
-    // the clean wallpaper (sampleWallpaper) so the scrim doesn't darken it —
-    // same treatment as the back button on those pages.
-    if (dest === CatalogDestination.Dialog || dest === CatalogDestination.ControlCenter) {
+    // On ControlCenter, the theme toggle must render on top of the dim
+    // (renderOnTop) and sample the clean wallpaper (sampleWallpaper) so
+    // the dim doesn't darken it. Dialog no longer gets special treatment.
+    if (dest === CatalogDestination.ControlCenter) {
       themeBtn.element.sampleWallpaper = true
       themeBtn.element.renderOnTop = true
     }

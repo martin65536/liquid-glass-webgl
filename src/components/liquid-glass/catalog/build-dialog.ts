@@ -21,22 +21,16 @@ export function buildDialog(W: number, H: number, onBack: () => void, palette: T
   const interactions: Record<string, ElementInteraction> = {}
 
   const back = makeBackButton(onBack, palette, true) // scroll-anchored so it stays
-  back.element.sampleWallpaper = true // refract clean wallpaper, not the darkened scrim scene
-  back.element.renderOnTop = true // render in second pass, on top of the scrim
   elements.push(back.element)
   interactions[back.element.id] = back.interaction
 
   // Dim scrim covers the whole content area.
   // Faithful to DialogContent.kt:
   //   dimColor = if (isLightTheme) Color(0xFF29293A).copy(0.23f) else Color(0xFF121212).copy(0.56f)
-  //   drawWithContent { drawContent(); drawRect(dimColor) }  ← dim AFTER content
-  // renderOnTop puts the scrim in the second pass (on top of the card),
-  // matching the original's drawRect(dimColor) after drawContent().
   const scrimY = 0
   const scrimH = H
   const dialogScrim = makePlainRect('dialog-scrim', { x: 0, y: scrimY, w: W, h: scrimH }, palette.dialogDim, 0)
   dialogScrim.scroll = false
-  dialogScrim.renderOnTop = true
   elements.push(dialogScrim)
 
   // Dialog card.
