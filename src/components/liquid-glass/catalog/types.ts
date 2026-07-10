@@ -20,6 +20,7 @@ export enum CatalogDestination {
   ScrollContainer,
   LazyScrollContainer,
   Settings,
+  About,
 }
 
 /* ------------------------------------------------------------------ *
@@ -430,6 +431,7 @@ export const HOME_SECTIONS: { title: string; items: { dest: CatalogDestination; 
     title: 'System',
     items: [
       { dest: CatalogDestination.Settings, label: 'Settings' },
+      { dest: CatalogDestination.About, label: 'About' },
     ],
   },
 ]

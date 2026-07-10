@@ -29,6 +29,7 @@ import { buildAdaptiveLuminanceGlass } from './build-adaptive-luminance'
 import { buildProgressiveBlur } from './build-progressive-blur'
 import { buildScrollContainer } from './build-scroll-container'
 import { buildSettings } from './build-settings'
+import { buildAbout } from './build-about'
 
 // Re-export public API (preserving the original catalog.tsx surface).
 export {
@@ -114,6 +115,9 @@ export function buildCatalog(
       break
     case CatalogDestination.Settings:
       result = buildSettings(W, H, onBack, state, setState, rendererRef, palette)
+      break
+    case CatalogDestination.About:
+      result = buildAbout(W, H, onBack, palette)
       break
     default:
       result = buildHome(W, onNavigate, palette)
