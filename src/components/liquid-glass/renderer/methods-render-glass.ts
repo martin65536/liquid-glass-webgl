@@ -360,6 +360,11 @@ export const glassRenderMethods = {
       // 2-pass blur the backdrop (curTex) → blurFboBTex.
       const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr
       const blurredBackdrop = this.blurTexture(curTex, blurRadiusPx)
+      // blurTexture disables BLEND — re-enable it so renderGlassElementPass
+      // composites the glass onto otherFbo with alpha blending (otherwise
+      // the glass's transparent pixels overwrite the scene → black).
+      this.gl.enable(this.gl.BLEND)
+      this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA)
       // Render element pass to otherFbo, sampling the blurred backdrop.
       // inlineBlurRadius is already 0 (useSeparableBlur + blurRadius>=0.5
       // in renderGlassElementPass), so no double blur.
