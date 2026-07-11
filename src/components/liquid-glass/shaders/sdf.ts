@@ -64,7 +64,7 @@ float sdShape(vec2 coord, vec2 halfSize, float radius) {
     // Capsule/full-pill: radius >= min half-dimension → use circular
     // (faithful to roundedRectangleOutline line 24).
     float maxR = min(halfSize.x, halfSize.y);
-    if (radius >= maxR - 0.01 || uCornerStyle < 0.5) {
+    if (radius >= maxR - 0.5 || uCornerStyle < 0.5) {
         return sdRoundedRect(coord, halfSize, radius);
     }
     return sdContinuousRoundedRect(coord, halfSize, radius);
