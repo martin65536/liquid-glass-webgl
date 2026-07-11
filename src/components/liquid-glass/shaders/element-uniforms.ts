@@ -104,10 +104,6 @@ uniform float uUseSdfTexture;       // 0 or 1
 uniform vec2  uSdfTexSize;          // texture natural dimensions (px)
 uniform float uSdfLightAngle;       // bevel light angle (degrees)
 uniform float uEnterAlpha;          // global element alpha (enterProgress, 0..1)
-// When 1.0, skip applyColorControls in the element shader (colorControls was
-// already applied as a fullscreen pass BEFORE the 2-pass blur, matching the
-// original's colorControls→blur→lens order). Used by useSeparableBlur elements.
-uniform float uSkipColorControls;   // 0 or 1
 // --- Magnifier glass (faithful to MagnifierContent.kt) ---
 uniform float uUseMagnifier;        // 0 or 1
 uniform float uMagnifierZoom;       // zoom factor (1.5)

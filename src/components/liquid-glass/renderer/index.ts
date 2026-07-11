@@ -13,7 +13,6 @@ import {
   WALLPAPER_FRAGMENT_SHADER,
   COPY_FRAGMENT_SHADER,
   SOLID_FILL_FRAGMENT_SHADER,
-  COLOR_CONTROLS_FRAGMENT_SHADER,
   SCENE_TINT_FRAGMENT_SHADER,
   generateSeparableBlurShader,
   computeBlur1DTapCount,
@@ -59,7 +58,6 @@ export class LiquidGlassRenderer {
   progressiveBlurProgram: WebGLProgram
   copyProgram: WebGLProgram
   solidFillProgram: WebGLProgram
-  colorControlsProgram: WebGLProgram
   sceneTintProgram: WebGLProgram
   quadBuffer: WebGLBuffer
   wallpaperTexture: WebGLTexture | null = null
@@ -164,7 +162,6 @@ export class LiquidGlassRenderer {
   aPosLocPb: number
   aPosLocCp: number
   aPosLocSf: number
-  aPosLocCc: number
   aPosLocSt: number
 
   // Program uniform locations (cached)
@@ -179,7 +176,6 @@ export class LiquidGlassRenderer {
   uPb: Record<string, WebGLUniformLocation | null> = {}
   uCp: Record<string, WebGLUniformLocation | null> = {}
   uSf: Record<string, WebGLUniformLocation | null> = {}
-  uCc: Record<string, WebGLUniformLocation | null> = {}
   uSt: Record<string, WebGLUniformLocation | null> = {}
 
   /** The pressed scale for bottom tabs indicator (78f/56f in Kotlin). */
@@ -207,7 +203,6 @@ export class LiquidGlassRenderer {
     this.progressiveBlurProgram = createProgram(gl, VERTEX_SHADER, PROGRESSIVE_BLUR_FRAGMENT_SHADER)
     this.copyProgram = createProgram(gl, VERTEX_SHADER, COPY_FRAGMENT_SHADER)
     this.solidFillProgram = createProgram(gl, VERTEX_SHADER, SOLID_FILL_FRAGMENT_SHADER)
-    this.colorControlsProgram = createProgram(gl, VERTEX_SHADER, COLOR_CONTROLS_FRAGMENT_SHADER)
     this.sceneTintProgram = createProgram(gl, VERTEX_SHADER, SCENE_TINT_FRAGMENT_SHADER)
 
     // Fullscreen quad
@@ -230,7 +225,6 @@ export class LiquidGlassRenderer {
     this.aPosLocPb = gl.getAttribLocation(this.progressiveBlurProgram, 'aPos')
     this.aPosLocCp = gl.getAttribLocation(this.copyProgram, 'aPos')
     this.aPosLocSf = gl.getAttribLocation(this.solidFillProgram, 'aPos')
-    this.aPosLocCc = gl.getAttribLocation(this.colorControlsProgram, 'aPos')
     this.aPosLocSt = gl.getAttribLocation(this.sceneTintProgram, 'aPos')
 
     // Offscreen 2D canvas for the foreground texture.
@@ -265,7 +259,6 @@ export class LiquidGlassRenderer {
       'uTabContentRects[4]', 'uTabContentRects[5]', 'uTabContentRects[6]', 'uTabContentRects[7]',
       'uTabContentCount', 'uTabsGlassLayer',
       'uSdfTexSampler', 'uUseSdfTexture', 'uSdfTexSize', 'uSdfLightAngle', 'uEnterAlpha',
-      'uSkipColorControls',
       'uUseMagnifier', 'uMagnifierZoom', 'uMagnifierOffsetY',
       'uElementRotation',
     ]
@@ -306,8 +299,6 @@ export class LiquidGlassRenderer {
     for (const n of cpNames) this.uCp[n] = gl.getUniformLocation(this.copyProgram, n)
     const sfNames = ['uColor']
     for (const n of sfNames) this.uSf[n] = gl.getUniformLocation(this.solidFillProgram, n)
-    const ccNames = ['uTexture', 'uTexSize', 'uBrightness', 'uContrast', 'uSaturation']
-    for (const n of ccNames) this.uCc[n] = gl.getUniformLocation(this.colorControlsProgram, n)
     const stNames = ['uTexture', 'uCanvasSize', 'uTintColor']
     for (const n of stNames) this.uSt[n] = gl.getUniformLocation(this.sceneTintProgram, n)
   }
@@ -450,7 +441,6 @@ export class LiquidGlassRenderer {
     gl.deleteProgram(this.progressiveBlurProgram)
     gl.deleteProgram(this.copyProgram)
     gl.deleteProgram(this.solidFillProgram)
-    gl.deleteProgram(this.colorControlsProgram)
     gl.deleteProgram(this.sceneTintProgram)
     gl.deleteBuffer(this.quadBuffer)
   }

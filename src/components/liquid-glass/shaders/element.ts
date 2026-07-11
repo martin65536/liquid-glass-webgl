@@ -157,13 +157,7 @@ void main() {
     } else {
         backdrop = sampleBackdrop(sampleCoord, uBlurRadius);
     }
-    // colorControls: applied to the backdrop. For useSeparableBlur elements,
-    // colorControls was already applied as a fullscreen pass BEFORE the 2-pass
-    // blur (uSkipColorControls=1) — matching the original's colorControls→blur
-    // order. Skip here to avoid double-applying. For inline-blur elements,
-    // apply here (blur→cc is mathematically equivalent to cc→blur since both
-    // are affine/linear with no intermediate clamp).
-    vec3 color = (uSkipColorControls > 0.5) ? backdrop.rgb : applyColorControls(backdrop.rgb, uBrightness, uContrast, uSaturation);
+    vec3 color = applyColorControls(backdrop.rgb, uBrightness, uContrast, uSaturation);
     // Magnifier glass is always OPAQUE — faithful to the original which
     // samples rememberCombinedBackdrop (wallpaper + content + cursor all
     // composited onto the opaque wallpaper). The port's scene texture may
@@ -271,7 +265,7 @@ void main() {
             dispColor.b += sPurple.b / 3.0;
             dispAlpha  += sPurple.a / 7.0;
 
-            color = (uSkipColorControls > 0.5) ? dispColor : applyColorControls(dispColor, uBrightness, uContrast, uSaturation);
+            color = applyColorControls(dispColor, uBrightness, uContrast, uSaturation);
             // Magnifier chromatic aberration also forces opaque.
             alpha = (uUseMagnifier > 0.5) ? 1.0 : dispAlpha;
         } else {
@@ -285,7 +279,7 @@ void main() {
             } else {
                 refracted = sampleBackdrop(refractedSampleCoord, uBlurRadius);
             }
-            color = (uSkipColorControls > 0.5) ? refracted.rgb : applyColorControls(refracted.rgb, uBrightness, uContrast, uSaturation);
+            color = applyColorControls(refracted.rgb, uBrightness, uContrast, uSaturation);
             // Magnifier refraction also forces opaque (see backdrop sample above).
             alpha = (uUseMagnifier > 0.5) ? 1.0 : refracted.a;
         }

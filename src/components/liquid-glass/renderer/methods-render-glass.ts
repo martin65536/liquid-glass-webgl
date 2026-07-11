@@ -358,32 +358,20 @@ export const glassRenderMethods = {
     // (sampling curTex) with inline 16-tap Vogel disc blur.
     if (el.useSeparableBlur && el.blurRadius >= 0.5) {
       const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr
-      // For backdropFbo elements, use the scrimFbo (wallpaper+scrim opaque
-      // layer) as the backdrop source; otherwise use curTex (scene FBO).
+      // For backdropFbo elements, blur the scrimFbo (wallpaper+scrim opaque
+      // layer) instead of the scene FBO — matching the original's
+      // createChainEffect(blur, lens) on the wallpaper+scrim LayerBackdrop.
       const backdropSrc = (el.backdropFbo && this.scrimFboTex) ? this.scrimFboTex : curTex
-      // colorControls → blur order (faithful to the original's effects chain).
-      // The 2-pass separable blur uses intermediate FBOs that clamp to 0..1,
-      // which breaks the mathematical commutativity of colorControls (affine)
-      // and blur (linear). So we MUST apply colorControls BEFORE the blur to
-      // match the original. Step 1: cc(backdropSrc) → blurFboA. Step 2: blur.
-      const gl = this.gl
-      gl.disable(gl.BLEND)
-      gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurFboA!)
-      gl.viewport(0, 0, this.fboW, this.fboH)
-      this.drawColorControls(backdropSrc, el.brightness, el.contrast, el.saturation)
-      // Step 2: 2-pass blur blurFboATex → blurFboBTex.
-      const blurredBackdrop = this.blurTexture(this.blurFboATex!, blurRadiusPx)
+      const blurredBackdrop = this.blurTexture(backdropSrc, blurRadiusPx)
       // blurTexture disables BLEND — re-enable it so renderGlassElementPass
       // composites the glass onto otherFbo with alpha blending.
       this.gl.enable(this.gl.BLEND)
       this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA)
       this.bindFBO(otherFbo)
       this.gl.viewport(0, 0, this.fboW, this.fboH)
-      // Pass the pre-cc + pre-blurred texture as curTex. For backdropFbo
-      // elements, temporarily disable backdropFbo in the pass state so the
-      // element pass binds curTex (the cc+blurred backdrop) instead of the
-      // raw scrimFboTex. uSkipColorControls is set in renderGlassElementPass
-      // when useSeparableBlur is active, so cc is not double-applied.
+      // Pass the pre-blurred texture as curTex. For backdropFbo elements we
+      // temporarily disable backdropFbo in the pass state so the element pass
+      // binds curTex (the blurred backdrop) instead of the raw scrimFboTex.
       const passState = el.backdropFbo ? { ...state, el: { ...el, backdropFbo: false } } : state
       this.renderGlassElementPass(passState, blurredBackdrop)
     } else {
