@@ -146,9 +146,14 @@ export const animationMethods = {
           // Velocity tracking — faithful to DampedDragAnimation.updateVelocity()
           // which runs inside valueAnimation.animateTo's per-frame block:
           //   velocityTracker.addPosition(now, Offset(value, 0))
-          //   targetVelocity = velocityTracker.calculateVelocity().x / range
+          //   targetVelocity = velocityTracker.calculateVelocity().x / valueRangeSpan
           // Here `value` is the ANIMATED fraction (valueAnimation.value),
-          // NOT the target. The range is 0..1 so no division needed.
+          // NOT the target. valueRangeSpan normalizes the velocity to
+          // "progress/sec": toggle/slider span=1 (no division); bottom tabs
+          // span=(tabsCount-1), faithful to the original's
+          //   valueRange = 0f..(tabsCount-1).toFloat()
+          // Without this division the tabs velocity would be (tabsCount-1)
+          // times too large, over-stretching the indicator.
           //
           // We track whenever the fraction is animating (during drag AND after
           // release). During drag the fraction chases the finger via spring
@@ -160,11 +165,12 @@ export const animationMethods = {
             const nowMs = performance.now()
             tg.velocityTracker.addPosition(nowMs, tg.fraction)
             const tracked = tg.velocityTracker.calculateVelocity()
+            const span = tg.valueRangeSpan || 1
             // targetVelocity drives the underdamped velocity spring below
             // (spring(0.5, 300)). This is the SECOND level of smoothing —
             // faithful to the original which animates velocityAnimation
             // toward the tracker's output via its own spring.
-            tg.targetVelocity = tracked
+            tg.targetVelocity = tracked / span
           }
           stillAnimating = true
         } else {

@@ -1625,3 +1625,45 @@ Stage Summary:
 - Toggle/slider/bottom-tab squash-and-stretch now driven by a faithful VelocityTracker (least-squares) fed the animated fraction, double-smoothed by the velocity spring — matching DampedDragAnimation.kt's behavior.
 - Tap (programmatic) still produces no stretch (tracker reset on press, calculateVelocity returns 0) — faithful to original's `if (velocity != 0f)` guard.
 - onDragEnd now reports correct 2-D release velocity.
+
+---
+Task ID: velocity-fix-2
+Agent: main (Z.ai Code)
+Task: Carefully review bottom tabs velocity against the original LiquidBottomTabs.kt + DampedDragAnimation.kt and fix remaining divergences.
+
+Differences found (after the first velocity-fix-1 pass):
+1. VALUE RANGE NORMALIZATION MISSING: original DampedDragAnimation.updateVelocity() computes
+     targetVelocity = velocityTracker.calculateVelocity().x / (valueRange.endInclusive - valueRange.start)
+   - toggle/slider: valueRange = 0..1 → divide by 1 (no-op)
+   - bottom tabs:   valueRange = 0..(tabsCount-1) → divide by (tabsCount-1)
+   The port fed the RAW fraction (0..tabsCount-1 for tabs) into the tracker and used the raw
+   calculateVelocity() output WITHOUT dividing by the span → tabs velocity was (tabsCount-1)
+   times too large (2x for 3 tabs, 3x for 4 tabs), over-stretching the indicator.
+
+2. TABS RELEASE SEMANTICS DIFFER FROM TOGGLE/SLIDER:
+   - Toggle/slider onDragStopped → sets fraction → updateValue() → valueAnimation.animateTo { updateVelocity() }
+     NO press() → tracker NOT reset → drag momentum is KEPT; velocity decays as value settles.
+   - Tabs onDragStopped → animateToValue() → press() (tracker reset!) + valueAnimation.animateTo
+     + velocityAnimation.animateTo(0f) when velocity != 0 → drag momentum is DISCARDED;
+     velocity explicitly springs to 0.
+   The port treated all three the same (kept momentum for tabs too). Wrong for tabs.
+
+Fixes:
+- ToggleGroupState: added valueRangeSpan field (= valueRange.end - valueRange.start; default 1).
+- ensureToggleState: accepts valueRangeSpan param; re-applies on existing groups when non-default.
+- methods-tabs.ts: all three ensureToggleState calls pass (tabsCount - 1) as valueRangeSpan.
+- methods-animation.ts: targetVelocity = tracker.calculateVelocity() / valueRangeSpan
+  (faithful to the original's `/ (valueRange.endInclusive - valueRange.start)`).
+- methods-tabs.ts endTabDrag: reset tracker + trackVelocityAfterRelease=false + targetVelocity=0,
+  emulating the original's press()-reset + velocityAnimation.animateTo(0f). The underdamped
+  velocity spring (0.5, 300) smoothly bounces the current velocity down to 0.
+- methods-toggle.ts endToggleDrag/endSliderDrag: UNCHANGED — keep trackVelocityAfterRelease=true
+  (faithful to toggle/slider's updateValue path which keeps momentum, no press() reset).
+
+Verification: bun run lint clean; dev server compiles, GET / 200.
+
+Stage Summary:
+- Tabs velocity now normalized by (tabsCount-1) → squash-stretch magnitude matches the original
+  regardless of tab count (no more 2x/3x over-stretch).
+- Tabs release now discards drag momentum + springs velocity→0 (faithful to animateToValue→press());
+  toggle/slider release keeps momentum (faithful to updateValue, no press()).

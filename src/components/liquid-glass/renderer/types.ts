@@ -535,6 +535,15 @@ export interface ToggleGroupState {
   // 78/56 ≈ 1.393 for bottom tabs indicator.
   // Set when the toggle group is first created (via ensureToggleState).
   pressedScale: number
+  // valueRangeSpan = (valueRange.endInclusive - valueRange.start).
+  // Faithful to DampedDragAnimation.kt's updateVelocity():
+  //   targetVelocity = velocityTracker.calculateVelocity().x / valueRangeSpan
+  // Toggle/slider: valueRange = 0..1 → span 1 (no division).
+  // Bottom tabs:   valueRange = 0..(tabsCount-1) → span = tabsCount-1.
+  // The velocity is normalized to "progress/sec" so the squash-stretch
+  // magnitude is consistent regardless of how many tabs there are.
+  // Defaults to 1 (toggle/slider). Set to tabsCount-1 for tab groups.
+  valueRangeSpan: number
 
   // Bottom tabs panelOffset (drag-driven horizontal shift of the whole bar).
   // Faithful to LiquidBottomTabs.kt:

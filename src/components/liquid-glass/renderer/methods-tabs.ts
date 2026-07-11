@@ -47,7 +47,8 @@ export const tabsMethods = {
     const st = this.ensureToggleState(
       groupId,
       tabIndex,
-      LiquidGlassRenderer.TAB_PRESSED_SCALE
+      LiquidGlassRenderer.TAB_PRESSED_SCALE,
+      tabsCount - 1 // valueRangeSpan — faithful to DampedDragAnimation valueRange 0..(tabsCount-1)
     )
     if (st.isDragging) return
     if (st.targetFraction === tabIndex) return
@@ -81,7 +82,8 @@ export const tabsMethods = {
     const st = this.ensureToggleState(
       groupId,
       startTabIndex,
-      LiquidGlassRenderer.TAB_PRESSED_SCALE
+      LiquidGlassRenderer.TAB_PRESSED_SCALE,
+      tabsCount - 1 // valueRangeSpan — faithful to DampedDragAnimation valueRange 0..(tabsCount-1)
     )
     st.isDragging = true
     st.targetPress = 1
@@ -116,7 +118,8 @@ export const tabsMethods = {
     const st = this.ensureToggleState(
       groupId,
       startTabIndex,
-      LiquidGlassRenderer.TAB_PRESSED_SCALE
+      LiquidGlassRenderer.TAB_PRESSED_SCALE,
+      tabsCount - 1 // valueRangeSpan — faithful to DampedDragAnimation valueRange 0..(tabsCount-1)
     )
     if (!st.isDragging) return
     const delta = (currentX - startX) / Math.max(1, tabWidth)
@@ -146,14 +149,23 @@ export const tabsMethods = {
     const finalTarget = Math.round(st.targetFraction)
     const clamped = Math.max(0, Math.min(tabsCount - 1, finalTarget))
     st.targetFraction = clamped
-    // Enable velocity tracking after drag release — faithful to
-    // DampedDragAnimation which keeps calling updateVelocity() during the
-    // value spring's animateTo after the finger lifts. The tracker was fed
-    // (time, fraction) during the drag; it keeps producing velocity as the
-    // fraction settles toward the snapped index, then decays to 0 once
-    // settled (handled in the animation loop). The velocity spring
-    // (spring(0.5, 300)) smooths the tracker's output toward targetVelocity.
-    st.trackVelocityAfterRelease = true
+    // Faithful to LiquidBottomTabs.kt onDragStopped → animateToValue → press().
+    // press() calls velocityTracker.resetTracking(), so the drag momentum is
+    // DISCARDED on release (unlike toggle/slider which keep momentum via
+    // updateValue without a press()).
+    //
+    // The original then runs, when velocity != 0:
+    //   velocityAnimation.animateTo(0f, velocityAnimationSpec)
+    // i.e. the underdamped velocity spring (0.5, 300) explicitly targets 0,
+    // smoothly bouncing the current velocity down to 0.
+    //
+    // We emulate this: reset the tracker + disable post-release tracking
+    // (so no new samples are fed → targetVelocity stays 0) and set
+    // targetVelocity = 0. The velocity spring in the animation loop then
+    // decays tg.velocity toward 0 with the underdamped (0.5, 300) spec.
+    st.velocityTracker.resetTracking()
+    st.trackVelocityAfterRelease = false
+    st.targetVelocity = 0
     st.targetPanelOffset = 0
     // Don't release press here — auto-release will fire when fraction
     // settles near clamped target.

@@ -46,12 +46,17 @@ declare module './index' {
  * ------------------------------------------------------------------ */
 
 export const toggleMethods = {
-  /** Ensure a toggle group state exists, initialized to the given fraction. */
+  /** Ensure a toggle group state exists, initialized to the given fraction.
+   *  pressedScale / valueRangeSpan are only applied on first creation
+   *  (or, for non-default values, re-applied on existing groups so tabs
+   *  always get 78/56 and the correct span even if setToggleTarget created
+   *  the group first via the page.tsx toggleTargets sync). */
   ensureToggleState(
     this: LiquidGlassRenderer,
     groupId: string,
     initialFraction: number,
-    pressedScale = 1.5
+    pressedScale = 1.5,
+    valueRangeSpan = 1
   ): ToggleGroupState {
     let st = this.toggleStates.get(groupId)
     if (!st) {
@@ -77,17 +82,18 @@ export const toggleMethods = {
         lastFractionForVelocity: initialFraction,
         lastFractionTime: 0,
         pressedScale,
+        valueRangeSpan,
         panelOffset: 0,
         panelOffsetVelocity: 0,
         targetPanelOffset: 0,
       }
       this.toggleStates.set(groupId, st)
-    } else if (pressedScale !== 1.5) {
-      // Only non-default pressedScale callers (i.e. bottom tabs with 78/56)
-      // may overwrite an existing group's pressedScale. This ensures tabs
-      // always get 78/56 even if setToggleTarget created the group first
-      // via page.tsx toggleTargets sync.
-      st.pressedScale = pressedScale
+    } else {
+      // Only non-default callers may overwrite these on an existing group.
+      // This ensures tabs always get 78/56 + (tabsCount-1) span even if
+      // setToggleTarget created the group first via page.tsx toggleTargets.
+      if (pressedScale !== 1.5) st.pressedScale = pressedScale
+      if (valueRangeSpan !== 1) st.valueRangeSpan = valueRangeSpan
     }
     return st
   },
