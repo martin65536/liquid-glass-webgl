@@ -16,6 +16,8 @@
 
 import { continuousCurvatureRoundedRectPath } from './continuous-curve'
 
+const sdfCache = new Map<string, { tex: Uint8Array; w: number; h: number; radius: number }>()
+
 /** Generate a normalized SDF texture for a continuous-curvature rounded rect.
  *  Returns a Uint8Array (RGBA, but only R channel used).
  *  The SDF is in "normalized element space" — the shader maps element-local
