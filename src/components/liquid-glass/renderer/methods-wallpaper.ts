@@ -86,11 +86,11 @@ export const wallpaperMethods = {
    *  The R channel holds the normalized SDF (decoded as sample*2 - 1 in the
    *  shader); G and B mirror R; A = 255. */
   loadContinuousSdf(this: LiquidGlassRenderer, w: number, h: number, radius: number) {
-    const key = `${w},${h},${radius}`
+    const key = `${w},${h},${radius},${this.dpr}`
     if (this.continuousSdfTexture && this.continuousSdfKey === key && this.continuousSdfReady) {
       return // cached
     }
-    const { tex, texSize } = generateContinuousCurvatureSDF(w, h, radius)
+    const { tex, texSize } = generateContinuousCurvatureSDF(w, h, radius, this.dpr)
     const gl = this.gl
     if (this.continuousSdfTexture) gl.deleteTexture(this.continuousSdfTexture)
     const texObj = gl.createTexture()!

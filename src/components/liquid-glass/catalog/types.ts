@@ -501,7 +501,6 @@ export interface CatalogState {
   blurDownsample: number
   // Settings — corner style: true = continuous (squircle, faithful to original
   // Capsule's ContinuousCurvature), false = circular (standard arc).
-  continuousCorners: boolean
   // Settings — capsule shape via continuous-curvature SDF texture. When true,
   // the dialog card samples a precomputed SDF texture (generated from the
   // G2-continuous Bezier path) instead of the analytic sdRoundedRect SDF.
@@ -542,7 +541,6 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   globalSeparableBlur: true,
   blurTapCap: 17,
   blurDownsample: 1,
-  continuousCorners: true,
   capsuleShape: true,
   liveDpr: null,
   liveTapCap: null,

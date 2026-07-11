@@ -64,7 +64,6 @@ export default function Page() {
         globalSeparableBlur: typeof parsed.globalSeparableBlur === 'boolean' ? parsed.globalSeparableBlur : true,
         blurTapCap: typeof parsed.blurTapCap === 'number' ? parsed.blurTapCap : 17,
         blurDownsample: typeof parsed.blurDownsample === 'number' ? parsed.blurDownsample : 1,
-        continuousCorners: typeof parsed.continuousCorners === 'boolean' ? parsed.continuousCorners : true,
         capsuleShape: typeof parsed.capsuleShape === 'boolean' ? parsed.capsuleShape : true,
       }
     } catch { return {} }
@@ -97,14 +96,13 @@ export default function Page() {
         if (typeof window !== 'undefined' &&
             (p.customDpr !== undefined || p.globalSeparableBlur !== undefined ||
              p.blurTapCap !== undefined || p.blurDownsample !== undefined ||
-             p.continuousCorners !== undefined || p.capsuleShape !== undefined)) {
+             p.capsuleShape !== undefined)) {
           try {
             window.localStorage.setItem(SETTINGS_KEY, JSON.stringify({
               customDpr: next.customDpr,
               globalSeparableBlur: next.globalSeparableBlur,
               blurTapCap: next.blurTapCap,
               blurDownsample: next.blurDownsample,
-              continuousCorners: next.continuousCorners,
               capsuleShape: next.capsuleShape,
             }))
           } catch { /* ignore quota errors */ }
@@ -410,7 +408,6 @@ export default function Page() {
           rendererRef={rendererRef}
           dpr={state.customDpr}
           blurTapCap={state.blurTapCap}
-          cornerStyle={state.continuousCorners ? 1 : 0}
           blurDownsample={state.blurDownsample}
           className="w-full h-full"
         />
