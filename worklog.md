@@ -1667,3 +1667,24 @@ Stage Summary:
   regardless of tab count (no more 2x/3x over-stretch).
 - Tabs release now discards drag momentum + springs velocity→0 (faithful to animateToValue→press());
   toggle/slider release keeps momentum (faithful to updateValue, no press()).
+
+---
+Task ID: dialog-alpha-fix-1
+Agent: main (Z.ai Code)
+Task: User pointed out the original Kotlin dialog glass is fully OPAQUE; only the tint layer (onDrawSurface drawRect(containerColor)) is translucent. Fix the port.
+
+Root cause:
+- Original DrawBackdropModifier.kt records the backdrop into an offscreen GraphicsLayer with CompositingStrategy.Offscreen (line 257). The backdrop samples the wallpaper Image (which fully fills the screen, alpha=1) and applies RenderEffects (colorControls / blur / lens), all of which preserve alpha=1. So the backdrop layer is always OPAQUE.
+- onDrawSurface = { drawRect(containerColor @ 0.6) } then composites the translucent tint ON TOP of the opaque backdrop (SrcOver). Net result: opaque glass tinted 60% toward containerColor.
+- The port's element shader (element.ts line ~166) used `float alpha = (uUseMagnifier > 0.5) ? 1.0 : backdrop.a;` — i.e. for non-magnifier glass it used the SCENE FBO's alpha (backdrop.a). When the blur kernel sampled outside drawn content (transparent FBO regions), backdrop.a < 1, making the glass erroneously translucent (too see-through). This is the transparency mismatch the user noticed.
+
+Fix:
+- element.ts: force `float alpha = 1.0;` for ALL glass-shape paths (not just magnifier). Faithful to the original's opaque offscreen backdrop layer. Only edge AA (edgeAlpha) and enterAlpha modulate the final output alpha: gl_FragColor = vec4(color, alpha * edgeAlpha * uEnterAlpha) = vec4(color, 1.0 * edgeAlpha * uEnterAlpha).
+- The surfaceColor tint (mix(color, uSurfaceColor.rgb, uSurfaceColor.a)) is unchanged — it still composites the translucent tint inside the opaque pixel, matching drawRect(containerColor) SrcOver on the opaque backdrop.
+- SDF-texture path (lock screen clock, line 133) unchanged — it uses sdfMask (the clock shape mask), not backdrop alpha.
+- Removed a backtick-in-template-literal lint error (shader is a JS template string; backticks inside terminate it).
+
+Verification: bun run lint clean; dev server compiles, GET / 200.
+
+Stage Summary:
+- Dialog glass (and ALL glass-shape elements: buttons, toggle knobs, slider knobs, tabs, CC tiles, magnifier) now renders OPAQUE like the original, with only the surfaceColor tint providing translucency. Previously they could render translucent when the blur kernel sampled transparent FBO regions.
