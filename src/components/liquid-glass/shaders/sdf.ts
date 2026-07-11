@@ -31,30 +31,43 @@ float sdRoundedRect(vec2 coord, vec2 halfSize, float radius) {
     return outside + inside;
 }
 
-// sdContinuousRoundedRect — continuous-curvature rounded rect.
-// The original uses G2-continuous Bezier corners (ContinuousCurvatureRoundedRectangleCornerBuilder).
-// The visual difference between Continuous and Circular is very subtle (only
-// curvature continuity at the tangent points). For the SDF-based renderer,
-// the circular arc SDF (sdRoundedRect) is a close enough approximation — the
-// Bezier corners deviate from the arc by <0.5% of the radius, which is
-// sub-pixel at typical element sizes.
+// sdContinuousRoundedRect — continuous-curvature (squircle) rounded rect.
+// Approximates the original's ContinuousCurvatureRoundedRectangleCornerBuilder
+// (G2-continuous Bezier corners) using a superellipse approximation.
+// The superellipse exponent n=5 closely matches the continuous-curvature look.
 //
-// When uCornerStyle=1 (continuous), we use sdRoundedRect directly. The
-// difference from the original is imperceptible. A future upgrade could
-// implement exact Bezier SDF for pixel-perfect matching.
+// IMPORTANT: when radius >= min(halfSize) (capsule/full-pill case), the
+// original's roundedRectangleOutline falls back to standard Circular arcs
+// (line 24: style==Circular || (width==height && radius>=maxRadius)). We
+// replicate this: for capsule shapes, sdShape == sdRoundedRect (circular).
+// Continuous curvature only applies to RoundedRectangle with radius < minDim/2.
 float sdContinuousRoundedRect(vec2 coord, vec2 halfSize, float radius) {
-    return sdRoundedRect(coord, halfSize, radius);
+    float n = 5.0;
+    vec2 cornerCoord = abs(coord) - (halfSize - vec2(radius));
+    // If fully inside the straight-edge region (cornerCoord < 0 on both axes),
+    // the SDF is just the min distance to the straight edges (same as circular).
+    if (cornerCoord.x < 0.0 && cornerCoord.y < 0.0) {
+        return min(max(cornerCoord.x, cornerCoord.y), 0.0);
+    }
+    // Corner region: use superellipse SDF.
+    vec2 p = max(cornerCoord, vec2(0.0)) / radius;
+    // Guard against p=0 (pow(0, n) = 0, fine) and radius=0.
+    float r0 = max(radius, 0.001);
+    float d = pow(pow(p.x, n) + pow(p.y, n), 1.0 / n);
+    return (d - 1.0) * r0;
 }
 
 // Unified SDF — dispatches to circular or continuous based on uCornerStyle.
-// Currently both paths use sdRoundedRect (circular arc SDF). The continuous
-// path is a placeholder for future exact-Bezier SDF work.
+// For capsule shapes (radius >= min half-dimension), always uses circular
+// (matching the original's roundedRectangleOutline fallback).
 float sdShape(vec2 coord, vec2 halfSize, float radius) {
-    if (uCornerStyle < 0.5) {
+    // Capsule/full-pill: radius >= min half-dimension → use circular
+    // (faithful to roundedRectangleOutline line 24).
+    float maxR = min(halfSize.x, halfSize.y);
+    if (radius >= maxR - 0.01 || uCornerStyle < 0.5) {
         return sdRoundedRect(coord, halfSize, radius);
-    } else {
-        return sdContinuousRoundedRect(coord, halfSize, radius);
     }
+    return sdContinuousRoundedRect(coord, halfSize, radius);
 }
 
 // gradSdRoundedRect — gradient of the SDF (points outward from edge).
