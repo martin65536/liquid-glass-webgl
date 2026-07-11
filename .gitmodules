@@ -1,3 +1,6 @@
 [submodule "AndroidLiquidGlass"]
 	path = AndroidLiquidGlass
 	url = https://github.com/Kyant0/AndroidLiquidGlass.git
+[submodule "Kyant-shapes"]
+	path = Kyant-shapes
+	url = https://github.com/Kyant0/shapes.git
