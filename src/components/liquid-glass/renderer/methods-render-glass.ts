@@ -428,7 +428,7 @@ export const glassRenderMethods = {
     gl.uniform1f(this.uSh['uOriginalCornerRadius'], state.origCornerRadius * this.dpr)
     gl.uniform2f(this.uSh['uLayerScale'], state.layerScaleX, state.layerScaleY)
     gl.uniform1f(this.uSh['uElementRotation'], state.elementRotation)
-    gl.uniform1f(this.uSh['uCornerStyle'], this.cornerStyle)
+    gl.uniform1f(this.uSh['uCornerStyle'], (state.el.continuousCorners && this.cornerStyle > 0.5) ? 1.0 : 0.0)
     // Shadow radius + offset in ORIGINAL px (NOT scaled by layerScale).
     // Faithful to original: BlurMaskFilter blurs the shadow at original size,
     // then graphicsLayer scales the entire shadow layer — so the blur sigma

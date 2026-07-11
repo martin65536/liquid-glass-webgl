@@ -53,7 +53,7 @@ export const glassPostPassMethods = {
       gl.uniform1f(this.uTn['uOriginalCornerRadius'], origRadius)
       gl.uniform2f(this.uTn['uLayerScale'], layerScaleX, layerScaleY)
       gl.uniform1f(this.uTn['uElementRotation'], state.elementRotation)
-      gl.uniform1f(this.uTn['uCornerStyle'], this.cornerStyle)
+      gl.uniform1f(this.uTn['uCornerStyle'], (state.el.continuousCorners && this.cornerStyle > 0.5) ? 1.0 : 0.0)
       gl.uniform4f(this.uTn['uColor'], 1, 1, 1, 0.08 * glowP)
       gl.drawArrays(gl.TRIANGLES, 0, 6)
 
@@ -77,7 +77,7 @@ export const glassPostPassMethods = {
       gl.uniform1f(this.uHl['uOriginalCornerRadius'], origRadius)
       gl.uniform2f(this.uHl['uLayerScale'], layerScaleX, layerScaleY)
       gl.uniform1f(this.uHl['uElementRotation'], state.elementRotation)
-      gl.uniform1f(this.uHl['uCornerStyle'], this.cornerStyle)
+      gl.uniform1f(this.uHl['uCornerStyle'], (state.el.continuousCorners && this.cornerStyle > 0.5) ? 1.0 : 0.0)
       gl.uniform4f(this.uHl['uColor'], 1, 1, 1, 0.15 * glowP)
       const minDim = Math.min(sw, sh) * this.dpr
       gl.uniform1f(this.uHl['uRadius'], minDim * 1.5)
@@ -133,7 +133,7 @@ export const glassPostPassMethods = {
       gl.uniform1f(this.uTn['uOriginalCornerRadius'], origRadius)
       gl.uniform2f(this.uTn['uLayerScale'], layerScaleX, layerScaleY)
       gl.uniform1f(this.uTn['uElementRotation'], state.elementRotation)
-      gl.uniform1f(this.uTn['uCornerStyle'], this.cornerStyle)
+      gl.uniform1f(this.uTn['uCornerStyle'], (state.el.continuousCorners && this.cornerStyle > 0.5) ? 1.0 : 0.0)
       // Faithful to LiquidToggle.kt onDrawSurface:
       //   drawRect(Color.White.copy(alpha = 1f - progress))
       // Solid white pebble at rest (alpha=1), fading to transparent when
@@ -164,7 +164,7 @@ export const glassPostPassMethods = {
       gl.uniform1f(this.uTn['uOriginalCornerRadius'], origRadius)
       gl.uniform2f(this.uTn['uLayerScale'], layerScaleX, layerScaleY)
       gl.uniform1f(this.uTn['uElementRotation'], state.elementRotation)
-      gl.uniform1f(this.uTn['uCornerStyle'], this.cornerStyle)
+      gl.uniform1f(this.uTn['uCornerStyle'], (state.el.continuousCorners && this.cornerStyle > 0.5) ? 1.0 : 0.0)
       // First overlay: dim color at 0.1 * (1 - progress) — fades out on press.
       gl.uniform4f(this.uTn['uColor'], dc[0], dc[1], dc[2], 0.1 * (1 - p))
       gl.drawArrays(gl.TRIANGLES, 0, 6)
@@ -200,7 +200,7 @@ export const glassPostPassMethods = {
         gl.uniform2f(this.uFg['uOriginalSize'], origSizeX, origSizeY)
         gl.uniform1f(this.uFg['uOriginalCornerRadius'], origRadius)
       gl.uniform2f(this.uFg['uLayerScale'], layerScaleX, layerScaleY)
-      gl.uniform1f(this.uFg['uCornerStyle'], this.cornerStyle)
+      gl.uniform1f(this.uFg['uCornerStyle'], (state.el.continuousCorners && this.cornerStyle > 0.5) ? 1.0 : 0.0)
         gl.uniform1f(this.uFg['uAlpha'], 1.0 - 0.15 * p)
         gl.drawArrays(gl.TRIANGLES, 0, 6)
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
@@ -242,7 +242,7 @@ export const glassPostPassMethods = {
       gl.uniform1f(this.uRm['uOriginalCornerRadius'], origRadius)
       gl.uniform2f(this.uRm['uLayerScale'], layerScaleX, layerScaleY)
       gl.uniform1f(this.uRm['uElementRotation'], state.elementRotation)
-      gl.uniform1f(this.uRm['uCornerStyle'], this.cornerStyle)
+      gl.uniform1f(this.uRm['uCornerStyle'], (state.el.continuousCorners && this.cornerStyle > 0.5) ? 1.0 : 0.0)
       gl.uniform4f(this.uRm['uHighlightColor'], el.highlight.color[0], el.highlight.color[1], el.highlight.color[2], 1.0)
       gl.uniform1f(this.uRm['uHighlightAngle'], el.highlight.angle)
       gl.uniform1f(this.uRm['uHighlightFalloff'], el.highlight.falloff)

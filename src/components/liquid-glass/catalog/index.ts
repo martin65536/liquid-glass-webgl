@@ -192,5 +192,28 @@ export function buildCatalog(
       }
     }
   }
+  // Continuous-curve corners (squircle): mark elements that use Capsule() in
+  // the original. The original uses Capsule(Continuous) for LiquidButton,
+  // LiquidToggle, LiquidSlider, LiquidBottomTabs, Dialog buttons, Magnifier,
+  // and CC inner items. Elements that use RoundedRectangle (dialog card,
+  // CC tiles, GP square, adaptive luminance, scroll containers) are NOT marked.
+  // When state.continuousCorners is true (default), marked elements get the
+  // continuous SDF; otherwise they fall back to circular arcs.
+  for (const el of result.elements) {
+    if (el.kind === 'button') {
+      // All buttons use Capsule() in the original.
+      el.continuousCorners = true
+    } else if (el.kind === 'glass-shape' && (el.isToggleKnob || el.isBottomTabIndicator || el.isMagnifier)) {
+      // Toggle knob, bottom tab indicator, magnifier glass use Capsule().
+      el.continuousCorners = true
+    } else if (el.kind === 'plain-rect') {
+      // Toggle track, slider track/fill, CC inner items use Capsule() clip.
+      // Mark plain-rects that are toggle tracks, slider fills, or CC inner icons.
+      if (el.isToggleTrack || el.isSliderFill ||
+          (el.id.startsWith('cc-') && el.id.includes('icon'))) {
+        el.continuousCorners = true
+      }
+    }
+  }
   return result
 }

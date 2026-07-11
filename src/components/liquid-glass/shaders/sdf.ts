@@ -31,19 +31,51 @@ float sdRoundedRect(vec2 coord, vec2 halfSize, float radius) {
     return outside + inside;
 }
 
-// sdContinuousRoundedRect — continuous-curvature rounded rect.
+// sdContinuousRoundedRect — continuous-curvature rounded rect (squircle-like).
 // The original uses G2-continuous Bezier corners (ContinuousCurvatureRoundedRectangleCornerBuilder).
-// The visual difference between Continuous and Circular is very subtle (only
-// curvature continuity at the tangent points). For the SDF-based renderer,
-// the circular arc SDF (sdRoundedRect) is a close enough approximation — the
-// Bezier corners deviate from the arc by <0.5% of the radius, which is
-// sub-pixel at typical element sizes.
+// We approximate this by blending the standard rounded-rect SDF toward a
+// superellipse SDF in the corner region. The superellipse has continuous
+// curvature at the tangent points (no curvature discontinuity like circular
+// arcs), giving the "squircle" look.
 //
-// When uCornerStyle=1 (continuous), we use sdRoundedRect directly. The
-// difference from the original is imperceptible. A future upgrade could
-// implement exact Bezier SDF for pixel-perfect matching.
+// Method (方案2: SDF post-processing):
+//   1. Compute the standard circular-arc SDF (sdRoundedRect).
+//   2. In the corner region (where the circular arc is active), blend toward
+//      a superellipse distance. The superellipse exponent n>2 makes corners
+//      "rounder" with continuous curvature transition.
+//   3. The blend is weighted by proximity to the corner — full superellipse
+//      at the corner apex, fading to circular along the straight edges.
 float sdContinuousRoundedRect(vec2 coord, vec2 halfSize, float radius) {
-    return sdRoundedRect(coord, halfSize, radius);
+    // Standard circular-arc SDF.
+    float dArc = sdRoundedRect(coord, halfSize, radius);
+    // Early-out for degenerate radius (no corners → no difference).
+    if (radius < 0.5) return dArc;
+
+    // Superellipse SDF approximation: |x/a|^n + |y/b|^n = 1.
+    // For a rounded rect with corner radius r, the superellipse that matches
+    // the inscribed rect (halfSize - r) with corner "roundness" r uses:
+    //   a = halfSize.x, b = halfSize.y
+    //   n = 4.0 (squircle exponent — gives G1-continuous curvature)
+    // The superellipse SDF is approximated by:
+    //   d = (|x/a|^n + |y/b|^n)^(1/n) - 1, scaled by min(a,b).
+    float n = 4.0;
+    vec2 ab = halfSize;
+    vec2 p = abs(coord) / ab;
+    float r = pow(pow(p.x, n) + pow(p.y, n), 1.0 / n);
+    float dSuper = (r - 1.0) * min(ab.x, ab.y);
+
+    // Blend: use superellipse in the corner region, circular elsewhere.
+    // The corner region is where |coord| is near the corner center
+    // (halfSize - radius). We compute a blend weight based on how close
+    // the point is to the corner diagonal.
+    vec2 cornerCenter = halfSize - vec2(radius);
+    vec2 cornerDist = abs(abs(coord) - cornerCenter);
+    // When both cornerDist components are small (near corner apex),
+    // blend toward superellipse. When one is large (on straight edge),
+    // keep circular.
+    float cornerWeight = 1.0 - smoothstep(0.0, radius, max(cornerDist.x, cornerDist.y));
+
+    return mix(dArc, dSuper, cornerWeight * 0.6);
 }
 
 // Unified SDF — dispatches to circular or continuous based on uCornerStyle.
