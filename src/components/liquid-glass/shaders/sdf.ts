@@ -57,44 +57,28 @@ float sdContinuousRoundedRect(vec2 coord, vec2 halfSize, float radius) {
     return sdRoundedRect(coord, halfSize, radius);
 }
 
-// sdContinuousCurvature — sample a precomputed SDF texture for the
-// continuous-curvature (squircle) rounded rect. The texture is generated
-// from the G2-continuous Bezier path (continuous-curve.ts) using a chamfer
-// distance transform, normalized to [-1, 1] (negative inside, positive
-// outside) by the corner radius in texture px.
+// sdContinuousCurvature — sample a precomputed alpha mask texture for the
+// continuous-curvature (G2 Bezier) rounded rect. The texture stores browser-
+// native AA coverage (0=outside, 1=inside, edge=smooth gradient) from
+// Canvas2D ctx.fill(path). Returns a pseudo-SDF: negative inside, positive
+// outside, ~0 at the edge. The shader uses this for discard + edgeAA.
 //
-// coord: element-local centered coords (range -halfSize..+halfSize, in px).
-// radius: the element's corner radius in px — used to UN-normalize the SDF
-//         back to element-space px (the texture was normalized by drawRadius
-//         = radius * scale, where scale = drawW/origW = drawH/origH).
-//
-// The texture is 256×256 with a 4px margin; the shape is centered with the
-// larger dimension filling (SDF_TEX_SIZE - 2*margin) px and the smaller
-// dimension scaled proportionally. Element coord (0,0) maps to the texture
-// center; element coord (halfW, halfH) maps to the shape's corner.
+// The mask's AA is browser-native (same quality as Skia Path rasterization
+// in the original), so edgeAlpha = mask coverage directly — no smoothstep
+// needed, no SDF precision issues.
 float sdContinuousCurvature(vec2 coord, vec2 halfSize, float radius) {
-    // Replicate the texture generation's aspect-ratio + margin math so the
-    // element-to-texture mapping is exact (see continuous-sdf.ts).
+    // Replicate the texture generation's aspect-ratio + margin math.
     float maxDim = max(max(uContinuousSdfElementSize.x, uContinuousSdfElementSize.y), 1e-4);
     float aspectW = uContinuousSdfElementSize.x / maxDim;
     float aspectH = uContinuousSdfElementSize.y / maxDim;
     float margin = 4.0;
     float drawW = (uContinuousSdfTexSize.x - 2.0 * margin) * aspectW;
-    float drawH = (uContinuousSdfTexSize.y - 2.0 * margin) * aspectH;
-    // scale = drawW / origW = drawH / origH = (texSize - 2*margin) / maxDim.
-    // Guard against divide-by-zero on degenerate element sizes.
     float scale = drawW / max(uContinuousSdfElementSize.x, 1e-4);
-    // Element coord → texture px (centered) → UV [0,1].
     vec2 tex = uContinuousSdfTexSize * 0.5 + coord * scale;
     vec2 uv = tex / uContinuousSdfTexSize;
-    // Decode [0,1] sample → [-1,1] normalized distance, then scale back to
-    // element-space px by multiplying by radius (the reference distance used
-    // in generation, which equals drawRadius / scale = radius).
-    // halfSize and drawH are unused but kept for API symmetry with sdShape
-    // and to mirror the texture generation math.
-    float s = texture2D(uContinuousSdf, uv).r;
-    float normalized = s * 2.0 - 1.0;
-    return normalized * radius;
+    // Sample mask coverage [0,1], convert to pseudo-SDF [-1,1].
+    float mask = texture2D(uContinuousSdf, uv).r;
+    return 1.0 - 2.0 * mask;  // mask=1→-1(inside), mask=0→+1(outside)
 }
 
 // Unified SDF — dispatches to continuous-curvature texture (when

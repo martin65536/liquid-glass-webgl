@@ -1,5 +1,5 @@
 import type { LiquidGlassRenderer } from './index'
-import { generateContinuousCurvatureSDF } from './continuous-sdf'
+import { generateContinuousCurvatureMask } from './continuous-mask'
 
 declare module './index' {
   interface LiquidGlassRenderer {
@@ -90,7 +90,7 @@ export const wallpaperMethods = {
     if (this.continuousSdfTexture && this.continuousSdfKey === key && this.continuousSdfReady) {
       return // cached
     }
-    const { tex, texSize } = generateContinuousCurvatureSDF(w, h, radius, this.dpr)
+    const { tex, texSize } = generateContinuousCurvatureMask(w, h, radius, this.dpr)
     const gl = this.gl
     if (this.continuousSdfTexture) gl.deleteTexture(this.continuousSdfTexture)
     const texObj = gl.createTexture()!
