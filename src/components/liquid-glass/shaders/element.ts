@@ -157,19 +157,6 @@ void main() {
     } else {
         backdrop = sampleBackdrop(sampleCoord, uBlurRadius);
     }
-    // Apply scrim (dim overlay) to the backdrop BEFORE colorControls/blur/lens.
-    // Faithful to DialogContent.kt / ControlCenterContent.kt where the scrim
-    // (drawRect(dimColor)) is painted onto the wallpaper Image via
-    // BackdropDemoScaffold's drawWithContent modifier, so the LayerBackdrop
-    // captures wallpaper+scrim as one opaque layer, THEN drawBackdrop's effects
-    // (colorControls/blur/lens) run on that composited backdrop.
-    // When uSampleWallpaper=1 (clean wallpaper sampled), we apply the scrim
-    // here to replicate that. SrcOver: out = scrim.rgb*scrim.a + backdrop*(1-scrim.a).
-    // When uSampleWallpaper=0 (scene FBO already contains the scrim), skip.
-    if (uSampleWallpaper > 0.5 && uScrimColor.a > 0.001) {
-        backdrop.rgb = uScrimColor.rgb * uScrimColor.a + backdrop.rgb * (1.0 - uScrimColor.a);
-        backdrop.a = 1.0;  // wallpaper+scrim is opaque
-    }
     vec3 color = applyColorControls(backdrop.rgb, uBrightness, uContrast, uSaturation);
     // Magnifier glass is always OPAQUE — faithful to the original which
     // samples rememberCombinedBackdrop (wallpaper + content + cursor all

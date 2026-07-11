@@ -115,19 +115,31 @@ vec2 sceneUv(vec2 canvasPx) {
 // radius < 0.5 falls back to single tap (no visible blur).
 //
 // When uSampleWallpaper > 0.5, samples the CLEAN wallpaper (uWallpaperSampler
-// via coverUv) instead of the scene FBO (uBackdrop via sceneUv). This bypasses
-// scrim/dim alpha decay in the scene FBO, so glass over a scrim (Dialog card,
-// ControlCenter tiles) refracts an opaque backdrop — matching the original
-// LayerBackdrop which captures the wallpaper Image (alpha=1).
+// via coverUv) instead of the scene FBO (uBackdrop via sceneUv), AND applies
+// the scrim (uScrimColor) to replicate the original's wallpaper+scrim composited
+// LayerBackdrop. The scrim is applied INSIDE sampleBackdrop so EVERY sampling
+// site — the initial backdrop sample, the refraction re-sample, and each
+// chromatic-aberration channel — gets the same wallpaper+scrim composite.
+// This fixes the "scrim not applied at edges" bug where the refraction band
+// re-sampled the clean wallpaper (without scrim), making the edge brighter
+// than the interior.
 vec4 sampleBackdrop(vec2 canvasPx, float radius) {
     if (uSampleWallpaper > 0.5) {
         vec2 uv = coverUv(canvasPx);
+        vec4 c;
         if (radius < 0.5) {
-            return texture2D(uWallpaperSampler, uv);
+            c = texture2D(uWallpaperSampler, uv);
+        } else {
+            vec2 pxToUv = radius * canvasPxToUvScale();
+            vec4 sum = vec4(0.0);
+${wallpaperBlurCode}            c = sum;
         }
-        vec2 pxToUv = radius * canvasPxToUvScale();
-        vec4 sum = vec4(0.0);
-${wallpaperBlurCode}        return sum;
+        // Apply scrim (SrcOver) so the backdrop = wallpaper+scrim, opaque.
+        if (uScrimColor.a > 0.001) {
+            c.rgb = uScrimColor.rgb * uScrimColor.a + c.rgb * (1.0 - uScrimColor.a);
+            c.a = 1.0;
+        }
+        return c;
     }
     vec2 uv = sceneUv(canvasPx);
     if (radius < 0.5) {
