@@ -178,6 +178,9 @@ export function buildDialog(
       tintColor: [0, 0, 0, 0],
       surfaceColor: [palette.dialogContainer[0], palette.dialogContainer[1], palette.dialogContainer[2], 0.2],
       labelColor: palette.dialogContentColor,
+      saturation: 1,  // no vibrancy — Cancel is a solid background, not glass
+      brightness: 0,
+      contrast: 1,
     },
     false
   )
@@ -205,6 +208,9 @@ export function buildDialog(
       tintColor: [0, 0, 0, 0],
       surfaceColor: palette.dialogAccent,
       labelColor: [1, 1, 1, 1],
+      saturation: 1,  // no vibrancy — Okay is a solid background, not glass
+      brightness: 0,
+      contrast: 1,
     },
     false
   )
