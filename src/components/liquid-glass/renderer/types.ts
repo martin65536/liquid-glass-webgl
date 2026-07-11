@@ -450,11 +450,6 @@ export interface GlassElementConfig extends GlassButtonConfig {
    *  which captures wallpaper+scrim. Used by the dialog card with 2-pass blur
    *  to get the correct colorControls→blur→lens order. */
   backdropFbo?: boolean
-  /** When true, use continuous-curvature (squircle) SDF for this element's
-   *  corners, matching the original's Capsule(Continuous) / RoundedRectangle(Continuous).
-   *  When false/undefined, use standard circular arcs. Only set on elements
-   *  that use Capsule() or RoundedRectangle(Continuous) in the original. */
-  continuousCorners?: boolean
 }
 
 /* Per-element interaction state — mirrors InteractiveHighlight.kt. */

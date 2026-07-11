@@ -387,7 +387,7 @@ export const renderMethods = {
         return easeIn(sp)
       })() : 1
       gl.uniform4f(this.uPr['uColor'], c[0], c[1], c[2], c[3] * enterA)
-      gl.uniform1f(this.uPr['uCornerStyle'], (el.continuousCorners && this.cornerStyle > 0.5) ? 1.0 : 0.0)
+      gl.uniform1f(this.uPr['uCornerStyle'], this.cornerStyle)
       gl.drawArrays(gl.TRIANGLES, 0, 6)
       return true
     }
@@ -513,7 +513,7 @@ export const renderMethods = {
         gl.uniform2f(this.uFg['uOriginalSize'], el.rect.w * this.dpr, el.rect.h * this.dpr)
         gl.uniform1f(this.uFg['uOriginalCornerRadius'], el.cornerRadius * this.dpr)
         gl.uniform2f(this.uFg['uLayerScale'], fgScaleX, fgScaleY)
-        gl.uniform1f(this.uFg['uCornerStyle'], (el.continuousCorners && this.cornerStyle > 0.5) ? 1.0 : 0.0)
+        gl.uniform1f(this.uFg['uCornerStyle'], this.cornerStyle)
         gl.uniform1f(this.uFg['uAlpha'], el.enterProgress != null ? (() => {
           const sp = el.enterSafeProgress != null
             ? Math.max(0, Math.min(1, el.enterSafeProgress))
