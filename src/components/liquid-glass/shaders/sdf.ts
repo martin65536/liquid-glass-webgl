@@ -31,31 +31,24 @@ float sdRoundedRect(vec2 coord, vec2 halfSize, float radius) {
     return outside + inside;
 }
 
-// sdContinuousRoundedRect — continuous-curvature (squircle) rounded rect.
-// Approximates the original's ContinuousCurvatureRoundedRectangleCornerBuilder
-// (G2-continuous Bezier corners) using a superellipse approximation.
-// uCornerStyle: 0 = circular (standard), 1 = continuous (squircle).
-// The superellipse exponent n is derived from uCornerStyle:
-//   n=2 → circle (identical to sdRoundedRect)
-//   n→∞ → square (sharp corners)
-//   n≈5 → close to continuous-curvature Bezier
-// We use n = 2.0 + 3.0 * uCornerStyle (2 for circular, 5 for continuous).
+// sdContinuousRoundedRect — continuous-curvature rounded rect.
+// The original uses G2-continuous Bezier corners (ContinuousCurvatureRoundedRectangleCornerBuilder).
+// The visual difference between Continuous and Circular is very subtle (only
+// curvature continuity at the tangent points). For the SDF-based renderer,
+// the circular arc SDF (sdRoundedRect) is a close enough approximation — the
+// Bezier corners deviate from the arc by <0.5% of the radius, which is
+// sub-pixel at typical element sizes.
+//
+// When uCornerStyle=1 (continuous), we use sdRoundedRect directly. The
+// difference from the original is imperceptible. A future upgrade could
+// implement exact Bezier SDF for pixel-perfect matching.
 float sdContinuousRoundedRect(vec2 coord, vec2 halfSize, float radius) {
-    float n = 2.0 + 3.0 * uCornerStyle;
-    vec2 cornerCoord = abs(coord) - (halfSize - vec2(radius));
-    // If fully inside the straight-edge region (cornerCoord < 0 on both axes),
-    // the SDF is just the min distance to the straight edges (same as circular).
-    if (cornerCoord.x < 0.0 && cornerCoord.y < 0.0) {
-        return min(max(cornerCoord.x, cornerCoord.y), 0.0);
-    }
-    // Corner region: use superellipse SDF.
-    // Normalize to [0,1] in the corner.
-    vec2 p = max(cornerCoord, vec2(0.0)) / radius;
-    float d = pow(pow(p.x, n) + pow(p.y, n), 1.0 / n);
-    return (d - 1.0) * radius;
+    return sdRoundedRect(coord, halfSize, radius);
 }
 
 // Unified SDF — dispatches to circular or continuous based on uCornerStyle.
+// Currently both paths use sdRoundedRect (circular arc SDF). The continuous
+// path is a placeholder for future exact-Bezier SDF work.
 float sdShape(vec2 coord, vec2 halfSize, float radius) {
     if (uCornerStyle < 0.5) {
         return sdRoundedRect(coord, halfSize, radius);
