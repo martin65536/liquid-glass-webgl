@@ -201,6 +201,17 @@ export const glassPostPassMethods = {
         gl.uniform1f(this.uFg['uOriginalCornerRadius'], origRadius)
       gl.uniform2f(this.uFg['uLayerScale'], layerScaleX, layerScaleY)
       gl.uniform1f(this.uFg['uCornerStyle'], this.cornerStyle)
+      // Continuous-curvature mask for capsule foregrounds.
+      if (el.useContinuousSdf && this.continuousSdfTexture) {
+        gl.activeTexture(gl.TEXTURE2)
+        gl.bindTexture(gl.TEXTURE_2D, this.continuousSdfTexture)
+        gl.uniform1i(this.uFg['uContinuousSdf'], 2)
+        gl.uniform1f(this.uFg['uUseContinuousSdf'], 1.0)
+        gl.uniform2f(this.uFg['uContinuousSdfTexSize'], this.continuousSdfTexSize[0], this.continuousSdfTexSize[1])
+        gl.uniform2f(this.uFg['uContinuousSdfElementSize'], state.origW * this.dpr, state.origH * this.dpr)
+      } else {
+        gl.uniform1f(this.uFg['uUseContinuousSdf'], 0.0)
+      }
         gl.uniform1f(this.uFg['uAlpha'], 1.0 - 0.15 * p)
         gl.drawArrays(gl.TRIANGLES, 0, 6)
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)

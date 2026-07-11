@@ -399,6 +399,17 @@ export const renderMethods = {
       })() : 1
       gl.uniform4f(this.uPr['uColor'], c[0], c[1], c[2], c[3] * enterA)
       gl.uniform1f(this.uPr['uCornerStyle'], this.cornerStyle)
+      // Continuous-curvature mask for capsule plain-rects (toggle tracks, etc.)
+      if (el.useContinuousSdf && this.continuousSdfTexture) {
+        gl.activeTexture(gl.TEXTURE2)
+        gl.bindTexture(gl.TEXTURE_2D, this.continuousSdfTexture)
+        gl.uniform1i(this.uPr['uContinuousSdf'], 2)
+        gl.uniform1f(this.uPr['uUseContinuousSdf'], 1.0)
+        gl.uniform2f(this.uPr['uContinuousSdfTexSize'], this.continuousSdfTexSize[0], this.continuousSdfTexSize[1])
+        gl.uniform2f(this.uPr['uContinuousSdfElementSize'], r2.w * this.dpr, r2.h * this.dpr)
+      } else {
+        gl.uniform1f(this.uPr['uUseContinuousSdf'], 0.0)
+      }
       gl.drawArrays(gl.TRIANGLES, 0, 6)
       return true
     }
