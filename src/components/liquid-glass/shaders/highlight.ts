@@ -186,11 +186,13 @@ void main() {
     vec2 origHalfSize = uOriginalSize * 0.5;
     float origRadius = uOriginalCornerRadius;
 
-    // SDF in ORIGINAL space — shape is a correct (unscaled) rounded rect.
+    // SDF for clip — alpha mask (browser-native AA) when capsule enabled.
+    float sdClip = sdClipShape(centeredOrigRot, origHalfSize, origRadius);
+    // SDF for stroke — always analytic sdRoundedRect.
     float sd = sdShape(centeredOrigRot, origHalfSize, origRadius);
 
     // Outside the shape — nothing to add (the stroke's outward half is clipped).
-    if (sd > 0.0) {
+    if (sdClip > 0.0) {
         discard;
     }
 

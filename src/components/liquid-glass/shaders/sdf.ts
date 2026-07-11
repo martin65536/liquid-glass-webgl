@@ -81,19 +81,21 @@ float sdContinuousCurvature(vec2 coord, vec2 halfSize, float radius) {
     return 1.0 - 2.0 * mask;  // mask=1→-1(inside), mask=0→+1(outside)
 }
 
-// Unified SDF — dispatches to continuous-curvature texture (when
-// uUseContinuousSdf=1), or circular/continuous analytic SDF based on
-// uCornerStyle. The continuous-curvature texture path is only used by the
-// dialog card (capsule shape); other elements use the analytic path.
+// sdShape — analytic SDF for refraction/highlight internal calculations.
+// Always uses sdRoundedRect, even when continuous mask is enabled.
+// The mask (sdContinuousCurvature) is only for clip + edgeAA (sdClipShape).
 float sdShape(vec2 coord, vec2 halfSize, float radius) {
+    return sdRoundedRect(coord, halfSize, radius);
+}
+
+// sdClipShape — SDF for clip/discard/edgeAA (the shape outline).
+// When uUseContinuousSdf=1, uses the alpha mask (browser-native AA).
+// Otherwise same as sdShape.
+float sdClipShape(vec2 coord, vec2 halfSize, float radius) {
     if (uUseContinuousSdf > 0.5) {
         return sdContinuousCurvature(coord, halfSize, radius);
     }
-    if (uCornerStyle < 0.5) {
-        return sdRoundedRect(coord, halfSize, radius);
-    } else {
-        return sdContinuousRoundedRect(coord, halfSize, radius);
-    }
+    return sdRoundedRect(coord, halfSize, radius);
 }
 
 // gradSdRoundedRect — gradient of the SDF (points outward from edge).

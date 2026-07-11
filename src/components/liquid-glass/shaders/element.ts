@@ -134,11 +134,13 @@ void main() {
         return;
     }
 
-    // SDF in ORIGINAL space — shape is a correct (unscaled) rounded rect.
+    // SDF for clip/AA — alpha mask (browser-native AA) when capsule enabled.
+    float sdClip = sdClipShape(centeredOrigRot, origHalfSize, origRadius);
+    // SDF for refraction/highlight — always analytic sdRoundedRect.
     float sd = sdShape(centeredOrigRot, origHalfSize, origRadius);
 
     // Outside the shape — fully transparent (clip).
-    if (sd > 0.5) {
+    if (sdClip > 0.5) {
         discard;
     }
 
@@ -347,11 +349,9 @@ void main() {
     }
 
     // --- 7. Edge anti-aliasing -----------------------------------
-    // For analytic SDF (sdRoundedRect): 0.5px AA band (precise).
-    // For texture SDF (sdContinuousCurvature): widen to 1.5px to compensate
-    // for texture interpolation imprecision at the edge (sd≈0).
-    float aaWidth = (uUseContinuousSdf > 0.5) ? 1.5 : 0.5;
-    float edgeAlpha = 1.0 - smoothstep(-aaWidth, aaWidth, sd);
+    // edgeAA uses sdClip (alpha mask for capsule, analytic for non-capsule).
+    // Mask has browser-native AA, so 0.5px smoothstep is sufficient.
+    float edgeAlpha = 1.0 - smoothstep(-0.5, 0.5, sdClip);
 
     gl_FragColor = vec4(color, alpha * edgeAlpha * uEnterAlpha);
 }
