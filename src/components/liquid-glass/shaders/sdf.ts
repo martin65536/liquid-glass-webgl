@@ -60,25 +60,30 @@ float sdContinuousRoundedRect(vec2 coord, vec2 halfSize, float radius) {
 // sdContinuousCurvature — sample a precomputed alpha mask texture for the
 // continuous-curvature (G2 Bezier) rounded rect. The texture stores browser-
 // native AA coverage (0=outside, 1=inside, edge=smooth gradient) from
-// Canvas2D ctx.fill(path). Returns a pseudo-SDF: negative inside, positive
-// outside, ~0 at the edge. The shader uses this for discard + edgeAA.
-//
-// The mask's AA is browser-native (same quality as Skia Path rasterization
-// in the original), so edgeAlpha = mask coverage directly — no smoothstep
-// needed, no SDF precision issues.
-float sdContinuousCurvature(vec2 coord, vec2 halfSize, float radius) {
-    // Replicate the texture generation's aspect-ratio + margin math.
+// Canvas2D ctx.fill(path). Returns mask coverage [0,1] directly — the
+// caller uses it for clip + edgeAA without smoothstep conversion.
+float sampleClipMask(vec2 coord, vec2 halfSize, float radius) {
     float maxDim = max(max(uContinuousSdfElementSize.x, uContinuousSdfElementSize.y), 1e-4);
     float aspectW = uContinuousSdfElementSize.x / maxDim;
-    float aspectH = uContinuousSdfElementSize.y / maxDim;
     float margin = 4.0;
     float drawW = (uContinuousSdfTexSize.x - 2.0 * margin) * aspectW;
     float scale = drawW / max(uContinuousSdfElementSize.x, 1e-4);
     vec2 tex = uContinuousSdfTexSize * 0.5 + coord * scale;
     vec2 uv = tex / uContinuousSdfTexSize;
-    // Sample mask coverage [0,1], convert to pseudo-SDF [-1,1].
-    float mask = texture2D(uContinuousSdf, uv).r;
-    return 1.0 - 2.0 * mask;  // mask=1→-1(inside), mask=0→+1(outside)
+    return texture2D(uContinuousSdf, uv).r;  // [0,1] coverage
+}
+
+// sdClipShape — SDF for clip/discard/edgeAA (the shape outline).
+// When uUseContinuousSdf=1, returns the alpha mask coverage directly as
+// a pseudo-SDF (negative inside, positive outside). The caller must use
+// appropriate thresholds (not 0.5px) since this is coverage, not distance.
+// Returns: mask=1→-1 (deep inside), mask=0→+1 (outside), mask=0.5→0 (edge).
+float sdClipShape(vec2 coord, vec2 halfSize, float radius) {
+    if (uUseContinuousSdf > 0.5) {
+        float mask = sampleClipMask(coord, halfSize, radius);
+        return 1.0 - 2.0 * mask;
+    }
+    return sdRoundedRect(coord, halfSize, radius);
 }
 
 // sdShape — analytic SDF for refraction/highlight internal calculations.

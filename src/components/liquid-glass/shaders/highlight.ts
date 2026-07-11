@@ -191,9 +191,11 @@ void main() {
     // SDF for stroke — always analytic sdRoundedRect.
     float sd = sdShape(centeredOrigRot, origHalfSize, origRadius);
 
-    // Outside the shape — nothing to add (the stroke's outward half is clipped).
-    if (sdClip > 0.0) {
-        discard;
+    // Outside the shape — clip.
+    if (uUseContinuousSdf > 0.5) {
+        if (sdClip > 0.0) discard;  // mask < 50%
+    } else {
+        if (sdClip > 0.0) discard;  // analytic: outside
     }
 
     // Stroke mask — faithful to HighlightModifier.kt:

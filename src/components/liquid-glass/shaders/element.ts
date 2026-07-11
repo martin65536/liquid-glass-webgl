@@ -140,8 +140,12 @@ void main() {
     float sd = sdShape(centeredOrigRot, origHalfSize, origRadius);
 
     // Outside the shape — fully transparent (clip).
-    if (sdClip > 0.5) {
-        discard;
+    // For mask mode: sdClip > 0 means mask < 0.5 (less than half covered).
+    // For analytic mode: sdClip > 0.5 means 0.5px outside the shape.
+    if (uUseContinuousSdf > 0.5) {
+        if (sdClip > 0.0) discard;  // mask < 50% → outside
+    } else {
+        if (sdClip > 0.5) discard;  // 0.5px outside
     }
 
     // --- 1. Backdrop sample (before refraction) -------------------
@@ -349,9 +353,17 @@ void main() {
     }
 
     // --- 7. Edge anti-aliasing -----------------------------------
-    // edgeAA uses sdClip (alpha mask for capsule, analytic for non-capsule).
-    // Mask has browser-native AA, so 0.5px smoothstep is sufficient.
-    float edgeAlpha = 1.0 - smoothstep(-0.5, 0.5, sdClip);
+    // edgeAA: for mask mode, sdClip is pseudo-SDF [-1,1] where the browser-
+    // native AA gradient lives in [~-0.2, ~0.2]. Use smoothstep(1.0, -1.0, sdClip)
+    // = clamp(mask*2-1, 0, 1) to get the coverage directly.
+    // For analytic mode, sdClip is real distance, use 0.5px band.
+    float edgeAlpha;
+    if (uUseContinuousSdf > 0.5) {
+        // mask mode: edgeAlpha = mask coverage directly (browser AA)
+        edgeAlpha = smoothstep(1.0, -1.0, sdClip);  // sdClip=-1→1, sdClip=0→0.5, sdClip=1→0
+    } else {
+        edgeAlpha = 1.0 - smoothstep(-0.5, 0.5, sdClip);
+    }
 
     gl_FragColor = vec4(color, alpha * edgeAlpha * uEnterAlpha);
 }
