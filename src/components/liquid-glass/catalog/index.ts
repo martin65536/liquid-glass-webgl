@@ -176,23 +176,6 @@ export function buildCatalog(
       onDragEnd: () => {},
     }
   }
-  // Capsule shape: when enabled (default), force all glass buttons/shapes to
-  // use capsule corner radius (h/2 = full pill). When disabled, use a smaller
-  // rounded radius (12dp) for a RoundedRectangle look. Faithful to the original
-  // which uses Capsule() for LiquidButton, LiquidToggle, LiquidSlider knobs.
-  if (state.capsuleShape) {
-    for (const el of result.elements) {
-      if ((el.kind === 'button' || el.kind === 'glass-shape') && !el.isSdfTexture) {
-        el.cornerRadius = el.rect.h / 2
-      }
-    }
-  } else {
-    for (const el of result.elements) {
-      if ((el.kind === 'button' || el.kind === 'glass-shape') && !el.isSdfTexture) {
-        el.cornerRadius = Math.min(12 * DP, el.rect.h / 2)
-      }
-    }
-  }
   // Global separable 2-pass blur: when enabled in Settings, apply useSeparableBlur
   // to all glass elements (buttons + glass-shapes). Skip special elements that
   // have their own backdrop semantics (toggle knob, indicator, magnifier, SDF

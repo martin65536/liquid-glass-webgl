@@ -64,7 +64,6 @@ export default function Page() {
         globalSeparableBlur: typeof parsed.globalSeparableBlur === 'boolean' ? parsed.globalSeparableBlur : true,
         blurTapCap: typeof parsed.blurTapCap === 'number' ? parsed.blurTapCap : 17,
         blurDownsample: typeof parsed.blurDownsample === 'number' ? parsed.blurDownsample : 1,
-        capsuleShape: typeof parsed.capsuleShape === 'boolean' ? parsed.capsuleShape : true,
       }
     } catch { return {} }
   }
@@ -95,15 +94,13 @@ export default function Page() {
         // Persist Settings fields to localStorage (skip live* display values).
         if (typeof window !== 'undefined' &&
             (p.customDpr !== undefined || p.globalSeparableBlur !== undefined ||
-             p.blurTapCap !== undefined || p.blurDownsample !== undefined ||
-             p.capsuleShape !== undefined)) {
+             p.blurTapCap !== undefined || p.blurDownsample !== undefined)) {
           try {
             window.localStorage.setItem(SETTINGS_KEY, JSON.stringify({
               customDpr: next.customDpr,
               globalSeparableBlur: next.globalSeparableBlur,
               blurTapCap: next.blurTapCap,
               blurDownsample: next.blurDownsample,
-              capsuleShape: next.capsuleShape,
             }))
           } catch { /* ignore quota errors */ }
         }
