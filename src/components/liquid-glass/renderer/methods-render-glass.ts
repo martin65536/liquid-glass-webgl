@@ -358,51 +358,24 @@ export const glassRenderMethods = {
     // (sampling curTex) with inline 16-tap Vogel disc blur.
     if (el.useSeparableBlur && el.blurRadius >= 0.5) {
       const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr
-      // For sampleWallpaper elements (Dialog card, CC tiles), blur the CLEAN
-      // wallpaper instead of the scene FBO. The wallpaper is cover-fit, so we
-      // first render it to a temp FBO (blurFboA) via the wallpaper program
-      // (coverUv), then 2-pass blur that. The result is bound as uWallpaperSampler
-      // in the element pass, so sampleBackdrop samples the blurred wallpaper +
-      // applies the scrim in-shader — matching the original's wallpaper+scrim
-      // LayerBackdrop with blur applied before the lens shader.
-      let blurredBackdrop: WebGLTexture
-      let blurredWallpaperTex: WebGLTexture | null = null
-      if (el.sampleWallpaper && this.wallpaperTexture && this.wallpaperReady) {
-        // Step 1: render wallpaper (coverUv) to blurFboA.
-        const gl = this.gl
-        gl.disable(gl.BLEND)
-        gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurFboA!)
-        gl.viewport(0, 0, this.fboW, this.fboH)
-        gl.useProgram(this.wallpaperProgram)
-        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
-        gl.enableVertexAttribArray(this.aPosLocWp)
-        gl.vertexAttribPointer(this.aPosLocWp, 2, gl.FLOAT, false, 0, 0)
-        gl.activeTexture(gl.TEXTURE0)
-        gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture!)
-        gl.uniform1i(this.uWp['uBackdrop'], 0)
-        gl.uniform2f(this.uWp['uCanvasSize'], this.canvas.width, this.canvas.height)
-        gl.uniform2f(this.uWp['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
-        gl.drawArrays(gl.TRIANGLES, 0, 6)
-        // Step 2: 2-pass blur blurFboATex → blurFboBTex.
-        blurredWallpaperTex = this.blurTexture(this.blurFboATex!, blurRadiusPx)
-        blurredBackdrop = blurredWallpaperTex
-      } else {
-        // 2-pass blur the backdrop (curTex) → blurred texture.
-        blurredBackdrop = this.blurTexture(curTex, blurRadiusPx)
-      }
+      // For backdropFbo elements, blur the scrimFbo (wallpaper+scrim opaque
+      // layer) instead of the scene FBO — matching the original's
+      // createChainEffect(blur, lens) on the wallpaper+scrim LayerBackdrop.
+      const backdropSrc = (el.backdropFbo && this.scrimFboTex) ? this.scrimFboTex : curTex
+      const blurredBackdrop = this.blurTexture(backdropSrc, blurRadiusPx)
       // blurTexture disables BLEND — re-enable it so renderGlassElementPass
-      // composites the glass onto otherFbo with alpha blending (otherwise
-      // the glass's transparent pixels overwrite the scene → black).
+      // composites the glass onto otherFbo with alpha blending.
       this.gl.enable(this.gl.BLEND)
       this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA)
-      // Render element pass to otherFbo, sampling the blurred backdrop.
-      // inlineBlurRadius is already 0 (useSeparableBlur + blurRadius>=0.5
-      // in renderGlassElementPass), so no double blur.
       this.bindFBO(otherFbo)
       this.gl.viewport(0, 0, this.fboW, this.fboH)
-      this.renderGlassElementPass(state, blurredBackdrop, blurredWallpaperTex)
+      // Pass the pre-blurred texture as curTex. For backdropFbo elements we
+      // temporarily disable backdropFbo in the pass state so the element pass
+      // binds curTex (the blurred backdrop) instead of the raw scrimFboTex.
+      const passState = el.backdropFbo ? { ...state, el: { ...el, backdropFbo: false } } : state
+      this.renderGlassElementPass(passState, blurredBackdrop)
     } else {
-      this.renderGlassElementPass(state, curTex, null)
+      this.renderGlassElementPass(state, curTex)
     }
 
     // --- Steps 2c–2f: Press glow, white overlay, foreground, rim highlight ---

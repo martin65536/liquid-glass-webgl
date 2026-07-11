@@ -71,6 +71,14 @@ export const fboMethods = {
     this.blurFboATex = ba.tex
     this.blurFboB = bb.fb
     this.blurFboBTex = bb.tex
+    // Scrim backdrop FBO (Dialog card, ControlCenter tiles) — wallpaper+scrim
+    // as one opaque layer, shared by all backdropFbo elements on a page.
+    if (this.scrimFbo) gl.deleteFramebuffer(this.scrimFbo)
+    if (this.scrimFboTex) gl.deleteTexture(this.scrimFboTex)
+    const sf = this.createFBO(w, h)
+    this.scrimFbo = sf.fb
+    this.scrimFboTex = sf.tex
+    this.scrimFboColor = null  // force re-render after resize
     this.fboW = w
     this.fboH = h
   },

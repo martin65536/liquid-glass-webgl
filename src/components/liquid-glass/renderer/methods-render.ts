@@ -13,6 +13,8 @@ declare module './index' {
       cornerRadius: number
     ): void
     renderBackground(): void
+    /** Render wallpaper+scrim into scrimFbo as one opaque layer. */
+    renderScrimBackdrop(scrim: [number, number, number, number]): void
     renderNonGlassElement(
       el: GlassElementConfig,
       r: { x: number; y: number; w: number; h: number },
@@ -119,6 +121,14 @@ export const renderMethods = {
       // --- Non-glass elements: render directly to current FBO ---
       if (this.renderNonGlassElement(el, r, st, curFbo)) continue
 
+      // --- Backdrop FBO: render wallpaper+scrim into scrimFbo (once per
+      // unique scrim color; cached). Glass elements with backdropFbo=true
+      // sample scrimFboTex as their backdrop. Shared across all backdropFbo
+      // elements on a page (e.g. all CC tiles share one scrimFbo). ---
+      if (el.backdropFbo && el.scrimColor) {
+        this.renderScrimBackdrop(el.scrimColor)
+      }
+
       // --- Glass elements (button / glass-shape): ping-pong ---
       const result = this.renderGlassElement(el, st, curFbo, curTex, otherFbo, otherTex, r)
       curFbo = result.curFbo
@@ -222,6 +232,54 @@ export const renderMethods = {
       gl.uniform2f(this.uWp['uCanvasSize'], this.canvas.width, this.canvas.height)
       gl.uniform2f(this.uWp['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
       gl.drawArrays(gl.TRIANGLES, 0, 6)
+    }
+  },
+
+  /** Render wallpaper+scrim into scrimFbo as ONE OPAQUE layer (alpha=1),
+   *  replicating the original's LayerBackdrop which captures the wallpaper
+   *  Image + the scrim painted onto it (via BackdropDemoScaffold's
+   *  drawWithContent modifier). Glass elements with backdropFbo=true sample
+   *  scrimFboTex as their backdrop, bypassing the scene FBO's alpha decay.
+   *
+   *  Uses glBlendFuncSeparate for the scrim SrcOver so the FBO alpha stays 1
+   *  (no src.a² squaring). Cached via scrimFboColor — only re-renders when the
+   *  scrim color changes (e.g. CC's progress-driven dim). */
+  renderScrimBackdrop(this: LiquidGlassRenderer, scrim: [number, number, number, number]) {
+    // Cache: skip if the same scrim is already baked in.
+    const c = this.scrimFboColor
+    if (c && c[0] === scrim[0] && c[1] === scrim[1] && c[2] === scrim[2] && c[3] === scrim[3]) {
+      return
+    }
+    this.scrimFboColor = [scrim[0], scrim[1], scrim[2], scrim[3]]
+    const gl = this.gl
+    this.bindFBO(this.scrimFbo!)
+    // Step 1: paint wallpaper (opaque, BLEND off).
+    gl.disable(gl.BLEND)
+    if (this.backgroundColor) {
+      const [r, g, b] = this.backgroundColor
+      this.drawSolidFill(r, g, b, 1)
+    } else {
+      gl.useProgram(this.wallpaperProgram)
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+      gl.enableVertexAttribArray(this.aPosLocWp)
+      gl.vertexAttribPointer(this.aPosLocWp, 2, gl.FLOAT, false, 0, 0)
+      gl.activeTexture(gl.TEXTURE0)
+      gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture!)
+      gl.uniform1i(this.uWp['uBackdrop'], 0)
+      gl.uniform2f(this.uWp['uCanvasSize'], this.canvas.width, this.canvas.height)
+      gl.uniform2f(this.uWp['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
+      gl.drawArrays(gl.TRIANGLES, 0, 6)
+    }
+    // Step 2: composite the scrim on top via SrcOver with correct alpha
+    // (glBlendFuncSeparate avoids the src.a² squaring that decays FBO alpha).
+    // out.rgb = scrim.rgb*scrim.a + dst.rgb*(1-scrim.a)
+    // out.a   = scrim.a*1 + dst.a*(1-scrim.a) = 1 (dst.a=1 from wallpaper)
+    if (scrim[3] > 0.001) {
+      gl.enable(gl.BLEND)
+      gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+      this.drawSolidFill(scrim[0], scrim[1], scrim[2], scrim[3])
+      // Restore default blend for the rest of the pipeline.
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
     }
   },
 

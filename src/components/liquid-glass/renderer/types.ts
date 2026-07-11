@@ -444,6 +444,14 @@ export interface GlassElementConfig extends GlassButtonConfig {
    *  (via BackdropDemoScaffold's drawWithContent modifier), so the LayerBackdrop
    *  captures wallpaper+scrim as one opaque layer. [r,g,b,a] 0..1; a=0 = no scrim. */
   scrimColor?: [number, number, number, number]
+  /** When true, this element samples the shared scrimFbo (wallpaper+scrim as one
+   *  opaque layer) as its backdrop instead of the scene FBO. The scrimFbo is
+   *  rendered once per frame via renderScrimBackdrop(scrimColor) before the
+   *  first backdropFbo element; all backdropFbo elements on a page share it.
+   *  Faithful to the original LayerBackdrop which captures wallpaper+scrim. */
+  backdropFbo?: boolean
+  /** @deprecated Use backdropFbo + scrimColor instead. */
+  sampleWallpaper?: boolean
 }
 
 /* Per-element interaction state — mirrors InteractiveHighlight.kt. */
