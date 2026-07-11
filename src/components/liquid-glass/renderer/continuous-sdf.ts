@@ -141,7 +141,13 @@ export function generateContinuousCurvatureSDF(
   const tex = new Uint8Array(SDF_TEX_SIZE * SDF_TEX_SIZE * 4)
   for (let i = 0; i < SDF_TEX_SIZE * SDF_TEX_SIZE; i++) {
     // Signed distance in texture px: inside is negative, outside is positive.
-    const sd = (outside[i] - inside[i]) / 3.0 // /3 to convert chamfer 3-4-5 to approx px
+    // inside[i] = distance from this pixel to the nearest edge (0 if inside,
+    //   grows as we go deeper inside).
+    // outside[i] = distance from this pixel to the nearest edge (0 if outside,
+    //   grows as we go further outside).
+    // So: inside pixel → inside=0, outside=large → sd = inside - outside = -large (negative = inside). ✓
+    //     outside pixel → inside=large, outside=0 → sd = inside - outside = +large (positive = outside). ✓
+    const sd = (inside[i] - outside[i]) / 3.0
     // Normalize to [-1, 1] by dividing by refDist, then to [0, 255].
     const normalized = Math.max(-1, Math.min(1, sd / refDist))
     const v = Math.round((normalized * 0.5 + 0.5) * 255)

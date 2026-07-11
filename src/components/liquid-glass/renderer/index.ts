@@ -304,6 +304,7 @@ export class LiquidGlassRenderer {
       'uHighlightBlur',
       'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation',
       'uCornerStyle',
+      'uUseContinuousSdf', 'uContinuousSdf', 'uContinuousSdfTexSize', 'uContinuousSdfElementSize',
     ]
     for (const n of rmNames) this.uRm[n] = gl.getUniformLocation(this.rimHighlightProgram, n)
     const prNames = ['uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uColor', 'uCornerStyle']

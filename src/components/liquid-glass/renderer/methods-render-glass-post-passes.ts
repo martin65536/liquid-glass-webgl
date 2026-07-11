@@ -243,6 +243,18 @@ export const glassPostPassMethods = {
       gl.uniform2f(this.uRm['uLayerScale'], layerScaleX, layerScaleY)
       gl.uniform1f(this.uRm['uElementRotation'], state.elementRotation)
       gl.uniform1f(this.uRm['uCornerStyle'], this.cornerStyle)
+      // Continuous-curvature SDF (dialog card): bind the SDF texture and set
+      // uniforms so the rim highlight's sdShape() uses the continuous SDF too.
+      if (el.useContinuousSdf && this.continuousSdfTexture) {
+        gl.activeTexture(gl.TEXTURE2)
+        gl.bindTexture(gl.TEXTURE_2D, this.continuousSdfTexture)
+        gl.uniform1i(this.uRm['uContinuousSdf'], 2)
+        gl.uniform1f(this.uRm['uUseContinuousSdf'], 1.0)
+        gl.uniform2f(this.uRm['uContinuousSdfTexSize'], this.continuousSdfTexSize[0], this.continuousSdfTexSize[1])
+        gl.uniform2f(this.uRm['uContinuousSdfElementSize'], state.origW * this.dpr, state.origH * this.dpr)
+      } else {
+        gl.uniform1f(this.uRm['uUseContinuousSdf'], 0.0)
+      }
       gl.uniform4f(this.uRm['uHighlightColor'], el.highlight.color[0], el.highlight.color[1], el.highlight.color[2], 1.0)
       gl.uniform1f(this.uRm['uHighlightAngle'], el.highlight.angle)
       gl.uniform1f(this.uRm['uHighlightFalloff'], el.highlight.falloff)
