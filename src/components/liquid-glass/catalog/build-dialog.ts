@@ -8,49 +8,91 @@ import {
   type CatalogResult,
   type ThemePalette,
 } from './types'
-import { makeBackButton, makeButton, makeGlassShape, makePlainRect, makeText } from './helpers'
+import { applyVerticalCenter, makeBackButton, makeButton, makeGlassShape, makePlainRect, makeText } from './helpers'
 
 /* ------------------------------------------------------------------ *
- * DIALOG — faithful to DialogContent.kt
+ * DIALOG — faithful port of DialogContent.kt
  *
- * Layout: full-screen dim scrim + centered glass card (48dp radius)
- * with title + lorem body + Cancel/Okay buttons.
+ * Original structure:
+ *   BackdropDemoScaffold(
+ *     Modifier.drawWithContent { drawContent(); drawRect(dimColor) }
+ *   ) { backdrop ->
+ *     Column(
+ *       Modifier.padding(40dp).drawBackdrop(
+ *         backdrop, shape = RoundedRectangle(48dp),
+ *         effects = { colorControls(brightness, saturation=1.5); blur(); lens(24dp, 48dp, depthEffect) },
+ *         highlight = Highlight.Plain,
+ *         onDrawSurface = { drawRect(containerColor) }
+ *       ).fillMaxWidth()
+ *     ) {
+ *       Title:  padding(28,24,28,12), 24sp Medium, contentColor
+ *       Body:   padding(24,12,24,12), 15sp, contentColor.copy(0.68), maxLines=5
+ *               (dark theme: BlendMode.Plus "plus lighter")
+ *       Row(padding(24,12,24,24), spacedBy(16dp)):
+ *         Cancel: Capsule, background(containerColor.copy(0.2)), 48dp, contentColor 16sp
+ *         Okay:   Capsule, background(accentColor),           48dp, White 16sp
+ *     }
+ *   }
+ *
+ * The scrim (drawRect(dimColor)) is painted onto the wallpaper Image via
+ * BackdropDemoScaffold's drawWithContent modifier, so the LayerBackdrop
+ * captures wallpaper+scrim as one opaque layer. The card's drawBackdrop
+ * refracts that, with effects applied in order: colorControls → blur → lens.
  * ------------------------------------------------------------------ */
-export function buildDialog(W: number, H: number, onBack: () => void, palette: ThemePalette = LIGHT_PALETTE): CatalogResult {
+export function buildDialog(
+  W: number,
+  H: number,
+  onBack: () => void,
+  palette: ThemePalette = LIGHT_PALETTE
+): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
-  const back = makeBackButton(onBack, palette, true) // scroll-anchored so it stays
+  // --- Back button (rendered on top via renderOnTop in catalog/index.ts) ---
+  const back = makeBackButton(onBack, palette, true)
   elements.push(back.element)
   interactions[back.element.id] = back.interaction
 
-  // Dim scrim covers the whole content area.
-  // Faithful to DialogContent.kt:
-  //   dimColor = if (isLightTheme) Color(0xFF29293A).copy(0.23f) else Color(0xFF121212).copy(0.56f)
-  const scrimY = 0
-  const scrimH = H
-  const dialogScrim = makePlainRect('dialog-scrim', { x: 0, y: scrimY, w: W, h: scrimH }, palette.dialogDim, 0)
-  dialogScrim.scroll = false
-  elements.push(dialogScrim)
+  // --- Dim scrim (full-screen) ---
+  // Faithful: dimColor = if (light) #29293A@0.23 else #121212@0.56.
+  // Painted as a plain-rect over the wallpaper. The dialog card samples
+  // this via its backdropFbo (wallpaper+scrim+cc opaque layer), so the scrim
+  // is baked into the card's backdrop. The plain-rect also darkens the card's
+  // surroundings (outside the card shape).
+  const scrim = makePlainRect(
+    'dialog-scrim',
+    { x: 0, y: 0, w: W, h: H },
+    palette.dialogDim,
+    0
+  )
+  scrim.scroll = false
+  elements.push(scrim)
 
-  // Dialog card.
-  // Faithful to DialogContent.kt:
-  //   containerColor = if (isLightTheme) Color(0xFFFAFAFA).copy(0.6f) else Color(0xFF121212).copy(0.4f)
-  //   blur(if (isLightTheme) 16f.dp else 8f.dp)
-  //   colorControls(brightness = if (isLightTheme) 0.2f else 0f, saturation = 1.5f)
-  const DIALOG_PAD = 40 * DP
-  const DIALOG_W = W - 2 * DIALOG_PAD
-  // Dialog height = natural Column content height (faithful to DialogContent.kt):
-  //   Title:   padding(28,24,28,12) + 24sp text (~32px) = 24+32+12 = 68
-  //   Body:    padding(24,12,24,12) + 5 lines × 15sp (~20px) = 12+100+12 = 124
-  //   Buttons: padding(24,12,24,24) + 48dp height = 12+48+24 = 84
-  //   Total = 68 + 124 + 84 = 276
-  const DIALOG_H = 276 * DP
-  const DIALOG_X = DIALOG_PAD
-  const DIALOG_Y = (H - DIALOG_H) / 2
-  const dialogCard = makeGlassShape(
+  // --- Dialog card ---
+  // Faithful: padding(40dp), RoundedRectangle(48dp).
+  //   containerColor = if (light) #FAFAFA@0.6 else #121212@0.4
+  //   effects: colorControls(brightness, saturation=1.5) → blur → lens(24dp, 48dp, depth)
+  //   highlight = Highlight.Plain
+  //   onDrawSurface = drawRect(containerColor)
+  //
+  // backdropFbo + useSeparableBlur: the card samples a dedicated backdrop FBO
+  // (wallpaper+scrim+colorControls as one opaque layer) and 2-pass blurs it,
+  // matching the original's colorControls→blur→lens order. This bypasses the
+  // scene FBO's alpha decay (glBlendFunc alpha-squaring on the scrim).
+  const PAD = 40 * DP
+  const CARD_W = W - 2 * PAD
+  // Column content height (faithful to the original's natural height):
+  //   Title:   padding(28,24,28,12) + 24sp(~32px) = 24+32+12 = 68
+  //   Body:    padding(24,12,24,12) + 5×15sp(~20px) = 12+100+12 = 124
+  //   Buttons: padding(24,12,24,24) + 48dp         = 12+48+24 = 84
+  //   Total = 276
+  const CARD_H = 276 * DP
+  const CARD_X = PAD
+  const CARD_Y = (H - CARD_H) / 2
+
+  const card = makeGlassShape(
     'dialog-card',
-    { x: DIALOG_X, y: DIALOG_Y, w: DIALOG_W, h: DIALOG_H },
+    { x: CARD_X, y: CARD_Y, w: CARD_W, h: CARD_H },
     {
       cornerRadius: 48 * DP,
       refractionHeight: 24 * DP,
@@ -64,44 +106,39 @@ export function buildDialog(W: number, H: number, onBack: () => void, palette: T
       depthEffect: true,
     }
   )
-  // Use a dedicated backdrop FBO (backdropFbo) holding wallpaper+scrim+
-  // colorControls as one opaque layer, then 2-pass blur it (useSeparableBlur),
-  // then lens refraction. This matches the original's effects order
-  // (colorControls→blur→lens) and bypasses the scene FBO's alpha decay.
-  // The scrim plain-rect above still darkens the card's surroundings.
-  dialogCard.backdropFbo = true
-  dialogCard.scrimColor = palette.dialogDim
-  dialogCard.useSeparableBlur = true
-  elements.push(dialogCard)
-  // Title — contentColor flips with theme.
-  // Faithful to DialogContent.kt: TextStyle(contentColor, 24f.sp, FontWeight.Medium).
-  // No halo — the dialog card provides enough contrast, and a halo on
-  // dark text (light theme) would just add a fuzzy dark blur that
-  // degrades text sharpness (matches the original which has no halo).
+  card.backdropFbo = true
+  card.scrimColor = palette.dialogDim
+  card.useSeparableBlur = true
+  elements.push(card)
+
+  // --- Title ---
+  // Faithful: padding(28,24,28,12), TextStyle(contentColor, 24sp, Medium).
+  // No halo (the original has none; the card provides contrast).
   elements.push(
     makeText(
       'dialog-title',
-      { x: DIALOG_X + 28, y: DIALOG_Y + 24, w: DIALOG_W - 56, h: 36 },
+      { x: CARD_X + 28, y: CARD_Y + 24, w: CARD_W - 56, h: 36 },
       'Dialog Title',
       { color: palette.dialogContentColor, fontSizePx: 24, fontWeight: 500, align: 'left', paddingPx: 0, halo: 'none' }
     )
   )
-  // Body — contentColor.copy(0.68f). Faithful to DialogContent.kt:
-  //   Light theme: 68% black, no BlendMode.Plus ("plus darker" = just regular)
-  //   Dark theme:  68% white with BlendMode.Plus ("plus lighter")
-  // We approximate the Plus blend by using a brighter color in dark mode
-  // (the Plus blend lightens the backdrop, so the text appears brighter
-  // than 68% white would suggest).
-  // No halo — the card provides enough contrast.
-  // Theme detection: light palette has dialogBrightness = 0.2, dark = 0.
-  const isLightPal = palette.dialogBrightness > 0.1
-  const bodyColor: [number, number, number, number] = isLightPal
-    ? [palette.dialogContentColor[0], palette.dialogContentColor[1], palette.dialogContentColor[2], 0.68]
-    : [palette.dialogContentColor[0], palette.dialogContentColor[1], palette.dialogContentColor[2], 0.78]
+
+  // --- Body ---
+  // Faithful: padding(24,12,24,12), TextStyle(contentColor.copy(0.68), 15sp), maxLines=5.
+  // Dark theme uses BlendMode.Plus ("plus lighter") — approximated by a brighter
+  // alpha (0.78) since the port lacks per-text blend modes.
+  const isLight = palette.dialogBrightness > 0.1
+  const bodyAlpha = isLight ? 0.68 : 0.78
+  const bodyColor: [number, number, number, number] = [
+    palette.dialogContentColor[0],
+    palette.dialogContentColor[1],
+    palette.dialogContentColor[2],
+    bodyAlpha,
+  ]
   elements.push(
     makeText(
       'dialog-body',
-      { x: DIALOG_X + 24, y: DIALOG_Y + 68 + 12, w: DIALOG_W - 48, h: 100 },
+      { x: CARD_X + 24, y: CARD_Y + 68 + 12, w: CARD_W - 48, h: 100 },
       LOREM_IPSUM,
       {
         color: bodyColor,
@@ -116,21 +153,22 @@ export function buildDialog(W: number, H: number, onBack: () => void, palette: T
       }
     )
   )
-  // Buttons (Cancel + Okay) — interactive (clickable in the original).
-  // Cancel: containerColor.copy(0.2f) — 0.2 alpha on top of the dialog
-  // container color, theme-aware.
-  // Okay: accentColor (#0088FF light / #0091FF dark).
-  // Both use kind='button' (so they get InteractiveHighlight press glow +
-  // scale) but with refractionHeight=0, blur=0 so they render as opaque
-  // capsules (no glass refraction, faithful to the original's solid
-  // background Row buttons).
-  const DIALOG_BTN_H = 48
-  const DIALOG_BTN_W = (DIALOG_W - 48 - 16) / 2
-  const DIALOG_BTN_Y = DIALOG_Y + DIALOG_H - 24 - DIALOG_BTN_H
+
+  // --- Buttons Row ---
+  // Faithful: padding(24,12,24,24), Arrangement.spacedBy(16dp), two weight(1f)
+  // Capsules at 48dp height.
+  //   Cancel: background(containerColor.copy(0.2)), contentColor 16sp
+  //   Okay:   background(accentColor),              White 16sp
+  // Both are solid (non-glass) capsules: refractionHeight=0, blur=0, no highlight.
+  const BTN_H = 48 * DP
+  const BTN_W = (CARD_W - 2 * 24 * DP - 16 * DP) / 2
+  const BTN_Y = CARD_Y + CARD_H - 24 * DP - BTN_H
+  const CANCEL_X = CARD_X + 24 * DP
+  const OKAY_X = CANCEL_X + BTN_W + 16 * DP
 
   const cancelBtn = makeButton(
     'dialog-cancel',
-    { x: DIALOG_X + 24, y: DIALOG_BTN_Y, w: DIALOG_BTN_W, h: DIALOG_BTN_H },
+    { x: CANCEL_X, y: BTN_Y, w: BTN_W, h: BTN_H },
     {
       label: '',
       tintColor: [0, 0, 0, 0],
@@ -149,7 +187,7 @@ export function buildDialog(W: number, H: number, onBack: () => void, palette: T
   elements.push(
     makeText(
       'dialog-cancel-label',
-      { x: DIALOG_X + 24, y: DIALOG_BTN_Y, w: DIALOG_BTN_W, h: DIALOG_BTN_H },
+      { x: CANCEL_X, y: BTN_Y, w: BTN_W, h: BTN_H },
       'Cancel',
       { color: palette.dialogContentColor, fontSizePx: 16, fontWeight: 400, align: 'center', paddingPx: 0, halo: 'none' }
     )
@@ -157,7 +195,7 @@ export function buildDialog(W: number, H: number, onBack: () => void, palette: T
 
   const okayBtn = makeButton(
     'dialog-okay',
-    { x: DIALOG_X + 24 + DIALOG_BTN_W + 16, y: DIALOG_BTN_Y, w: DIALOG_BTN_W, h: DIALOG_BTN_H },
+    { x: OKAY_X, y: BTN_Y, w: BTN_W, h: BTN_H },
     {
       label: '',
       tintColor: [0, 0, 0, 0],
@@ -173,11 +211,10 @@ export function buildDialog(W: number, H: number, onBack: () => void, palette: T
   okayBtn.outerShadow = null
   elements.push(okayBtn)
   interactions['dialog-okay'] = { onTap: () => {} }
-  // "Okay" label is always Color.White (DialogContent.kt line 133).
   elements.push(
     makeText(
       'dialog-okay-label',
-      { x: DIALOG_X + 24 + DIALOG_BTN_W + 16, y: DIALOG_BTN_Y, w: DIALOG_BTN_W, h: DIALOG_BTN_H },
+      { x: OKAY_X, y: BTN_Y, w: BTN_W, h: BTN_H },
       'Okay',
       { color: [1, 1, 1, 1], fontSizePx: 16, fontWeight: 400, align: 'center', paddingPx: 0 }
     )
@@ -185,5 +222,8 @@ export function buildDialog(W: number, H: number, onBack: () => void, palette: T
 
   // Dialog page is NOT scrollable — all elements fixed.
   for (const el of elements) el.scroll = false
+  // Vertically center the content (no-op for full-screen scrim, but keeps
+  // the card centered if H differs).
+  applyVerticalCenter(elements, 0, H, H)
   return { elements, interactions, contentHeight: H }
 }
