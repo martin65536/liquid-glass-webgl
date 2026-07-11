@@ -115,4 +115,13 @@ uniform float uMagnifierOffsetY;    // sample Y offset to cursor (80dp, device p
 // clean wallpaper instead of the alpha-decayed scene FBO. Faithful to the
 // original where LayerBackdrop captures the wallpaper Image (alpha=1).
 uniform float uSampleWallpaper;     // 0 or 1
+// --- Scrim color (applied to the wallpaper BEFORE colorControls/blur/lens) ---
+// Faithful to DialogContent.kt / ControlCenterContent.kt where the scrim
+// (drawRect(dimColor)) is painted onto the wallpaper Image (via
+// BackdropDemoScaffold's modifier = drawWithContent { drawContent(); drawRect(dimColor) }),
+// so the LayerBackdrop captures wallpaper+scrim as one opaque layer.
+// In the port, when uSampleWallpaper=1 (clean wallpaper), we apply the scrim
+// here in the shader to replicate that composited backdrop. uScrimColor.a=0
+// means no scrim. Applied as SrcOver: backdrop.rgb = scrim.rgb*scrim.a + backdrop.rgb*(1-scrim.a).
+uniform vec4 uScrimColor;           // rgba 0..1; a=0 = no scrim
 `

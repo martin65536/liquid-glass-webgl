@@ -449,6 +449,11 @@ export const glassElementPassMethods = {
     // checks uSampleWallpaper to switch between sceneUv+uBackdrop and
     // coverUv+uWallpaperSampler.
     gl.uniform1f(this.uEl['uSampleWallpaper'], el.sampleWallpaper ? 1.0 : 0.0)
+    // Scrim color applied to the wallpaper backdrop (only when sampleWallpaper).
+    // Faithful to the original where the scrim is painted onto the wallpaper
+    // Image before the backdrop effects run.
+    const sc = el.scrimColor ?? [0, 0, 0, 0]
+    gl.uniform4f(this.uEl['uScrimColor'], sc[0], sc[1], sc[2], sc[3])
 
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 

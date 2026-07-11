@@ -438,6 +438,12 @@ export interface GlassElementConfig extends GlassButtonConfig {
    *  uBackdrop texture binding in renderGlassElementPass — the element
    *  still composites onto the scene FBO normally. */
   sampleWallpaper?: boolean
+  /** Scrim color applied to the wallpaper backdrop BEFORE colorControls/blur/lens.
+   *  Only used when sampleWallpaper=true. Faithful to DialogContent.kt /
+   *  ControlCenterContent.kt where the scrim is painted onto the wallpaper Image
+   *  (via BackdropDemoScaffold's drawWithContent modifier), so the LayerBackdrop
+   *  captures wallpaper+scrim as one opaque layer. [r,g,b,a] 0..1; a=0 = no scrim. */
+  scrimColor?: [number, number, number, number]
 }
 
 /* Per-element interaction state — mirrors InteractiveHighlight.kt. */

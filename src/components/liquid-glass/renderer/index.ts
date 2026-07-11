@@ -246,7 +246,7 @@ export class LiquidGlassRenderer {
       'uTabContentCount', 'uTabsGlassLayer',
       'uSdfTexSampler', 'uUseSdfTexture', 'uSdfTexSize', 'uSdfLightAngle', 'uEnterAlpha',
       'uUseMagnifier', 'uMagnifierZoom', 'uMagnifierOffsetY',
-      'uSampleWallpaper',
+      'uSampleWallpaper', 'uScrimColor',
       'uElementRotation',
     ]
     for (const n of elNames) this.uEl[n] = gl.getUniformLocation(this.elementProgram, n)
