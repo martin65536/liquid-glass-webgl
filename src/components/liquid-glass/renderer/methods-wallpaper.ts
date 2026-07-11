@@ -95,7 +95,7 @@ export const wallpaperMethods = {
     if (this.continuousSdfTexture) gl.deleteTexture(this.continuousSdfTexture)
     const texObj = gl.createTexture()!
     gl.bindTexture(gl.TEXTURE_2D, texObj)
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true)  // flip Y: Canvas2D Y-down → WebGL Y-up
     gl.texImage2D(
       gl.TEXTURE_2D,
       0,
