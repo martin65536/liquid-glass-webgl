@@ -92,6 +92,39 @@ type GestureMode =
   | 'transform' // 2-pointer pinch zoom + rotate (onTransform element)
   | 'none' // no active gesture
 
+/** Per-pointer gesture state. Stored in a Map<pointerId, GestureState> so
+ *  multiple pointers can interact with different elements simultaneously
+ *  (multi-touch). When 2 pointers land on the same element with onTransform,
+ *  they form a transform pair (pinch zoom + rotate) — both entries have
+ *  mode='transform' and point at each other via transformPartner. */
+interface GestureState {
+  /** Hit element id (or null for scroll/empty space). */
+  pressedId: string | null
+  /** Canvas-local CSS px at press. */
+  startX: number
+  startY: number
+  /** Client-Y at press (for scroll delta computation). */
+  startClientY: number
+  /** ScrollY at press (for scroll delta computation). */
+  startScrollY: number
+  /** Whether onDragStart has fired for this gesture. */
+  dragStarted: boolean
+  /** Current gesture mode. */
+  mode: GestureMode
+  /** Whether the hit element had an onDrag handler (so we know
+   *  whether to commit to drag or scroll on horizontal/vertical move). */
+  hasDrag: boolean
+  /** Recent (timestamp, clientX, clientY) samples for inertia + release
+   *  velocity. Both axes are tracked — faithful to Compose's VelocityTracker
+   *  which returns an Offset(x, y). */
+  velocitySamples: { t: number; x: number; y: number }[]
+  /** Current canvas-local CSS px. */
+  x: number
+  y: number
+  /** pointerId of the other pointer in a transform pair (else null). */
+  transformPartner: number | null
+}
+
 export function LiquidGlassCanvas({
   wallpaperSrc,
   elements,
@@ -118,40 +151,18 @@ export function LiquidGlassCanvas({
   // Module-level draggingGroups from catalog.tsx — tracks which toggle
   // groups are being dragged (setToggleTarget skipped to avoid drift).
 
-  // --- Gesture state (all in refs so handlers don't need re-creation) ---
-  /** Currently pressed element id (or null for scroll/empty). */
-  const pressedIdRef = React.useRef<string | null>(null)
-  /** Press start position (canvas-local CSS px). */
-  const pressedStartRef = React.useRef<{ x: number; y: number }>({ x: 0, y: 0 })
-  /** Client-Y at press start (for scroll delta computation). */
-  const pressStartClientYRef = React.useRef(0)
-  /** ScrollY at press start (for scroll delta computation). */
-  const pressStartScrollYRef = React.useRef(0)
-  /** Whether onDragStart has fired for the current gesture. */
-  const dragStartedRef = React.useRef(false)
-  /** Current gesture mode. */
-  const modeRef = React.useRef<GestureMode>('none')
-  /** Whether the pressed element had an onDrag handler (so we know
-   *  whether to commit to drag or scroll on horizontal/vertical move). */
-  const pressedHasDragRef = React.useRef(false)
+  // --- Gesture state (per-pointer, in a Map so handlers don't need re-creation) ---
+  // Each active pointer has its own GestureState. Multiple pointers can
+  // interact with different elements simultaneously (multi-touch). When 2
+  // pointers land on the same element with onTransform, they form a
+  // transform pair (pinch zoom + rotate) — both entries' mode is 'transform'
+  // and they reference each other via transformPartner.
+  const gesturesRef = React.useRef<Map<number, GestureState>>(new Map())
 
-  // --- Multi-pointer tracking for transform gestures (pinch zoom + rotate) ---
-  // Maps pointerId → { x, y } (canvas-local CSS px). When 2 pointers are down
-  // on the same element with onTransform, we compute zoom/rotate/pan deltas
-  // from the changing distance + angle between them (faithful to Compose's
-  // detectTransformGestures).
-  const activePointersRef = React.useRef<Map<number, { x: number; y: number }>>(new Map())
-  /** Previous 2-pointer state for delta computation: { dist, angle, centroid }. */
+  // --- Multi-pointer transform tracking ---
+  // Previous 2-pointer state for delta computation: { dist, angle, centroid }.
+  // Only set while 2 pointers are in transform mode on the same element.
   const prevPinchRef = React.useRef<{ dist: number; angle: number; cx: number; cy: number } | null>(null)
-
-  // --- Velocity tracking for scroll inertia + drag release velocity ---
-  // We keep a small ring buffer of recent (timestamp, clientX, clientY)
-  // samples and compute the release velocity on pointerup. Both axes are
-  // tracked so horizontal-drag elements (toggle/slider/tabs) could use the
-  // x velocity too, and vertical-drag elements (control center, scroll)
-  // use the y velocity — faithful to Compose's VelocityTracker which
-  // tracks a 2-D Offset.
-  const velocitySamplesRef = React.useRef<{ t: number; x: number; y: number }[]>([])
 
   // --- Init renderer + wallpaper + resize observer ---
   React.useEffect(() => {
@@ -278,9 +289,11 @@ export function LiquidGlassCanvas({
   }
 
   /** Compute scroll velocity (px/s) from recent samples. Returns the
-   *  vertical scroll velocity (negative = finger moved down = scroll up). */
-  const computeReleaseVelocity = (): number => {
-    const samples = velocitySamplesRef.current
+   *  vertical scroll velocity (negative = finger moved down = scroll up).
+   *  Takes the per-pointer sample buffer so each pointer computes its own. */
+  const computeReleaseVelocity = (
+    samples: { t: number; x: number; y: number }[]
+  ): number => {
     if (samples.length < 2) return 0
     // Use the last ~100ms of samples for a stable estimate.
     const now = samples[samples.length - 1].t
@@ -298,9 +311,11 @@ export function LiquidGlassCanvas({
   }
 
   /** Compute release velocity (px/s) on both axes from recent samples.
-   *  Faithful to Compose's VelocityTracker which returns an Offset(x, y). */
-  const computeReleaseVelocity2D = (): { x: number; y: number } => {
-    const samples = velocitySamplesRef.current
+   *  Faithful to Compose's VelocityTracker which returns an Offset(x, y).
+   *  Takes the per-pointer sample buffer so each pointer computes its own. */
+  const computeReleaseVelocity2D = (
+    samples: { t: number; x: number; y: number }[]
+  ): { x: number; y: number } => {
     if (samples.length < 2) return { x: 0, y: 0 }
     const last = samples[samples.length - 1]
     const now = last.t
@@ -326,45 +341,7 @@ export function LiquidGlassCanvas({
       if (!canvas || !renderer) return
       const { x, y } = localPos(e)
       const scrollY = renderer.getScrollY()
-
-      // Track ALL active pointers (for multi-pointer transform gestures).
-      activePointersRef.current.set(e.pointerId, { x, y })
-
-      // If a second pointer lands on the SAME element as the first, switch
-      // to transform mode (cancel any pending drag/scroll).
-      if (activePointersRef.current.size === 2 && pressedIdRef.current) {
-        // Check if the second pointer is also on the pressed element.
-        const id = pressedIdRef.current
-        const hitEl = els.find((b) => b.id === id)
-        if (hitEl) {
-          const hr = hitEl.hitRect ?? hitEl.rect
-          const visibleHY = hitEl.scroll ? hr.y - scrollY : hr.y
-          if (x >= hr.x && x <= hr.x + hr.w && y >= visibleHY && y <= visibleHY + hr.h) {
-            // Both pointers on the same element — start transform mode.
-            modeRef.current = 'transform'
-            // Initialize prevPinch from the current 2-pointer state.
-            const pts = Array.from(activePointersRef.current.values())
-            const dx = pts[1].x - pts[0].x
-            const dy = pts[1].y - pts[0].y
-            prevPinchRef.current = {
-              dist: Math.hypot(dx, dy),
-              angle: Math.atan2(dy, dx),
-              cx: (pts[0].x + pts[1].x) / 2,
-              cy: (pts[0].y + pts[1].y) / 2,
-            }
-            // Cancel any pending press highlight.
-            if (hitEl.isInteractive && (hitEl.kind === 'button' || hitEl.kind === 'text')) {
-              renderer.setPressed(id, false)
-            }
-            try {
-              canvas.setPointerCapture(e.pointerId)
-            } catch {
-              // ignore
-            }
-            return
-          }
-        }
-      }
+      const interactions = interactionsRef.current
 
       // Hit-test topmost first (last in array = topmost in z-order).
       // Skip decorative elements (no interactions AND not isInteractive)
@@ -372,7 +349,6 @@ export function LiquidGlassCanvas({
       // E.g. the slider fill (plain-rect, no interactions) sits on top of
       // the slider track (plain-rect, has onTap/onDrag) — without this
       // skip, pressing on the colored fill would miss the track.
-      const interactions0 = interactionsRef.current
       let hit: GlassElementConfig | null = null
       for (let i = els.length - 1; i >= 0; i--) {
         const el = els[i]
@@ -405,7 +381,7 @@ export function LiquidGlassCanvas({
           testY >= visibleHY &&
           testY <= visibleHY + hr.h
         ) {
-          const hasInteraction = !!interactions0?.[el.id]
+          const hasInteraction = !!interactions?.[el.id]
           if (!hasInteraction && !el.isInteractive) {
             // Decorative element — fall through to elements below.
             continue
@@ -415,18 +391,80 @@ export function LiquidGlassCanvas({
         }
       }
 
-      // Reset gesture state.
-      pressedIdRef.current = hit ? hit.id : null
-      pressedStartRef.current = { x, y }
-      pressStartClientYRef.current = e.clientY
-      pressStartScrollYRef.current = renderer.getScrollY()
-      dragStartedRef.current = false
-      modeRef.current = 'pending'
-      velocitySamplesRef.current = [{ t: performance.now(), x: e.clientX, y: e.clientY }]
+      // If a second pointer lands on the SAME element as an existing pointer
+      // AND that element has onTransform, enter transform mode (pinch zoom +
+      // rotate). Both pointers transition to 'transform' mode and reference
+      // each other via transformPartner. We skip this if the existing pointer
+      // is already in transform mode (a third finger on the same element just
+      // starts its own pending gesture — it can't join an existing pair).
+      if (hit) {
+        const hitId = hit.id
+        const existingEntry = Array.from(gesturesRef.current.entries()).find(
+          ([, g]) => g.pressedId === hitId && g.mode !== 'transform'
+        )
+        if (existingEntry && interactions?.[hitId]?.onTransform) {
+          const [partnerPid, partnerGs] = existingEntry
+          // Cancel any pending press highlight on the shared element.
+          if (hit.isInteractive && (hit.kind === 'button' || hit.kind === 'text')) {
+            renderer.setPressed(hitId, false)
+          }
+          // Initialize prevPinch from the 2-pointer state.
+          const p1 = { x: partnerGs.x, y: partnerGs.y }
+          const p2 = { x, y }
+          const dx = p2.x - p1.x
+          const dy = p2.y - p1.y
+          prevPinchRef.current = {
+            dist: Math.hypot(dx, dy),
+            angle: Math.atan2(dy, dx),
+            cx: (p1.x + p2.x) / 2,
+            cy: (p1.y + p2.y) / 2,
+          }
+          // Promote the existing pointer to transform mode.
+          partnerGs.mode = 'transform'
+          partnerGs.transformPartner = e.pointerId
+          // Initialize the new pointer's gesture state directly in transform mode.
+          gesturesRef.current.set(e.pointerId, {
+            pressedId: hitId,
+            startX: x,
+            startY: y,
+            startClientY: e.clientY,
+            startScrollY: renderer.getScrollY(),
+            dragStarted: false,
+            mode: 'transform',
+            hasDrag: !!interactions?.[hitId]?.onDrag,
+            velocitySamples: [{ t: performance.now(), x: e.clientX, y: e.clientY }],
+            x,
+            y,
+            transformPartner: partnerPid,
+          })
+          try {
+            canvas.setPointerCapture(e.pointerId)
+          } catch {
+            // ignore
+          }
+          return
+        }
+      }
 
-      const interactions = interactionsRef.current
+      // Otherwise: this pointer starts its own independent gesture. Multiple
+      // pointers can be down simultaneously, each with its own GestureState —
+      // e.g. drag a slider with one finger while pressing a button with
+      // another, or scroll the canvas while dragging a toggle.
       const hasDrag = !!(hit && interactions?.[hit.id]?.onDrag)
-      pressedHasDragRef.current = hasDrag
+      gesturesRef.current.set(e.pointerId, {
+        pressedId: hit ? hit.id : null,
+        startX: x,
+        startY: y,
+        startClientY: e.clientY,
+        startScrollY: renderer.getScrollY(),
+        dragStarted: false,
+        mode: 'pending',
+        hasDrag,
+        velocitySamples: [{ t: performance.now(), x: e.clientX, y: e.clientY }],
+        x,
+        y,
+        transformPartner: null,
+      })
 
       // For 'button' kind with isInteractive, trigger press highlight
       // immediately. If the gesture later becomes a scroll, we'll cancel.
@@ -459,22 +497,35 @@ export function LiquidGlassCanvas({
       if (!canvas || !renderer) return
       const { x, y } = localPos(e)
 
-      // Update the active pointer position (for multi-pointer transform).
-      if (activePointersRef.current.has(e.pointerId)) {
-        activePointersRef.current.set(e.pointerId, { x, y })
-      }
+      // Look up this pointer's gesture state. If there's no entry, the
+      // pointer isn't part of any gesture (shouldn't happen — every
+      // pointerdown creates an entry — but be defensive).
+      const gs = gesturesRef.current.get(e.pointerId)
+      if (!gs) return
+
+      // Update current position (used by transform delta computation and
+      // by the partner pointer if it's in transform mode).
+      gs.x = x
+      gs.y = y
 
       // --- Transform mode (2-pointer pinch zoom + rotate) ---
-      if (modeRef.current === 'transform' && activePointersRef.current.size >= 2) {
-        const id = pressedIdRef.current
+      // Both pointers in a transform pair handle the move independently;
+      // each fires onTransform with the deltas computed from the current
+      // 2-pointer geometry vs the previous snapshot. This matches Compose's
+      // detectTransformGestures which recomputes on every pointer move.
+      if (gs.mode === 'transform') {
+        const partnerPid = gs.transformPartner
+        if (partnerPid == null) return
+        const partner = gesturesRef.current.get(partnerPid)
+        if (!partner) return
+        const id = gs.pressedId
         if (!id) return
-        const pts = Array.from(activePointersRef.current.values()).slice(0, 2)
-        const dx = pts[1].x - pts[0].x
-        const dy = pts[1].y - pts[0].y
+        const dx = partner.x - gs.x
+        const dy = partner.y - gs.y
         const dist = Math.hypot(dx, dy)
         const angle = Math.atan2(dy, dx)
-        const cx = (pts[0].x + pts[1].x) / 2
-        const cy = (pts[0].y + pts[1].y) / 2
+        const cx = (gs.x + partner.x) / 2
+        const cy = (gs.y + partner.y) / 2
         const prev = prevPinchRef.current
         if (prev && prev.dist > 0.001) {
           const gestureZoom = dist / prev.dist
@@ -490,19 +541,19 @@ export function LiquidGlassCanvas({
       }
 
       // Track velocity samples for inertia (always, while pressed).
-      velocitySamplesRef.current.push({ t: performance.now(), x: e.clientX, y: e.clientY })
+      gs.velocitySamples.push({ t: performance.now(), x: e.clientX, y: e.clientY })
       // Cap the buffer at ~20 samples.
-      if (velocitySamplesRef.current.length > 20) {
-        velocitySamplesRef.current.shift()
+      if (gs.velocitySamples.length > 20) {
+        gs.velocitySamples.shift()
       }
 
-      const dx = x - pressedStartRef.current.x
-      const dy = y - pressedStartRef.current.y
+      const dx = x - gs.startX
+      const dy = y - gs.startY
       const absDx = Math.abs(dx)
       const absDy = Math.abs(dy)
 
       // --- Pending → commit to drag or scroll ---
-      if (modeRef.current === 'pending') {
+      if (gs.mode === 'pending') {
         // Small wiggle threshold — keep press highlight alive for tiny
         // movements (finger jitter on tap). Press highlight position
         // follows the finger during this phase.
@@ -510,7 +561,7 @@ export function LiquidGlassCanvas({
 
         // While pending, update press highlight position so the glow
         // tracks the finger even before we commit to drag or scroll.
-        const id0 = pressedIdRef.current
+        const id0 = gs.pressedId
         if (id0) {
           const els0 = elementsRef.current
           const el0 = els0.find((b) => b.id === id0)
@@ -535,7 +586,7 @@ export function LiquidGlassCanvas({
         //   - Text list items (interactive 'text' kind, no onDrag): allow
         //     vertical-dominant scroll-takeover so the home page scrolls.
         //   - Empty / non-interactive: scroll.
-        const id = pressedIdRef.current
+        const id = gs.pressedId
         const els = elementsRef.current
         const hitEl = id ? els.find((b) => b.id === id) : null
         const isButton = hitEl?.kind === 'button' && hitEl?.isInteractive
@@ -548,8 +599,8 @@ export function LiquidGlassCanvas({
 
         if (hasDrag) {
           // Element owns the gesture — commit to drag immediately.
-          modeRef.current = 'drag'
-          dragStartedRef.current = true
+          gs.mode = 'drag'
+          gs.dragStarted = true
           interactionsRef.current?.[id!]?.onDragStart?.({ x, y })
           // Fall through to the committed 'drag' branch below.
         } else if (isButton || isShapeButton) {
@@ -565,6 +616,16 @@ export function LiquidGlassCanvas({
             absDy > absDx + 2 && absDy >= SCROLL_TAKEOVER_THRESHOLD
 
           if (verticalDominant) {
+            // SCROLL LOCK: only one pointer drives scroll at a time. If
+            // another pointer is already scrolling, this pointer stays in
+            // 'pending' (no scroll takeover) — prevents two fingers from
+            // fighting over scroll.
+            const otherScrolling = Array.from(gesturesRef.current.entries()).some(
+              ([pid, g]) => pid !== e.pointerId && g.mode === 'scroll'
+            )
+            if (otherScrolling) {
+              return
+            }
             // Convert to scroll. Cancel any pending text press.
             if (id) {
               const el = els.find((b) => b.id === id)
@@ -572,23 +633,23 @@ export function LiquidGlassCanvas({
                 renderer.setPressed(id, false)
               }
             }
-            modeRef.current = 'scroll'
-            const scrollDelta = e.clientY - pressStartClientYRef.current
-            renderer.setScrollY(pressStartScrollYRef.current - scrollDelta)
+            gs.mode = 'scroll'
+            const scrollDelta = e.clientY - gs.startClientY
+            renderer.setScrollY(gs.startScrollY - scrollDelta)
             return
           }
         }
       }
 
       // --- Committed modes ---
-      if (modeRef.current === 'scroll') {
-        const scrollDelta = e.clientY - pressStartClientYRef.current
-        renderer.setScrollY(pressStartScrollYRef.current - scrollDelta)
+      if (gs.mode === 'scroll') {
+        const scrollDelta = e.clientY - gs.startClientY
+        renderer.setScrollY(gs.startScrollY - scrollDelta)
         return
       }
 
-      if (modeRef.current === 'drag') {
-        const id = pressedIdRef.current
+      if (gs.mode === 'drag') {
+        const id = gs.pressedId
         if (!id) return
         const els = elementsRef.current
         const el = els.find((b) => b.id === id)
@@ -610,46 +671,50 @@ export function LiquidGlassCanvas({
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       const renderer = rendererRefInternal.current
       const canvas = canvasRef.current
-      const mode = modeRef.current
-      const id = pressedIdRef.current
+      const gs = gesturesRef.current.get(e.pointerId)
 
-      // Remove this pointer from the active set (multi-pointer tracking).
-      activePointersRef.current.delete(e.pointerId)
-
-      // If we were in transform mode and one pointer lifted, exit transform.
-      // If a pointer remains, fall back to drag for the remaining pointer.
-      if (mode === 'transform') {
-        if (activePointersRef.current.size < 2) {
-          prevPinchRef.current = null
-          // If one pointer remains, switch to drag mode so it can pan.
-          if (activePointersRef.current.size === 1 && id) {
-            const [pt] = Array.from(activePointersRef.current.values())
-            pressedStartRef.current = { x: pt.x, y: pt.y }
-            modeRef.current = 'drag'
-            dragStartedRef.current = true
-            interactionsRef.current?.[id]?.onDragStart?.({ x: pt.x, y: pt.y })
-          } else {
-            modeRef.current = 'none'
-            pressedIdRef.current = null
-          }
-          if (canvas && canvas.hasPointerCapture(e.pointerId)) {
-            try { canvas.releasePointerCapture(e.pointerId) } catch { /* ignore */ }
-          }
-          return
-        }
-        // Still 2+ pointers — re-init prevPinch with remaining pointers.
-        const pts = Array.from(activePointersRef.current.values()).slice(0, 2)
-        const dx = pts[1].x - pts[0].x
-        const dy = pts[1].y - pts[0].y
-        prevPinchRef.current = {
-          dist: Math.hypot(dx, dy),
-          angle: Math.atan2(dy, dx),
-          cx: (pts[0].x + pts[1].x) / 2,
-          cy: (pts[0].y + pts[1].y) / 2,
+      // No gesture for this pointer — just release capture if any.
+      if (!gs) {
+        if (canvas && canvas.hasPointerCapture(e.pointerId)) {
+          try { canvas.releasePointerCapture(e.pointerId) } catch { /* ignore */ }
         }
         return
       }
 
+      const mode = gs.mode
+      const id = gs.pressedId
+
+      // --- Transform mode exit ---
+      // When one of the 2 transform pointers lifts, the remaining pointer
+      // switches to drag mode (faithful to Compose: a pinch that loses a
+      // finger becomes a pan). The shared element id is preserved.
+      if (mode === 'transform') {
+        const partnerPid = gs.transformPartner
+        // Remove this pointer's gesture state.
+        gesturesRef.current.delete(e.pointerId)
+        prevPinchRef.current = null
+        if (partnerPid != null) {
+          const partner = gesturesRef.current.get(partnerPid)
+          if (partner) {
+            partner.transformPartner = null
+            partner.mode = 'drag'
+            partner.dragStarted = true
+            // Re-anchor the drag at the partner's current position so the
+            // delta computation is continuous from here.
+            partner.startX = partner.x
+            partner.startY = partner.y
+            if (partner.pressedId) {
+              interactionsRef.current?.[partner.pressedId]?.onDragStart?.({ x: partner.x, y: partner.y })
+            }
+          }
+        }
+        if (canvas && canvas.hasPointerCapture(e.pointerId)) {
+          try { canvas.releasePointerCapture(e.pointerId) } catch { /* ignore */ }
+        }
+        return
+      }
+
+      // --- Non-transform: release press, fire tap/dragEnd, scroll inertia ---
       if (renderer) {
         // Release button/text/shape-button press.
         if (id) {
@@ -665,7 +730,7 @@ export function LiquidGlassCanvas({
 
         // Apply scroll inertia on release.
         if (mode === 'scroll') {
-          const v = computeReleaseVelocity()
+          const v = computeReleaseVelocity(gs.velocitySamples)
           if (Math.abs(v) > 50) {
             renderer.setScrollVelocity(v)
           }
@@ -674,13 +739,13 @@ export function LiquidGlassCanvas({
         // Fire onDragEnd / onTap.
         if (id) {
           const { x, y } = localPos(e)
-          if (dragStartedRef.current) {
+          if (gs.dragStarted) {
             // Compute release velocity (px/s, positive y = downward) from
             // recent pointer samples on BOTH axes — faithful to Compose's
             // VelocityTracker which returns an Offset(x, y). Previously vx
             // was always 0 (only y was tracked), which was wrong for any
             // horizontal-drag consumer.
-            const { x: vx, y: vy } = computeReleaseVelocity2D()
+            const { x: vx, y: vy } = computeReleaseVelocity2D(gs.velocitySamples)
             interactionsRef.current?.[id]?.onDragEnd?.({ x, y }, { x: vx, y: vy })
           } else if (mode === 'pending' || mode === 'drag') {
             // Treat as a tap (no scroll takeover happened and no drag started).
@@ -689,13 +754,10 @@ export function LiquidGlassCanvas({
         }
       }
 
-      // Reset gesture state.
-      pressedIdRef.current = null
-      dragStartedRef.current = false
-      modeRef.current = 'none'
-      velocitySamplesRef.current = []
+      // Remove this pointer's gesture state.
+      gesturesRef.current.delete(e.pointerId)
       if (canvas && canvas.hasPointerCapture(e.pointerId)) {
-        canvas.releasePointerCapture(e.pointerId)
+        try { canvas.releasePointerCapture(e.pointerId) } catch { /* ignore */ }
       }
     },
     []

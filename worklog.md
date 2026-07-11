@@ -1727,3 +1727,67 @@ Stage Summary:
 - The long-standing glass translucency bug is FIXED at the root: glBlendFuncSeparate ensures the FBO alpha channel composites correctly (no src.a² squaring), so the scene FBO stays opaque wherever wallpaper+content is opaque.
 - Glass elements now sample an opaque backdrop → alpha=1 → matches the original's opaque offscreen backdrop layer. Only surfaceColor (drawRect containerColor) provides translucency, exactly like the original.
 - No more "炸了" — all pages render correctly.
+
+---
+
+## Task: multi-pointer-1 — Multi-touch / multi-pointer support in LiquidGlassCanvas (2025-01)
+
+**Agent**: multi-pointer-1
+**Task ID**: multi-pointer-1
+**Files modified** (in `/home/z/my-project/src/components/liquid-glass/`):
+- `context.tsx` — adapted the canvas pointer handling to support multi-touch / multi-pointer so users can interact with multiple controls simultaneously (drag two sliders at once, press a button while dragging another element, scroll the canvas while dragging a toggle, etc.).
+
+### Summary of changes
+
+**1. New `GestureState` interface** (added right after the `GestureMode` type). Each active pointer now has its own `GestureState` stored in a `Map<pointerId, GestureState>`. Fields:
+- `pressedId` — hit element id (or null for scroll/empty)
+- `startX`, `startY` — canvas-local CSS px at press
+- `startClientY`, `startScrollY` — for scroll delta computation
+- `dragStarted` — whether `onDragStart` has fired
+- `mode` — `GestureMode` ('none' | 'pending' | 'drag' | 'scroll' | 'transform')
+- `hasDrag` — whether the hit element has `onDrag`
+- `velocitySamples` — per-pointer `{ t, x, y }[]` ring buffer
+- `x`, `y` — current canvas-local CSS px
+- `transformPartner` — `pointerId` of the other pointer in a transform pair (else null)
+
+The `GestureMode` type itself was left in place (still compatible).
+
+**2. Refs replaced.** Removed the single-set gesture refs:
+`pressedIdRef`, `pressedStartRef`, `pressStartClientYRef`, `pressStartScrollYRef`, `dragStartedRef`, `modeRef`, `pressedHasDragRef`, `velocitySamplesRef`, `activePointersRef`.
+
+Replaced with a single:
+```ts
+const gesturesRef = React.useRef<Map<number, GestureState>>(new Map())
+```
+Kept `prevPinchRef` (shared between the 2 transform-pair pointers).
+
+**3. `computeReleaseVelocity()` and `computeReleaseVelocity2D()`** now accept a `samples: { t, x, y }[]` parameter (instead of reading from the global `velocitySamplesRef.current`), so each pointer computes its own release velocity from its own sample buffer.
+
+**4. `handlePointerDown`** — Each pointer independently hit-tests and initializes its own `GestureState` with `mode: 'pending'`. Hit-test is done first, then:
+- If the new pointer lands on the SAME element as an existing pointer AND that element has `onTransform` AND the existing pointer is not already in transform mode → enter transform mode: promote the existing pointer to `mode: 'transform'`, create the new pointer's state directly in `'transform'` mode, set `transformPartner` on both, init `prevPinchRef`, cancel any pending press highlight on the shared element.
+- Otherwise → the new pointer starts its own independent gesture (its own pending/drag/scroll). Multiple pointers can interact with different elements simultaneously.
+
+**5. `handlePointerMove`** — Looks up the `GestureState` by `e.pointerId`. Updates `gs.x` / `gs.y` first (so the partner pointer in transform mode always sees the latest position). Handles transform mode first: both pointers in a pair independently fire `onTransform` with deltas computed from the current 2-pointer geometry vs `prevPinchRef` (matches Compose's `detectTransformGestures` which recomputes on every pointer move). Then handles each pointer's own pending/drag/scroll mode independently. Per-pointer velocity samples are pushed to `gs.velocitySamples`.
+
+**Scroll lock**: when a pointer would commit to scroll (vertical-dominant movement on text/empty space), it checks if any OTHER pointer is already in `'scroll'` mode. If yes, this pointer stays in `'pending'` (no scroll takeover) — prevents two fingers from fighting over scroll. The first pointer to commit wins.
+
+**6. `handlePointerUp`** — Looks up `GestureState` by `e.pointerId`:
+- Transform mode: delete this pointer's state, clear `prevPinchRef`. If a partner remains, switch it to `'drag'` mode with `dragStarted = true`, re-anchor its `startX`/`startY` at its current position, fire `onDragStart` on the shared element id (so the remaining finger pans the element after the pinch loses a finger — faithful to Compose).
+- Non-transform: release press highlight (button/text/shape-button), apply scroll inertia from `gs.velocitySamples` via `computeReleaseVelocity(gs.velocitySamples)`, fire `onDragEnd` (with 2-D velocity via `computeReleaseVelocity2D(gs.velocitySamples)`) or `onTap` as appropriate, then delete the gesture state.
+
+**7. Canvas style `touchAction: 'none'`** preserved (already set) so the browser doesn't intercept multi-touch gestures.
+
+### Constraints honored
+- TypeScript strict mode — passes `bunx tsc --noEmit` cleanly (no errors in `context.tsx`).
+- `bun run lint` — passes (no errors).
+- `'use client'` preserved.
+- No test code added.
+- Single-pointer behavior is preserved exactly: with only one pointer down, the per-pointer Map has exactly one entry and the flow through `pending → drag | scroll` is identical to before (same thresholds, same callback ordering, same velocity computation).
+- `setPressed` / `setDragPosition` / `setScrollY` / `setScrollVelocity` are called concurrently from different pointers on different elements — safe per the task spec.
+- No changes outside `context.tsx`. The `ElementInteraction` interface, `GlassElementConfig`, renderer API, props, useEffects, JSX return — all unchanged.
+
+### Notable design decisions
+- A third finger landing on an element already in transform mode does NOT join the pair — it just starts its own pending gesture. (The pair is exclusive.)
+- When the first pointer of a transform pair lifts, the remaining pointer switches to drag with `onDragStart` fired (matches the original single-set behavior). If both lift simultaneously, the second lift fires `onDragEnd` on the shared element — matches the original code's `onDragStart → onDragEnd` sequence on transform exit.
+- The `existingEntry` lookup for transform entry uses `g.mode !== 'transform'` so an already-paired pointer is skipped.
+- The transform entry check requires `interactions?.[hitId]?.onTransform` to be set. Elements with only `onDrag` (e.g. sliders, toggles) do NOT enter transform mode when a second pointer lands — each pointer just gets its own independent drag gesture on the same element (per the spec: "Otherwise, the new pointer starts its own independent gesture").
