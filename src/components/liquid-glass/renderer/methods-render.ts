@@ -370,7 +370,13 @@ export const renderMethods = {
       }
       gl.useProgram(this.plainRectProgram)
       this.setSdfUniforms(this.uPr, this.aPosLocPr, fillRect, el.cornerRadius)
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+      // glBlendFuncSeparate: correct SrcOver on the alpha channel (ONE instead
+      // of SRC_ALPHA) so the scene FBO's alpha stays 1.0 when translucent
+      // plain-rects (scrims, tracks, fills) composite onto it. Without this,
+      // glBlendFunc's alpha-squaring (out.a = src.a² + dst.a*(1-src.a)) decays
+      // the FBO alpha below 1, making glass that samples it erroneously
+      // translucent. RGB is unchanged (same SRC_ALPHA, ONE_MINUS_SRC_ALPHA).
+      gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
       // Apply enterProgress alpha (ControlCenter fade) to plainRects.
       // Uses SAFE progress (clamped 0..1) — faithful to ControlCenterContent.kt
       // which uses safeEnterProgressAnimation.value for alpha/dim/blur.
