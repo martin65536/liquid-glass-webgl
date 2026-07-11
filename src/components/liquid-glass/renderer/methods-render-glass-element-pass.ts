@@ -441,11 +441,11 @@ export const glassElementPassMethods = {
       gl.uniform1f(this.uEl['uUseMagnifier'], 0.0)
     }
 
-    // uSkipColorControls: when useSeparableBlur is active on a backdropFbo
-    // element, colorControls was already applied as a fullscreen pass BEFORE
-    // the 2-pass blur (in renderDialogBackdrop + renderGlassElement's blur
-    // branch), matching the original's colorControls→blur order. Skip it here.
-    gl.uniform1f(this.uEl['uSkipColorControls'], (el.backdropFbo && el.useSeparableBlur && el.blurRadius >= 0.5) ? 1.0 : 0.0)
+    // uSkipColorControls: when useSeparableBlur is active (blurRadius >= 0.5),
+    // colorControls was already applied as a fullscreen pass BEFORE the 2-pass
+    // blur (in renderGlassElement's blur branch), matching the original's
+    // colorControls→blur order. Skip it here to avoid double-applying.
+    gl.uniform1f(this.uEl['uSkipColorControls'], (el.useSeparableBlur && el.blurRadius >= 0.5) ? 1.0 : 0.0)
 
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 
