@@ -448,6 +448,12 @@ export const glassElementPassMethods = {
       gl.uniform1f(this.uEl['uUseMagnifier'], 0.0)
     }
 
+    // uSkipColorControls: when useSeparableBlur is active, colorControls was
+    // already applied as a fullscreen pass BEFORE the 2-pass blur (in
+    // renderGlassElement's useSeparableBlur branch), matching the original's
+    // colorControls→blur order. Skip it here to avoid double-applying.
+    gl.uniform1f(this.uEl['uSkipColorControls'], (el.useSeparableBlur && el.blurRadius >= 0.5) ? 1.0 : 0.0)
+
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 
     // Stash the computed highlight alpha so the rim highlight pass can
