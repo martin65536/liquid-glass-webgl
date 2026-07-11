@@ -12,11 +12,15 @@ export const glassElementPassMethods = {
   /** Step 2b: Element pass — refraction + vibrancy + tint + highlight.
    *  Samples `curTex` (the scene built up so far) to compute refraction
    *  of the actual colors behind the glass (track color, card background,
-   *  other glass elements), not just the wallpaper. */
+   *  other glass elements), not just the wallpaper.
+   *  When `blurredWallpaperTex` is provided (useSeparableBlur + sampleWallpaper),
+   *  it is bound as uWallpaperSampler so sampleBackdrop samples the pre-blurred
+   *  wallpaper instead of the raw wallpaper texture. */
   renderGlassElementPass(
     this: LiquidGlassRenderer,
     state: GlassRenderState,
-    curTex: WebGLTexture
+    curTex: WebGLTexture,
+    blurredWallpaperTex: WebGLTexture | null = null
   ) {
     const gl = this.gl
     const { el, sx, sy, sw, sh, radii, togglePressProgress, layerScale } = state
@@ -50,7 +54,11 @@ export const glassElementPassMethods = {
     // wallpaper texture.
     if (this.wallpaperTexture) {
       gl.activeTexture(gl.TEXTURE1)
-      gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture)
+      // When a pre-blurred wallpaper texture is provided (useSeparableBlur +
+      // sampleWallpaper), bind it instead of the raw wallpaper so sampleBackdrop
+      // samples the 2-pass-blurred wallpaper. Otherwise bind the raw wallpaper
+      // (for toggle knob CombinedBackdrop + sampleWallpaper inline blur).
+      gl.bindTexture(gl.TEXTURE_2D, blurredWallpaperTex ?? this.wallpaperTexture)
       gl.uniform1i(this.uEl['uWallpaperSampler'], 1)
     }
 

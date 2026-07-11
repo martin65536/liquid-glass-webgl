@@ -76,6 +76,7 @@ export function buildDialog(W: number, H: number, onBack: () => void, palette: T
   // above still darkens the card's surroundings (outside the card shape).
   dialogCard.sampleWallpaper = true
   dialogCard.scrimColor = palette.dialogDim
+  dialogCard.useSeparableBlur = true
   elements.push(dialogCard)
   // Title — contentColor flips with theme.
   // Faithful to DialogContent.kt: TextStyle(contentColor, 24f.sp, FontWeight.Medium).

@@ -305,6 +305,7 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
       el.sampleWallpaper = true
       const sp = Math.max(0, Math.min(1, state.controlCenterSafeEnter))
       el.scrimColor = [0, 0, 0, 0.4 * sp]
+      el.useSeparableBlur = true
     }
     interactions[id] = {
       onDragStart: ccOnDragStart,
