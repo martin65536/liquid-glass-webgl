@@ -3,6 +3,11 @@
  * Ported from the RoundedRectSDF block in Shaders.kt.
  * ------------------------------------------------------------------ */
 export const SDF_GLSL = /* glsl */ `
+// Corner style: 0 = circular (standard arc), 1 = continuous (squircle/superellipse).
+// Declared here (in SDF_GLSL) because sdShape references it, and SDF_GLSL is
+// included by multiple shaders (element, shadow, highlight, plain-rect).
+uniform float uCornerStyle;
+
 // radiusAt — picks the corner radius from cornerRadii based on which
 // quadrant 'coord' is in. For uniform radii (the catalog case) this
 // always returns the same value.

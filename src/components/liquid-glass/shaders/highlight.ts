@@ -62,7 +62,7 @@ void main() {
     vec2 layerScale = max(uLayerScale, vec2(1e-4));
     vec2 centeredOrig = centeredScreen / layerScale;
     vec2 origHalfSize = uOriginalSize * 0.5;
-    float sd = sdRoundedRect(rotateBy(centeredOrig, -uElementRotation), origHalfSize, uOriginalCornerRadius);
+    float sd = sdShape(rotateBy(centeredOrig, -uElementRotation), origHalfSize, uOriginalCornerRadius);
     if (sd > 0.5) discard;
     float clipAlpha = 1.0 - smoothstep(-0.5, 0.5, sd);
 
@@ -117,7 +117,7 @@ void main() {
     vec2 layerScale = max(uLayerScale, vec2(1e-4));
     vec2 centeredOrig = centeredScreen / layerScale;
     vec2 origHalfSize = uOriginalSize * 0.5;
-    float sd = sdRoundedRect(rotateBy(centeredOrig, -uElementRotation), origHalfSize, uOriginalCornerRadius);
+    float sd = sdShape(rotateBy(centeredOrig, -uElementRotation), origHalfSize, uOriginalCornerRadius);
     if (sd > 0.5) discard;
     float clipAlpha = 1.0 - smoothstep(-0.5, 0.5, sd);
 
@@ -187,7 +187,7 @@ void main() {
     float origRadius = uOriginalCornerRadius;
 
     // SDF in ORIGINAL space — shape is a correct (unscaled) rounded rect.
-    float sd = sdRoundedRect(centeredOrigRot, origHalfSize, origRadius);
+    float sd = sdShape(centeredOrigRot, origHalfSize, origRadius);
 
     // Outside the shape — nothing to add (the stroke's outward half is clipped).
     if (sd > 0.0) {

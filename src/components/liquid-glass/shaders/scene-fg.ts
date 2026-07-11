@@ -49,7 +49,7 @@ void main() {
     vec2 layerScale = max(uLayerScale, vec2(1e-4));
     vec2 centeredOrig = centeredScreen / layerScale;
     vec2 origHalfSize = uOriginalSize * 0.5;
-    float sd = sdRoundedRect(centeredOrig, origHalfSize, uOriginalCornerRadius);
+    float sd = sdShape(centeredOrig, origHalfSize, uOriginalCornerRadius);
     if (sd > 0.5) discard;
     float clipAlpha = 1.0 - smoothstep(-0.5, 0.5, sd);
 
@@ -99,7 +99,7 @@ void main() {
     vec2 centeredCoord = localCoord - halfSize;
 
     float radius = radiusAt(centeredCoord, uCornerRadii);
-    float sd = sdRoundedRect(centeredCoord, halfSize, radius);
+    float sd = sdShape(centeredCoord, halfSize, radius);
     if (sd > 0.5) discard;
     float alpha = 1.0 - smoothstep(-0.5, 0.5, sd);
     gl_FragColor = vec4(uColor.rgb, uColor.a * alpha);

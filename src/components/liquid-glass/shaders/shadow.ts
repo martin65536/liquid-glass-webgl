@@ -59,10 +59,10 @@ void main() {
     // original space for the SDF: offset_orig = offset_screen / layerScale,
     // which cancels — so we use uShadowOffset directly in original space.
     vec2 shadowCenteredOrig = centeredOrigRot - shadowOffsetRot;
-    float sd = sdRoundedRect(shadowCenteredOrig, origHalfSize, origRadius);
+    float sd = sdShape(shadowCenteredOrig, origHalfSize, origRadius);
     // SDF of the element itself (not offset) — used to mask the shadow
     // inside the element so it doesn't bleed through the AA edge.
-    float elementSd = sdRoundedRect(centeredOrigRot, origHalfSize, origRadius);
+    float elementSd = sdShape(centeredOrigRot, origHalfSize, origRadius);
 
     // Shadow intensity: Gaussian falloff from the shadow shape's edge.
     // uShadowRadius is in ORIGINAL px (faithful to BlurMaskFilter at original
@@ -106,11 +106,11 @@ void main() {
     vec2 centeredCoord = localCoord - halfSize;
 
     float radius = radiusAt(centeredCoord, uCornerRadii);
-    float sd = sdRoundedRect(centeredCoord, halfSize, radius);
+    float sd = sdShape(centeredCoord, halfSize, radius);
     if (sd > 0.5) discard;
 
     vec2 innerCentered = centeredCoord - uInnerShadowOffset;
-    float innerSd = sdRoundedRect(innerCentered, halfSize, radius);
+    float innerSd = sdShape(innerCentered, halfSize, radius);
     float band = smoothstep(uInnerShadowRadius, 0.0, innerSd);
     band *= step(0.0, innerSd);
     gl_FragColor = vec4(0.0, 0.0, 0.0, band * uInnerShadowAlpha * 0.5);

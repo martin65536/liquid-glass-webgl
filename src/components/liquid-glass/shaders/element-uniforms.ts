@@ -104,10 +104,6 @@ uniform float uUseSdfTexture;       // 0 or 1
 uniform vec2  uSdfTexSize;          // texture natural dimensions (px)
 uniform float uSdfLightAngle;       // bevel light angle (degrees)
 uniform float uEnterAlpha;          // global element alpha (enterProgress, 0..1)
-// Corner style: 0 = circular (standard arc), 1 = continuous (squircle/superellipse).
-// Faithful to com.kyant.shapes.RoundedCornerStyle (Circular vs Continuous).
-// Capsule defaults to Continuous in the original.
-uniform float uCornerStyle;         // 0 or 1
 // When 1.0, skip applyColorControls in the element shader (colorControls was
 // already applied as a fullscreen pass BEFORE the 2-pass blur on the backdrop
 // FBO, matching the original's colorControls→blur→lens order). Used by
