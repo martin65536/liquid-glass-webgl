@@ -1,5 +1,6 @@
 import type { LiquidGlassRenderer } from './index'
 import type { ToggleGroupState } from './types'
+import { VelocityTracker1D } from './velocity-tracker'
 
 declare module './index' {
   interface LiquidGlassRenderer {
@@ -72,6 +73,7 @@ export const toggleMethods = {
         targetVelocity: 0,
         isDragging: false,
         trackVelocityAfterRelease: false,
+        velocityTracker: new VelocityTracker1D(),
         lastFractionForVelocity: initialFraction,
         lastFractionTime: 0,
         pressedScale,
@@ -117,6 +119,9 @@ export const toggleMethods = {
     st.targetVelocity = 0
     st.velocity = 0
     st.velocityVelocity = 0
+    // Clear the tracker so a tap doesn't inherit stale drag samples
+    // (faithful to DampedDragAnimation.press() → velocityTracker.resetTracking()).
+    st.velocityTracker.resetTracking()
     // Trigger a brief press animation (matches animateToValue's press()+release()).
     // The press animation auto-releases when fraction settles near target
     // (handled in the animation loop).
@@ -132,6 +137,9 @@ export const toggleMethods = {
    * Begin a finger drag on a toggle group. Sets isDragging=true and
    * starts the press animation (scale → pressedScale, white overlay fades in).
    * The startFraction is recorded so drag deltas can be added to it.
+   *
+   * Faithful to DampedDragAnimation.press() which resets the VelocityTracker
+   * (so samples from a previous gesture don't bleed into this one).
    */
   beginToggleDrag(this: LiquidGlassRenderer, groupId: string, startFraction: number) {
     const st = this.ensureToggleState(groupId, startFraction)
@@ -139,6 +147,11 @@ export const toggleMethods = {
     st.targetPress = 1
     st.targetScaleX = st.pressedScale
     st.targetScaleY = st.pressedScale
+    // Reset the velocity tracker (faithful to press() → velocityTracker.resetTracking()).
+    st.velocityTracker.resetTracking()
+    st.targetVelocity = 0
+    st.velocity = 0
+    st.velocityVelocity = 0
     this.startAnimation()
   },
 
@@ -150,10 +163,12 @@ export const toggleMethods = {
    * with a tiny smooth lag (matches the original's `updateValue(fraction)`
    * which animates toward the latest fraction state).
    *
-   * VELOCITY TRACKING: Each drag call also updates `targetVelocity` based
-   * on the rate of change of targetFraction (Δfraction / Δt). This
-   * velocity then drives the squash-and-stretch in the layerBlock,
-   * matching DampedDragAnimation.kt's VelocityTracker + velocityAnimation.
+   * VELOCITY TRACKING happens in the animation loop (methods-animation.ts),
+   * NOT here. Faithful to DampedDragAnimation.kt: the tracker is fed
+   * (time, valueAnimation.value) inside the valueAnimation.animateTo
+   * block's per-frame callback (updateVelocity). The tracker uses a
+   * least-squares fit (Compose VelocityTracker) rather than a spike-prone
+   * ΔtargetFraction/Δt difference.
    */
   dragToggle(
     this: LiquidGlassRenderer,
@@ -167,18 +182,6 @@ export const toggleMethods = {
     if (!st.isDragging) return
     const delta = (currentX - startX) / Math.max(1, dragWidth)
     const newTarget = Math.max(0, Math.min(1, startFraction + delta))
-    // Velocity tracking: measure ΔtargetFraction / Δt.
-    const now = performance.now() / 1000
-    if (st.lastFractionTime > 0) {
-      const dt = now - st.lastFractionTime
-      if (dt > 0.001) {
-        const dv = (newTarget - st.lastFractionForVelocity) / dt
-        // Clamp to a sane range to avoid spikes from tiny dt.
-        st.targetVelocity = Math.max(-10, Math.min(10, dv))
-      }
-    }
-    st.lastFractionForVelocity = newTarget
-    st.lastFractionTime = now
     st.targetFraction = newTarget
     this.startAnimation()
   },
@@ -205,11 +208,9 @@ export const toggleMethods = {
     const finalTarget = st.targetFraction >= 0.5 ? 1 : 0
     st.targetFraction = finalTarget
     // Enable velocity tracking after drag release (faithful to
-    // DampedDragAnimation which tracks velocity via VelocityTracker
-    // during the value spring's animateTo callback).
+    // DampedDragAnimation which keeps calling updateVelocity() during the
+    // value spring's animateTo callback after the finger lifts).
     st.trackVelocityAfterRelease = true
-    st.lastFractionTime = performance.now() / 1000
-    st.lastFractionForVelocity = st.fraction
     // Don't release press here — auto-release will fire when fraction
     // settles near finalTarget.
     this.startAnimation()
@@ -233,8 +234,6 @@ export const toggleMethods = {
     const finalTarget = st.targetFraction
     // Enable velocity tracking after drag release (same as endToggleDrag).
     st.trackVelocityAfterRelease = true
-    st.lastFractionTime = performance.now() / 1000
-    st.lastFractionForVelocity = st.fraction
     // Don't release press here — auto-release will fire when fraction
     // settles near finalTarget.
     this.startAnimation()

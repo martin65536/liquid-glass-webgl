@@ -1599,3 +1599,29 @@ Stage Summary:
 - Histories aligned → all future pushes are fast-forward, NO force push needed (per user requirement).
 - Dev workflow going forward: edit → bun run lint → git commit → git push liquidglass main. No agent-browser testing (visual project).
 - AndroidLiquidGlass/ kept as original Kotlin reference (gitignored).
+
+---
+Task ID: velocity-fix-1
+Agent: main (Z.ai Code)
+Task: Compare the original Kotlin velocity animation (DampedDragAnimation.kt + VelocityTracker) with the web port, explain the differences, and fix them.
+
+Differences found (original vs web port):
+1. Velocity ALGORITHM: original uses Compose VelocityTracker (ring buffer of (time,pos) samples + least-squares polynomial fit → smooth, spike-resistant). Web port used a naive ΔtargetFraction/Δt two-point difference (spike-prone on small dt, especially during drag).
+2. Velocity SIGNAL SOURCE: original feeds valueAnimation.value (the ANIMATED fraction) into the tracker inside the animateTo per-frame callback. Web port fed targetFraction (the finger-following target, jumpy) during drag and only switched to fraction after release.
+3. onDragEnd vx was always 0 (velocitySamplesRef only stored y; x velocity never computed). Latent bug for any horizontal-drag consumer.
+4. Hardcoded clamp ±10 on targetVelocity was an empirical guess; the original has no clamp (VelocityTracker output is physically reasonable).
+
+Fixes:
+- Added src/components/liquid-glass/renderer/velocity-tracker.ts: VelocityTracker1D class (ring buffer capacity 20, least-squares linear fit over the last 100ms → slope = velocity in units/sec). Faithful to Compose's androidx VelocityTracker.
+- ToggleGroupState: added velocityTracker field (VelocityTracker1D instance per group).
+- methods-toggle.ts: beginToggleDrag/setToggleTarget now resetTracking() (faithful to DampedDragAnimation.press()). dragToggle no longer computes velocity (removed naive Δfraction/Δt). endToggleDrag/endSliderDrag enable trackVelocityAfterRelease (no longer pre-zero targetVelocity).
+- methods-tabs.ts: same treatment — setTabSelected/beginTabDrag resetTracking(); dragTab no longer computes velocity; endTabDrag enables trackVelocityAfterRelease instead of hard-zeroing targetVelocity.
+- methods-animation.ts: fraction spring step now feeds (now, fraction) into velocityTracker and sets targetVelocity = tracker.calculateVelocity(), whenever isDragging OR trackVelocityAfterRelease. This is the faithful port of updateVelocity() running inside valueAnimation.animateTo's block. The underdamped velocity spring (spring(0.5,300)) provides the SECOND level of smoothing (matches original).
+- context.tsx: velocitySamplesRef now tracks {t,x,y} (was {t,y}); added computeReleaseVelocity2D(); onDragEnd now passes real vx,vy (was vx=0).
+
+Verification: bun run lint clean; dev server compiles, GET / 200.
+
+Stage Summary:
+- Toggle/slider/bottom-tab squash-and-stretch now driven by a faithful VelocityTracker (least-squares) fed the animated fraction, double-smoothed by the velocity spring — matching DampedDragAnimation.kt's behavior.
+- Tap (programmatic) still produces no stretch (tracker reset on press, calculateVelocity returns 0) — faithful to original's `if (velocity != 0f)` guard.
+- onDragEnd now reports correct 2-D release velocity.

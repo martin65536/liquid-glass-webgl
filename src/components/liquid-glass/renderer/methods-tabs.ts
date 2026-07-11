@@ -58,6 +58,8 @@ export const tabsMethods = {
     st.targetVelocity = 0
     st.velocity = 0
     st.velocityVelocity = 0
+    // Reset the tracker (faithful to press() → velocityTracker.resetTracking()).
+    st.velocityTracker.resetTracking()
     if (st.targetPress === 0) {
       st.targetPress = 1
       st.targetScaleX = st.pressedScale
@@ -85,6 +87,11 @@ export const tabsMethods = {
     st.targetPress = 1
     st.targetScaleX = st.pressedScale
     st.targetScaleY = st.pressedScale
+    // Reset the velocity tracker (faithful to press() → velocityTracker.resetTracking()).
+    st.velocityTracker.resetTracking()
+    st.targetVelocity = 0
+    st.velocity = 0
+    st.velocityVelocity = 0
     this.startAnimation()
   },
 
@@ -92,6 +99,10 @@ export const tabsMethods = {
    * Update the tab indicator's target based on finger movement.
    * newTarget = startTabIndex + (currentX - startX) / tabWidth, clamped to [0, tabsCount-1].
    * Also updates panelOffset: 4dp * sign(fraction) * EaseOut(|fraction|).
+   *
+   * VELOCITY TRACKING happens in the animation loop (methods-animation.ts),
+   * faithful to DampedDragAnimation.updateVelocity() which feeds (time, value)
+   * to the VelocityTracker inside the valueAnimation.animateTo block.
    */
   dragTab(
     this: LiquidGlassRenderer,
@@ -110,17 +121,6 @@ export const tabsMethods = {
     if (!st.isDragging) return
     const delta = (currentX - startX) / Math.max(1, tabWidth)
     const newTarget = Math.max(0, Math.min(tabsCount - 1, startTabIndex + delta))
-    // Velocity tracking.
-    const now = performance.now() / 1000
-    if (st.lastFractionTime > 0) {
-      const dt = now - st.lastFractionTime
-      if (dt > 0.001) {
-        const dv = (newTarget - st.lastFractionForVelocity) / dt
-        st.targetVelocity = Math.max(-10, Math.min(10, dv))
-      }
-    }
-    st.lastFractionForVelocity = newTarget
-    st.lastFractionTime = now
     st.targetFraction = newTarget
 
     // panelOffset: 4dp * sign(fraction) * EaseOut(|fraction|)
@@ -146,16 +146,15 @@ export const tabsMethods = {
     const finalTarget = Math.round(st.targetFraction)
     const clamped = Math.max(0, Math.min(tabsCount - 1, finalTarget))
     st.targetFraction = clamped
-    // Set targetVelocity = 0 so the velocity spring decays to 0 in parallel
-    // with the scale spring (1.5→1). This matches endToggleDrag/endSliderDrag
-    // — the original release() animates scaleX/Y to 1 while velocity decays
-    // simultaneously (the original's updateVelocity callback naturally → 0
-    // as the value settles; we explicitly target 0 since we lack that callback).
-    // NOT zeroing this left velocity stuck at the last drag value, causing
-    // the indicator to stay stretched on fast release.
-    st.targetVelocity = 0
+    // Enable velocity tracking after drag release — faithful to
+    // DampedDragAnimation which keeps calling updateVelocity() during the
+    // value spring's animateTo after the finger lifts. The tracker was fed
+    // (time, fraction) during the drag; it keeps producing velocity as the
+    // fraction settles toward the snapped index, then decays to 0 once
+    // settled (handled in the animation loop). The velocity spring
+    // (spring(0.5, 300)) smooths the tracker's output toward targetVelocity.
+    st.trackVelocityAfterRelease = true
     st.targetPanelOffset = 0
-    st.lastFractionTime = 0
     // Don't release press here — auto-release will fire when fraction
     // settles near clamped target.
     this.startAnimation()

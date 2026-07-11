@@ -144,10 +144,14 @@ export function LiquidGlassCanvas({
   /** Previous 2-pointer state for delta computation: { dist, angle, centroid }. */
   const prevPinchRef = React.useRef<{ dist: number; angle: number; cx: number; cy: number } | null>(null)
 
-  // --- Velocity tracking for scroll inertia ---
-  // We keep a small ring buffer of recent (timestamp, clientY) samples
-  // and compute the velocity on release.
-  const velocitySamplesRef = React.useRef<{ t: number; y: number }[]>([])
+  // --- Velocity tracking for scroll inertia + drag release velocity ---
+  // We keep a small ring buffer of recent (timestamp, clientX, clientY)
+  // samples and compute the release velocity on pointerup. Both axes are
+  // tracked so horizontal-drag elements (toggle/slider/tabs) could use the
+  // x velocity too, and vertical-drag elements (control center, scroll)
+  // use the y velocity — faithful to Compose's VelocityTracker which
+  // tracks a 2-D Offset.
+  const velocitySamplesRef = React.useRef<{ t: number; x: number; y: number }[]>([])
 
   // --- Init renderer + wallpaper + resize observer ---
   React.useEffect(() => {
@@ -273,7 +277,8 @@ export function LiquidGlassCanvas({
     return { x: e.clientX - rect.left, y: e.clientY - rect.top }
   }
 
-  /** Compute scroll velocity (px/s) from recent samples. */
+  /** Compute scroll velocity (px/s) from recent samples. Returns the
+   *  vertical scroll velocity (negative = finger moved down = scroll up). */
   const computeReleaseVelocity = (): number => {
     const samples = velocitySamplesRef.current
     if (samples.length < 2) return 0
@@ -290,6 +295,27 @@ export function LiquidGlassCanvas({
     const dy = samples[samples.length - 1].y - oldest.y
     // Positive dy (finger moved down) → negative scroll velocity (scroll up).
     return -dy / dt
+  }
+
+  /** Compute release velocity (px/s) on both axes from recent samples.
+   *  Faithful to Compose's VelocityTracker which returns an Offset(x, y). */
+  const computeReleaseVelocity2D = (): { x: number; y: number } => {
+    const samples = velocitySamplesRef.current
+    if (samples.length < 2) return { x: 0, y: 0 }
+    const last = samples[samples.length - 1]
+    const now = last.t
+    const cutoff = now - 100
+    let oldest = last
+    for (let i = samples.length - 1; i >= 0; i--) {
+      if (samples[i].t < cutoff) break
+      oldest = samples[i]
+    }
+    const dt = (now - oldest.t) / 1000
+    if (dt < 0.001) return { x: 0, y: 0 }
+    return {
+      x: (last.x - oldest.x) / dt,
+      y: (last.y - oldest.y) / dt,
+    }
   }
 
   const handlePointerDown = React.useCallback(
@@ -396,7 +422,7 @@ export function LiquidGlassCanvas({
       pressStartScrollYRef.current = renderer.getScrollY()
       dragStartedRef.current = false
       modeRef.current = 'pending'
-      velocitySamplesRef.current = [{ t: performance.now(), y: e.clientY }]
+      velocitySamplesRef.current = [{ t: performance.now(), x: e.clientX, y: e.clientY }]
 
       const interactions = interactionsRef.current
       const hasDrag = !!(hit && interactions?.[hit.id]?.onDrag)
@@ -464,7 +490,7 @@ export function LiquidGlassCanvas({
       }
 
       // Track velocity samples for inertia (always, while pressed).
-      velocitySamplesRef.current.push({ t: performance.now(), y: e.clientY })
+      velocitySamplesRef.current.push({ t: performance.now(), x: e.clientX, y: e.clientY })
       // Cap the buffer at ~20 samples.
       if (velocitySamplesRef.current.length > 20) {
         velocitySamplesRef.current.shift()
@@ -650,25 +676,11 @@ export function LiquidGlassCanvas({
           const { x, y } = localPos(e)
           if (dragStartedRef.current) {
             // Compute release velocity (px/s, positive y = downward) from
-            // recent pointer samples. Faithful to Compose's velocity tracker.
-            const samples = velocitySamplesRef.current
-            let vx = 0, vy = 0
-            if (samples.length >= 2) {
-              const now = samples[samples.length - 1].t
-              const cutoff = now - 100
-              let oldest = samples[samples.length - 1]
-              for (let i = samples.length - 1; i >= 0; i--) {
-                if (samples[i].t < cutoff) break
-                oldest = samples[i]
-              }
-              const dt = (now - oldest.t) / 1000
-              if (dt >= 0.001) {
-                vy = (samples[samples.length - 1].y - oldest.y) / dt
-                // Approximate horizontal velocity from pointer positions.
-                // (velocitySamplesRef only tracks y; x velocity is less
-                // critical for vertical-drag elements like control center.)
-              }
-            }
+            // recent pointer samples on BOTH axes — faithful to Compose's
+            // VelocityTracker which returns an Offset(x, y). Previously vx
+            // was always 0 (only y was tracked), which was wrong for any
+            // horizontal-drag consumer.
+            const { x: vx, y: vy } = computeReleaseVelocity2D()
             interactionsRef.current?.[id]?.onDragEnd?.({ x, y }, { x: vx, y: vy })
           } else if (mode === 'pending' || mode === 'drag') {
             // Treat as a tap (no scroll takeover happened and no drag started).

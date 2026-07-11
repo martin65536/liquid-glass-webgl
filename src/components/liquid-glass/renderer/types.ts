@@ -2,6 +2,8 @@
  * Types — mirror the Kotlin modifier parameters.
  * ------------------------------------------------------------------ */
 
+import type { VelocityTracker1D } from './velocity-tracker'
+
 export interface GlassRect {
   x: number
   y: number
@@ -518,7 +520,14 @@ export interface ToggleGroupState {
   // drag (VelocityTracker accumulates during drag); animateToValue (tap)
   // checks `if (velocity != 0f)` — for taps velocity is 0 → no stretch.
   trackVelocityAfterRelease: boolean
-  // Last fraction value seen by the velocity tracker (for computing Δfraction/Δt).
+  // VelocityTracker fed (time, fraction) every animation frame — faithful
+  // port of DampedDragAnimation.updateVelocity() which calls
+  // velocityTracker.addPosition(now, Offset(value, 0)) inside the
+  // valueAnimation.animateTo block. Replaces the old naive Δfraction/Δt
+  // difference (which was spike-prone on small dt) with a least-squares
+  // fit, matching Compose's VelocityTracker.calculateVelocity().
+  velocityTracker: VelocityTracker1D
+  // Retained for compatibility (no longer the primary velocity source).
   lastFractionForVelocity: number
   lastFractionTime: number
 
