@@ -294,15 +294,14 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
       el.enterProgress = state.controlCenterEnter
       el.enterSafeProgress = state.controlCenterSafeEnter
       el.enterStretchFactor = ccStretchFactor[id]
-      // Sample the CLEAN wallpaper + apply dim in-shader, replicating the
-      // original ControlCenterContent.kt where the dim (drawRect(dimColor.copy
-      // (dimColor.alpha * progress))) is painted onto the wallpaper Image via
-      // BackdropDemoScaffold's drawWithContent modifier, so the LayerBackdrop
-      // captures wallpaper+dim as one opaque layer. This bypasses the scene
-      // FBO's alpha decay (glBlendFunc alpha-squaring on the cc-dim plain-rect),
-      // so the tile's backdrop is opaque — matching the original.
+      // Use a dedicated backdrop FBO (backdropFbo) holding wallpaper+dim+
+      // colorControls as one opaque layer, then 2-pass blur (useSeparableBlur),
+      // then lens refraction. Faithful to the original where the dim is painted
+      // onto the wallpaper Image (LayerBackdrop captures wallpaper+dim), then
+      // effects run on that. This bypasses the scene FBO's alpha decay.
       // dimColor = Color.Black.copy(0.4f); dim alpha = 0.4 * safeProgress.
-      el.sampleWallpaper = true
+      el.backdropFbo = true
+      el.useSeparableBlur = true
       const sp = Math.max(0, Math.min(1, state.controlCenterSafeEnter))
       el.scrimColor = [0, 0, 0, 0.4 * sp]
     }
