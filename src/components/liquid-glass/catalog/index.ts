@@ -123,20 +123,6 @@ export function buildCatalog(
       result = buildHome(W, onNavigate, palette)
       break
   }
-  // Global separable 2-pass blur: when enabled in Settings, apply useSeparableBlur
-  // to all glass elements (buttons + glass-shapes). Skip special elements that
-  // have their own backdrop semantics (toggle knob, indicator, magnifier, SDF
-  // texture) — those keep inline blur for correctness. Glass Playground square
-  // always has useSeparableBlur regardless of this setting.
-  if (state.globalSeparableBlur) {
-    for (const el of result.elements) {
-      if ((el.kind === 'button' || el.kind === 'glass-shape') &&
-          !el.isSdfTexture && !el.isToggleKnob &&
-          !el.isBottomTabIndicator && !el.isMagnifier) {
-        el.useSeparableBlur = true
-      }
-    }
-  }
   // Move the back button to the end of the element list so it's on top of
   // all layers (scrims, overlays, glass elements). It was pushed first by
   // each builder, but scrims/overlays pushed after it would cover it.
@@ -188,6 +174,22 @@ export function buildCatalog(
       onDragStart: () => {},
       onDrag: () => {},
       onDragEnd: () => {},
+    }
+  }
+  // Global separable 2-pass blur: when enabled in Settings, apply useSeparableBlur
+  // to all glass elements (buttons + glass-shapes). Skip special elements that
+  // have their own backdrop semantics (toggle knob, indicator, magnifier, SDF
+  // texture) — those keep inline blur for correctness. Glass Playground square
+  // always has useSeparableBlur regardless of this setting.
+  // Applied AFTER all elements (including back button, theme toggle, pick-image)
+  // are created so none are missed.
+  if (state.globalSeparableBlur) {
+    for (const el of result.elements) {
+      if ((el.kind === 'button' || el.kind === 'glass-shape') &&
+          !el.isSdfTexture && !el.isToggleKnob &&
+          !el.isBottomTabIndicator && !el.isMagnifier) {
+        el.useSeparableBlur = true
+      }
     }
   }
   return result
