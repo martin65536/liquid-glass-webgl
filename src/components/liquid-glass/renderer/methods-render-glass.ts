@@ -360,8 +360,6 @@ export const glassRenderMethods = {
       const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr
       // For backdropFbo elements (dialog card), blur the dialogBackdropTex
       // (wallpaper+scrim+colorControls opaque layer) instead of the scene FBO.
-      // colorControls was already applied BEFORE blur (in renderDialogBackdrop),
-      // matching the original's colorControls→blur→lens order.
       const backdropSrc = (el.backdropFbo && this.dialogBackdropTex) ? this.dialogBackdropTex : curTex
       const blurredBackdrop = this.blurTexture(backdropSrc, blurRadiusPx)
       // blurTexture disables BLEND — re-enable it so renderGlassElementPass
