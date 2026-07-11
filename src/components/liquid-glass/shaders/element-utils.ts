@@ -113,7 +113,22 @@ vec2 sceneUv(vec2 canvasPx) {
 // Gaussian disc blur — ${tapCount} taps, dynamically generated in JS.
 // Offsets are in units of radius (sigma = radius), scaled at runtime.
 // radius < 0.5 falls back to single tap (no visible blur).
+//
+// When uSampleWallpaper > 0.5, samples the CLEAN wallpaper (uWallpaperSampler
+// via coverUv) instead of the scene FBO (uBackdrop via sceneUv). This bypasses
+// scrim/dim alpha decay in the scene FBO, so glass over a scrim (Dialog card,
+// ControlCenter tiles) refracts an opaque backdrop — matching the original
+// LayerBackdrop which captures the wallpaper Image (alpha=1).
 vec4 sampleBackdrop(vec2 canvasPx, float radius) {
+    if (uSampleWallpaper > 0.5) {
+        vec2 uv = coverUv(canvasPx);
+        if (radius < 0.5) {
+            return texture2D(uWallpaperSampler, uv);
+        }
+        vec2 pxToUv = radius * canvasPxToUvScale();
+        vec4 sum = vec4(0.0);
+${wallpaperBlurCode}        return sum;
+    }
     vec2 uv = sceneUv(canvasPx);
     if (radius < 0.5) {
         return texture2D(uBackdrop, uv);

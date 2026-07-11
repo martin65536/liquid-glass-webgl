@@ -48,24 +48,29 @@ export function buildDialog(W: number, H: number, onBack: () => void, palette: T
   const DIALOG_H = 276 * DP
   const DIALOG_X = DIALOG_PAD
   const DIALOG_Y = (H - DIALOG_H) / 2
-  elements.push(
-    makeGlassShape(
-      'dialog-card',
-      { x: DIALOG_X, y: DIALOG_Y, w: DIALOG_W, h: DIALOG_H },
-      {
-        cornerRadius: 48 * DP,
-        refractionHeight: 24 * DP,
-        refractionAmount: -48 * DP,
-        blurRadius: palette.dialogBlurRadius,
-        saturation: 1.5,
-        brightness: palette.dialogBrightness,
-        surfaceColor: palette.dialogContainer,
-        highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, color: [1, 1, 1], alpha: 0.38, widthDp: 0.5 },
-        outerShadow: null,
-        depthEffect: true,
-      }
-    )
+  const dialogCard = makeGlassShape(
+    'dialog-card',
+    { x: DIALOG_X, y: DIALOG_Y, w: DIALOG_W, h: DIALOG_H },
+    {
+      cornerRadius: 48 * DP,
+      refractionHeight: 24 * DP,
+      refractionAmount: -48 * DP,
+      blurRadius: palette.dialogBlurRadius,
+      saturation: 1.5,
+      brightness: palette.dialogBrightness,
+      surfaceColor: palette.dialogContainer,
+      highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, color: [1, 1, 1], alpha: 0.38, widthDp: 0.5 },
+      outerShadow: null,
+      depthEffect: true,
+    }
   )
+  // Sample the CLEAN wallpaper (not the scrim-darkened scene FBO) so the
+  // glass backdrop is opaque (wallpaper alpha=1), matching the original
+  // LayerBackdrop which captures the wallpaper Image. This bypasses the
+  // scene FBO's alpha decay (caused by the scrim's translucent SrcOver),
+  // so the glass renders opaque with translucency only from surfaceColor.
+  dialogCard.sampleWallpaper = true
+  elements.push(dialogCard)
   // Title — contentColor flips with theme.
   // Faithful to DialogContent.kt: TextStyle(contentColor, 24f.sp, FontWeight.Medium).
   // No halo — the dialog card provides enough contrast, and a halo on

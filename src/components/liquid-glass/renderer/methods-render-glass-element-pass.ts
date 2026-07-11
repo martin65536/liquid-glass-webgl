@@ -28,18 +28,14 @@ export const glassElementPassMethods = {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
     gl.activeTexture(gl.TEXTURE0)
-    // sampleWallpaper: bind the WALLPAPER (not curTex) as uBackdrop so the
-    // glass refracts the clean wallpaper instead of the darkened scene
-    // (e.g. back button over a Dialog scrim / ControlCenter dim). The
-    // element's own surface/shadow/icon still composite on the current
-    // scene FBO normally (the ping-pong blit in renderGlassElement uses
-    // curTex, so the scene is preserved — only the refraction sample
-    // changes).
-    if (el.sampleWallpaper && this.wallpaperTexture && this.wallpaperReady) {
-      gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture)
-    } else {
-      gl.bindTexture(gl.TEXTURE_2D, curTex)
-    }
+    // uBackdrop = the current scene FBO (curTex). The shader's sampleBackdrop
+    // samples this for normal glass. For el.sampleWallpaper elements (Dialog
+    // card, ControlCenter tiles), the shader instead samples uWallpaperSampler
+    // (TEXTURE1, bound below) via coverUv, bypassing the scene FBO to get an
+    // opaque backdrop. uBackdrop is still bound here for non-sampleWallpaper
+    // elements and for the post-passes (shadow/foreground) which always use
+    // the scene.
+    gl.bindTexture(gl.TEXTURE_2D, curTex)
     gl.uniform1i(this.uEl['uBackdrop'], 0)
 
     // Bind wallpaper texture to TEXTURE1 for the toggle knob CombinedBackdrop
@@ -445,6 +441,14 @@ export const glassElementPassMethods = {
     } else {
       gl.uniform1f(this.uEl['uUseMagnifier'], 0.0)
     }
+
+    // sampleWallpaper: sample the CLEAN wallpaper (coverUv + uWallpaperSampler)
+    // instead of the scene FBO. Used by glass over a scrim/dim (Dialog card,
+    // ControlCenter tiles) so the backdrop is opaque (wallpaper alpha=1),
+    // bypassing the scene FBO's alpha decay. The shader's sampleBackdrop
+    // checks uSampleWallpaper to switch between sceneUv+uBackdrop and
+    // coverUv+uWallpaperSampler.
+    gl.uniform1f(this.uEl['uSampleWallpaper'], el.sampleWallpaper ? 1.0 : 0.0)
 
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 

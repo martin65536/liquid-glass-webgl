@@ -108,4 +108,11 @@ uniform float uEnterAlpha;          // global element alpha (enterProgress, 0..1
 uniform float uUseMagnifier;        // 0 or 1
 uniform float uMagnifierZoom;       // zoom factor (1.5)
 uniform float uMagnifierOffsetY;    // sample Y offset to cursor (80dp, device px)
+// --- Sample wallpaper directly (bypass scene FBO) ---
+// When 1.0, sampleBackdrop uses coverUv + uWallpaperSampler (clean wallpaper)
+// instead of sceneUv + uBackdrop (scene FBO). Used by elements that sit over
+// a scrim/dim (Dialog card, ControlCenter tiles) so the glass refracts the
+// clean wallpaper instead of the alpha-decayed scene FBO. Faithful to the
+// original where LayerBackdrop captures the wallpaper Image (alpha=1).
+uniform float uSampleWallpaper;     // 0 or 1
 `

@@ -158,20 +158,12 @@ void main() {
         backdrop = sampleBackdrop(sampleCoord, uBlurRadius);
     }
     vec3 color = applyColorControls(backdrop.rgb, uBrightness, uContrast, uSaturation);
-    // The glass backdrop layer is always OPAQUE — faithful to the original
-    // DrawBackdropModifier.kt which records the backdrop into an offscreen
-    // GraphicsLayer (CompositingStrategy.Offscreen) sampling the wallpaper
-    // (alpha=1). colorControls / blur / lens all preserve alpha=1, so the
-    // backdrop layer is opaque; only onDrawSurface (drawRect(containerColor))
-    // adds translucency on top (handled by the surfaceColor mix below, which
-    // does not affect the output alpha).
-    //
-    // Force alpha=1 for ALL glass-shape paths. Now that the blend pipeline
-    // uses glBlendFuncSeparate (correct SrcOver alpha), backdrop.rgb is
-    // always a valid composited color, so forcing alpha=1 no longer exposes
-    // garbage — it simply makes the glass opaque like the original, with
-    // translucency coming only from the surfaceColor tint.
-    float alpha = 1.0;
+    // Magnifier glass is always OPAQUE — faithful to the original which
+    // samples rememberCombinedBackdrop (wallpaper + content + cursor all
+    // composited onto the opaque wallpaper). The port's scene texture may
+    // carry partial alpha (e.g. card 0.9), which would make the glass
+    // translucent. Force alpha=1 for magnifier.
+    float alpha = (uUseMagnifier > 0.5) ? 1.0 : backdrop.a;
 
     // --- 2. Lens refraction (SDF + circleMap) ---------------------
     // Faithful port of RoundedRectRefractionWithDispersionShaderString.
