@@ -64,12 +64,6 @@ export function buildDialog(W: number, H: number, onBack: () => void, palette: T
       depthEffect: true,
     }
   )
-  // Sample the CLEAN wallpaper (not the scrim-darkened scene FBO) so the
-  // glass backdrop is opaque (wallpaper alpha=1), matching the original
-  // LayerBackdrop which captures the wallpaper Image. This bypasses the
-  // scene FBO's alpha decay (caused by the scrim's translucent SrcOver),
-  // so the glass renders opaque with translucency only from surfaceColor.
-  dialogCard.sampleWallpaper = true
   elements.push(dialogCard)
   // Title — contentColor flips with theme.
   // Faithful to DialogContent.kt: TextStyle(contentColor, 24f.sp, FontWeight.Medium).
