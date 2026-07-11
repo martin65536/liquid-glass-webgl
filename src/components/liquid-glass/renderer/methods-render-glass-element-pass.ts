@@ -12,12 +12,15 @@ export const glassElementPassMethods = {
   /** Step 2b: Element pass — refraction + vibrancy + tint + highlight.
    *  Samples `curTex` (the scene built up so far) to compute refraction
    *  of the actual colors behind the glass (track color, card background,
-   *  other glass elements), not just the wallpaper. For backdropFbo elements,
-   *  curTex is ignored and scrimFboTex is bound as uBackdrop instead. */
+   *  other glass elements), not just the wallpaper.
+   *  When `blurredWallpaperTex` is provided (useSeparableBlur + sampleWallpaper),
+   *  it is bound as uWallpaperSampler so sampleBackdrop samples the pre-blurred
+   *  wallpaper instead of the raw wallpaper texture. */
   renderGlassElementPass(
     this: LiquidGlassRenderer,
     state: GlassRenderState,
-    curTex: WebGLTexture
+    curTex: WebGLTexture,
+    blurredWallpaperTex: WebGLTexture | null = null
   ) {
     const gl = this.gl
     const { el, sx, sy, sw, sh, radii, togglePressProgress, layerScale } = state
@@ -29,19 +32,14 @@ export const glassElementPassMethods = {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
     gl.activeTexture(gl.TEXTURE0)
-    // uBackdrop: the backdrop texture the glass samples (refraction + blur).
-    // - backdropFbo elements (Dialog card, CC tiles): bind scrimFboTex
-    //   (wallpaper+scrim as one opaque layer, alpha=1). This bypasses the
-    //   scene FBO's alpha decay and gives the glass an opaque backdrop,
-    //   matching the original's LayerBackdrop.
-    // - normal elements: bind curTex (the scene FBO built up so far).
-    // For useSeparableBlur, curTex is already the pre-blurred texture
-    // (scene or wallpaper+scrim) passed in from renderGlassElement.
-    if (el.backdropFbo && this.scrimFboTex) {
-      gl.bindTexture(gl.TEXTURE_2D, this.scrimFboTex)
-    } else {
-      gl.bindTexture(gl.TEXTURE_2D, curTex)
-    }
+    // uBackdrop = the current scene FBO (curTex). The shader's sampleBackdrop
+    // samples this for normal glass. For el.sampleWallpaper elements (Dialog
+    // card, ControlCenter tiles), the shader instead samples uWallpaperSampler
+    // (TEXTURE1, bound below) via coverUv, bypassing the scene FBO to get an
+    // opaque backdrop. uBackdrop is still bound here for non-sampleWallpaper
+    // elements and for the post-passes (shadow/foreground) which always use
+    // the scene.
+    gl.bindTexture(gl.TEXTURE_2D, curTex)
     gl.uniform1i(this.uEl['uBackdrop'], 0)
 
     // Bind wallpaper texture to TEXTURE1 for the toggle knob CombinedBackdrop
@@ -56,7 +54,11 @@ export const glassElementPassMethods = {
     // wallpaper texture.
     if (this.wallpaperTexture) {
       gl.activeTexture(gl.TEXTURE1)
-      gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture)
+      // When a pre-blurred wallpaper texture is provided (useSeparableBlur +
+      // sampleWallpaper), bind it instead of the raw wallpaper so sampleBackdrop
+      // samples the 2-pass-blurred wallpaper. Otherwise bind the raw wallpaper
+      // (for toggle knob CombinedBackdrop + sampleWallpaper inline blur).
+      gl.bindTexture(gl.TEXTURE_2D, blurredWallpaperTex ?? this.wallpaperTexture)
       gl.uniform1i(this.uEl['uWallpaperSampler'], 1)
     }
 
@@ -447,6 +449,19 @@ export const glassElementPassMethods = {
     } else {
       gl.uniform1f(this.uEl['uUseMagnifier'], 0.0)
     }
+
+    // sampleWallpaper: sample the CLEAN wallpaper (coverUv + uWallpaperSampler)
+    // instead of the scene FBO. Used by glass over a scrim/dim (Dialog card,
+    // ControlCenter tiles) so the backdrop is opaque (wallpaper alpha=1),
+    // bypassing the scene FBO's alpha decay. The shader's sampleBackdrop
+    // checks uSampleWallpaper to switch between sceneUv+uBackdrop and
+    // coverUv+uWallpaperSampler.
+    gl.uniform1f(this.uEl['uSampleWallpaper'], el.sampleWallpaper ? 1.0 : 0.0)
+    // Scrim color applied to the wallpaper backdrop (only when sampleWallpaper).
+    // Faithful to the original where the scrim is painted onto the wallpaper
+    // Image before the backdrop effects run.
+    const sc = el.scrimColor ?? [0, 0, 0, 0]
+    gl.uniform4f(this.uEl['uScrimColor'], sc[0], sc[1], sc[2], sc[3])
 
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 

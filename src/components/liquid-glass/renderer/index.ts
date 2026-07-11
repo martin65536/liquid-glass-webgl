@@ -114,20 +114,6 @@ export class LiquidGlassRenderer {
   blurFboATex: WebGLTexture | null = null
   blurFboB: WebGLFramebuffer | null = null
   blurFboBTex: WebGLTexture | null = null
-  // --- Scrim backdrop FBO (Dialog card, ControlCenter tiles) ---
-  // Holds wallpaper+scrim as ONE OPAQUE layer (alpha=1), replicating the
-  // original's LayerBackdrop which captures the wallpaper Image + the scrim
-  // painted onto it (via BackdropDemoScaffold's drawWithContent modifier).
-  // Glass elements with backdropFbo=true sample this FBO's texture as their
-  // backdrop instead of the scene FBO (fboA), bypassing the scene FBO's alpha
-  // decay (glBlendFunc alpha-squaring on the scrim plain-rect).
-  // Rendered once per frame before the glass elements that use it; shared
-  // across all such elements on a page (e.g. all CC tiles share one scrimFbo).
-  scrimFbo: WebGLFramebuffer | null = null
-  scrimFboTex: WebGLTexture | null = null
-  /** The scrim color currently baked into scrimFbo (so we only re-render when
-   *  it changes, e.g. CC's progress-driven dim). null = not yet rendered. */
-  scrimFboColor: [number, number, number, number] | null = null
   /** Blur shader variants keyed by 1D tap count (H + V programs each). */
   blurPrograms = new Map<number, { hProg: WebGLProgram; vProg: WebGLProgram; uH: Record<string, WebGLUniformLocation | null>; uV: Record<string, WebGLUniformLocation | null>; aPosH: number; aPosV: number }>()
   /** Max 1D taps per blur pass (1..33). Lower = faster, Higher = better quality.
@@ -260,6 +246,7 @@ export class LiquidGlassRenderer {
       'uTabContentCount', 'uTabsGlassLayer',
       'uSdfTexSampler', 'uUseSdfTexture', 'uSdfTexSize', 'uSdfLightAngle', 'uEnterAlpha',
       'uUseMagnifier', 'uMagnifierZoom', 'uMagnifierOffsetY',
+      'uSampleWallpaper', 'uScrimColor',
       'uElementRotation',
     ]
     for (const n of elNames) this.uEl[n] = gl.getUniformLocation(this.elementProgram, n)
@@ -418,11 +405,6 @@ export class LiquidGlassRenderer {
     if (this.blurFboBTex) gl.deleteTexture(this.blurFboBTex)
     this.gpElementFbo = this.blurFboA = this.blurFboB = null
     this.gpElementTex = this.blurFboATex = this.blurFboBTex = null
-    if (this.scrimFbo) gl.deleteFramebuffer(this.scrimFbo)
-    if (this.scrimFboTex) gl.deleteTexture(this.scrimFboTex)
-    this.scrimFbo = null
-    this.scrimFboTex = null
-    this.scrimFboColor = null
     for (const { hProg, vProg } of this.blurPrograms.values()) {
       gl.deleteProgram(hProg)
       gl.deleteProgram(vProg)

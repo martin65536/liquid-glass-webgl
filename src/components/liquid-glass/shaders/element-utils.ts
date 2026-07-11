@@ -113,9 +113,34 @@ vec2 sceneUv(vec2 canvasPx) {
 // Gaussian disc blur — ${tapCount} taps, dynamically generated in JS.
 // Offsets are in units of radius (sigma = radius), scaled at runtime.
 // radius < 0.5 falls back to single tap (no visible blur).
-// Samples uBackdrop (bound by the renderer to either the scene FBO or, for
-// backdropFbo elements, the scrimFbo holding wallpaper+scrim as one opaque layer).
+//
+// When uSampleWallpaper > 0.5, samples the CLEAN wallpaper (uWallpaperSampler
+// via coverUv) instead of the scene FBO (uBackdrop via sceneUv), AND applies
+// the scrim (uScrimColor) to replicate the original's wallpaper+scrim composited
+// LayerBackdrop. The scrim is applied INSIDE sampleBackdrop so EVERY sampling
+// site — the initial backdrop sample, the refraction re-sample, and each
+// chromatic-aberration channel — gets the same wallpaper+scrim composite.
+// This fixes the "scrim not applied at edges" bug where the refraction band
+// re-sampled the clean wallpaper (without scrim), making the edge brighter
+// than the interior.
 vec4 sampleBackdrop(vec2 canvasPx, float radius) {
+    if (uSampleWallpaper > 0.5) {
+        vec2 uv = coverUv(canvasPx);
+        vec4 c;
+        if (radius < 0.5) {
+            c = texture2D(uWallpaperSampler, uv);
+        } else {
+            vec2 pxToUv = radius * canvasPxToUvScale();
+            vec4 sum = vec4(0.0);
+${wallpaperBlurCode}            c = sum;
+        }
+        // Apply scrim (SrcOver) so the backdrop = wallpaper+scrim, opaque.
+        if (uScrimColor.a > 0.001) {
+            c.rgb = uScrimColor.rgb * uScrimColor.a + c.rgb * (1.0 - uScrimColor.a);
+            c.a = 1.0;
+        }
+        return c;
+    }
     vec2 uv = sceneUv(canvasPx);
     if (radius < 0.5) {
         return texture2D(uBackdrop, uv);
