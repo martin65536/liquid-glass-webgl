@@ -186,16 +186,18 @@ void main() {
     vec2 origHalfSize = uOriginalSize * 0.5;
     float origRadius = uOriginalCornerRadius;
 
-    // SDF for clip — alpha mask (browser-native AA) when capsule enabled.
-    float sdClip = sdClipShape(centeredOrigRot, origHalfSize, origRadius);
     // SDF for stroke — always analytic sdRoundedRect.
     float sd = sdShape(centeredOrigRot, origHalfSize, origRadius);
 
     // Outside the shape — clip.
+    float edgeAA;
     if (uUseContinuousSdf > 0.5) {
-        if (sdClip > 0.0) discard;  // mask < 50%
+        float mask = sampleClipMask(centeredOrigRot, origHalfSize, origRadius);
+        if (mask < 0.01) discard;
+        edgeAA = mask;
     } else {
-        if (sdClip > 0.0) discard;  // analytic: outside
+        if (sd > 0.0) discard;
+        edgeAA = 1.0 - smoothstep(-0.5, 0.5, sd);
     }
 
     // Stroke mask — faithful to HighlightModifier.kt:

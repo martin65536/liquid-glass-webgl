@@ -49,9 +49,16 @@ void main() {
     vec2 layerScale = max(uLayerScale, vec2(1e-4));
     vec2 centeredOrig = centeredScreen / layerScale;
     vec2 origHalfSize = uOriginalSize * 0.5;
-    float sdClip = sdClipShape(centeredOrig, origHalfSize, uOriginalCornerRadius);
-    if (sdClip > 0.5) discard;
-    float clipAlpha = 1.0 - smoothstep(-0.5, 0.5, sdClip);
+    float clipAlpha;
+    if (uUseContinuousSdf > 0.5) {
+        float mask = sampleClipMask(centeredOrig, origHalfSize, uOriginalCornerRadius);
+        if (mask < 0.01) discard;
+        clipAlpha = mask;
+    } else {
+        float sdClip = sdClipShape(centeredOrig, origHalfSize, uOriginalCornerRadius);
+        if (sdClip > 0.5) discard;
+        clipAlpha = 1.0 - smoothstep(-0.5, 0.5, sdClip);
+    }
 
     // The texture is uploaded from a 2D canvas with UNPACK_FLIP_Y_WEBGL=false,
     // so texture row 0 (= v=0) is the TOP row of the source canvas. Combined
@@ -99,9 +106,16 @@ void main() {
     vec2 centeredCoord = localCoord - halfSize;
 
     float radius = radiusAt(centeredCoord, uCornerRadii);
-    float sdClip = sdClipShape(centeredCoord, halfSize, radius);
-    if (sdClip > 0.5) discard;
-    float alpha = 1.0 - smoothstep(-0.5, 0.5, sdClip);
+    float alpha;
+    if (uUseContinuousSdf > 0.5) {
+        float mask = sampleClipMask(centeredCoord, halfSize, radius);
+        if (mask < 0.01) discard;
+        alpha = mask;
+    } else {
+        float sdClip = sdClipShape(centeredCoord, halfSize, radius);
+        if (sdClip > 0.5) discard;
+        alpha = 1.0 - smoothstep(-0.5, 0.5, sdClip);
+    }
     gl_FragColor = vec4(uColor.rgb, uColor.a * alpha);
 }
 `
