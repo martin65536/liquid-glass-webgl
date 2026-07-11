@@ -25,6 +25,9 @@ export interface GlassHighlight {
    *    paint.strokeWidth = ceil(highlight.width.toPx()) * 2f
    *  where toPx() = dp * density. */
   widthDp: number
+  /** Blur radius in dp. Faithful to Highlight.kt: blurRadius = width / 2.
+   *  Defaults to widthDp / 2 if not specified. */
+  blurRadiusDp?: number
 }
 
 export interface GlassButtonConfig {
