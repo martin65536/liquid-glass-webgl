@@ -87,7 +87,7 @@ export function buildCatalog(
       result = buildBottomTabs(W, H, onBack, state, setState, rendererRef, palette)
       break
     case CatalogDestination.Dialog:
-      result = buildDialog(W, H, onBack, palette)
+      result = buildDialog(W, H, onBack, state, palette)
       break
     case CatalogDestination.LockScreen:
       result = buildLockScreen(W, H, onBack, state, setState, palette)

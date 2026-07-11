@@ -450,6 +450,13 @@ export interface GlassElementConfig extends GlassButtonConfig {
    *  which captures wallpaper+scrim. Used by the dialog card with 2-pass blur
    *  to get the correct colorControls→blur→lens order. */
   backdropFbo?: boolean
+  /** When true, the element pass samples a precomputed continuous-curvature
+   *  SDF texture (generated from the G2-continuous Bezier path in
+   *  continuous-curve.ts) for its shape, instead of the analytic
+   *  sdRoundedRect / sdContinuousRoundedRect SDF. Only applied to the dialog
+   *  card for now. The renderer's loadContinuousSdf() must have been called
+   *  for the element's (w, h, radius) before rendering — see methods-render.ts. */
+  useContinuousSdf?: boolean
 }
 
 /* Per-element interaction state — mirrors InteractiveHighlight.kt. */

@@ -133,6 +133,17 @@ export const renderMethods = {
         this.renderDialogBackdrop(el.scrimColor, el.brightness, el.contrast, el.saturation)
       }
 
+      // --- Continuous-curvature SDF texture (capsule shape) ---
+      // For elements with useContinuousSdf=true (dialog card), ensure the
+      // SDF texture for the element's (w, h, radius) is generated + uploaded
+      // BEFORE rendering. loadContinuousSdf() is cached — no-op if already
+      // loaded for this geometry. Generation is synchronous (Canvas2D raster
+      // + chamfer distance transform on a 256×256 grid) so it only happens
+      // once per (w, h, radius) tuple, on the first frame after a resize.
+      if (el.useContinuousSdf) {
+        this.loadContinuousSdf(el.rect.w, el.rect.h, el.cornerRadius)
+      }
+
       // --- Glass elements (button / glass-shape): ping-pong ---
       const result = this.renderGlassElement(el, st, curFbo, curTex, otherFbo, otherTex, r)
       curFbo = result.curFbo

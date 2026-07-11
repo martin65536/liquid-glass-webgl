@@ -219,6 +219,43 @@ export function buildSettings(
   }
   nextY += BUTTON_HEIGHT + 16
 
+  // --- Shape section: capsule (continuous-curvature SDF) toggle ---
+  // When true, the dialog card samples a precomputed continuous-curvature
+  // SDF texture (generated from the G2-continuous Bezier path) for its
+  // shape instead of the analytic sdRoundedRect SDF.
+  elements.push(
+    makeText(
+      'settings-shape-title',
+      { x: pad, y: nextY, w: W - 2 * pad, h: 20 },
+      'Shape',
+      { color: labelColor, fontSizePx: 16, fontWeight: 600, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
+    )
+  )
+  nextY += 20 + 8
+
+  const capsuleLabel = state.capsuleShape ? 'Capsule: ON' : 'Capsule: OFF'
+  const capsuleBtnColor = state.capsuleShape
+    ? ([0x00 / 255, 0x88 / 255, 0xff / 255, 1] as [number, number, number, number])
+    : ([0.5, 0.5, 0.5, 1] as [number, number, number, number])
+  const capsuleTextW = measureTextWidth(capsuleLabel, TEXT_FONT_SIZE_PX)
+  const capsuleBtnW = Math.ceil(capsuleTextW + 2 * BUTTON_HORIZONTAL_PADDING)
+  const capsuleBtn = makeButton(
+    'settings-shape-capsule',
+    { x: pad, y: nextY, w: capsuleBtnW, h: BUTTON_HEIGHT },
+    {
+      label: capsuleLabel,
+      tintColor: capsuleBtnColor,
+      surfaceColor: [0, 0, 0, 0],
+      labelColor: [1, 1, 1, 1],
+    },
+    true
+  )
+  elements.push(capsuleBtn)
+  interactions['settings-shape-capsule'] = {
+    onTap: () => setState((prev) => ({ capsuleShape: !prev.capsuleShape })),
+  }
+  nextY += BUTTON_HEIGHT + 16
+
   // Reset button (orange, below blur settings)
   const ORANGE = [0xff / 255, 0x8d / 255, 0x28 / 255, 1] as [number, number, number, number]
   const resetLabel = 'Reset'
@@ -238,7 +275,7 @@ export function buildSettings(
   elements.push(resetBtn)
   interactions['settings-reset'] = {
     onTap: () => {
-      setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 17, blurDownsample: 1, continuousCorners: true, liveDpr: null, liveTapCap: null })
+      setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 17, blurDownsample: 1, continuousCorners: true, capsuleShape: true, liveDpr: null, liveTapCap: null })
       // Directly animate both slider knobs to their reset positions so they
       // visually spring back (the toggleTargets effect should do this, but a
       // direct call guarantees it even if React bails out of the state update

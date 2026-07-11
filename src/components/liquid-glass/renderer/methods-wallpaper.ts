@@ -1,9 +1,15 @@
 import type { LiquidGlassRenderer } from './index'
+import { generateContinuousCurvatureSDF } from './continuous-sdf'
 
 declare module './index' {
   interface LiquidGlassRenderer {
     loadWallpaper(src: string): Promise<void>
     loadSdfTexture(src: string): Promise<void>
+    /** Generate + upload a continuous-curvature SDF texture for the dialog
+     *  card's capsule shape. The texture is cached by (w, h, radius) — calling
+     *  again with the same key is a no-op. Texture is RGBA, 256×256, LINEAR
+     *  filtering, CLAMP_TO_EDGE. */
+    loadContinuousSdf(w: number, h: number, radius: number): void
     resize(cssW: number, cssH: number): void
   }
 }
@@ -64,6 +70,51 @@ export const wallpaperMethods = {
     this.sdfTexture = tex
     this.sdfTextureSize = [img.naturalWidth || 1, img.naturalHeight || 1]
     this.sdfTextureReady = true
+    this.requestRender()
+  },
+
+  /** Generate + upload a continuous-curvature SDF texture for the dialog
+   *  card's capsule shape. The texture is cached by (w, h, radius); calling
+   *  again with the same key is a no-op. The SDF encodes a G2-continuous
+   *  Bezier rounded-rect path (faithful to kyant-shapes'
+   *  ContinuousCurvatureRoundedRectangleCornerBuilder), normalized to [-1, 1]
+   *  (negative inside, positive outside). Sampling it in the shader gives
+   *  pixel-perfect squircle corners, vs the analytic sdRoundedRect which
+   *  uses a circular arc approximation.
+   *
+   *  Texture format: RGBA, 256×256, LINEAR filtering, CLAMP_TO_EDGE.
+   *  The R channel holds the normalized SDF (decoded as sample*2 - 1 in the
+   *  shader); G and B mirror R; A = 255. */
+  loadContinuousSdf(this: LiquidGlassRenderer, w: number, h: number, radius: number) {
+    const key = `${w},${h},${radius}`
+    if (this.continuousSdfTexture && this.continuousSdfKey === key && this.continuousSdfReady) {
+      return // cached
+    }
+    const { tex, texSize } = generateContinuousCurvatureSDF(w, h, radius)
+    const gl = this.gl
+    if (this.continuousSdfTexture) gl.deleteTexture(this.continuousSdfTexture)
+    const texObj = gl.createTexture()!
+    gl.bindTexture(gl.TEXTURE_2D, texObj)
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA,
+      texSize,
+      texSize,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      tex
+    )
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    this.continuousSdfTexture = texObj
+    this.continuousSdfReady = true
+    this.continuousSdfKey = key
+    this.continuousSdfTexSize = [texSize, texSize]
     this.requestRender()
   },
 

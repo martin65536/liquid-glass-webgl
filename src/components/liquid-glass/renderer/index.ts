@@ -141,6 +141,17 @@ export class LiquidGlassRenderer {
   sdfTextureReady = false
   sdfTextureSize: [number, number] = [1, 1]
 
+  // Continuous-curvature SDF texture for the dialog card (capsule shape).
+  // Generated from the G2-continuous Bezier path in continuous-curve.ts.
+  // Cached by (w, h, radius); regenerated when the dialog card resizes.
+  continuousSdfTexture: WebGLTexture | null = null
+  continuousSdfReady = false
+  /** Cache key for continuousSdfTexture — `${w},${h},${radius}` in CSS px.
+   *  Set by loadContinuousSdf; checked by the render loop to skip
+   *  regeneration when the dialog card's geometry is unchanged. */
+  continuousSdfKey: string | null = null
+  continuousSdfTexSize: [number, number] = [256, 256]
+
   // Offscreen 2D canvas for the foreground (label + chevron). Reused
   // across buttons — we re-rasterize + re-upload per button per frame.
   fgCanvas: HTMLCanvasElement
@@ -265,6 +276,7 @@ export class LiquidGlassRenderer {
       'uCornerStyle', 'uSkipColorControls',
       'uUseMagnifier', 'uMagnifierZoom', 'uMagnifierOffsetY',
       'uElementRotation',
+      'uContinuousSdf', 'uUseContinuousSdf', 'uContinuousSdfTexSize', 'uContinuousSdfElementSize',
     ]
     for (const n of elNames) this.uEl[n] = gl.getUniformLocation(this.elementProgram, n)
     const shNames = [
@@ -438,6 +450,10 @@ export class LiquidGlassRenderer {
     this.blurPrograms.clear()
     if (this.sdfTexture) gl.deleteTexture(this.sdfTexture)
     this.sdfTexture = null
+    if (this.continuousSdfTexture) gl.deleteTexture(this.continuousSdfTexture)
+    this.continuousSdfTexture = null
+    this.continuousSdfReady = false
+    this.continuousSdfKey = null
     gl.deleteProgram(this.elementProgram)
     gl.deleteProgram(this.shadowProgram)
     gl.deleteProgram(this.wallpaperProgram)

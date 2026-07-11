@@ -1862,3 +1862,128 @@ Kept `prevPinchRef` (shared between the 2 transform-pair pointers).
 
 - This file is a pure compute module — no rendering or integration yet. A follow-up task can use `getContinuousCornerBezierPoints` / `continuousCapsuleCornerPoints` to (a) generate a corner Bezier path in `Path2D` form for canvas-2D overlays, or (b) bake a signed-distance-field texture for the GPU glass shader's rounded-rectangle/capsule mask (replacing the current circular-arc SDF in `shaders/sdf.ts` with the smoother G2-continuous profile).
 - The 4 cached arrays are shared references — callers must not mutate. If a future caller needs to mutate, it should `.slice()` first.
+
+---
+
+## Task: continuous-sdf-dialog — Continuous-curvature SDF texture for dialog card (2025-01)
+
+**Agent**: continuous-sdf-dialog
+**Task ID**: continuous-sdf-dialog
+
+**Goal**: Integrate the precomputed continuous-curvature SDF texture (from
+`renderer/continuous-sdf.ts` + `continuous-curve.ts`) into the dialog card's
+rendering. When `capsuleShape=true` (default), the dialog card samples the SDF
+texture for its shape instead of the analytic `sdRoundedRect` (circular arc),
+giving pixel-perfect G2-continuous squircle corners matching the original
+AndroidLiquidGlass `ContinuousCurvatureRoundedRectangleCornerBuilder`.
+
+**Files modified** (in `/home/z/my-project/src/`):
+
+- `components/liquid-glass/catalog/types.ts`
+  - Added `capsuleShape: boolean` to `CatalogState` interface (default `true`).
+  - Added `capsuleShape: true` to `DEFAULT_CATALOG_STATE`.
+
+- `app/page.tsx`
+  - Added `capsuleShape` to localStorage persistence: load (default `true`),
+    save (when `p.capsuleShape !== undefined`), JSON.stringify payload.
+
+- `components/liquid-glass/catalog/build-settings.ts`
+  - Added a new "Shape" section with a toggle button "Capsule: ON/OFF"
+    (`settings-shape-capsule`), blue accent when ON, gray when OFF.
+  - Updated the Reset button's `setState(...)` to also reset `capsuleShape: true`.
+
+- `components/liquid-glass/renderer/types.ts`
+  - Added optional field `useContinuousSdf?: boolean` to `GlassElementConfig`
+    (set on the dialog card when `capsuleShape=true`).
+
+- `components/liquid-glass/renderer/index.ts`
+  - Added fields: `continuousSdfTexture`, `continuousSdfReady`,
+    `continuousSdfKey` (cache key `${w},${h},${radius}`), `continuousSdfTexSize`
+    (default `[256, 256]`).
+  - Added `uContinuousSdf`, `uUseContinuousSdf`, `uContinuousSdfTexSize`,
+    `uContinuousSdfElementSize` to `elNames` in `cacheUniforms()`.
+  - Added `dispose()` cleanup: deletes `continuousSdfTexture`, resets
+    `continuousSdfReady`/`continuousSdfKey`.
+
+- `components/liquid-glass/renderer/methods-wallpaper.ts`
+  - Added `loadContinuousSdf(w, h, radius)` method (declared on the
+    `LiquidGlassRenderer` interface via `declare module`). Calls
+    `generateContinuousCurvatureSDF(w, h, radius)`, uploads the Uint8Array
+    as a 256×256 RGBA texture with LINEAR filtering + CLAMP_TO_EDGE.
+    Cached by `continuousSdfKey` — no-op if the same `(w,h,radius)` was
+    already loaded.
+
+- `components/liquid-glass/shaders/sdf.ts`
+  - Added 4 uniforms to `SDF_GLSL` (shared by all shaders that include it):
+    `uContinuousSdf` (sampler2D), `uUseContinuousSdf` (float 0/1),
+    `uContinuousSdfTexSize` (vec2), `uContinuousSdfElementSize` (vec2).
+  - Added `sdContinuousCurvature(coord, halfSize, radius)` function:
+    - Replicates the texture generation's aspect-ratio + 4px margin math
+      (maxDim, aspectW, aspectH, drawW, drawH, scale) so the element-to-
+      texture UV mapping is exact.
+    - Maps element-local centered coord → texture px → UV [0,1].
+    - Samples `uContinuousSdf.r`, decodes [0,1] → [-1,1] normalized distance,
+      scales back to element-space px by multiplying by `radius` (the
+      reference distance used in generation).
+  - Updated `sdShape()` to dispatch to `sdContinuousCurvature` when
+    `uUseContinuousSdf > 0.5`, else falls through to the existing
+    `sdRoundedRect` / `sdContinuousRoundedRect` path based on `uCornerStyle`.
+  - Non-element shaders (shadow, highlight, plain-rect, foreground, scene-fg)
+    leave `uUseContinuousSdf` at the GLSL default 0 → sdShape falls through
+    to the analytic path (no behavior change for those shaders).
+
+- `components/liquid-glass/renderer/methods-render-glass-element-pass.ts`
+  - Added a new block AFTER the existing `isSdfTexture` binding: when
+    `el.useContinuousSdf && this.continuousSdfTexture`, binds
+    `continuousSdfTexture` to TEXTURE2, sets `uContinuousSdf=2`,
+    `uUseContinuousSdf=1`, `uContinuousSdfTexSize=(256,256)`, and
+    `uContinuousSdfElementSize=(origW*dpr, origH*dpr)`. Otherwise sets
+    `uUseContinuousSdf=0`.
+  - TEXTURE2 is mutually exclusive with `uSdfTexSampler` (LockScreen's
+    clock_sdf) — the dialog card has `useContinuousSdf` but not `isSdfTexture`,
+    and vice versa for LockScreen.
+
+- `components/liquid-glass/catalog/build-dialog.ts`
+  - Changed `buildDialog` signature: added `state: CatalogState` parameter
+    (between `onBack` and `palette`).
+  - When `state.capsuleShape` is true, sets `card.useContinuousSdf = true`
+    on the dialog card element (in addition to the existing `useSeparableBlur`).
+
+- `components/liquid-glass/catalog/index.ts`
+  - Updated the `CatalogDestination.Dialog` dispatch to pass `state`:
+    `buildDialog(W, H, onBack, state, palette)`.
+
+- `components/liquid-glass/renderer/methods-render.ts`
+  - In the main render loop, before `renderGlassElement` is called, if
+    `el.useContinuousSdf` is true, calls
+    `this.loadContinuousSdf(el.rect.w, el.rect.h, el.cornerRadius)` to
+    ensure the SDF texture for the dialog card's geometry is generated +
+    uploaded. `loadContinuousSdf` is cached — no-op if already loaded for
+    the same `(w, h, radius)` tuple, so generation only happens once per
+    resize.
+
+**Behavior**:
+- When `capsuleShape=true` (default): the dialog card samples the
+  continuous-curvature SDF texture for its shape — pixel-perfect squircle
+  corners matching the original G2-continuous Bezier path.
+- When `capsuleShape=false`: the dialog card uses the standard
+  `sdRoundedRect` (circular arc SDF) — same as before.
+- Other elements (buttons, toggle, slider, tabs, etc.) are unaffected.
+- The SDF texture is 256×256, RGBA, cached by `(w, h, radius)` in
+  `generateContinuousCurvatureSDF` (in-memory Map) and re-cached as a
+  WebGL texture in `loadContinuousSdf`.
+
+**Limitations** (per task scope):
+- Only the element pass uses the continuous-curvature SDF texture. The
+  dialog card's rim highlight pass (Highlight.Plain, mode=2) still uses
+  the analytic `sdRoundedRect` via `sdShape` (with `uUseContinuousSdf=0`
+  in that shader). The highlight stroke therefore follows the circular
+  arc, not the squircle. This is a subtle visual difference (the dialog
+  card's highlight is alpha=0.38, widthDp=0.5 — a thin edge stroke).
+- The shadow / foreground / plain-rect passes also use the analytic SDF
+  for the dialog card. The dialog card has no shadow and no foreground
+  label, so only the rim highlight is affected.
+
+**Verification**:
+- `bun run lint` passes (no errors).
+- Dev server compiles successfully (no Next.js / TypeScript errors).

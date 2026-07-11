@@ -502,6 +502,12 @@ export interface CatalogState {
   // Settings — corner style: true = continuous (squircle, faithful to original
   // Capsule's ContinuousCurvature), false = circular (standard arc).
   continuousCorners: boolean
+  // Settings — capsule shape via continuous-curvature SDF texture. When true,
+  // the dialog card samples a precomputed SDF texture (generated from the
+  // G2-continuous Bezier path) instead of the analytic sdRoundedRect SDF.
+  // This gives pixel-perfect squircle corners on the dialog card. Other
+  // elements still use the analytic SDF (circular or continuous placeholder).
+  capsuleShape: boolean
   // Settings — live (drag-in-progress) display values for slider labels
   liveDpr: number | null
   liveTapCap: number | null
@@ -537,6 +543,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   blurTapCap: 17,
   blurDownsample: 1,
   continuousCorners: true,
+  capsuleShape: true,
   liveDpr: null,
   liveTapCap: null,
 }

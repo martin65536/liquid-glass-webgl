@@ -430,6 +430,25 @@ export const glassElementPassMethods = {
     } else {
       gl.uniform1f(this.uEl['uUseSdfTexture'], 0.0)
     }
+    // --- Continuous-curvature SDF texture (capsule shape) ---
+    // Bind the precomputed continuous-curvature SDF texture for elements
+    // with useContinuousSdf=true (currently only the dialog card). The
+    // shader's sdShape() dispatches to sdContinuousCurvature which samples
+    // this texture instead of the analytic sdRoundedRect. The texture is
+    // 256×256, RGBA, cached by (w, h, radius) — see loadContinuousSdf().
+    // uContinuousSdfElementSize = the element's ORIGINAL (unscaled) w,h so
+    // the shader can map element coords to texture UV with the correct
+    // aspect ratio + margin (matching continuous-sdf.ts).
+    if (el.useContinuousSdf && this.continuousSdfTexture) {
+      gl.activeTexture(gl.TEXTURE2)
+      gl.bindTexture(gl.TEXTURE_2D, this.continuousSdfTexture)
+      gl.uniform1i(this.uEl['uContinuousSdf'], 2)
+      gl.uniform1f(this.uEl['uUseContinuousSdf'], 1.0)
+      gl.uniform2f(this.uEl['uContinuousSdfTexSize'], this.continuousSdfTexSize[0], this.continuousSdfTexSize[1])
+      gl.uniform2f(this.uEl['uContinuousSdfElementSize'], state.origW * this.dpr, state.origH * this.dpr)
+    } else {
+      gl.uniform1f(this.uEl['uUseContinuousSdf'], 0.0)
+    }
     // Global enter alpha (ControlCenter enter progress)
     gl.uniform1f(this.uEl['uEnterAlpha'], state.enterAlpha)
     // Corner style: 0 = circular, 1 = continuous (squircle)

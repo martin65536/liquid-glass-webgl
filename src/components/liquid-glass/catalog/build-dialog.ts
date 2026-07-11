@@ -6,6 +6,7 @@ import {
   LIGHT_PALETTE,
   LOREM_IPSUM,
   type CatalogResult,
+  type CatalogState,
   type ThemePalette,
 } from './types'
 import { applyVerticalCenter, makeBackButton, makeButton, makeGlassShape, makePlainRect, makeText } from './helpers'
@@ -43,6 +44,7 @@ export function buildDialog(
   W: number,
   H: number,
   onBack: () => void,
+  state: CatalogState,
   palette: ThemePalette = LIGHT_PALETTE
 ): CatalogResult {
   const elements: GlassElementConfig[] = []
@@ -113,6 +115,15 @@ export function buildDialog(
   // since no backdropFbo). blur→cc is mathematically equivalent to cc→blur
   // for inline blur (no intermediate clamp).
   card.useSeparableBlur = true
+  // Capsule shape: when state.capsuleShape is true, the card samples a
+  // precomputed continuous-curvature SDF texture (generated from the
+  // G2-continuous Bezier path) for its shape — pixel-perfect squircle
+  // corners, vs the analytic sdRoundedRect which uses a circular arc.
+  // The renderer's loadContinuousSdf() is called from the render loop
+  // before rendering this element (see methods-render.ts).
+  if (state.capsuleShape) {
+    card.useContinuousSdf = true
+  }
   elements.push(card)
 
   // --- Title ---
