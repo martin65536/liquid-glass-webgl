@@ -358,26 +358,9 @@ export const glassRenderMethods = {
     // (sampling curTex) with inline 16-tap Vogel disc blur.
     if (el.useSeparableBlur && el.blurRadius >= 0.5) {
       const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr
-      // For backdropFbo elements (dialog card), use the dialogBackdropTex
-      // (wallpaper+scrim+cc already baked in). For normal useSeparableBlur
-      // elements, apply colorControls BEFORE blur to match the original's
-      // cc→blur→lens order. The 2-pass blur's intermediate FBO clamps to 0..1,
-      // which breaks cc↔blur commutativity when saturation>1 produces values>1.
-      let backdropSrc: WebGLTexture
-      let skipCc = false
-      if (el.backdropFbo && this.dialogBackdropTex) {
-        backdropSrc = this.dialogBackdropTex
-        skipCc = true
-      } else {
-        // cc(curTex) → blurFboA, then blur(blurFboA) → blurFboB.
-        const gl = this.gl
-        gl.disable(gl.BLEND)
-        gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurFboA!)
-        gl.viewport(0, 0, this.fboW, this.fboH)
-        this.drawColorControls(curTex, el.brightness, el.contrast, el.saturation)
-        backdropSrc = this.blurFboATex!
-        skipCc = true
-      }
+      // For backdropFbo elements (dialog card), blur the dialogBackdropTex
+      // (wallpaper+scrim+colorControls opaque layer) instead of the scene FBO.
+      const backdropSrc = (el.backdropFbo && this.dialogBackdropTex) ? this.dialogBackdropTex : curTex
       const blurredBackdrop = this.blurTexture(backdropSrc, blurRadiusPx)
       // blurTexture disables BLEND — re-enable it so renderGlassElementPass
       // composites the glass onto otherFbo with alpha blending.
@@ -385,9 +368,10 @@ export const glassRenderMethods = {
       this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA)
       this.bindFBO(otherFbo)
       this.gl.viewport(0, 0, this.fboW, this.fboH)
-      // Pass the pre-cc + pre-blurred texture as curTex. skipCc=true so the
-      // element pass doesn't double-apply colorControls.
-      const passState = (el.backdropFbo || skipCc) ? { ...state, el: { ...el, backdropFbo: false } } : state
+      // Pass the pre-blurred texture as curTex. For backdropFbo elements,
+      // temporarily disable backdropFbo so the element pass binds curTex
+      // (the blurred backdrop) instead of the raw dialogBackdropTex.
+      const passState = el.backdropFbo ? { ...state, el: { ...el, backdropFbo: false } } : state
       this.renderGlassElementPass(passState, blurredBackdrop)
     } else {
       this.renderGlassElementPass(state, curTex)
