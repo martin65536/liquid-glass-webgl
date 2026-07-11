@@ -308,7 +308,7 @@ export const glassRenderMethods = {
 
     // Re-enable blending after the copy (drawCopy disables it).
     gl.enable(gl.BLEND)
-    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
     const state: GlassRenderState = {
       el, st, isButton, p, sx, sy, sw, sh, radii, togglePressProgress,
@@ -367,7 +367,7 @@ export const glassRenderMethods = {
       // composites the glass onto otherFbo with alpha blending (otherwise
       // the glass's transparent pixels overwrite the scene → black).
       this.gl.enable(this.gl.BLEND)
-      this.gl.blendFuncSeparate(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA, this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA)
+      this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA)
       // Render element pass to otherFbo, sampling the blurred backdrop.
       // inlineBlurRadius is already 0 (useSeparableBlur + blurRadius>=0.5
       // in renderGlassElementPass), so no double blur.
@@ -409,7 +409,7 @@ export const glassRenderMethods = {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
     gl.enableVertexAttribArray(this.aPosLocSh)
     gl.vertexAttribPointer(this.aPosLocSh, 2, gl.FLOAT, false, 0, 0)
-    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
     gl.uniform2f(this.uSh['uCanvasSize'], this.canvas.width, this.canvas.height)
     gl.uniform2f(this.uSh['uElementOffset'], sx * this.dpr, sy * this.dpr)

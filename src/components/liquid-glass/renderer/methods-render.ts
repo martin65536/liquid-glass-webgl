@@ -70,7 +70,7 @@ export const renderMethods = {
 
     // Enable blending for the remaining passes.
     gl.enable(gl.BLEND)
-    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
     // Cull + iterate. We render elements in DECLARED ORDER (no Wave 1 /
     // Wave 2 split) because the FBO ping-pong makes z-ordering faithful:
@@ -139,7 +139,7 @@ export const renderMethods = {
         this.bindFBO(curFbo)
         // drawCopy disables blend; re-enable for subsequent tab-content rendering.
         this.gl.enable(this.gl.BLEND)
-        this.gl.blendFuncSeparate(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA, this.gl.ONE, this.gl.ONE_MINUS_SRC_ALPHA)
+        this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA)
       }
     }
 
@@ -300,7 +300,7 @@ export const renderMethods = {
       }
       gl.useProgram(this.plainRectProgram)
       this.setSdfUniforms(this.uPr, this.aPosLocPr, fillRect, el.cornerRadius)
-      gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
       // Apply enterProgress alpha (ControlCenter fade) to plainRects.
       // Uses SAFE progress (clamped 0..1) — faithful to ControlCenterContent.kt
       // which uses safeEnterProgressAnimation.value for alpha/dim/blur.
@@ -390,7 +390,7 @@ export const renderMethods = {
         gl.vertexAttribPointer(this.aPosLocTn, 2, gl.FLOAT, false, 0, 0)
         if (pressTint) {
           // Ripple (SrcOver): color over content at pressedAlpha.
-          gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+          gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
         } else {
           // Legacy white Plus-blend overlay.
           gl.blendFunc(gl.SRC_ALPHA, gl.ONE)
@@ -408,7 +408,7 @@ export const renderMethods = {
           gl.uniform4f(this.uTn['uColor'], 1, 1, 1, 0.10 * pText)
         }
         gl.drawArrays(gl.TRIANGLES, 0, 6)
-        gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
       }
       const fgTex = this.fgTextures.get(el.id)
       if (fgTex) {
@@ -443,7 +443,7 @@ export const renderMethods = {
           return easeIn(sp)
         })() : 1.0)
         gl.drawArrays(gl.TRIANGLES, 0, 6)
-        gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
       }
       return true
     }

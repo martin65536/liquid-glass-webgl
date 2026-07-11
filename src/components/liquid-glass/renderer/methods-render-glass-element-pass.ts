@@ -25,7 +25,7 @@ export const glassElementPassMethods = {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
     gl.enableVertexAttribArray(this.aPosLocEl)
     gl.vertexAttribPointer(this.aPosLocEl, 2, gl.FLOAT, false, 0, 0)
-    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
     gl.activeTexture(gl.TEXTURE0)
     // sampleWallpaper: bind the WALLPAPER (not curTex) as uBackdrop so the
