@@ -499,6 +499,9 @@ export interface CatalogState {
   blurTapCap: number
   // Settings — blur downsample factor (1=full-res, 2/4=downsampled)
   blurDownsample: number
+  // Settings — use Capsule shape (pill) for glass elements instead of
+  // RoundedRectangle. Default true (original uses Capsule for buttons/knobs).
+  capsuleShape: boolean
   // Settings — live (drag-in-progress) display values for slider labels
   liveDpr: number | null
   liveTapCap: number | null
@@ -533,6 +536,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   globalSeparableBlur: true,
   blurTapCap: 17,
   blurDownsample: 1,
+  capsuleShape: true,
   liveDpr: null,
   liveTapCap: null,
 }
