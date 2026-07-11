@@ -18,11 +18,45 @@ float radiusAt(vec2 coord, vec4 radii) {
 
 // sdRoundedRect — signed distance to a rounded-rect boundary.
 // Negative inside, positive outside, zero on the edge.
+// Uses standard circular arcs for the corners.
 float sdRoundedRect(vec2 coord, vec2 halfSize, float radius) {
     vec2 cornerCoord = abs(coord) - (halfSize - vec2(radius));
     float outside = length(max(cornerCoord, 0.0)) - radius;
     float inside = min(max(cornerCoord.x, cornerCoord.y), 0.0);
     return outside + inside;
+}
+
+// sdContinuousRoundedRect — continuous-curvature (squircle) rounded rect.
+// Approximates the original's ContinuousCurvatureRoundedRectangleCornerBuilder
+// (G2-continuous Bezier corners) using a superellipse approximation.
+// uCornerStyle: 0 = circular (standard), 1 = continuous (squircle).
+// The superellipse exponent n is derived from uCornerStyle:
+//   n=2 → circle (identical to sdRoundedRect)
+//   n→∞ → square (sharp corners)
+//   n≈5 → close to continuous-curvature Bezier
+// We use n = 2.0 + 3.0 * uCornerStyle (2 for circular, 5 for continuous).
+float sdContinuousRoundedRect(vec2 coord, vec2 halfSize, float radius) {
+    float n = 2.0 + 3.0 * uCornerStyle;
+    vec2 cornerCoord = abs(coord) - (halfSize - vec2(radius));
+    // If fully inside the straight-edge region (cornerCoord < 0 on both axes),
+    // the SDF is just the min distance to the straight edges (same as circular).
+    if (cornerCoord.x < 0.0 && cornerCoord.y < 0.0) {
+        return min(max(cornerCoord.x, cornerCoord.y), 0.0);
+    }
+    // Corner region: use superellipse SDF.
+    // Normalize to [0,1] in the corner.
+    vec2 p = max(cornerCoord, vec2(0.0)) / radius;
+    float d = pow(pow(p.x, n) + pow(p.y, n), 1.0 / n);
+    return (d - 1.0) * radius;
+}
+
+// Unified SDF — dispatches to circular or continuous based on uCornerStyle.
+float sdShape(vec2 coord, vec2 halfSize, float radius) {
+    if (uCornerStyle < 0.5) {
+        return sdRoundedRect(coord, halfSize, radius);
+    } else {
+        return sdContinuousRoundedRect(coord, halfSize, radius);
+    }
 }
 
 // gradSdRoundedRect — gradient of the SDF (points outward from edge).

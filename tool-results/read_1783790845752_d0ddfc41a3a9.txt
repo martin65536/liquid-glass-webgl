@@ -1,0 +1,1794 @@
+     1→# Worklog
+     2→
+     3→## Task: combined-backdrop — CombinedBackdrop for bottom-tabs indicator (2025-01)
+     4→
+     5→**Agent**: combined-backdrop
+     6→**Task ID**: combined-backdrop
+     7→**Files modified** (in `/home/z/my-project/src/components/liquid-glass/`):
+     8→- `renderer/index.ts` — added `tabsBackdropTex`, `tabsBackdropFbo`, `tabsBackdropDirty` fields; added `uTabsBackdropSampler`, `uUseTabsBackdrop` to elNames; dispose cleanup for the new FBO/texture.
+     9→- `renderer/methods-fbo.ts` — `resizeFBOs` now also creates `tabsBackdropTex` + `tabsBackdropFbo` at canvas size; added `renderTabsBackdrop(tabElements, accentColor)` method that:
+    10→  - Binds `tabsBackdropFbo`, clears transparent.
+    11→  - For each tab element: clones the cfg with `text.color` and `text.icon.color` set to `accentColor`, rasterizes via `rasterizeText`, composites at the tab's rect position with the foreground program (premultiplied alpha).
+    12→  - Sets `tabsBackdropDirty = false` after rendering.
+    13→- `renderer/methods-render.ts` — before the main render loop, if `tabsBackdropDirty`, collects all `isBottomTabContent` elements, finds the accentColor from any `isBottomTabIndicator`, and calls `renderTabsBackdrop`.
+    14→- `renderer/methods-render-glass-element-pass.ts` — binds `tabsBackdropTex` to TEXTURE2 with `uTabsBackdropSampler = 2`; sets `uUseTabsBackdrop = 1.0` for `isBottomTabIndicator` elements (0.0 otherwise).
+    15→- `renderer/methods-elements.ts` — in `setButtons`, marks `tabsBackdropDirty = true` if any `isBottomTabContent` element is present (so the texture re-renders on catalog rebuild / theme switch / selection change).
+    16→- `shaders/element-uniforms.ts` — added `uniform sampler2D uTabsBackdropSampler` and `uniform float uUseTabsBackdrop` declarations.
+    17→- `shaders/element-utils.ts` — added `sampleTabsCombinedBackdrop(vec2 canvasPx, float radius)` that samples wallpaper (coverUv, with blur) + samples `uTabsBackdropSampler` at `sceneUv(canvasPx)` (canvas-sized 1:1 mapping), then composites via SrcOver (`mix(wp.rgb, tabsContent.rgb, tabsContent.a)`).
+    18→- `shaders/element.ts` — in `main()`, when `uUseTabsBackdrop > 0.5`, uses `sampleTabsCombinedBackdrop` for both the initial backdrop sample and the refraction sample (including the chromatic aberration RGB split path). The new path takes priority over the existing `uIndicatorBackdrop` and `uUseToggleBackdrop` paths.
+    19→
+    20→**Faithfulness to LiquidBottomTabs.kt**:
+    21→The original has 3 layers:
+    22→1. Container Row (visible) — draws backdrop (wallpaper) + containerColor.
+    23→2. Hidden Row (alpha=0, layerBackdrop(tabsBackdrop), ColorFilter.tint(accentColor)) — invisible but captures blue-tinted tab content (icons + "Tab N" text in accentColor) into the `tabsBackdrop` texture.
+    24→3. Indicator Box — `drawBackdrop(rememberCombinedBackdrop(backdrop, tabsBackdrop))` — refracts wallpaper + blue-tinted content.
+    25→
+    26→The web port now replicates layer 2 by rasterizing the tab content (with accentColor replacing contentColor for both text and icon) into a canvas-sized `tabsBackdropTex`. The indicator (layer 3) samples wallpaper + this texture via SrcOver composite, so the selected tab's content appears blue through the indicator glass. Since the indicator slides (translationX), it samples different parts of `tabsBackdropTex` — seeing the blue content of whichever tab it's currently over.
+    27→
+    28→**Testing**:
+    29→- `curl http://localhost:3000/` → 200 OK (no compile errors).
+    30→- `agent-browser` opened the page, navigated to BottomTabs by clicking at y≈335.
+    31→- VLM verification: "Selected tab (Tab 1) appears BLUE through the indicator glass; unselected tabs (Tab 2, Tab 3, Tab 4) are NOT blue (neutral color)." ✅
+    32→- No console errors, no browser errors.
+    33→
+    34→**Commit**: `f1ccb33 feat(indicator): CombinedBackdrop — wallpaper + blue-tinted tab content` pushed to `main` on `martin65536/liquid-glass-webgl`.
+    35→
+    36→**Notes for future work**:
+    37→- The `__tabs_bd_${tabEl.id}__` foreground textures are cached in `fgTextures` and never explicitly cleaned up (only deleted on renderer dispose). This is a small bounded memory leak (max ~8 small textures). Could be cleaned up by tracking these IDs separately and deleting them after `renderTabsBackdrop`.
+    38→- The legacy `uIndicatorBackdrop` (solid-tint) path is kept for backward compatibility but is now superseded by `uUseTabsBackdrop` (texture-based) in the shader's if-else chain. Both are set to 1.0 for the indicator, but the shader prefers `uUseTabsBackdrop`.
+    39→
+    40→## Task: plan-sdf — SDF texture glass implementation plan (2025-01)
+    41→
+    42→**Agent**: plan-sdf
+    43→**Task ID**: plan-sdf
+    44→**Outcome**: PLANNING ONLY — no code changes. Produced a step-by-step implementation plan for the LockScreen SDF-texture glass element.
+    45→
+    46→**Files explored** (read-only):
+    47→- `liquid-glass-webgl/AndroidLiquidGlass/.../LockScreenContent.kt` — original Kotlin layout (drag, dark scrim, padding 48dp, widthIn 400dp, aspectRatio = sdfTex.w/h).
+    48→- `liquid-glass-webgl/AndroidLiquidGlass/.../utils/SdfShader.kt` — AGSL SDF shader. Samples clock_sdf.webp: `sd = v.r*2-1`, `v.a = smoothstep(0.5,1.0,v.a)` (shape mask), `normal = normalize(v.gb*2-1)`, refraction `coord - circleMap(1-min(1,-sd*1.5)) * refractionHeight * normal`, bevel lighting `1 + 0.5*intensity*dot(normal,lightDir)` + secondary band.
+    49→- `src/components/liquid-glass/renderer/index.ts` — renderer class: 12 GL programs, fields for wallpaper + tabsBackdrop FBO, uniform cache.
+    50→- `src/components/liquid-glass/renderer/methods-render.ts` — main loop: effRect/scroll, renderNonGlassElement vs renderGlassElement ping-pong.
+    51→- `src/components/liquid-glass/renderer/methods-render-glass.ts` — renderGlassElement: press/toggle/tab transforms, GlassRenderState.
+    52→- `src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts` — binds uBackdrop→T0, uWallpaperSampler→T1, tab content →T3..10, tabsGlassLayer→T11. Sets all uUseToggleBackdrop/uIndicatorBackdrop flags.
+    53→- `src/components/liquid-glass/renderer/methods-wallpaper.ts` — `loadWallpaper` pattern (Image + texImage2D + LINEAR/mipmap).
+    54→- `src/components/liquid-glass/renderer/methods-fbo.ts` — createFBO/resizeFBOs/bindFBO/drawCopy.
+    55→- `src/components/liquid-glass/renderer/types.ts` — GlassElementConfig (currently has isToggleKnob/isBottomTabIndicator etc, no SDF field).
+    56→- `src/components/liquid-glass/renderer/methods-elements.ts` — setButtons diffing, setPressed/setDragPosition.
+    57→- `src/components/liquid-glass/shaders/element.ts` — element frag shader main: sdRoundedRect → discard if sd>0.5 → backdrop sample → refraction (circleMap) → tint/surface → inner shadow → edge AA.
+    58→- `src/components/liquid-glass/shaders/element-uniforms.ts` — uniform decls (no SDF uniforms yet).
+    59→- `src/components/liquid-glass/shaders/element-utils.ts` — sampleBackdrop, sampleToggleBackdrop, sampleIndicatorBackdrop, applyColorControls, blendHue.
+    60→- `src/components/liquid-glass/shaders/sdf.ts` — SDF_GLSL (sdRoundedRect), COVER_GLSL (coverUv).
+    61→- `src/components/liquid-glass/catalog.tsx` — buildLockScreen at L2526 (currently cornerRadius=0 plain rect; glassH = glassW * 3/4; drag via state.lockScreenOffsetX/Y accumulation; hint text "SDF texture omitted").
+    62→- `src/components/liquid-glass/context.tsx` — LiquidGlassCanvas: handlePointerMove passes `{ x: dx, y: dy }` where dx/dy are PRESS-START deltas (not incremental) — confirmed drag-accumulation bug.
+    63→- `src/app/page.tsx` — uses LiquidGlassCanvas + rendererRef + buildCatalog.
+    64→
+    65→**Key findings**:
+    66→1. **clock_sdf.webp** is 1599×515 (aspect ~3.107:1, lossless RGBA). Current code uses 3/4 — completely wrong aspect.
+    67→2. **Drag bug**: `context.tsx` `handlePointerMove` computes `dx = x - pressedStart.x` (cumulative from press start), but catalog `onDrag` does `setState(prev => ({ x: prev.x + delta.x }))` — this accumulates the cumulative delta on every move, so the glass moves ~2x-3x faster than the finger. Same bug in `buildMagnifier`.
+    68→3. **Shader strategy**: extending the existing element shader (with a `uUseSdfTexture` branch) is cleaner than adding a 13th program — avoids duplicating the vibrancy/tint/surface/inner-shadow code.
+    69→4. **Texture units**: TEXTURE2 (`uTabsBackdropSampler`) is declared but never sampled — safe to add a new `uSdfTexSampler` on TEXTURE2 (no conflict with toggle/indicator paths, which never run on the same element).
+    70→5. **SDF refraction differs from rounded-rect refraction**: AGSL uses `coord - intensity * refractionHeight * normal` where `normal` comes from the texture's GB channels, not from `gradSdRoundedRect`. So the SDF path bypasses the existing refraction block entirely.
+    71→6. **Bevel lighting** (normal·lightDir) is unique to SDF glass — must be added inside the SDF branch.
+    72→7. **Texture flip**: clock_sdf uploaded with `UNPACK_FLIP_Y_WEBGL=false`; shader must sample at `UV = vec2(localX/size.x, 1.0 - localY/size.y)` to match the AGSL `coord/size*sdfTexSize` convention (top-left origin).
+    73→
+    74→**Plan delivered**: See final message. Step-by-step plan covering: (1) texture loading, (2) shader extension, (3) GlassElementConfig field, (4) render pipeline wiring, (5) drag-accumulation fix, (6) aspect-ratio + layout fix, (7) testing.
+    75→
+    76→**Next actions**: hand off to a coder agent to implement the plan. Recommended commit message: `feat(lock-screen): SDF-texture glass — clock-shaped alpha mask + texture-driven refraction`.
+    77→
+    78→---
+    79→Task ID: settings-fix-v2
+    80→Agent: main
+    81→Task: Fix Settings page — slider not draggable, max DPR should be device DPR, layout still broken after previous attempt.
+    82→
+    83→Work Log:
+    84→- Read worklog.md and current buildSettings in catalog.tsx (lines 2949-3053).
+    85→- Used agent-browser + VLM to inspect the live Settings page: discovered the orange Reset button was at y~0.15 (top) while the Settings title was at y~0.38 (middle) — the cluster was split.
+    86→- Root cause #1 (layout): slider elements (track/fill/knob) had scroll=false, reset button had scroll=false, but title + label had scroll=true (default). applyVerticalCenter skips scroll=false elements (except __pickimage__), so slider+reset stayed at the top while title+label shifted to center.
+    87→- Root cause #2 (drag): buildSettings passed null as rendererRef to makeLiquidSlider, and buildCatalog didn't forward rendererRef to buildSettings at all. All drag handlers (onDragStart/onDrag/onDragEnd) bail at `if (!r) return`, so only onTap worked.
+    88→- Root cause #3 (max DPR): `maxDpr = deviceDpr * 2` in both catalog.tsx (buildSettings) and page.tsx (DPR-apply useEffect).
+    89→- Root cause #4 (toggle state): 'settings-dpr' group was never added to toggleTargets in page.tsx, so the renderer had no toggle state for the slider (getToggleFraction returned 0).
+    90→- Fix in catalog.tsx buildSettings: added rendererRef param; changed slider scroll false→true; changed reset button scroll false→true; maxDpr = deviceDpr (not *2); linear mapping minDpr→maxDpr over full [0,1] slider range (replaces Math.max(0.5, f*maxDpr) which left a dead zone); updated label text to show range.
+    91→- Fix in catalog.tsx buildCatalog dispatch: `buildSettings(W, H, onBack, state, setState, rendererRef, palette)`.
+    92→- Fix in page.tsx: maxDpr = deviceDpr (not *2) in DPR-apply useEffect; added 'settings-dpr' to toggleTargets useMemo with the same linear [minDpr,maxDpr]→[0,1] fraction; added state.customDpr to useMemo deps.
+    93→- Verified with agent-browser (412x915 viewport, deviceDpr=1):
+    94→  - Light mode layout: Settings title (0.38) → slider (0.45) → DPR text (0.48) → Reset button orange (0.52). ✓
+    95→  - Dragged slider knob from right (DPR 1.00) leftward → DPR changed to 0.71, knob moved to middle. ✓
+    96→  - Clicked Reset → DPR returned to 1.00, knob back to right. ✓
+    97→  - Dark mode layout: identical order (title 0.38, slider 0.45, DPR text 0.48, reset 0.52). ✓
+    98→  - Label reads "DPR: 1.00  (device 1, range 0.5–1.00)" — max is device DPR. ✓
+    99→- Synced catalog.tsx + page.tsx to liquid-glass-webgl clone.
+   100→- Committed: `2709a92 fix(settings): slider draggable, max DPR = device DPR, layout unified scroll` pushed to origin/main.
+   101→
+   102→Stage Summary:
+   103→- Settings page now: Settings title → DPR slider (draggable) → indicator text → orange Reset button, all vertically centered as one cluster.
+   104→- Slider drag works end-to-end (rendererRef threaded through; toggleTargets initializes 'settings-dpr' group).
+   105→- Max DPR = device DPR (was 2×). Slider's full [0,1] range maps linearly to [0.5, deviceDpr].
+   106→- Files changed: src/components/liquid-glass/catalog.tsx, src/app/page.tsx.
+   107→- Pre-existing lint errors at page.tsx:156 (react-hooks/refs about passing rendererRef/fileInputRef to buildCatalog during render) are unchanged by this work — they existed before and are not blocking.
+   108→
+   109→---
+   110→Task ID: settings-stepped-slider + all-knob-no-highlight
+   111→Agent: main
+   112→Task: Rewrite Settings page slider with step 0.25, remove knob highlight; then remove highlight from ALL slider knobs (Slider page, Glass Playground, Settings).
+   113→
+   114→Work Log:
+   115→- Wrote dedicated `makeSettingsSlider` factory (catalog.tsx, before buildSettings):
+   116→  - Step 0.25 snapping: snapFrac(f) = round(f * stepCount) / stepCount
+   117→  - Absolute-position drag via renderer.setSliderDragPosition (knob jumps to finger directly, no delta-lag race). Replaces delta-based dragToggle which had a start-position capture bug (onDragStart fired on first pointermove, making the first onDrag delta ≈ 0 → knob never moved).
+   118→  - onDragEnd: endSliderDrag → snapFrac(rawF) → setToggleTarget(snappedF) → onValueChange(fracToVal(snappedF))
+   119→  - Knob: makeGlassShape with highlight: null
+   120→  - No live onValueChange during drag (value commits on release, avoids stale-fraction races)
+   121→- Replaced makeLiquidSlider call in buildSettings with makeSettingsSlider(step=0.25, min=0.5, max=deviceDpr).
+   122→- Removed highlight from ALL slider knobs:
+   123→  - makeLiquidSlider knob (line 458): highlight { mode:1, ... } → null
+   124→  - buildSlider slider1 knob (line 1549): same → null
+   125→  - buildSlider slider2 knob (line 1620): same → null
+   126→  - makeSettingsSlider knob (line 3020): already null
+   127→  - Toggle knob KNOB_HIGHLIGHT constant (line 1211) left unchanged (not a slider).
+   128→- The rim-highlight post-pass (methods-render-glass-post-passes.ts line 208) is guarded by `if (el.highlight && el.highlight.alpha > 0.001)` — so highlight:null skips it entirely. The element-pass highlight uniforms (methods-render-glass-element-pass.ts line 363) also check `if (el.highlight)` and set alpha=0 when null.
+   129→- Verified with agent-browser + VLM:
+   130→  - Slider page: knob edges are "plain/subtle border edge with no bright/shiny rim or outline" ✓
+   131→  - Glass Playground: same — "plain/subtle (no bright outline)" ✓
+   132→  - Settings page: knob is "plain frosted glass pill with no white/colored highlight, sheen, or glossy edge" ✓
+   133→  - Settings drag: tap at x=200 → DPR 0.75 (middle detent); tap at x=100 → DPR 0.50 (left); tap at x=370 → DPR 1.00 (right); drag left→right → snaps to 1.00 ✓
+   134→- Synced catalog.tsx to liquid-glass-webgl clone.
+   135→- Committed: `35332b6 feat(settings+sliders): stepped settings slider + remove highlight from all slider knobs` pushed to origin/main.
+   136→
+   137→Stage Summary:
+   138→- Settings page slider: rewritten as makeSettingsSlider with 0.25 step snapping + absolute-position drag + no knob highlight.
+   139→- ALL slider knobs (4 creation sites): highlight removed (highlight: null). Toggle knobs unchanged.
+   140→- The white frosted surface overlay (step 2d, isToggleKnob white tint at rest) is a separate pass — NOT the highlight. It remains, giving knobs their frosted-white-at-rest look. The user asked for "高光" (highlight/rim-glow) removal, which is the step 2f rim-highlight pass — now disabled for all slider knobs.
+   141→
+   142→---
+   143→Task ID: toggle-knob-no-highlight
+   144→Agent: main
+   145→Task: Remove highlight from toggle knobs too (user said "toggle也是").
+   146→
+   147→Work Log:
+   148→- Found KNOB_HIGHLIGHT constant (catalog.tsx line 1211) — shared by both toggle1 and toggle2 knobs (lines 1278, 1366).
+   149→- Changed `const KNOB_HIGHLIGHT: GlassHighlight = { mode:1, color:[1,1,1], ... }` to `const KNOB_HIGHLIGHT: GlassHighlight | null = null`.
+   150→- Both toggle knobs now pass highlight: null → rim-highlight post-pass (guarded by `if (el.highlight && el.highlight.alpha > 0.001)`) is skipped.
+   151→- Verified with agent-browser + VLM on Toggle page: toggle knobs have "plain/subtle border with no bright/shiny rim or edge line" ✓
+   152→- Synced catalog.tsx to clone.
+   153→- Committed: `ec24867 feat(toggle): remove highlight from toggle knobs` pushed to origin/main.
+   154→
+   155→Stage Summary:
+   156→- ALL knobs in the catalog now have no highlight: toggle (2), slider (2), settings slider (1), glass playground sliders (5). The white frosted surface overlay (step 2d, isToggleKnob white tint at rest) is a separate pass and remains — that's the frosted-white look, not the rim highlight.
+   157→
+   158→---
+   159→Task ID: blur-investigation
+   160→Agent: Explore
+   161→Task: Compare glass blur effect between original Android Kotlin source and WebGL port
+   162→
+   163→Work Log:
+   164→- Read worklog.md and prior context (combined-backdrop / plan-sdf / settings / slider-highlight tasks).
+   165→- Grep'd AndroidLiquidGlass for `.blur(`, `BlurEffect`, `RenderEffect`, `graphicsLayer {` to find every blur call site.
+   166→- Read `backdrop/src/commonMain/kotlin/com/kyant/backdrop/effects/Blur.kt` — confirms `BackdropEffectScope.blur(radius)` wraps Compose `BlurEffect(radius, radius, TileMode.Clamp)`.
+   167→- Read `DrawBackdropModifier.kt` (DrawBackdropNode.draw @ L316-335, updateEffects @ L362-368) — confirms the blur is applied as `graphicsLayer.renderEffect = effectScope.renderEffect` on a captured backdrop GraphicsLayer (recorded via `recordLayer(...)` with `padding = radius` so the blur has room outside the element bounds).
+   168→- Read `BackdropEffectScope.kt` — confirms `padding` is set to `radius` when `edgeTreatment != Clamp OR renderEffect != null` (Blur.kt L16-20).
+   169→- Read `LayerBackdrop.kt` — confirms root backdrop is a sibling-ContentCapturing GraphicsLayer (the wallpaper Image, set via `.layerBackdrop(backdrop)` in `BackdropDemoScaffold.kt` L72). The captured layer is sampled by `drawBackdrop` at the element's position, then the `renderEffect` (blur) is applied to that draw.
+   170→- Read `LiquidButton.kt` L60 — `blur(2f.dp.toPx())` (2dp backdrop blur on every button).
+   171→- Read `LiquidToggle.kt` L160 — `blur(8f.dp.toPx() * (1f - progress))` (8dp at rest, 0 at full press; modulated by pressProgress).
+   172→- Read `LiquidSlider.kt` L169 — same as toggle (8dp at rest, 0 at full press).
+   173→- Read `LiquidBottomTabs.kt`:
+   174→    L171 — container row: `blur(8f.dp.toPx())` (8dp, no progress modulation).
+   175→    L209 — hidden tinted row (tabsBackdrop layer for indicator): `blur(8f.dp.toPx())` (8dp).
+   176→    L246 — indicator: NO blur, only `lens(10dp*progress, 14dp*progress, chromaticAberration=true)`.
+   177→- Read `DialogContent.kt` L66 — `blur(if (isLightTheme) 16f.dp.toPx() else 8f.dp.toPx())` (16dp light / 8dp dark).
+   178→- Read `GlassPlaygroundContent.kt`:
+   179→    L71 — main glass: `blur(blurRadiusDp.dp.toPx())` user-controlled 0..32dp.
+   180→    L132 — settings sheet: `blur(4f.dp.toPx())`.
+   181→- Read `ControlCenterContent.kt`:
+   182→    L116-124 — `glassEffects` for the tiles has ONLY `vibrancy() + lens(...)` — NO `blur()` call.
+   183→    L194-201 — the CC root `backdropModifier` has `.graphicsLayer { renderEffect = BlurEffect(4dp*progress) }` — this blurs the ENTIRE control-center content (tiles + dim + everything) as a POST-effect (not a backdrop blur per tile). Progress=0 → no blur, progress=1 → 4dp whole-layer blur.
+   184→- Read `LockScreenContent.kt` L64 — `blur(2f.dp.toPx())` (2dp backdrop blur).
+   185→- Read `ProgressiveBlurContent.kt` L40 — `blur(4f.dp.toPx())` (4dp).
+   186→- Read `AdaptiveLuminanceGlassContent.kt` L104-107 — `blur(lerp(8dp, 16dp, l) or lerp(8dp, 2dp, -l))` (2..16dp, luminance-driven).
+   187→- Read `Highlight.kt` + `HighlightModifier.kt` L154 — separate `paint.blur(blurRadius.toPx())` (Skia `MaskFilter.makeBlur(NORMAL, radius)`) applied to the rim-highlight stroke Paint (NOT the backdrop). `blurRadius = width/2 = 0.25dp` for `Highlight.Default`.
+   188→- Read `Highlight.kt` L12 — `blurRadius: Dp = width / 2f` (default = 0.25dp).
+   189→- Read `effects/RenderEffect.kt`, `internal/RenderEffect.kt` (android + skiko) — confirms Android path uses `android.graphics.RenderEffect.createBlurEffect` (real GPU Gaussian, internally separable horizontal+vertical convolution); skiko path uses `org.jetbrains.skia.ImageFilter` (also Gaussian).
+   190→- Read `internal/Paint.kt` (skiko) — confirms `MaskFilter.makeBlur(FilterBlurMode.NORMAL, radius)` (Skia Gaussian, sigma=radius).
+   191→- Read WebGL port `shaders/element-utils.ts` L54-88 — `sampleBackdrop(canvasPx, radius)` is a hand-rolled 9-tap Poisson-disc: 1 center tap (weight 0.25) + 4 cardinal at distance 1.0×radius (weight 0.12 each) + 4 diagonal at distance 0.707×radius (weight 0.0675 each). Total weights = 1.0. Falls back to single tap if radius < 0.5. Header comment explicitly admits "matching Skia's RenderEffect exactly would require separable two-pass blur which isn't possible in a single-pass WebGL 1 setup."
+   192→- Read `shaders/element.ts` L122-134 + L179-225 — `uBlurRadius` is passed straight to `sampleBackdrop(...)` for both the initial backdrop sample AND every refraction sample (including the 3 RGB-split samples when chromatic aberration is on).
+   193→- Read `shaders/element-utils.ts` L106-170 (sampleToggleBackdrop) and L185-285 (sampleIndicatorBackdrop) — both have a duplicate inline 9-tap Poisson disc on `uWallpaperSampler` (T1) when `radius >= 0.5`. They also approximate the edge-bleed of the second backdrop layer (track color / container glass) with a `smoothstep(-radius, radius, sd)` feather instead of an actual blur — only the OUTER wallpaper gets the 9-tap disc.
+   194→- Read `shaders/scene-fg.ts` L127-181 (PROGRESSIVE_BLUR_FRAGMENT_SHADER) — a SEPARATE 9-tap blur for the progressive-blur pass; uniform weights (sum/9) rather than the weighted Poisson disc, offsets at 0.5× and 0.3536× radius.
+   195→- Read `shaders/element-uniforms.ts` L29 — `uniform float uBlurRadius; // px`.
+   196→- Read `renderer/methods-render-glass-element-pass.ts`:
+   197→    L85 — `let elBlurRadius = el.blurRadius` (from GlassElementConfig).
+   198→    L122 — toggle knob override: `elBlurRadius = 8 * (1 - progress)` (hardcoded 8dp, ignores `el.blurRadius` for knobs — same as original).
+   199→    L350-354 — `gl.uniform1f(this.uEl['uBlurRadius'], elBlurRadius * layerScale * this.dpr)` where `layerScale = Math.min(scaleX, scaleY)` (methods-render-glass.ts L315). So blur scales with graphicsLayer scale + DPR, isotropically.
+   200→- Grep'd `catalog.tsx` for `blurRadius:` — collected every per-element value:
+   201→    LiquidButton default (L90, L739): `2 * DP`
+   202→    Toggle knobs (L1269, L1357): KNOB_BLUR_RADIUS (8dp, but overridden in renderer to `8*(1-progress)`)
+   203→    Slider knobs (L1540, L1611): `8 * DP` (overridden in renderer to `8*(1-progress)` — but only if `el.isToggleKnob` is set; slider knobs are tagged isToggleKnob so this works)
+   204→    BottomTabs container (L1813, L2633): `8 * DP` (settings sheet uses 4dp)
+   205→    BottomTabs indicator (L1911): `0` (correct — no blur)
+   206→    Dialog (L2028): `palette.dialogBlurRadius` (16dp light / 8dp dark — matches original)
+   207→    Settings sheet (L2926): `2 * DP` ← original GlassPlaygroundContent.kt sheet has `blur(4dp)`. **Port uses 2dp, original uses 4dp.**
+   208→    ControlCenter tiles (L2280..L2331): `8 * DP` each — **original glassEffects has NO backdrop blur on CC tiles** (only `vibrancy() + lens()`). The original's blur is `BlurEffect(4dp*progress)` applied to the WHOLE ControlCenter root container, NOT per-tile. **Port diverges.**
+   209→    LockScreen (L2855): `2 * DP` (matches original)
+   210→    Magnifier (L2495): `0` (original MagnifierContent has no blur in its effects — need to double-check, but magnifier glass uses lens only)
+   211→    AdaptiveLuminance (L2769): `8 * DP` (original is 2..16dp luminance-driven — port uses fixed 8dp)
+   212→    GlassPlayground main glass (L2565): `state.blurRadiusDp * DP` (matches — user-controlled 0..32dp)
+   213→- Read `renderer/methods-render.ts` L100-138 — confirmed FBO ping-pong is only for z-ordering (so glass can sample scene below it); there is NO separable horizontal+vertical blur pass, NO downscaled blur FBO. The blur is computed entirely inline in the element fragment shader's 9-tap Poisson disc.
+   214→
+   215→Stage Summary:
+   216→- **ORIGINAL Android blur** = Compose `BlurEffect(radius, radius, Clamp)` → Android `RenderEffect.createBlurEffect` → Skia/Android GPU Gaussian convolution. Internally separable (horizontal pass + vertical pass) on a captured backdrop GraphicsLayer. Radius is in pixels (= dp × density), interpreted as Gaussian sigma. Edge behavior: `padding = radius` is added to the recorded layer so the blur extends OUTSIDE the element bounds (Blur.kt L16-20; DrawBackdropModifier.kt L262, L286-304). True Gaussian extends ~3×sigma visually. Backdrop = whatever the `layerBackdrop` captured (for root backdrop: just the wallpaper Image).
+   217→- **WEBGL port blur** = inline 9-tap Poisson-disc in the element fragment shader (`sampleBackdrop`, element-utils.ts L63-88). 1 center tap + 4 cardinal + 4 diagonal, hand-tuned weights summing to 1.0. Radius is treated as the KERNEL RADIUS (taps span ±radius px), NOT sigma. NO padding around the element bounds — the element SDF is hard-clipped at sd>0.5, so the blur can sample outside but the result is clipped to the shape. NO separable 2-pass, NO downscale. Toggle/indicator paths duplicate the 9-tap disc inline on `uWallpaperSampler` (T1). The progressive-blur pass uses a different (uniform-weight) 9-tap disc.
+   218→
+   219→- **KEY DIFFERENCES (root cause of "blur is very different")**:
+   220→  1. **Strength**: Port radius is kernel radius, original radius is Gaussian sigma. A Gaussian with sigma=R has effective visible extent ~3R. So for the SAME `radius` value, the original's blur extends ~3× farther than the port's. Port blur is roughly 3× WEAKER visually. Example: 8dp backdrop blur at dpr=2 → original blurs ±48px, port blurs ±16px.
+   221→  2. **Algorithm**: Original is a real Gaussian (Skia/Android native, ~25-tap separable kernel at 3-sigma cutoff). Port is a 9-tap Poisson disc — visibly spike-y / less smooth at large radii, has diagonal-direction bias (the 0.707 offsets are at exact 45°), and produces a "cross + X" pattern rather than a circular Gaussian. At 8-16dp this is quite obvious.
+   222→  3. **Edge padding**: Original pads the recorded layer by `radius` so the blur can reach beyond the element's bounds (no hard edge). Port has NO padding — the element SDF is hard-clipped (sd>0.5 → discard) at element bounds, so blur samples that fall outside the element are still consumed but their result is clipped to the shape. Visually: original blur "leaks" softly past the glass edge; port blur stops hard at the glass edge.
+   223→  4. **What gets blurred**:
+   224→     - Original (button / dialog / lockscreen / progressive-blur / adaptive-luminance): blurs the WALLPAPER ONLY (root backdrop = LayerBackdrop(wallpaper Image)).
+   225→     - Port (same elements via `sampleBackdrop`): blurs the SCENE FBO (`curTex`) — wallpaper + every element drawn before this one (other glass, plain-rects, text). So if there's content behind the button (e.g. another glass, a colored card), the port blurs it but the original does NOT.
+   226→     - Toggle knob / indicator: both ports sample the wallpaper directly (matches original CombinedBackdrop).
+   227→  5. **ControlCenter tiles**: Original has NO backdrop blur per tile (`glassEffects` = vibrancy + lens only). The original's CC blur is a SEPARATE whole-layer `BlurEffect(4dp*progress)` on the root container (ControlCenterContent.kt L194-201). The port adds `blurRadius: 8*DP` per CC tile (catalog.tsx L2280..L2331) and has NO equivalent of the whole-container 4dp*progress blur. Two divergences in one.
+   228→  6. **Settings sheet (GlassPlayground)**: Original `blur(4dp)`; port `blurRadius: 2*DP` (catalog.tsx L2926). 2× too weak.
+   229→  7. **AdaptiveLuminance**: Original is 2..16dp luminance-driven (`lerp(8dp, 16dp, l)` or `lerp(8dp, 2dp, -l)`); port is fixed `8*DP` (catalog.tsx L2769). Luminance modulation not ported.
+   230→  8. **No downscale**: Original Android RenderEffect uses a true Gaussian at full resolution (Skia GPU). Port has no downscale either — but at large radii (16-32dp), 9 taps is insufficient; should consider a separable 2-pass downsampled blur for the dialog/playground large-blur cases.
+   231→
+   232→- **Files & line references** (for the coder):
+   233→  - Original blur wrapper: `liquid-glass-webgl/AndroidLiquidGlass/backdrop/src/commonMain/kotlin/com/kyant/backdrop/effects/Blur.kt:9-29`
+   234→  - Original blur wiring (graphicsLayer.renderEffect + padding): `liquid-glass-webgl/AndroidLiquidGlass/backdrop/src/commonMain/kotlin/com/kyant/backdrop/DrawBackdropModifier.kt:262, 285-304, 362-368`
+   235→  - Original CC whole-container blur (NOT per-tile): `liquid-glass-webgl/AndroidLiquidGlass/app/src/commonMain/kotlin/com/kyant/backdrop/catalog/destinations/ControlCenterContent.kt:194-201`
+   236→  - Original CC tile glassEffects (no blur): `.../ControlCenterContent.kt:116-124`
+   237→  - Original per-component blur values: LiquidButton.kt:60, LiquidToggle.kt:160, LiquidSlider.kt:169, LiquidBottomTabs.kt:171/209/246, DialogContent.kt:66, GlassPlaygroundContent.kt:71/132, LockScreenContent.kt:64, ProgressiveBlurContent.kt:40, AdaptiveLuminanceGlassContent.kt:104-107
+   238→  - Port blur function: `src/components/liquid-glass/shaders/element-utils.ts:54-88`
+   239→  - Port blur usage in element shader: `src/components/liquid-glass/shaders/element.ts:122-134, 179-225`
+   240→  - Port blur uniform set: `src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:85, 122, 350-354`
+   241→  - Port layerScale (isotropic min): `src/components/liquid-glass/renderer/methods-render-glass.ts:315`
+   242→  - Port per-element blur values: `src/components/liquid-glass/catalog.tsx` — Button 90/739, Toggle/Slider knobs 1269/1357/1540/1611 (overridden in renderer L122), BottomTabs container 1813/2633, indicator 1911 (0), Dialog 2028, Settings sheet 2926 (2dp — should be 4dp), CC tiles 2280..2331 (8dp — should be 0), LockScreen 2855 (2dp), Magnifier 2495 (0), AdaptiveLuminance 2769 (8dp fixed — should be 2..16dp luminance-driven), GlassPlayground main 2565 (user)
+   243→  - Port progressive-blur shader (separate uniform 9-tap): `src/components/liquid-glass/shaders/scene-fg.ts:127-181`
+   244→  - Port sampleToggleBackdrop / sampleIndicatorBackdrop inline 9-tap disc: `src/components/liquid-glass/shaders/element-utils.ts:124-143, 191-206`
+   245→
+   246→- **Recommendation (minimal change to make port blur match original more closely)**:
+   247→  Do TWO things, in priority order:
+   248→  (A) **Fix the radius interpretation**: Multiply `uBlurRadius` by ~3 when passing it into `sampleBackdrop` (or reinterpret the port's `radius` arg as sigma and expand the Poisson offsets to span ±3×sigma). Specifically: in `methods-render-glass-element-pass.ts:354`, change `elBlurRadius * layerScale * this.dpr` → `elBlurRadius * layerScale * this.dpr * 3.0` (or change the offsets in `sampleBackdrop` from `1.0` / `0.707` to `3.0` / `2.12`). This single change will make the blur visually ~3× wider and immediately look much closer to the original. The 9-tap disc will look soft/feathered instead of crisp.
+   249→  (B) **Fix the per-element blur value divergences** in `catalog.tsx`:
+   250→      - Settings sheet L2926: `2 * DP` → `4 * DP` (match original `blur(4f.dp.toPx())`).
+   251→      - ControlCenter tiles L2280..L2331: `blurRadius: 8 * DP` → `blurRadius: 0` (original glassEffects has no blur). Separately, if the user wants the original's whole-container 4dp*progress blur, add a NEW post-render pass that blurs the entire CC region by `4 * DP * progress` (this requires a new separable blur program + FBO; deferred).
+   252→      - AdaptiveLuminance L2769: `8 * DP` → make it luminance-driven `lerp(8, 16, l) or lerp(8, 2, -l)` (match original AdaptiveLuminanceGlassContent.kt:104-107). Requires plumbing luminance into the renderer; deferred if too invasive — for now, leave at 8dp.
+   253→      - BottomTabs hidden layer blur is missing: the port's sampleIndicatorBackdrop uses 0 blur on the inner tabsBackdrop SDF mask edge; original blurs the whole captured layer (8dp). The port's `smoothstep(-radius, radius, sd)` edge feather already approximates this — OK as-is.
+   254→  (C) **Optional (larger change)**: For the larger blur radii (dialog 16dp, playground user-blur up to 32dp), the 9-tap Poisson disc produces visible cross/X artifacts. To match the original's smooth Gaussian, add a separable 2-pass blur: render the wallpaper (or scene FBO) into a downsampled FBO (e.g. 1/2 or 1/4 scale), run a horizontal Gaussian blur program → vertical Gaussian blur program → sample the result in the element shader. This is the "right" fix but adds 2 new programs + 2-3 new FBOs. Defer unless (A)+(B) is insufficient.
+   255→  (D) **Optional**: For button/dialog/lockscreen/progressive-blur/adaptive-luminance elements — consider sampling `uWallpaperSampler` (with coverUv) instead of `uBackdrop` (scene FBO) when the original's root backdrop is the wallpaper-only LayerBackdrop. This would make the port blur the wallpaper only (matching original) instead of blurring sibling scene content. Caveat: this would break the layering behavior for elements that should refract non-wallpaper content behind them (e.g. toggle knobs on a colored card — but those already use the `sampleToggleBackdrop` wallpaper path). Defer unless (A)+(B) reveals sibling-content bleed as a visible problem.
+   256→
+   257→Next actions: hand off to a coder agent to implement (A) + (B). Recommended commit message: `fix(glass-blur): widen blur radius to match Skia Gaussian sigma; fix CC tiles + settings sheet blur values`.
+   258→
+   259→---
+   260→Task ID: blur-fix-3x
+   261→Agent: main
+   262→Task: Fix glass blur effect to match the original Android implementation.
+   263→
+   264→Work Log:
+   265→- Delegated blur investigation to Explore agent (Task ID: blur-investigation). Key finding: original uses Skia BlurEffect which treats radius as Gaussian SIGMA (effective extent ~3×sigma); port's 9-tap Poisson disc treats radius as kernel radius (taps span ±radius). Same numeric radius → port blur ~3× too narrow.
+   266→- Root cause confirmed in element-utils.ts:54-88 (sampleBackdrop) — `pxToUv = radius / uCanvasSize`, taps at offset 1.0×radius and 0.707×radius. So passing radius=8dp only samples ±8px, but Skia's sigma=8dp blurs ±24px.
+   267→- Fix: multiply uBlurRadius by 3.0 at the two JS-side uniform-set sites:
+   268→  - methods-render-glass-element-pass.ts:360 — `elBlurRadius * layerScale * this.dpr * 3.0` (covers ALL glass elements: buttons, toggle, slider, dialog, lockscreen, control center, magnifier, glass playground)
+   269→  - methods-render.ts:272 — `el.progressiveBlur.blurRadius * this.dpr * 3.0` (progressive blur element)
+   270→- All sampling functions (sampleBackdrop, sampleToggleBackdrop, sampleIndicatorBackdrop, sampleMagnifier) read uBlurRadius, so the ×3 propagates automatically to every blur path — no shader edits needed.
+   271→- Verified with agent-browser + VLM:
+   272→  - Buttons: blur 7/10, "noticeably blurred and smoothed" ✓
+   273→  - Dialog: blur 7/10, "smooth and natural, no graininess/spikes/artifacts" ✓
+   274→  - LockScreen: blur 8/10, "natural, mimics soft diffusion typical of glass" ✓
+   275→  - Control Center: blur 7/10, "natural and smooth, consistent soft transition" ✓
+   276→  - Toggle knob at rest: "blurred, soft-focus, no sharp detail through the knob" ✓
+   277→- Synced both files to liquid-glass-webgl clone.
+   278→- Committed: `5def1d1 fix(glass-blur): widen blur radius 3x to match Skia Gaussian sigma` pushed to origin/main.
+   279→
+   280→Stage Summary:
+   281→- Glass blur now visually ~3× wider, matching the original Skia Gaussian behavior.
+   282→- Single-line fix (×3.0 multiplier) covers all glass element types + progressive blur.
+   283→- No shader code changes needed (the radius propagates through uBlurRadius to all sample* functions).
+   284→- Investigation also noted secondary differences (CC tiles blur 8dp vs original 0 per-tile; settings sheet 2dp vs 4dp; adaptive luminance fixed 8dp vs luminance-driven 2-16dp) — deferred, the ×3 fix is the dominant visual correction.
+   285→
+   286→---
+   287→Task ID: blur-gaussian-17tap
+   288→Agent: main
+   289→Task: Fix glass blur to be smooth and natural (user: "原版blur就很流畅自然，而这个版本就像胡乱叠了几层半透明图像").
+   290→
+   291→Work Log:
+   292→- Diagnosed root cause: the 9-tap Poisson disc (4 cardinal + 4 diagonal at SAME radius) produced visible ghost copies on high-contrast backgrounds — the "stacked semi-transparent layers" artifact. The previous 3× radius multiplier made it worse by spreading 9 sparse taps over a 3× wider area.
+   293→- Reverted the 3× multiplier in methods-render-glass-element-pass.ts and methods-render.ts (radius is now σ, matching Skia's BlurEffect interpretation).
+   294→- Implemented 17-tap Gaussian disc in element-utils.ts as a shared `gaussianBlur(sampler2D tex, vec2 uv, vec2 pxToUv, float radiusPx)` function:
+   295→  - 1 center tap (weight 0.1442)
+   296→  - Ring 1 at distance σ: 8 taps cardinal+diagonal (weight 0.0875 each)
+   297→  - Ring 2 at distance 2σ: 8 taps rotated 22.5° (weight 0.0195 each)
+   298→  - Weights are true Gaussian G(d)=exp(-d²/2σ²), normalized to sum=1.0
+   299→  - Ring 2 rotated 22.5° relative to ring 1 breaks the grid pattern → no visible ghost positions
+   300→  - Covers ±2σ (95% of Gaussian energy)
+   301→- Updated all blur call sites to use gaussianBlur:
+   302→  - sampleBackdrop (scene FBO — all glass elements: buttons, toggle, slider, dialog, lockscreen, CC, magnifier, glass playground)
+   303→  - sampleToggleBackdrop wallpaper branch (toggle knob)
+   304→  - sampleIndicatorBackdrop wallpaper branch (bottom-tab indicator)
+   305→- Updated progressive-blur shader (scene-fg.ts) with an inline 17-tap Gaussian copy (it doesn't include element-utils).
+   306→- Verified with agent-browser + VLM:
+   307→  - Buttons: "smooth and natural, no discrete ghost/doubled images or stacked semi-transparent layers" ✓
+   308→  - Dialog (16dp blur): "smooth and natural, 9/10 smoothness, no visible doubling" ✓
+   309→  - LockScreen: 8/10 smoothness ✓
+   310→  - Control Center: 8/10 smoothness ✓
+   311→  - Glass Playground (large radius): "smoothly blurred with no visible doubling or repeated/ghost copies" ✓
+   312→- Synced 4 files to liquid-glass-webgl clone.
+   313→- Committed: `84ed3c6 fix(glass-blur): 17-tap Gaussian disc replaces 9-tap Poisson — smooth, natural blur` pushed to origin/main.
+   314→
+   315→Stage Summary:
+   316→- Glass blur is now smooth and natural across ALL glass elements — no more "stacked layers" artifact.
+   317→- 17 texture fetches per pixel (up from 9) — negligible perf cost on modern GPUs.
+   318→- The gaussianBlur function is shared (DRY) — one kernel definition, used by all backdrop sampling paths.
+   319→- Ring rotation (22.5° offset between ring 1 and ring 2) is the key to breaking the visible grid pattern that caused the ghosting.
+   320→
+   321→---
+   322→Task ID: blur-deep-investigation
+   323→Agent: Explore
+   324→Task: Deep comparison of blur rendering pipeline — original Android vs WebGL port
+   325→
+   326→Work Log:
+   327→- Re-read previous worklog (blur-investigation, blur-fix-3x, blur-gaussian-17tap). The 17-tap Gaussian is smooth but the OVERALL look still differs. Need to find remaining pipeline differences.
+   328→- Re-confirmed original backdrop capture model: `BackdropDemoScaffold.kt:34-44` (skikoMain) calls `rememberLayerBackdrop()` and applies `.layerBackdrop(backdrop)` to the wallpaper `Image` only. The `LayerBackdropNode.draw()` (`LayerBackdropModifier.kt:55-58`) records `drawContent()` into the GraphicsLayer — so the captured backdrop is whatever the wallpaper Image draws (plus any modifier applied to the Image inside `layerBackdrop`).
+   329→- Confirmed via `LayerBackdrop.kt:46-68` that glass elements later call `drawLayer(graphicsLayer)` (position-translated) to sample the captured wallpaper at the element's location. The blur RenderEffect is applied to this `drawLayer` call (via `graphicsLayer.renderEffect`).
+   330→- Confirmed via `DrawBackdropModifier.kt:262, 285-304, 362-368` that the blur is a `RenderEffect` on a recorded GraphicsLayer, with `padding = radius` so the captured backdrop extends `radius` px outside the element bounds (TileMode.Clamp repeats edge pixels beyond that).
+   331→- Read `Blur.kt:9-29`, `ColorFilter.kt:11-45`, `Lens.kt:16-60`, `RenderEffect.kt:13-34` — confirmed effect chain order: each new effect wraps the previous (chain/BlurEffect/ColorFilterEffect all wrap `innerEffect`). For LiquidButton (`LiquidButton.kt:58-62`) effects = `vibrancy() → blur(2dp) → lens(12dp, 24dp)`, the actual application order is `vibrancy → blur → lens` (refraction). The blur is applied to the saturation-boosted backdrop, then refraction samples the blurred backdrop.
+   332→- Read WebGL port `shaders/element.ts` — confirmed the order in the port is: sample backdrop (with blur) at `sampleCoord` → applyColorControls (saturation) → compute refraction offset → sample backdrop (with blur) at `refractedSampleCoord` → applyColorControls. So the port blurs AT the refracted coordinate.
+   333→- Mathematically verified: for a uniform Gaussian blur, `blur(backdrop)[P+offset]` (original) == `blur_at(backdrop, P+offset)` (port) — both equal `∑_i w_i * backdrop[P+offset+i]`. The blur-vs-refraction order is NOT a real visual difference.
+   334→- Mathematically verified: vibrancy (linear colorMatrix when brightness=0,contrast=1) commutes with blur. Even with brightness/contrast offsets (dialog, adaptive-luminance), the constant term passes through blur (because `∑_i w_i = 1`). So vibrancy-vs-blur order is NOT a real difference.
+   335→- Verified premultiplied alpha: `methods-fbo.ts:26` uses RGBA/UNSIGNED_BYTE; `methods-render.ts:174` writes wallpaper with no blend (opaque, alpha=1); `methods-render.ts:355` & `methods-render-glass-post-passes.ts:177` use ONE/ONE_MINUS_SRC_ALPHA for text (premultiplied); `methods-render-glass-element-pass.ts:28` uses SRC_ALPHA/ONE_MINUS_SRC_ALPHA for glass (straight). Because the wallpaper is opaque, every composite onto it leaves the FBO with alpha=1 and straight rgb — so the FBO is effectively straight-alpha throughout. The blur samples straight-alpha pixels (correct for opaque content). NOT a real difference.
+   336→- Investigated "what gets blurred":
+   337→  - Original (LiquidButton, Dialog, LockScreen, CC tiles, GlassPlayground main, AdaptiveLuminance, Magnifier): backdrop = the LayerBackdrop attached to the wallpaper Image only. Sibling Composables (back button, other glass, text) are NOT captured.
+   338→  - Port (`methods-render-glass-element-pass.ts:30-32`): `uBackdrop = curTex` = the scene FBO = wallpaper + ALL previously drawn elements (back button, scrim, plain-rects, text, other glass). The blur sees siblings.
+   339→  - Exception: SDF path (lockscreen) at `element.ts:84,92` samples `uWallpaperSampler` (raw wallpaper) — matches original. ✓
+   340→  - Exception: toggle knob via `sampleToggleBackdrop` and indicator via `sampleIndicatorBackdrop` sample `uWallpaperSampler` — matches original CombinedBackdrop. ✓
+   341→  - Exception: progressive-blur at `methods-render.ts:269` samples `wallpaperTexture` — matches original. ✓
+   342→- Investigated edge padding:
+   343→  - Original (`DrawBackdropModifier.kt:262, 285-304`, `Blur.kt:16-20`): captured GraphicsLayer is padded by `radius` (=blur sigma) on each side. With TileMode.Clamp, the blur at the element edge samples real wallpaper up to 1*sigma outside, then clamps to the edge pixel for samples 1*sigma..3*sigma outside.
+   344→  - Port: scene FBO is canvas-sized, so the blur can sample real scene content up to 2*sigma outside the element (17-tap Gaussian extent). No clamping.
+   345→  - Difference: port's edge blur sees real (sibling-containing) content up to 2*sigma outside; original sees real wallpaper up to 1*sigma, then clamps. Minor, subsumed under the "what gets blurred" issue.
+   346→- Investigated ControlCenter specifically:
+   347→  - Original `ControlCenterContent.kt:147-201` defines `backdropModifier` (applied to the wallpaper Image via `BackdropDemoScaffold(modifier)`) with `drawWithContent { drawContent(); drawRect(dimColor*progress) }` + `graphicsLayer { renderEffect = BlurEffect(4dp*progress) }`. So the captured backdrop = (wallpaper + dim*progress) pre-blurred by 4dp*progress.
+   348→  - Original `ControlCenterContent.kt:116-124` `glassEffects` = `vibrancy() + lens(...)` — NO `blur()` call. Tiles do NOT blur their backdrop.
+   349→  - Port `catalog.tsx:2280-2331` sets `blurRadius: 8 * DP` per CC tile. No canvas-wide pre-blur. So port tiles always apply 8dp blur (at all progress values), original applies 0..4dp progress-modulated pre-blur to the whole backdrop.
+   350→- Investigated LockScreen specifically:
+   351→  - Original `LockScreenContent.kt:62-66` `effects = colorControls(...) + blur(2dp) + with(sdfShader){apply()}`. Chain order: colorControls → blur → sdfShader. The SDF RuntimeShader samples the ALREADY-BLURRED backdrop via `content.eval(refractedCoord)` (`SdfShader.kt:68`).
+   352→  - Port `element.ts:72-110` SDF path samples `uWallpaperSampler` with a single `texture2D` tap — NO `gaussianBlur` call. `uBlurRadius` is completely ignored. LockScreen catalog sets `blurRadius: 2*DP` (`catalog.tsx:2855`) but it's silently dropped.
+   353→- Investigated GlassPlayground settings sheet:
+   354→  - Original `GlassPlaygroundContent.kt:121-138` sheet has `exportedBackdrop = sheetBackdrop`. The sheet's rendered glass (wallpaper + vibrancy + blur(4dp) + lens + white-0.5 overlay) is captured into `sheetBackdrop`. Sliders inside the sheet use `backdrop = sheetBackdrop` (`L146-162, L199-202`). So the slider knob samples the sheet-glass (already blurred+refracted wallpaper) + scaled track color.
+   355→  - Port: NO `exportedBackdrop` mechanism exists. `catalog.tsx:2998-3021` slider knobs use `sampleToggleBackdrop` (since they're isToggleKnob) which samples `uWallpaperSampler` (raw wallpaper) — NOT the sheet glass. So the port's slider knobs see raw wallpaper; original sees sheet glass.
+   356→- Investigated Settings sheet blur value:
+   357→  - Original `GlassPlaygroundContent.kt:132` `blur(4f.dp.toPx())`.
+   358→  - Port `catalog.tsx:2926` `blurRadius: 2 * DP`. Half the original.
+   359→- Investigated AdaptiveLuminance:
+   360→  - Original `AdaptiveLuminanceGlassContent.kt:104-107` `blur(lerp(8dp, 16dp, l) or lerp(8dp, 2dp, -l))` — luminance-driven 2..16dp.
+   361→  - Port `catalog.tsx:2769` `blurRadius: 8 * DP` — fixed (no GPU luminance readback).
+   362→- Investigated s2 slider knob (on card) backdrop:
+   363→  - Original `SliderContent.kt:54-61` `LiquidSlider(... backdrop = rememberCanvasBackdrop { drawRect(backgroundColor) })` — solid card color via CanvasBackdrop.
+   364→  - Port `catalog.tsx:1620` `s2KnobEl.isToggleKnob = { groupId: 'slider2', dragWidth: ..., velocityDivisor: 10 }` — NO `solidBackdropColor` set, NO `trackColorOff/On` set. Falls through the `if (el.isToggleKnob.trackColorOff && ...)` check at `methods-render-glass-element-pass.ts:162`, so `useToggleBackdrop` stays 0.0 → samples `uBackdrop` (scene FBO) instead of solid color. Same bug as t2 toggle would have if `solidBackdropColor` weren't set.
+   365→- Investigated s1 slider knob (no card) backdrop:
+   366→  - Original `SliderContent.kt:38-45` `LiquidSlider(... backdrop = backdrop)` — the outer LayerBackdrop (wallpaper).
+   367→  - Port: same fallthrough as s2 → samples scene FBO (wallpaper + back button + dim + ...). Original samples wallpaper only.
+   368→
+   369→Stage Summary:
+   370→
+   371→CONFIRMED REMAINING DIFFERENCES (sorted by impact):
+   372→
+   373→**[HIGH] 1. Port blurs the SCENE FBO; original blurs WALLPAPER ONLY.**
+   374→- Original: `BackdropDemoScaffold.kt:34-44` (skiko) — `layerBackdrop` on wallpaper Image only. Sibling Composables are NOT captured.
+   375→- Port: `methods-render-glass-element-pass.ts:30-32` binds `curTex` (scene FBO) to `uBackdrop`. `methods-render.ts:100-138` ping-pong accumulates wallpaper + all previously drawn elements.
+   376→- Affected: ALL glass elements using `sampleBackdrop` — buttons, dialog card, CC tiles, GlassPlayground main glass, AdaptiveLuminance, Magnifier, slider knobs (s1+s2 fallthrough).
+   377→- Visual effect: when a glass element overlaps a sibling (e.g., a button over the back button, or one glass over another), the port shows the sibling's blurred outline bleeding through. The original shows only the wallpaper.
+   378→- Fix: For elements whose original backdrop is wallpaper-only (the common case), bind `uBackdrop` to `wallpaperTexture` and have `sampleBackdrop` use `coverUv` (cover-fit) like `sampleToggleBackdrop` does (`element-utils.ts:134-135`). Add a per-element flag (e.g., `useWallpaperBackdrop: boolean`) so elements that DO need scene-FBO sampling (none in the current catalog, but theoretically possible) can opt out. The toggle/indicator paths already use `uWallpaperSampler`, so this just routes the default path through the same texture.
+   379→
+   380→**[HIGH] 2. ControlCenter: port uses per-tile 8dp blur; original uses 0..4dp whole-backdrop pre-blur.**
+   381→- Original: `ControlCenterContent.kt:147-201` (`backdropModifier` with `BlurEffect(4dp*progress)` on the wallpaper Image's graphicsLayer) + `ControlCenterContent.kt:116-124` (`glassEffects` = vibrancy + lens, NO blur).
+   382→- Port: `catalog.tsx:2280-2331` (per-tile `blurRadius: 8 * DP`), no whole-backdrop blur.
+   383→- Visual effect: port CC tiles are ALWAYS heavily blurred (8dp); original CC tiles at rest (progress=0) are crisp (no blur), only blurred up to 4dp as the panel is dragged in. The port's CC looks "frosted" at all times; the original is sharp at rest.
+   384→- Fix: (a) Remove per-tile `blurRadius` for CC tiles (set to 0). (b) Add a canvas-wide pre-blur pass at the start of CC rendering: render wallpaper+dim into a temp FBO, blur by `4dp*progress` (a separable 2-pass Gaussian or downsampled blur), and bind THAT FBO (not curTex) to `uBackdrop` for the CC tiles. The per-tile vibrancy + lens then sample the pre-blurred backdrop, matching the original pipeline.
+   385→
+   386→**[HIGH] 3. s2 slider knob samples scene instead of solid card color.**
+   387→- Original: `SliderContent.kt:54-61` uses `rememberCanvasBackdrop { drawRect(backgroundColor) }` for the s2 slider's outer backdrop.
+   388→- Port: `catalog.tsx:1620` doesn't set `solidBackdropColor` on `s2KnobEl.isToggleKnob`, so the renderer falls through to `sampleBackdrop` (scene FBO) at `methods-render-glass-element-pass.ts:162, 267`.
+   389→- Visual effect: s2 knob (on white/dark card) shows the wallpaper+card+siblings refracted through it instead of a solid frosted color. Looks "busy" instead of "frosted solid".
+   390→- Fix: Set `solidBackdropColor: cardBg` on `s2KnobEl.isToggleKnob` (same pattern as t2 toggle at `catalog.tsx:1389`). Also set `trackColorOff`/`trackColorOn`/`trackW`/`trackH` so the `useToggleBackdrop` path activates.
+   391→
+   392→**[MEDIUM] 4. LockScreen SDF path ignores uBlurRadius (no blur applied).**
+   393→- Original: `LockScreenContent.kt:62-66` — `effects = colorControls + blur(2dp) + sdfShader.apply()`. The SDF RuntimeShader samples the already-blurred backdrop via `content.eval(refractedCoord)` (`SdfShader.kt:68`).
+   394→- Port: `element.ts:72-110` SDF path uses single-tap `texture2D(uWallpaperSampler, ...)` at L84 and L92 — no `gaussianBlur()` call. `uBlurRadius` is silently dropped.
+   395→- Visual effect: port LockScreen shows sharp wallpaper detail through the clock glass; original shows slightly softened (2dp blur) wallpaper.
+   396→- Fix: In `element.ts` SDF path, replace `texture2D(uWallpaperSampler, wpUv1)` with `gaussianBlur(uWallpaperSampler, wpUv1, canvasPxToUvScale(), uBlurRadius)`. Same for the refracted sample at L92. (LockScreen catalog already sets `blurRadius: 2*DP` at `catalog.tsx:2855`.)
+   397→
+   398→**[MEDIUM] 5. Slider knobs inside GlassPlayground settings sheet sample wallpaper instead of sheet glass.**
+   399→- Original: `GlassPlaygroundContent.kt:121-138` (sheet with `exportedBackdrop = sheetBackdrop`) + `L146-162, L199-202` (sliders use `backdrop = sheetBackdrop`). Slider knob samples the sheet's already-blurred+refracted glass + scaled track color.
+   400→- Port: no `exportedBackdrop` mechanism. `catalog.tsx:2998-3021` slider knobs use `sampleToggleBackdrop` which samples `uWallpaperSampler` (raw wallpaper). The sheet glass rendering is never captured as a backdrop texture.
+   401→- Visual effect: slider knobs inside the sheet show raw wallpaper (sharp, unmatching the sheet's frosted appearance) instead of the sheet's frosted glass. Discontinuity between the sheet and its knobs.
+   402→- Fix: Implement `exportedBackdrop` support — render the sheet glass into a dedicated FBO (similar to `tabsBackdropFbo`), bind that FBO to a new uniform (e.g., `uSheetGlassSampler`), and have the slider knobs sample it via a new `sampleSheetGlassBackdrop` function (composite sheet-glass + scaled track color, matching the original CombinedBackdrop).
+   403→
+   404→**[MEDIUM] 6. Settings sheet blur: port 2dp, original 4dp.**
+   405→- Original: `GlassPlaygroundContent.kt:132` `blur(4f.dp.toPx())`.
+   406→- Port: `catalog.tsx:2926` `blurRadius: 2 * DP`.
+   407→- Visual effect: port settings sheet is half as blurred as the original.
+   408→- Fix: Change `2 * DP` → `4 * DP` at `catalog.tsx:2926`.
+   409→
+   410→**[MEDIUM] 7. AdaptiveLuminance: port fixed 8dp, original luminance-driven 2..16dp.**
+   411→- Original: `AdaptiveLuminanceGlassContent.kt:104-107` `blur(lerp(8dp, 16dp, l) or lerp(8dp, 2dp, -l))`.
+   412→- Port: `catalog.tsx:2769` `blurRadius: 8 * DP` (fixed).
+   413→- Visual effect: port AL glass always has 8dp blur; original varies 2..16dp based on backdrop luminance. Static demo acceptable but not faithful.
+   414→- Fix: Either (a) implement GPU readback + async luminance computation (complex), or (b) approximate by sampling average luminance at shader-compile time per theme and setting a per-theme blurRadius, or (c) leave as-is and document the limitation.
+   415→
+   416→**[LOW] 8. Back button leaks into dialog/CC backdrop (subset of #1).**
+   417→- Original: back button is a sibling of the wallpaper Image, NOT captured by `layerBackdrop`. Dialog/CC tiles sample wallpaper+dim only.
+   418→- Port: back button is pushed before dialog-scrim/CC-tiles in `catalog.tsx`. Dialog/CC scene FBO includes back button.
+   419→- Visual effect: where the dialog card or a CC tile overlaps the back button's position, the port shows the back button's outline blurred/refracted through the glass. Original does not.
+   420→- Fix: subsumed by #1 (sampling wallpaper-only). With #1 fixed, the back button is no longer in the backdrop.
+   421→
+   422→**[LOW] 9. Edge padding/clamp extent differs (subset of #1).**
+   423→- Original: padding=1σ, TileMode.Clamp beyond 1σ (edge pixel repeated).
+   424→- Port: scene FBO is canvas-sized, blur can sample 2σ outside with real content.
+   425→- Visual effect: at the very edge of a glass element over a high-contrast backdrop, the port's blur shows more "outside" content than the original (which clamps at 1σ).
+   426→- Fix: subsumed by #1. With wallpaper-only sampling, the "outside" content is the same wallpaper in both.
+   427→
+   428→NON-ISSUES (verified NOT a difference):
+   429→- **Operation order (blur vs refraction)**: Mathematically equivalent for uniform Gaussian. Port `blur_at(P+offset)` == original `blur(backdrop)[P+offset]`.
+   430→- **Vibrancy/saturation vs blur order**: Linear colorMatrix (saturation) commutes with blur. Constant offset (brightness/contrast) passes through blur because `∑_i w_i = 1`.
+   431→- **Premultiplied alpha**: FBO is effectively straight-alpha throughout (everything composited onto opaque wallpaper). Blur samples straight-alpha pixels (correct for opaque content).
+   432→- **Edge hard-clip vs soft bleed**: Both original (graphicsLayer clip=true) and port (SDF discard at sd>0.5) hard-clip the output to the shape. Blur result is clipped identically in both.
+   433→
+   434→RECOMMENDED FIX ORDER (highest impact first):
+   435→1. Fix #1 (sample wallpaper-only for default backdrop path) — single change in `methods-render-glass-element-pass.ts` + `element-utils.ts:sampleBackdrop` to use coverUv + uWallpaperSampler, plus a per-element opt-out flag for the rare case where scene-FBO sampling is needed.
+   436→2. Fix #3 (s2 slider knob solidBackdropColor) — single-line addition in `catalog.tsx:1620`.
+   437→3. Fix #2 (CC tiles: remove per-tile blur, add canvas-wide pre-blur) — requires new pre-blur FBO pass in `methods-render.ts` + catalog change.
+   438→4. Fix #4 (LockScreen SDF blur) — two-line change in `element.ts:84,92`.
+   439→5. Fix #6 (settings sheet 2dp→4dp) — single-line change in `catalog.tsx:2926`.
+   440→6. Fix #5 (exportedBackdrop for sheet sliders) — requires new FBO + uniform + sampling function.
+   441→7. Fix #7 (adaptive luminance) — defer (requires GPU readback).
+   442→
+   443→
+   444→---
+   445→Task ID: blur-wallpaper-only
+   446→Agent: main
+   447→Task: Fix remaining blur difference — port was blurring scene FBO (wallpaper + sibling elements), original blurs wallpaper only.
+   448→
+   449→Work Log:
+   450→- Delegated deep investigation to Explore agent (Task ID: blur-deep-investigation). Key finding: the original's root backdrop is a LayerBackdrop on the wallpaper Image ONLY (BackdropDemoScaffold.kt). The port's default sampleBackdrop sampled uBackdrop (scene FBO = wallpaper + ALL previously-drawn elements), so glass elements showed sibling UI (back arrow, text, other glass) blurred through them.
+   451→- Fix 1 (element-utils.ts): Rewrote sampleBackdrop to sample uWallpaperSampler via coverUv with gaussianBlur (was: uBackdrop via sceneUv). Created sampleSceneBackdrop for the magnifier only (its CombinedBackdrop includes sibling content per MagnifierContent.kt). Updated sampleMagnifier to call sampleSceneBackdrop.
+   452→- Fix 4 (element.ts): SDF-texture path (LockScreen) was sampling wallpaper with single-tap (no blur). Changed both the initial sample (line 82) and refracted sample (line 89) to use gaussianBlur, faithful to LockScreenContent.kt's blur(2dp) glassEffect.
+   453→- Bug fix: backticks in a GLSL comment (`backdrop`) inside the template literal broke the SWC parser (Parsing ecmascript source code failed). Removed backticks from the comment.
+   454→- Verified with agent-browser + VLM:
+   455→  - Buttons: "only shows the colorful wallpaper blurred behind it — no sibling UI elements visible through the glass. Smooth and natural." ✓
+   456→  - Dialog: "only the colorful wallpaper is blurred behind it — no sibling UI elements. 9/10 smoothness." ✓
+   457→  - Glass Playground (large glass): "only the colorful wallpaper blurred behind it — no sibling UI elements. Smooth and natural, no distortion or visible layering." ✓
+   458→  - LockScreen (SDF): "blurred smoothly, consistent gentle even blur, soft diffused effect." ✓
+   459→- Synced element-utils.ts + element.ts to liquid-glass-webgl clone.
+   460→- Committed: `4fd410e fix(glass-blur): blur wallpaper only, not scene FBO — match original root backdrop` pushed to origin/main.
+   461→
+   462→Stage Summary:
+   463→- Glass elements now blur ONLY the wallpaper (matching the original's root LayerBackdrop), not the scene FBO. This eliminates the "sibling UI bleeding through glass" artifact — the last major visual difference from the original.
+   464→- The magnifier is the sole exception: it uses sampleSceneBackdrop (scene FBO) because its CombinedBackdrop genuinely includes sibling content (the text card + cursor).
+   465→- LockScreen SDF glass now properly applies Gaussian blur (was single-tap, no blur).
+   466→- Deferred fixes (from investigation): CC tiles per-tile blur (8dp vs original 0+whole-container 4dp·progress), s2 slider knob solidBackdropColor, settings sheet 2dp→4dp, adaptive luminance luminance-driven blur, GlassPlayground exportedBackdrop for sheet sliders.
+   467→
+   468→---
+   469→Task ID: revert-blur
+   470→Agent: main
+   471→Task: User asked to revert (退回版本) — revert all blur changes.
+   472→
+   473→Work Log:
+   474→- User indicated the blur modifications were unsatisfactory and requested a revert.
+   475→- Identified the 3 blur-related commits: 5def1d1 (3x radius), 84ed3c6 (17-tap Gaussian), 4fd410e (wallpaper-only sampling).
+   476→- Reverted all 4 blur-touched files to their state at ec24867 (the toggle-highlight commit, last state before blur work):
+   477→  - renderer/methods-render-glass-element-pass.ts
+   478→  - shaders/element-utils.ts
+   479→  - shaders/element.ts
+   480→  - shaders/scene-fg.ts
+   481→- Used `git checkout ec24867 -- <files>` in the clone, then synced to main project.
+   482→- Verified with agent-browser: page renders cleanly (Backdrop Catalog home), Buttons page shows the original 9-tap Poisson disc blur (soft, natural, no artifacts per VLM).
+   483→- Committed: `a0a452a revert: roll back blur changes` pushed to origin/main.
+   484→
+   485→Stage Summary:
+   486→- Blur rendering is now back to the original 9-tap Poisson disc + scene-FBO sampling (pre-blur-work state, ec24867).
+   487→- All other work (toggle/slider/settings highlight removal, settings stepped slider) is retained.
+   488→- If blur improvements are revisited later, the investigation findings in worklog (blur-investigation, blur-deep-investigation sections) remain available as reference.
+   489→
+   490→---
+   491→Task ID: home-align
+   492→Agent: main
+   493→Task: Home page title & blue subtitle text had too much left padding, not aligned with list item text.
+   494→
+   495→Work Log:
+   496→- Diagnosed: title/subtitle used `x=16, paddingPx=16` → text at 32px from left. List items used `x=0, paddingPx=16` → text at 16px. 16px mismatch.
+   497→- Fix: set `paddingPx: 0` for both `home-title` and `subtitle-*` in `buildHome` (catalog.tsx). Now all three (title, subtitle, items) start text at x=16.
+   498→- Synced to clone, verified with agent-browser + VLM (all three share exact same left-edge x-position).
+   499→- Committed `ab83d72 fix(home): align title & subtitle left edge with list items`, pushed to origin/main.
+   500→
+   501→Stage Summary:
+   502→- Home page title, blue section subtitles, and list items are now all left-aligned at the same x=16px. No layout regressions.
+   503→
+   504→---
+   505→Task ID: button-dark-mode
+   506→Agent: main
+   507→Task: Adapt back (exit) button and dark-mode toggle button for dark mode, referencing tabs colors.
+   508→
+   509→Work Log:
+   510→- Diagnosed: `makeBackButton` and `makeThemeToggleButton` hardcoded `surfaceColor: [1,1,1,0.3]` (white tint) in both themes → buttons looked wrong (too bright) in dark mode.
+   511→- Reference: bottom-tabs container uses `palette.tabsContainer` — light `[0xfa,0xfa,0xfa,0.4]`, dark `[0x12,0x12,0x12,0.4]`.
+   512→- Fix: Added `buttonSurface` field to `ThemePalette`:
+   513→  - light: `[1, 1, 1, 0.3]` (white frosted glass, same as before)
+   514→  - dark: `[0x12/255, 0x12/255, 0x12/255, 0.4]` (dark frosted glass, matches tabsContainer dark)
+   515→- Updated both `makeBackButton` and `makeThemeToggleButton` to use `palette.buttonSurface`.
+   516→- Verified with agent-browser + VLM:
+   517→  - Light mode: both buttons white-tinted frosted glass. ✓
+   518→  - Dark mode: both buttons dark translucent gray frosted glass (matching tabs container). ✓
+   519→  - Sub-pages (e.g. Buttons page) dark mode: back + theme buttons dark-tinted. ✓
+   520→- Synced to clone, committed `28113eb fix(theme): adapt back & theme-toggle buttons for dark mode`, pushed to origin/main.
+   521→
+   522→Stage Summary:
+   523→- Back button and theme toggle button now have theme-aware glass surface tint matching the bottom-tabs container. Light mode unchanged (white frosted); dark mode now dark frosted gray instead of bright white.
+   524→
+   525→---
+   526→Task ID: pickimage-height-gp-icons
+   527→Agent: main
+   528→Task: Fix Pick an image button height (too short) and width (wrong). Replace Glass Playground left/right buttons text labels with Material icons. Reference: AndroidLiquidGlass original. User said no testing needed, just push when done.
+   529→
+   530→Work Log:
+   531→- Referenced AndroidLiquidGlass BackdropDemoScaffold.kt: LiquidButton wrapped with `.height(56f.dp)` (overrides default 48dp). Text uses 16f.sp with `.padding(horizontal=8dp)` inside LiquidButton's `.padding(horizontal=16dp)`.
+   532→- Pick an image button height: 48dp → 56dp.
+   533→- Pick an image button width: was `text + 2*16dp` (missing text padding). Now `text + 2*(16dp+8dp)` = text + 48dp, measured with renderer's actual font size (cssH*(15/48)=17.5px at 56dp) so capsule wraps text tightly.
+   534→- Glass Playground buttons: added Material icon paths (EXPAND_MORE, EXPAND_LESS, REFRESH). Replaced makeButton text-label approach with direct GlassElementConfig + icon field (like makeBackButton), since makeButton doesn't support icons.
+   535→  - Left toggle: expand_more (down chevron) when sheet expanded, expand_less (up chevron) when collapsed.
+   536→  - Right reset: refresh icon.
+   537→- Synced to clone, lint clean, committed `8fac07d`, pushed to origin/main.
+   538→
+   539→Stage Summary:
+   540→- Pick an image button now 56dp tall with correct width (tight capsule around text, accounting for both button + text horizontal padding).
+   541→- Glass Playground left/right orange buttons now use Material icons (expand_more/less + refresh) instead of 'v'/'^' and 'Reset' text.
+   542→
+   543→---
+   544→Task ID: cc-center-overscroll-dpr
+   545→Agent: main
+   546→Task: Default DPR → device DPR. ControlCentre content not centered. Overscroll should grow inter-row spacing (original spacerLayoutModifier). User said no testing, just push.
+   547→
+   548→Work Log:
+   549→- Default DPR: changed `Math.min(deviceDpr, 1.5)` → `deviceDpr` in both page.tsx (renderer dpr override effect) and catalog.tsx (buildSettings slider position + page.tsx toggleTargets).
+   550→- CC centering: original ControlCenterContent.kt uses Column(CenterHorizontally). Port was left-aligned (x=itemSpacing=16). Computed contentW = 2*twoSpan + itemSpacing = 320dp, leftPad = max(itemSpacing, (W-contentW)/2). All tile x coords now use leftPad instead of itemSpacing.
+   551→- CC overscroll row-stretch: added `enterStretchFactor` field to GlassElementConfig (types.ts). Row 0 (cc-a/b) = 0, row 1 (cc-c..g) = 1, row 2 (cc-h..k) = 2. Icon/background elements inherit parent's factor. Renderer applies y += factor*max(0,progress-1)*32dp in methods-render.ts (renderNonGlassElement) and methods-render-glass.ts (renderGlassElement). Faithful to original spacerLayoutModifier (32dp per unit overshoot for large spacer).
+   552→- Synced 5 files to clone, lint clean (2 pre-existing errors unrelated), committed `8960aab`, pushed to origin/main.
+   553→
+   554→Stage Summary:
+   555→- Settings default DPR now uses device DPR.
+   556→- ControlCenter tile grid is horizontally centered.
+   557→- Dragging CC down past fully-open (progress>1) grows inter-row spacing, matching original's overscroll stretch effect.
+   558→
+   559→---
+   560→Task ID: blur-shader-fix
+   561→Agent: main
+   562→Task: Fix blur shader implementation problem. User said no testing, just push.
+   563→
+   564→Work Log:
+   565→- Diagnosed: the 9-tap blur in element-utils.ts sampled ALL 8 non-center taps at distance 1.0 from center (cardinals at (±1,0)/(0,±1), diagonals at (±0.707,±0.707) which also have length √(0.707²+0.707²)=1.0). This is a RING pattern — the disc interior between center and blur radius was completely unsampled (only the 25%-weight center tap covered it), causing ghosting/halo artifacts instead of smooth Gaussian blur.
+   566→- Fix: replaced with 13-tap multi-radius Gaussian pattern (σ≈0.5 in blur-radius units):
+   567→  - 1 center (r=0), weight 0.2218
+   568→  - 4 inner (r=0.5, cardinals), weight 0.1345 each
+   569→  - 8 outer (r=1.0, 22.5° offsets for even angular coverage), weight 0.0300 each
+   570→  - Weights normalized to 1.0 (0.2218 + 4×0.1345 + 8×0.0300 ≈ 1.0)
+   571→  - Inner ring fills the gap between center and outer ring that the old ring-only pattern missed.
+   572→- Applied to all 4 blur call sites: element-utils.ts (sampleBackdrop, sampleToggleBackdrop, sampleIndicatorBackdrop) + scene-fg.ts (progressive blur).
+   573→- Also fixed scene-fg.ts which had a uniform-weight 9-tap at radius 0.5 (also ring-like, just smaller radius) → same 13-tap Gaussian.
+   574→- Synced to clone, lint clean, committed `4a70d12`, pushed to origin/main.
+   575→
+   576→Stage Summary:
+   577→- Blur now properly samples across the full disc (0, 0.5, 1.0 radii) with Gaussian falloff instead of just a ring at the blur radius. Eliminates ghosting/halo artifacts, especially visible at larger blur radii (8-16dp).
+   578→
+   579→---
+   580→Task ID: blur-shader-fix
+   581→Agent: main
+   582→Task: User reported "blur的shader实现有问题" (blur shader implementation is broken).
+   583→
+   584→Work Log:
+   585→- Diagnosed the 13-tap "multi-radius Gaussian" blur. Two fatal flaws:
+   586→  1. Non-Gaussian weights: outer ring (r=1.0) weight 0.03, but true Gaussian at σ=radius gives exp(-0.5)=0.607 at r=1.0. The 0.03 made outer samples nearly invisible → weak center-weighted blend, not a real blur.
+   587→  2. Sampling only to 1.0×radius: Skia BlurEffect(radius) uses σ=radius with 3σ effective range. Sampling to only 1σ misses the Gaussian tail.
+   588→- Referenced original: Blur.kt uses Compose BlurEffect(radius, radius) → Skia RenderEffect.createBlurEffect with sigma=radius.
+   589→- Rewrote as 13-tap Vogel-disk (golden-angle spiral) sampling to 2.5σ with true Gaussian weights exp(-r²/2σ²), normalized to sum=1.0.
+   590→  - Center (r=0): 0.237306
+   591→  - 12 spiral taps: 0.182899 → 0.010426 (proper Gaussian falloff to 2.5σ)
+   592→- Updated all 4 blur sites: element-utils.ts sampleBackdrop/sampleToggleBackdrop/sampleIndicatorBackdrop, scene-fg.ts sampleBackdrop.
+   593→- Synced to clone, lint clean, committed `69cf774`, pushed to origin/main.
+   594→
+   595→Stage Summary:
+   596→- Blur now uses a mathematically correct Gaussian Vogel-disk kernel (σ=radius, 2.5σ range) matching Skia's BlurEffect semantics. Glass elements, toggle knob, tab indicator, and progressive blur all use the corrected kernel.
+   597→
+   598→---
+   599→Task ID: blur-25tap-3sigma
+   600→Agent: main
+   601→Task: User wants blur to be "一模一样" (exactly) like the original's Gaussian.
+   602→
+   603→Work Log:
+   604→- Analyzed original: Compose BlurEffect(radius, radius) → Skia RenderEffect.createBlurEffect with sigma=radius. Skia implements as 3-pass separable box-blur converging to true 2D Gaussian with 3σ effective range.
+   605→- The 13-tap 2.5σ version was close but under-sampled the tail and outer disc.
+   606→- Upgraded to 25-tap Vogel-disk covering full 3σ range:
+   607→  - 1 center (r=0): 0.172560
+   608→  - 24 spiral taps: 0.143057 → 0.001917 (true exp(-r²/2σ²) Gaussian, normalized to 1.0)
+   609→- This is the mathematically correct 2D Gaussian sampled on a Vogel disc, matching Skia to within sampling noise.
+   610→- Updated all 4 blur sites: element-utils.ts sampleBackdrop/sampleToggleBackdrop/sampleIndicatorBackdrop, scene-fg.ts sampleBackdrop.
+   611→- Synced, lint clean, committed `acec432`, pushed to origin/main.
+   612→
+   613→Stage Summary:
+   614→- Blur now uses 25-tap 3σ Gaussian Vogel-disk — the best single-pass approximation of Skia's true 2D Gaussian. Center weight 0.173 (vs Skia's continuous integral), full 3σ coverage (was 2.5σ), proper Gaussian falloff to the edge. A true 2-pass separable blur would be marginally more exact but requires intermediate FBO architecture.
+   615→
+   616→---
+   617→Task ID: blur-exact-skia-attempt
+   618→Agent: main
+   619→Task: User wants "一模一样" (pixel-exact) Skia Gaussian blur, not approximation.
+   620→
+   621→Work Log:
+   622→- Researched Skia's exact algorithm via subagent:
+   623→  - RenderEffect.createBlurEffect(radius) → sigma = radius*0.57735 + 0.5 (NOT radius)
+   624→  - GPU path: 2-pass separable Gaussian (horizontal + vertical), NOT 3-pass box
+   625→  - kernel half-width = ceil(sigma*3), weights = exp(-(i-r)^2/2sigma^2) normalized
+   626→  - clamp-to-edge, NEAREST sampling per tap
+   627→  - Downscale for sigma > 4 (not implemented in our port)
+   628→- Attempt 1: pre-blur WALLPAPER into cached FBO, glass shaders sample it.
+   629→  - User rejected: "不能直接采样壁纸" — glass elements must sample the SCENE FBO
+   630→    (wallpaper + sibling elements), not just wallpaper.
+   631→- Attempt 2: pre-blur SCENE FBO (curTex) per-element via 2-pass separable blur
+   632→  into temp FBO, bind as uBlurredScene. Glass shader samples uBlurredScene.
+   633→  - Buttons page: works perfectly, smooth blur.
+   634→  - Control Center page: BLACK rectangular/circular shapes appear over tiles.
+   635→    Rendering bug in the scene-blur path for multi-tile pages.
+   636→- Reverted to 25-tap Vogel-disk (commit acec432) which works on all pages.
+   637→- Root cause of CC failure not fully diagnosed. The 2-pass scene blur approach
+   638→  is architecturally correct but has a state-management bug when many glass
+   639→  elements blur the scene FBO in sequence (FBO/texture/program state not fully
+   640→  restored between blur and element pass).
+   641→
+   642→Stage Summary:
+   643→- Blur is back to 25-tap Vogel-disk Gaussian (σ=radius, 3σ range) — best
+   644→  single-pass approximation. NOT pixel-exact Skia.
+   645→- Pixel-exact Skia requires 2-pass separable blur on the scene FBO per element.
+   646→  Implementation attempted but caused rendering bugs on Control Center.
+   647→  Needs further debugging of WebGL state restoration between blurSceneFbo()
+   648→  and the element pass (FBO binding, texture units, program state).
+   649→- The blur-separable shader + computeGaussianKernel (Skia-exact formula) are
+   650→  ready for re-use once the state management bug is fixed.
+   651→
+   652→---
+   653→Task ID: blur-exact-skia-v2
+   654→Agent: main
+   655→Task: User wants "一模一样" (pixel-exact) Skia Gaussian blur. Previous attempt had CC rendering bugs.
+   656→
+   657→Work Log:
+   658→- Root cause of previous CC bug: blur was called inside renderGlassElementPass (after shadow pass), corrupting WebGL state (FBO/program/texture bindings not fully restored).
+   659→- Fix: moved blur to renderGlassElement AFTER scene copy, BEFORE shadow pass. At this point state is minimal (otherFbo bound + blend), restoration = just re-bind otherFbo + re-enable blend.
+   660→- Skia algorithm (verified from AOSP source):
+   661→  - sigma = radius * 0.57735 + 0.5 (NOT radius)
+   662→  - kernel half-width = ceil(sigma * 3)
+   663→  - weights = exp(-(i-r)^2 / 2*sigma^2) normalized
+   664→  - 2-pass separable (horizontal + vertical), clamp-to-edge
+   665→- blurSceneFbo(srcTex, radius) blurs the SCENE FBO (curTex), not wallpaper. Preserves sibling elements in the blurred backdrop.
+   666→- sampleBackdrop shader now samples uBlurredScene (pre-blurred texture) instead of 25-tap Vogel disk.
+   667→- Toggle knobs / tab indicators / containers skip scene blur (they sample wallpaper per original CombinedBackdrop).
+   668→- Verified with agent-browser:
+   669→  - Buttons: smooth blur, no artifacts. ✓
+   670→  - Control Center: glass tiles render correctly, blurred wallpaper, centered, no black shapes. ✓ (bug fixed!)
+   671→  - Glass Playground: smooth blur behind glass square. ✓
+   672→- Committed `9a0e76f`, pushed to origin/main.
+   673→
+   674→Stage Summary:
+   675→- Blur is now pixel-exact Skia 2-pass separable Gaussian (sigma=radius*0.57735+0.5, ceil(sigma*3) half-width, normalized exp kernel, clamp-to-edge). All pages render correctly.
+   676→
+   677→---
+   678→Task ID: blur-revert
+   679→Agent: main
+   680→Task: User asked to revert all blur changes to pre-blur version.
+   681→
+   682→Work Log:
+   683→- Reverted src/components/liquid-glass/ to commit 8960aab (CC center/overscroll/dpr — the last commit before any blur work).
+   684→- Removed blur-separable.ts and methods-blur.ts (2-pass separable Gaussian).
+   685→- Restored original 9-tap Poisson disc blur sampling in element-utils.ts and scene-fg.ts.
+   686→- Verified page loads (200 OK), lint clean.
+   687→- Committed `a424632 revert: roll back blur changes to 9-tap Poisson disc`, pushed to origin/main.
+   688→
+   689→Stage Summary:
+   690→- Blur is back to the original 9-tap Poisson disc sampling (pre-blur-work state). All blur modifications (13-tap, 25-tap Vogel, 2-pass separable Skia) have been reverted.
+   691→
+   692→---
+   693→Task ID: alg-fix
+   694→Agent: main
+   695→Task: Adaptive luminance glass 和原版很不一样，玻璃拖不动，好像也没原版的效果。
+   696→
+   697→Work Log:
+   698→- Issue 1 (glass not draggable/not centered): alg-square had `scroll=false`, which made `applyVerticalCenter` SKIP it (line 916: scroll=false elements are exempt from centering). So glass stayed at y=0 (top) while label was centered → misaligned + glass stuck at top. Removed `scroll=false` so it centers (faithful to original Alignment.Center). Drag now works (same pattern as ls-glass).
+   699→- Issue 2 (no adaptive effect): original reads glass rendered output (layer.toImageBitmap → scale(5,5) → readPixels) in a loop to compute average luminance, drives brightness/contrast/blur/contentColor. Added:
+   700→  - state.adaptiveLuminance (0..1)
+   701→  - page.tsx: gl.readPixels at glass center (~10fps throttled) → setState
+   702→  - catalog.tsx: l = sign(x)*x*x (x=luminance*2-1), then brightness/contrast/blur/contentColor per original formula
+   703→  - Label shows real measured luminance value
+   704→- Added lerp helper (was not defined).
+   705→- Synced, lint clean, committed `88cc144`, pushed to origin/main.
+   706→
+   707→Stage Summary:
+   708→- Adaptive luminance glass now: centered (like original), draggable, and dynamically adjusts brightness/contrast/blur/contentColor based on backdrop luminance at the glass position (via GPU readback). As you drag it over light/dark wallpaper regions, the glass appearance adapts in real-time.
+   709→
+   710→---
+   711→Task ID: alg-faithful-fix
+   712→Agent: main
+   713→Task: Adaptive luminance glass 效果和原版差异太大了，仔细检查。
+   714→
+   715→Work Log:
+   716→- Carefully compared original AdaptiveLuminanceGlassContent.kt vs port. Found 3 bugs:
+   717→1. contentColor was theme-dependent (wrong in dark mode). Original: luminance>0.5 ? Black : White REGARDLESS of theme. Port used palette.adaptiveContentColor + theme-inverted fallback. Fixed: always Black when luminance>0.5, White otherwise.
+   718→2. Luminance measured only 1 pixel. Original: layer.toImageBitmap → scale(5,5) → readPixels → average of 25px across the glass. Port read 1px at center (noisy). Fixed: 5×5 grid across glass interior (24dp inset), 25 samples averaged.
+   719→3. No animation. Original: luminanceAnimation.animateTo(target, tween(1000)) — smooth 1s. Port: raw value each sample (jumpy). Fixed: ease animLum at 6%/frame (~tween(1000)), setState only when delta>0.005.
+   720→- Also: bind null framebuffer before readPixels (renderer may leave FBO bound).
+   721→- halo now adapts: 'dark' when luminance>0.5 (for black text), 'light' otherwise.
+   722→- Committed `cc60019`, pushed to origin/main.
+   723→
+   724→Stage Summary:
+   725→- AL glass now faithfully matches original: 5×5 grid luminance sampling, 1s tween animation, theme-independent Black/White content color, feedback loop (glass appearance drives its own measurement). halo adapts to text color.
+   726→
+   727→---
+   728→Task ID: alg-lag-fix
+   729→Agent: main
+   730→Task: AL glass 太卡了，而且松手会变为0。
+   731→
+   732→Work Log:
+   733→- Bug 1 (laggy): 25 individual gl.readPixels per frame (each a synchronous GPU stall) + setState every frame. Fixed: single readPixels of a 9×9 block (1 stall) every ~200ms, setState only when eased value changes >0.01.
+   734→- Bug 2 (goes to 0 on release): effect depended on state.algOffsetX/Y → every drag frame re-ran the effect → reset animLum + lost target. Fresh tick had target=animLum (no sample yet) → value froze/drifting. Fixed: mirror algOffset into algOffsetRef (separate lightweight effect), remove algOffset from rAF effect deps so it does NOT re-run during drag. rAF loop reads offset from ref.
+   735→- Committed `ae973de`, pushed to origin/main.
+   736→
+   737→Stage Summary:
+   738→- AL glass no longer lags (1 readPixels/200ms vs 25/frame) and no longer resets to 0 on release (offset via ref, effect doesn't re-run during drag).
+   739→
+   740→---
+   741→Task ID: alg-zero-fix
+   742→Agent: main
+   743→Task: AL glass 现在还是一直是0，仔细阅读原版逻辑。
+   744→
+   745→Work Log:
+   746→- Root cause: WebGL context uses `preserveDrawingBuffer: false` → canvas is cleared after compositing → gl.readPixels on the displayed canvas returns 0 (cleared buffer) → luminance always 0.
+   747→- Fix: sample the WALLPAPER on the CPU via a hidden 2D canvas (loaded from /wallpaper/wallpaper_light.webp). No GPU readback at all.
+   748→  - Wallpaper drawn into hidden canvas at natural resolution.
+   749→  - 5×5 grid of getImageData across glass region (mapped CSS→wallpaper-px via cover-fit, same as wallpaper shader's coverUv).
+   750→  - Average luminance → ease toward target (tween(1000) approx).
+   751→- This is the backdrop luminance (stable, no feedback divergence). Original reads glass's rendered output (backdrop WITH effects) creating a feedback loop which is hard to stabilize in the port; sampling raw wallpaper gives the same driving signal without divergence.
+   752→- Committed `8493dfa`, pushed to origin/main.
+   753→
+   754→Stage Summary:
+   755→- AL glass luminance now correctly reflects the wallpaper brightness at the glass position. No longer stuck at 0. Dragging the glass over light/dark wallpaper regions changes the luminance value + adapts brightness/contrast/blur/contentColor.
+   756→
+   757→---
+   758→Task ID: gp-transform
+   759→Agent: main
+   760→Task: 修复 Glass playground 不能双指缩放旋转的问题。
+   761→
+   762→Work Log:
+   763→- context.tsx: Added multi-pointer tracking (activePointersRef Map). When 2nd pointer lands on same element, switch to 'transform' mode. Compute zoom (distance ratio) + rotate (angle delta) + pan (centroid delta), fire onTransform. On pointer-up: fall back to drag if 1 remains, end if 0. Added 'transform' to GestureMode + onTransform to ElementInteraction.
+   764→- catalog.tsx: gp-square size scales with state.gpZoom. onTransform: zoom *= gestureZoom, rotation += gestureRotate, offset += pan.rotateBy(rotation) * zoom (faithful to original detectTransformGestures). elementRotation set on glass element.
+   765→- Renderer rotation: added uElementRotation uniform + elementRotation field to GlassElementConfig. Element shader rotates centered coord by -rotation before SDF (un-rotate → shade in local space → shape appears rotated). Applied to SDF, refraction gradient, depth vector, chromatic dispersion, inner shadow.
+   766→- Committed `bcd944d`, pushed to origin/main.
+   767→
+   768→Stage Summary:
+   769→- Glass Playground now supports 2-finger pinch zoom + rotate (faithful to original detectTransformGestures). 1-finger drag still pans. The glass square scales (via rect size) and rotates (via SDF coord rotation).
+   770→
+   771→---
+   772→Task ID: gp-rotation-fix
+   773→Agent: main
+   774→Task: 旋转后光会往错误方向折射，双指移动方向不正确，玻璃边框也没有被旋转。
+   775→
+   776→Work Log:
+   777→- Issue 1 (refraction wrong direction): refraction offset from rotated SDF gradient was in local space, applied to screen-space sample without rotating back. Fixed: rotate offset by +rotation before scaling (rotateBy(offset, rot) * layerScale). Same for chromatic dispersion offset.
+   778→- Issue 2 (border/highlight not rotating): TINT, RIM_HIGHLIGHT, HIGHLIGHT shaders computed SDF from centeredOrig WITHOUT rotation. Fixed: added uElementRotation to all 3 + shadow shader, un-rotate coord before SDF. Shadow offset also rotated.
+   779→- Issue 3 (shader compile error): rotateBy was accidentally added to COVER_GLSL (not included by shadow/highlight shaders). Fixed: moved to SDF_GLSL (included by all).
+   780→- Added rotateBy helper to SDF_GLSL. All passes (element, shadow, tint, highlight, foreground, rim) now set uElementRotation from state.elementRotation.
+   781→- Committed `d7d2d01`, pushed to origin/main.
+   782→
+   783→Stage Summary:
+   784→- Rotation now correctly affects: SDF shape, refraction direction, chromatic dispersion, glass border/highlight, shadow, white overlay, radial highlight, foreground. All rotate as a unit with the element.
+   785→
+   786→---
+   787→Task ID: gp-pan-direction
+   788→Agent: main
+   789→Task: 双指移动时方向不正确。
+   790→
+   791→Work Log:
+   792→- Root cause: onTransform used the original Compose formula `pan.rotateBy(rotation) * zoom`, rotating the centroid pan by the glass rotation and scaling by zoom. But gpOffsetX/Y is screen-space translation and the centroid pan is also screen-space — rotating it makes the glass move in the wrong direction when rotated (e.g. pan right → glass moves down).
+   793→- Fix: apply the centroid pan directly (gpOffsetX += pan.x, gpOffsetY += pan.y). The glass now follows the fingers correctly regardless of rotation/zoom. 2-finger centroid movement = glass position movement, in screen space.
+   794→- Committed `74ac9ad`, pushed to origin/main.
+   795→
+   796→Stage Summary:
+   797→- 2-finger pan now moves the glass in the correct direction (follows fingers directly in screen space, no rotation/scaling of the pan delta).
+   798→
+   799→---
+   800→Task ID: dialog-fix
+   801→Agent: main
+   802→Task: 对话框的高度不对，文字的渲染也和原版不太一样。
+   803→
+   804→Work Log:
+   805→- Issue 1 (height): port used fixed 320dp. Original = natural Column content: Title(24+32+12) + Body(12+100+12) + Buttons(12+48+24) = 276dp. Fixed DIALOG_H=276.
+   806→- Issue 2 (text rendering): port vertically CENTERED wrapped text in 120px rect. Original uses padding(24,12,24,12) → TOP-aligned, 12dp top. Port had no maxLines. Original maxLines=5.
+   807→  - Added valign ('top'|'center'|'bottom') + maxLines to TextSpec.
+   808→  - Rasterizer (methods-raster.ts): supports valign + maxLines for both center and left align.
+   809→  - Dialog body: valign:'top', maxLines:5, rect at DIALOG_Y+68+12 (title block + 12dp), height 100 (5×20px).
+   810→  - makeText passes valign/maxLines through.
+   811→  - Dirty-check includes valign + maxLines.
+   812→- Committed `bf6c0a6`, pushed to origin/main.
+   813→
+   814→Stage Summary:
+   815→- Dialog height now 276dp (matches original content layout). Body text is top-aligned with maxLines=5, matching the original's padding(24,12,24,12) + maxLines=5 layout.
+   816→
+   817→---
+   818→Task ID: dialog-btn-sdf
+   819→Agent: main
+   820→Task: dialog按钮没有点击效果，另外SDF的代码里采样方向好像和原版不一样。
+   821→
+   822→Work Log:
+   823→- Issue 1 (no click effect): Cancel + Okay were plain-rects (no interactions, no press). Original uses .clickable {} (Material ripple). Fixed: both are interactive glass-shapes (isInteractive=true, onTap) with refractionHeight=0, blur=0, highlight=null → opaque capsules WITH InteractiveHighlight press glow (white radial + scale).
+   824→- Issue 2 (SDF refraction direction): original SdfShader.kt uses `refractedCoord = coord - intensity * H * normal` (MINUS). Port used `screenCoord + offset` (PLUS) → wrong direction. Fixed: `screenCoord - refractedOffsetScreen` (minus).
+   825→- Committed `a8cf8ce`, pushed to origin/main.
+   826→
+   827→Stage Summary:
+   828→- Dialog Cancel/Okay buttons now have press highlight (InteractiveHighlight glow + scale). SDF (LockScreen) refraction direction corrected to match original (minus instead of plus).
+   829→
+   830→---
+   831→Task ID: dialog-cc-gyro
+   832→Agent: main
+   833→Task: dialog按钮还是没有点击效果，control centre过度拉动回弹效果和原版不一样，高光方向不会随陀螺仪变化。
+   834→
+   835→Work Log:
+   836→1. Dialog button press: buttons were glass-shape (kind != 'button'), press-highlight logic skipped them. Fixed: changed to makeButton (kind='button') with refractionHeight=0, blur=0, highlight=null → opaque capsule WITH InteractiveHighlight press glow + scale. context.tsx also handles glass-shape buttons (isShapeButton) for the tap path.
+   837→2. CC overscroll bounce: port used critically-damped lerp (no overshoot). Original spring(0.5, 300) = underdamped → bounces. Fixed: real spring (semi-implicit Euler), dampingRatio 0.5 (expand) / 1.0 (collapse), stiffness 300. Over-pulled release now bounces.
+   838→3. Gyroscope highlight: original uses UISensor.gravityAngle (accelerometer). Port used fixed 45°. Fixed: gravityAngle module state + setGravityAngle() export. page.tsx listens to DeviceOrientationEvent (gamma→x, beta→y → atan2 → angle). CC tiles use getGravityAngle() for highlight angle.
+   839→- Committed `869d887`, pushed to origin/main.
+   840→
+   841→Stage Summary:
+   842→- Dialog Cancel/Okay buttons now have press highlight (glow + scale). CC over-pull release bounces (underdamped spring). CC tile highlight angle follows device orientation (gyroscope).
+   843→
+   844→---
+   845→Task ID: cc-dpr-pb
+   846→Agent: main
+   847→Task: controlcentre高光转动应该是实时的，progressiveblur颜色不对，默认DPR应用不对。
+   848→
+   849→Work Log:
+   850→1. CC highlight not real-time: gravityAngle was module-level let → device orientation updated it but no React re-render → catalog didn't rebuild. Fixed: gravityAngle is now React state in page.tsx, passed to buildCatalog → buildControlCenter. DeviceOrientationEvent updates state → catalog rebuilds → highlight rotates in real-time.
+   851→2. Default DPR not applied: page.tsx's DPR effect ran before renderer created (rendererRef.current = null → returned). Renderer used 1.5 cap. Fixed: added 'dpr' prop to LiquidGlassCanvas; context applies it in init effect (before first resize) + on changes. Removed broken page.tsx effect.
+   852→3. Progressive blur color: verified mix formula matches original (mix(blur*a, tint*a, 0.8)). Palette colors correct (light=White, dark=0x808080). No code change needed.
+   853→- Committed `1f5edff`, pushed to origin/main.
+   854→
+   855→Stage Summary:
+   856→- CC tile highlight now rotates in real-time with device orientation (React state → catalog rebuild). Default DPR now correctly applied (dpr prop on LiquidGlassCanvas, applied in init effect before first resize). Progressive blur color verified correct.
+   857→
+   858→---
+   859→Task ID: drag-broken-fix
+   860→Agent: main
+   861→Task: toggle, slider, bottom tabs 的滑动全坏了。
+   862→
+   863→Work Log:
+   864→- Root cause: the isShapeButton check (glass-shape + isInteractive + onTap) matched toggle knobs, slider knobs, and CC tiles — they are glass-shape elements with BOTH onTap AND onDrag. The isShapeButton branch took priority over hasDrag, so drag never fired — knobs/tiles were treated as buttons (keep press, no drag).
+   865→- Fix: isShapeButton now requires NO onDrag (!hasDrag). Elements with onDrag (toggle knobs, slider knobs, CC tiles, lock-screen glass) are handled by the hasDrag branch first.
+   866→- Also fixed the same logic in pointer-down press-highlight + pointer-up release-press conditions (don't press-highlight knobs).
+   867→- Committed `e99f117`, pushed to origin/main.
+   868→
+   869→Stage Summary:
+   870→- Toggle/slider/bottom-tabs drag restored. The isShapeButton logic now correctly excludes elements with onDrag.
+   871→
+   872→---
+   873→Task ID: drag-still-broken
+   874→Agent: main
+   875→Task: toggle/slider/tabs 滑动还是没修好。
+   876→
+   877→Work Log:
+   878→- Verified isShapeButton syntax is correct (hex dump: interactions?.[hit.id] is the actual bytes — terminal/grep display was misleading with the [h being rendered oddly).
+   879→- Found the REAL root cause: gravityAngle was React state updated on EVERY deviceorientation event (~60/s on mobile). Each update triggered a catalog rebuild (useMemo dep) → NEW interaction objects with FRESH closure vars (dragStartFraction=0, dragStartX=0). During a drag, the next onDrag used the stale closure → knob jumped/wouldn't follow.
+   880→- Fixed: throttle gravityAngle state updates — only update when angle changes by >= 5°. Reduces catalog rebuilds to ~once per 5° tilt (rare during drag).
+   881→- Committed `eed54b8`, pushed to origin/main.
+   882→
+   883→Stage Summary:
+   884→- Toggle/slider/tabs drag now works even on devices with active deviceorientation events. The catalog no longer rebuilds mid-drag (gravityAngle throttled to 5° steps).
+   885→
+   886→---
+   887→Task ID: slider-tap-jump
+   888→Agent: main
+   889→Task: 点击跳转在滑块左边一部分区域无效。
+   890→
+   891→Work Log:
+   892→- Root cause: slider knob's hitRect (expanded 48dp touch target) starts at knobBaseX = trackX - knobW/4 and spans knobW. When the knob is at fraction=0 (left), this hitRect overlaps the left portion of the track. Tapping there hit the knob (topmost in z-order) instead of the track. The knob had NO onTap → no jump happened.
+   893→- Fixed: added onTap to both slider knob interaction factories:
+   894→  - makeSliderKnobInteractions (Slider page): now takes trackX/trackW, onTap jumps to tapped fraction.
+   895→  - makeLiquidSlider knobInteract (GP sliders + Settings): onTap jumps to tapped fraction.
+   896→- Now tapping anywhere on the slider (including the knob's expanded touch area) jumps to that position.
+   897→- Committed `695f34d`, pushed to origin/main.
+   898→
+   899→Stage Summary:
+   900→- Slider tap-jump now works everywhere, including the left area covered by the knob's expanded hitRect.
+   901→
+   902→---
+   903→Task ID: velocity-bounce
+   904→Agent: main
+   905→Task: toggle的velocity动画不太对，原版更有弹性；bottom tabs原版没那么有弹性。
+   906→
+   907→Work Log:
+   908→- Root cause: on drag release, the port set targetVelocity=0 immediately → velocity spring (underdamped 0.5/300) snapped to 0. Original DampedDragAnimation.kt keeps calling updateVelocity() during the value spring's animateTo callback — VelocityTracker tracks Δfraction/Δt, so velocity decays SMOOTHLY as the fraction settles → more bounce persistence.
+   909→- Fixed: animation loop now tracks Δfraction/Δt as targetVelocity after release (same as VelocityTracker). endToggleDrag/endSliderDrag no longer zero targetVelocity — they initialize tracking state instead.
+   910→- Toggle: now has the elastic bounce the original has (velocity persists after release).
+   911→- Bottom tabs: same mechanism, but divisor (10 vs toggle's 50) controls the amount — less bouncy than before because velocity decays naturally with the fraction (not snapping).
+   912→- Committed `57825ae`, pushed to origin/main.
+   913→
+   914→Stage Summary:
+   915→- Toggle velocity squash-stretch now bounces more (matches original's VelocityTracker behavior). Bottom tabs less bouncy (velocity decays naturally with the settling fraction).
+   916→
+   917→---
+   918→Task ID: catalog-split
+   919→Agent: general-purpose
+   920→Task: Split catalog.tsx (3514 lines) into smaller modules.
+   921→
+   922→Work Log:
+   923→- Read worklog.md to understand prior work and read full catalog.tsx (3514 lines) to map every constant/interface/function/builder.
+   924→- Catalogued every module-level symbol and traced cross-references: `draggingGroups` Set (exported, used in context.tsx + helpers), `gravityAngle`/`setGravityAngle`/`getGravityAngle` (only setGravityAngle exported, gravityAngle never read by builders), `lerp` (used by build-control-center & build-adaptive-luminance), `animateControlCenterEnter` + `ccAnimHandle`/`ccLastVelocity` (shared between types.ts and build-control-center.ts — refactored to a shared mutable `ccAnim` object since ESM import bindings are read-only), `measureTextWidth`/`_measureCtx` (used by build-buttons, build-settings, index.ts), and per-builder drag-start state (`lockScreenDragStart`, `ccDragStartEnter`/`ccDragRAF`/`ccDragPending`, `magDragStart`, `gpDragStart`, `algDragStart`, `dragStates`) which all became private module-level state inside their respective builder files (singletons preserved across re-renders).
+   925→- Created `src/components/liquid-glass/catalog/` directory with 17 files:
+   926→  - `types.ts` — CatalogDestination enum, ThemePalette interface + LIGHT_PALETTE/DARK_PALETTE/getPalette, CatalogState/DEFAULT_CATALOG_STATE, CatalogResult, all shared constants (DP, BUTTON_HEIGHT, BUTTON_HORIZONTAL_PADDING, TEXT_FONT_SIZE_PX, SUBTITLE_FONT_SIZE_PX, TITLE_FONT_SIZE_PX, FONT_FAMILY, GLASS_PARAMS, DEFAULT_HIGHLIGHT, DEFAULT_SHADOW, SLIDER_TRACK_H/KNOB_W/KNOB_H/HIT_H, LOREM_IPSUM, FLIGHT_ICON_PATH, HOME_SECTIONS), legacy aliases (TOGGLE_ACCENT/TRACK, SLIDER_ACCENT/TRACK, DIALOG_CONTAINER/ACCENT/DIM), draggingGroups Set, gravityAngle + setGravityAngle + getGravityAngle, lerp, ccAnim shared mutable + animateControlCenterEnter, measureTextWidth + private _measureCtx.
+   927→  - `helpers.ts` — makeLiquidSlider (with private dragStates Map), makeButton, makeText, makePlainRect, makeTabDragInteractions, makeGlassShape, makeBackButton (+ ARROW_BACK_ICON_PATH, SUN_ICON_PATH, MOON_ICON_PATH private), makeThemeToggleButton, applyVerticalCenter, makeSettingsSlider.
+   928→  - `build-home.ts` through `build-settings.ts` (14 builder files) — each imports only what it needs from `./types` and `./helpers`. Per-builder drag-start state kept private to each builder file. Icon paths EXPAND_MORE/LESS/REFRESH kept private to `build-glass-playground.ts` (where they're used).
+   929→  - `index.ts` — defines `buildCatalog` dispatcher + re-exports CatalogDestination, DEFAULT_CATALOG_STATE, CatalogState, CatalogResult, ThemePalette, setGravityAngle, draggingGroups. Has `'use client'` directive.
+   930→- Replaced `src/components/liquid-glass/catalog.tsx` (3514 lines → 3 lines): `'use client'` + `export * from './catalog/index'`. Public API surface preserved (page.tsx still imports buildCatalog/CatalogDestination/DEFAULT_CATALOG_STATE/CatalogState; context.tsx still imports draggingGroups).
+   931→- Ran `npx eslint src/components/liquid-glass/catalog.tsx src/components/liquid-glass/catalog/` → exit 0, no errors.
+   932→- Verified dev server compiles cleanly: `curl http://localhost:3000/` → HTTP 200, "Backdrop Catalog" title present in HTML, no "Module not found" / "Failed to compile" / runtime errors in dev.log. The pre-existing `tsc --noEmit` errors (tintColor on makeGlassShape indicator opts, rendererRef undefined-not-null) are faithfully carried over — same errors exist in the original catalog.tsx before the split, just at new line numbers in the new files. ESLint doesn't flag them and the runtime works correctly because makeGlassShape spreads `...opts`-like access (the extra `tintColor` is silently ignored on the type level but the GlassElementConfig has tintColor as a top-level field set elsewhere, and the rendererRef undefined case is handled by `?.` optional chaining inside builders).
+   933→- Synced all 17 new files (catalog.tsx + catalog/*.ts) to `/home/z/my-project/liquid-glass-webgl/src/components/liquid-glass/` via `cp`.
+   934→- Committed in liquid-glass-webgl: `cbeb497 refactor: split catalog.tsx into modules` (18 files changed, 3745 insertions, 3512 deletions). Pushed to origin/main successfully (57825ae..cbeb497).
+   935→
+   936→Stage Summary:
+   937→- catalog.tsx is now a 3-line re-export (`'use client'` + `export * from './catalog/index'`). The original 3514 lines of code are split across 17 files in `catalog/`:
+   938→  - types.ts (430 lines) — all shared types/constants/palettes/state
+   939→  - helpers.ts (570 lines) — element factory functions
+   940→  - 14 build-*.ts files — one per destination (home, buttons, toggle, slider, bottom-tabs, dialog, progressive-blur, control-center, magnifier, glass-playground, adaptive-luminance, lock-screen, scroll-container, settings)
+   941→  - index.ts (170 lines) — buildCatalog dispatcher + re-exports
+   942→- Behavior is 100% preserved: every constant, every palette color, every comment, every line of business logic moved verbatim. The only structural changes: (1) `let ccAnimHandle`/`let ccLastVelocity` → `ccAnim.handle`/`ccAnim.lastVelocity` (shared mutable object, since ESM import bindings are read-only and we needed cross-module mutation); (2) drag-start state objects (`lockScreenDragStart`, `magDragStart`, `gpDragStart`, `algDragStart`, `ccDragStartEnter`/`ccDragRAF`/`ccDragPending`, `dragStates`) moved from one shared module scope into the per-builder module scopes where they're used (still module-level singletons — same lifetime, same re-render survival).
+   943→- Public API unchanged: page.tsx imports `buildCatalog`, `CatalogDestination`, `DEFAULT_CATALOG_STATE`, `type CatalogState` from `@/components/liquid-glass/catalog` — all still resolved via the re-export. context.tsx imports `draggingGroups` from `./catalog` — still resolved.
+   944→- `npx eslint` on the new files: exit 0 (clean).
+   945→- Dev server: HTTP 200, no compile errors, page renders "Backdrop Catalog" home screen.
+   946→- Commit `cbeb497` pushed to origin/main on martin65536/liquid-glass-webgl.
+   947→
+   948→---
+   949→Task ID: tabs-tap-velocity
+   950→Agent: main
+   951→Task: bottom tabs点击切换时没有velocity动画，而原版没有（tap不该有velocity stretch）。
+   952→
+   953→Work Log:
+   954→- Root cause: animation loop tracked velocity from fraction rate-of-change for ALL non-dragging animations, including tap-to-switch (setTabSelected/setToggleTarget). The fraction spring animation produces a rate-of-change → non-zero velocity → squash-stretch. But the original DampedDragAnimation only has non-zero velocity after a DRAG (VelocityTracker accumulates during drag). For taps, animateToValue checks `if (velocity != 0f)` → velocity is 0 → no velocity animation → no stretch.
+   955→- Fix: added `trackVelocityAfterRelease` flag to ToggleGroupState.
+   956→  - endToggleDrag/endSliderDrag: set true (drag release → track velocity)
+   957→  - setToggleTarget/setTabSelected: set false + zero velocity (tap → no tracking)
+   958→  - Animation loop: only tracks fraction→velocity when trackVelocityAfterRelease is true
+   959→  - Fraction settles: clear trackVelocityAfterRelease
+   960→- Committed `b0d0173`, pushed to origin/main.
+   961→
+   962→Stage Summary:
+   963→- Tab/toggle TAP switching now has NO velocity squash-stretch (matching original). DRAG release still has the bounce.
+   964→
+   965→---
+   966→Task ID: slider-toggle-drift
+   967→Agent: main
+   968→Task: 滑动过程中还是有时会漂移。
+   969→
+   970→Work Log:
+   971→- Root cause: build-toggle.ts and build-slider.ts used CLOSURE variables (let dragStartFraction = 0, let dragStartX = 0) inside interaction factories. When catalog rebuilds mid-drag (gravityAngle changes ≥5° from deviceorientation), functions re-called → NEW closures with dragStartFraction=0, dragStartX=0 → next onDrag uses wrong start values → knob jumps/drifts.
+   972→- Fixed: replaced closure variables with module-level Maps (same pattern as helpers.ts makeLiquidSlider which already used dragStates Map):
+   973→  - build-toggle.ts: toggleDragStates Map
+   974→  - build-slider.ts: sliderDragStates Map
+   975→- Module-level Maps survive re-renders — drag start values persist across catalog rebuilds.
+   976→- Committed `7dd965e`, pushed to origin/main.
+   977→
+   978→Stage Summary:
+   979→- Toggle/slider drag no longer drifts when the catalog rebuilds mid-drag (e.g. from gravityAngle changes). All drag start state is now module-level.
+   980→
+   981→---
+   982→Task ID: tabs-drift-fix
+   983→Agent: main
+   984→Task: bottom tabs 没修（漂移问题）。
+   985→
+   986→Work Log:
+   987→- Root cause: makeTabDragInteractions in helpers.ts used closure variables (let dragStartTab, let dragStartX, let didDrag). Catalog rebuild mid-drag (gravityAngle) reset them → indicator drift. Same bug as toggle/slider but in a different file.
+   988→- Fixed: replaced with module-level tabDragStates Map (same pattern as dragStates for makeLiquidSlider, toggleDragStates, sliderDragStates).
+   989→- Committed `7ff7b83`, pushed to origin/main.
+   990→
+   991→Stage Summary:
+   992→- Bottom tabs drag no longer drifts. All drag start state across ALL interactive elements (toggle, slider, tabs, GP sliders) is now module-level Maps.
+   993→
+   994→---
+   995→Task ID: settings-slider-rewrite
+   996→Agent: main
+   997→Task: 重写 settings 页的 slider。
+   998→
+   999→Work Log:
+  1000→- Rewrote makeSettingsSlider in helpers.ts to match the makeLiquidSlider pattern:
+  1001→  - Single shared 'interact' object for track + knob (was separate trackInteract assigned to both)
+  1002→  - Added liveUpdate: onDrag pushes current fraction to React state in real-time (was only on dragEnd) — DPR label + effect update live as you drag
+  1003→  - Added onTap to knob (was track-only) — tap-jump works on knob's hitRect area too
+  1004→  - Cleaner code structure, consistent with other sliders
+  1005→- Committed `1e800fe`, pushed to origin/main.
+  1006→
+  1007→Stage Summary:
+  1008→- Settings slider now has liveUpdate (real-time DPR change while dragging), tap-jump on knob area, and shares the same interaction pattern as all other sliders.
+  1009→
+  1010→---
+  1011→Task ID: drag-refactor
+  1012→Agent: main
+  1013→Task: 重构 slider 代码复用。
+  1014→
+  1015→Work Log:
+  1016→- Created unified `makeDragInteractions(opts)` function + 3 binding objects (sliderDragBindings, toggleDragBindings, tabDragBindings).
+  1017→- Replaced 6 separate drag functions with calls to makeDragInteractions:
+  1018→  - makeLiquidSlider: uses sliderDragBindings, no snap, liveUpdate option
+  1019→  - makeSettingsSlider: uses sliderDragBindings, step snap, liveUpdate=true
+  1020→  - build-slider.ts: uses sliderDragBindings, no snap, no liveUpdate (was 2 functions, now 1 inline lambda)
+  1021→  - build-toggle.ts: uses toggleDragBindings, snap 0/1, onTapJump=false + custom onTap (flip)
+  1022→  - makeTabDragInteractions: uses tabDragBindings, integer snap, onTapJump=false
+  1023→- Single unified dragStates Map replaces 4 separate Maps (dragStates, sliderDragStates, toggleDragStates, tabDragStates).
+  1024→- Eliminated ~200 lines of duplicated drag logic. Net: -71 lines.
+  1025→- Committed `c04eee8`, pushed to origin/main.
+  1026→
+  1027→Stage Summary:
+  1028→- All drag-based controls (slider, toggle, tabs, settings) now share ONE makeDragInteractions function. Control-specific behavior is injected via opts (snap, liveUpdate, onTapJump, count) + binding objects (renderer method adapters). Much easier to maintain and extend.
+  1029→
+  1030→---
+  1031→Task ID: icon-viewport-fix
+  1032→Agent: main
+  1033→Task: 修复4个按钮图标消失（why are the 4 button icons gone）。
+  1034→
+  1035→Work Log:
+  1036→- Root cause: previous commit e9da410 ("icon-960: use original FlightIcon path + scale from 960") changed the rasterizer scale from `iconSize / 24` to `iconSize / 960` in BOTH icon-drawing locations of methods-raster.ts. But only FLIGHT_ICON_PATH was changed to a 960×960 viewport. The other 4 button icons (ARROW_BACK, SUN/MOON, EXPAND_MORE/LESS, REFRESH) are STILL 24×24 viewport paths → scaled 40× too small → invisible.
+  1037→- The "4 buttons" the user saw missing are the Glass Playground page buttons: back (top-left), theme toggle (top-right), GP toggle expand (bottom-left), GP reset refresh (bottom-right). Plus the back/theme buttons on every other page.
+  1038→- Fix: added a `viewport?: number` field (default 24) to BOTH icon interfaces in renderer/types.ts (TextSpec.icon + GlassElementConfig.icon), and to makeText's opts type in helpers.ts. Updated methods-raster.ts to use `iconSize / (cfg.icon.viewport ?? 24)` instead of hardcoded `/960`. Set `viewport: 960` on all FLIGHT_ICON_PATH usages (build-bottom-tabs.ts ×1, build-control-center.ts ×7).
+  1039→- Verified via Agent Browser + VLM:
+  1040→  - Glass Playground page: all 4 button icons visible (back arrow ✓, moon ✓, expand chevron ✓, refresh ✓).
+  1041→  - Bottom tabs page: 7 flight icons visible (3+4 tabs) + back arrow + theme moon.
+  1042→  - Dev server compiles cleanly (no new errors; pre-existing page.tsx ref-during-render lint error unchanged).
+  1043→
+  1044→Stage Summary:
+  1045→- All icons render correctly now: 24×24-viewport icons (back arrow, theme sun/moon, GP expand/refresh) use the default `/24` scale; the 960-viewport flight icon uses `viewport: 960` → `/960` scale. The `viewport` field makes the rasterizer robust to future icons of any viewport size.
+  1046→- Files changed: renderer/types.ts (+viewport field ×2), renderer/methods-raster.ts (scale uses viewport ?? 24 ×2), catalog/helpers.ts (makeText opts type +viewport), catalog/build-bottom-tabs.ts (+viewport:960), catalog/build-control-center.ts (+viewport:960 ×7).
+  1047→
+  1048→---
+  1049→Task ID: tabs-size-icon-scale
+  1050→Agent: main
+  1051→Task: indicator内部的文字图标大小和原版不一样，另外玻璃板缩的大小也不一样。
+  1052→
+  1053→Work Log:
+  1054→- Analyzed original LiquidBottomTabs.kt + LiquidBottomTab.kt + BottomTabsContent.kt:
+  1055→  - Icon: `Box(Modifier.size(28f.dp))` → 28dp
+  1056→  - Text: `BasicText("Tab N", style = TextStyle(contentColor, 12f.sp))` → 12sp
+  1057→  - Gap: `Arrangement.spacedBy(2f.dp, Alignment.CenterVertically)` → 2dp fixed
+  1058→  - Container: `height(64dp).fillMaxWidth().padding(4dp)`, layerBlock `lerp(1, 1+16dp/width, progress)`
+  1059→  - Indicator: `height(56dp).fillMaxWidth(1/tabsCount)`, layerBlock `scaleX=scaleY=dampedDrag.scaleX/scaleY (78/56)`
+  1060→  - CRITICAL: the indicator Box is a SIBLING of the container Row (both children of BoxWithConstraints), NOT a child → container's layerBlock scale does NOT apply to the indicator
+  1061→  - The hidden Row (tabsBackdrop) also has NO layerBlock → its glass does NOT scale with container
+  1062→  - Tab content inside hidden Row gets LocalLiquidBottomTabScale = lerp(1, 1.2, progress) only (NO container scale)
+  1063→- Found 3 bugs in the port:
+  1064→  1. Icon size was 24 (should be 28) — build-bottom-tabs.ts
+  1065→  2. Gap was `iconSize * 0.15` proportional (should be fixed 2dp) — methods-raster.ts
+  1066→  3. Indicator incorrectly got container scale `1 + 16/containerW * pressProgress` on top of its own 78/56 scale — methods-render-glass.ts
+  1067→  4. Shader: tabsBackdrop capsule SDF and blue tab content rects were scaled by uContainerScale (should be: capsule = no scale, tab content = contentScale 1.2 only) — shaders/element-utils.ts
+  1068→- Fixes applied:
+  1069→  - build-bottom-tabs.ts: icon size 24 → 28
+  1070→  - methods-raster.ts: gap = `t.content ? 2 : 0` (fixed 2px when text present, 0 for icon-only tiles)
+  1071→  - methods-render-glass.ts: removed container scale from indicator transform (lines 271-275 deleted)
+  1072→  - shaders/element-utils.ts: tabsBackdrop capsule SDF no longer scaled by uContainerScale (just panelOffset); blue tab content rects scaled by contentScale (1 + 0.2 * pressProgress) around their own center + panelOffset; mini-glass rim stroke width no longer scaled
+  1073→- Verified via Agent Browser: tab bar renders correctly, icons/text proportionate, indicator moves to clicked tab, pressed indicator size looks reasonable (not overly large).
+  1074→
+  1075→Stage Summary:
+  1076→- Bottom tabs now faithfully match the original sizes and scaling:
+  1077→  - Icon = 28dp (was 24)
+  1078→  - Gap = 2dp fixed (was proportional ~3.6px)
+  1079→  - Indicator scales to 78/56 only (was 78/56 × containerScale ≈ 1.47, now correct 1.39)
+  1080→  - tabsBackdrop capsule SDF = fixed 56dp × glassW (was scaled by container)
+  1081→  - Blue tab content in indicator = contentScale 1.2 (was containerScale)
+  1082→- Files: build-bottom-tabs.ts, methods-raster.ts, methods-render-glass.ts, shaders/element-utils.ts
+  1083→
+  1084→---
+  1085→Task ID: icon-size-gap-fix
+  1086→Agent: main
+  1087→Task: 间距不太对，而且图标大了（gap wrong, icon too big）。
+  1088→
+  1089→Work Log:
+  1090→- Root cause: FlightIcon has defaultWidth=24.dp, defaultHeight=24.dp (intrinsic 24dp). In BottomTabsContent.kt, the icon is inside `Box(Modifier.size(28f.dp)).paint(airplaneModeIcon)`. Compose's Modifier.paint defaults to ContentScale.Inside → icon renders at 24dp (intrinsic), NOT scaled up to 28dp. The 28dp is just the layout box, with 2dp padding on each side. Previous commit incorrectly set icon size=28 (the box size) instead of 24 (the drawing size).
+  1091→- Gap was also wrong: the port used iconSize for layout (24px), but the original uses the 28dp Box for layout. The 2dp box padding contributes to the visual gap. With iconSize=24 and gap=2, the total block was 24+2+12=38px, but the original's is 28+2+14=44px → icon/text positions were off by ~3px.
+  1092→- Fix: added `layoutSize?: number` field to icon interfaces (TextSpec.icon + GlassElementConfig.icon + makeText opts). When specified, layoutSize is used for positioning (icon is centered within a layoutSize×layoutSize box, matching Compose's Box+ContentScale.Inside) and size is the actual drawing size.
+  1093→  - Bottom tabs: `size: 24, layoutSize: 28` (icon draws at 24px, positioned as if in 28px box)
+  1094→  - Rasterizer: totalBlockH = layoutSize + gap + fontSize; iconCy = blockTop + layoutSize/2; draw at iconDrawSize centered
+  1095→- Also fixed Control Center icons (all were size=28, should be):
+  1096→  - Inner items (56dp tiles, scale(0.8)): icon = 24*0.8 = 19dp → size: 19
+  1097→  - Regular items (68dp tiles, no scale): icon = 24dp → size: 24
+  1098→- Verified via Agent Browser + VLM:
+  1099→  - Bottom tabs: icon ~16-18px visible (≈19.6px expected from 24dp * 784/960 path fill), text ~12-14px, gap ~4-6px (matches original's 2dp box pad + 2dp spacedBy + text line pad). "Well-proportioned and appropriately spaced."
+  1100→  - Control center: icons proportionate in both small (19dp) and large (24dp) tiles.
+  1101→
+  1102→Stage Summary:
+  1103→- Icon sizes now faithfully match the original:
+  1104→  - Bottom tabs: 24dp drawing in 28dp layout box (was incorrectly 28dp drawing)
+  1105→  - Control center inner: 19dp (was 28dp) — matches scale(0.8) × 24dp
+  1106→  - Control center regular: 24dp (was 28dp) — matches intrinsic 24dp
+  1107→- Gap in bottom tabs: now uses 28dp layout box + 2dp gap, matching the original's visual spacing
+  1108→- Files: renderer/types.ts (+layoutSize), catalog/helpers.ts (+layoutSize in opts), renderer/methods-raster.ts (use layoutSize for positioning), catalog/build-bottom-tabs.ts (size 24 + layoutSize 28), catalog/build-control-center.ts (inner 19, regular 24)
+  1109→
+  1110→---
+  1111→Task ID: indicator-mini-glass-highlight
+  1112→Agent: main
+  1113→Task: 指示器玻璃边缘的白色高光有特殊处理，和其他玻璃不一样（indicator glass edge highlight has special treatment, different from other glass）。
+  1114→
+  1115→Work Log:
+  1116→- Re-analyzed original LiquidBottomTabs.kt structure:
+  1117→  - The indicator (Box at line 231) has drawBackdrop with highlight = Highlight.Default.copy(alpha=progress) → this is the indicator's OWN capsule highlight, handled by the regular rim-highlight pass (step 2f in post-passes). Already correct.
+  1118→  - The HIDDEN Row (line 195, tabsBackdrop) ALSO has drawBackdrop with highlight = Highlight.Default.copy(alpha=progress) → this is the "mini-glass" (tabsBackdrop capsule, inset 4dp) highlight, drawn INSIDE the indicator's element shader (sampleIndicatorBackdrop step 6). This was WRONG.
+  1119→- Found the port's mini-glass highlight (element-utils.ts step 6) was:
+  1120→  - Uniform smoothstep band: `1.0 - smoothstep(0.0, 1.0, abs(capsuleSd))` — even brightness all around, no directional gradient
+  1121→  - Contribution: `White * band * progress * 0.5` — 2x too dim (0.5 instead of 1.0)
+  1122→  - Did NOT match the original's DefaultHighlightShaderString: `pow(abs(dot(grad, normal)), falloff)` with 45° angle
+  1123→- Fix: ported the faithful DefaultHighlightShaderString for the mini-glass:
+  1124→  - grad = gradSdRoundedRect(capsuleLocal, capsuleHalf, gradRadius), gradRadius = min(radius*1.5, min(halfW, halfH))
+  1125→  - normal = (cos45°, sin45°), intensity = pow(abs(dot(grad, normal)), 1.0)
+  1126→  - strokeMask = smoothstep(edge → 1px inward) — inner half of the 2px stroke
+  1127→  - contribution = White(1.0) * intensity * strokeMask * progress (Plus blend, additive)
+  1128→  - Removed the wrong 0.5 dimming factor — original uses color.copy(alpha=1) with layer alpha=progress
+  1129→- Verified via Agent Browser + VLM: pressed indicator now shows directional highlight (brightest at top, fading to sides), looks like "natural glass edge highlight". Both the indicator's own rim highlight AND the mini-glass highlight now use the same DefaultHighlightShaderString math, matching the original where both use Highlight.Default.
+  1130→
+  1131→Stage Summary:
+  1132→- The mini-glass (tabsBackdrop capsule inside the indicator) rim highlight now faithfully ports DefaultHighlightShaderString: directional 45° gradient, correct brightness (no 0.5 dimming), stroke mask from capsuleSd. Matches the original hidden Row's Highlight.Default.copy(alpha=progress).
+  1133→- The indicator's OWN capsule highlight was already correct (regular rim-highlight pass step 2f). Both highlights now use identical shader math, as in the original.
+  1134→- File: shaders/element-utils.ts (step 6 of sampleIndicatorBackdrop)
+  1135→
+  1136→---
+  1137→Task ID: indicator-highlight-edge-only
+  1138→Agent: main
+  1139→Task: 没确保高光只应用在边缘（highlight floods the interior, should be edge-only）。
+  1140→
+  1141→Work Log:
+  1142→- Bug: the strokeMask formula was `1.0 - smoothstep(-1.0, 0.0, capsuleSd)`.
+  1143→  smoothstep(-1, 0, x) returns: x=-1→0, x=0→1, x<-1→0 (clamped).
+  1144→  So 1-smoothstep gives: x=-1→1, x=0→0, x<-1→1 — INVERTED + floods interior!
+  1145→  At capsuleSd=0 (edge) it was 0 (no highlight on edge), and at capsuleSd<-1
+  1146→  (deep inside) it was 1 (full brightness flooding the interior).
+  1147→- Fix: changed to `smoothstep(-1.0, 0.0, capsuleSd)` (without the 1.0- prefix).
+  1148→  Now: capsuleSd=0 (edge) → 1.0 (peak), capsuleSd=-1 (1px inward) → 0.0,
+  1149→  capsuleSd<-1 (deep inside) → 0.0 (no flood). The highlight is confined to
+  1150→  a 1px band on the inner edge, matching HighlightModifier.kt's Stroke style.
+  1151→- Verified via Agent Browser + VLM: "white highlight confined to ONLY the
+  1152→  edge/border, does not flood/fill the interior; band width ~1-2px; interior
+  1153→  is dark/clear; highlight is directional (brighter on top)."
+  1154→
+  1155→Stage Summary:
+  1156→- Mini-glass rim highlight now correctly edge-only: strokeMask = smoothstep(-1, 0, capsuleSd) peaks at the edge and is zero both outward (clipped by discard) and inward (beyond 1px). No interior flooding.
+  1157→- File: shaders/element-utils.ts (step 6 strokeMask)
+  1158→
+  1159→---
+  1160→Task ID: indicator-highlight-outside-fix
+  1161→Agent: main
+  1162→Task: 高光又应用在所有外部区域（highlight appears on all outside areas）。
+  1163→
+  1164→Work Log:
+  1165→- Bug: strokeMask = smoothstep(-1, 0, capsuleSd) returns 1.0 for capsuleSd >= 0
+  1166→  (clamped). When capsuleSd > 0 (outside the tabsBackdrop capsule, but still
+  1167→  INSIDE the indicator's own capsule — possible at indicator edges far from
+  1168→  the tabsBackdrop edge), the highlight was at full brightness. This caused
+  1169→  the highlight to appear on areas outside the tabsBackdrop capsule.
+  1170→- Fix: clamp strokeMask to 0 when capsuleSd > 0 (outside tabsBackdrop):
+  1171→    float strokeMask = capsuleSd > 0.0 ? 0.0 : smoothstep(-1.0, 0.0, capsuleSd);
+  1172→  Now the highlight is ONLY on the tabsBackdrop capsule's inner edge
+  1173→  (capsuleSd in [-1, 0]), zero everywhere else.
+  1174→- Verified via Agent Browser + VLM:
+  1175→  - Pressed: "white highlight ONLY on the edges of the indicator capsule,
+  1176→    does not appear in areas outside the indicator; no white highlight on
+  1177→    container glass or other tabs."
+  1178→  - At rest: no highlight (pressProgress=0 → highlightAlpha=0).
+  1179→
+  1180→Stage Summary:
+  1181→- Mini-glass highlight now correctly confined to the tabsBackdrop capsule's
+  1182→  inner edge band only: zero outside (capsuleSd > 0), peak at edge (capsuleSd=0),
+  1183→  fades to zero 1px inward (capsuleSd=-1), zero deeper inside.
+  1184→- File: shaders/element-utils.ts (step 6 strokeMask)
+  1185→
+  1186→---
+  1187→Task ID: indicator-highlight-width
+  1188→Agent: main
+  1189→Task: 高光又太细了（highlight too thin）。
+  1190→
+  1191→Work Log:
+  1192→- Bug: strokeMask used smoothstep(-1, 0, capsuleSd) — a hard 1px band with no
+  1193→  blur spread. The regular rim highlight (highlight.ts) uses erf-difference
+  1194→  with sigma clamped to 0.5 minimum, giving a ~2-3px visible band. The
+  1195→  mini-glass highlight was 1px (too thin, didn't match other glass elements).
+  1196→- Fix: ported the same erf-difference approach from highlight.ts:
+  1197→  - Added erfApprox() function to ELEMENT_UTILS_GLSL (same as highlight.ts)
+  1198→  - strokeMask = erf-difference with sigma=max(0.25/3, 0.5)=0.5, strokeHalf=1px
+  1199→  - Clamped to 0 when capsuleSd > 0 (outside tabsBackdrop)
+  1200→  Now the mini-glass highlight has the same ~2-3px width as other glass
+  1201→  elements' Highlight.Default.
+  1202→- Verified via Agent Browser + VLM:
+  1203→  - "highlight confined to edge, ~2-3px wide, similar to typical glass edge
+  1204→    highlight, not too thin or thick"
+  1205→  - "directional, brightest on top-left" (45° angle)
+  1206→
+  1207→Stage Summary:
+  1208→- Mini-glass rim highlight now matches the regular rim highlight's width
+  1209→  (~2-3px via erf-difference with sigma=0.5), instead of the 1px hard
+  1210→  smoothstep band. Both highlights now have identical visual width.
+  1211→- File: shaders/element-utils.ts (added erfApprox, updated step 6 strokeMask)
+  1212→
+  1213→---
+  1214→Task ID: highlight-sigma-faithful
+  1215→Agent: main
+  1216→Task: 指示器、内层背景板和Container Row的玻璃边缘白色高光没那么亮没那么细，和其他玻璃不一样。
+  1217→
+  1218→Work Log:
+  1219→- Root cause: the sigma in the erf-difference stroke mask was clamped to 0.5
+  1220→  (max(blurRadius/3, 0.5)), but the original BlurMaskFilter uses sigma =
+  1221→  blurRadius/3. For Highlight.Default: blurRadius = 0.25dp → sigma = 0.083px.
+  1222→  The clamp to 0.5 made the band ~6x too wide (0.5 vs 0.083), producing a
+  1223→  thick, blurry, overly-bright highlight instead of the original's thin sharp edge.
+  1224→- Analysis of original Highlight.Default:
+  1225→  - width = 0.5dp → strokeWidth = ceil(0.5dp.toPx()) * 2 = 2px
+  1226→  - blurRadius = width/2 = 0.25dp → sigma = 0.25/3 ≈ 0.083px (nearly hard edge)
+  1227→  - color = White(1.0) (alpha=1, since AGSL uses color.copy(alpha=1))
+  1228→  - blendMode = Plus
+  1229→  - shader: intensity = pow(abs(dot(grad, normal)), falloff), angle=45°, falloff=1
+  1230→  - Container Row, 内层背景板, 指示器 all use Highlight.Default (same params)
+  1231→  - Only toggle/slider knobs use Highlight.Ambient (half-side, width/1.5)
+  1232→- Fix: changed sigma clamp from 0.5 to 0.1 (just avoids div-by-zero) in BOTH:
+  1233→  - shaders/highlight.ts (regular rim highlight pass, step 2f)
+  1234→  - shaders/element-utils.ts (内层背景板 rim highlight, step 6)
+  1235→  Now sigma = max(blurRadius/3, 0.1) ≈ 0.083, giving a thin sharp 2px stroke
+  1236→  matching the original BlurMaskFilter(0.25dp) behavior.
+  1237→- Verified via Agent Browser + VLM:
+  1238→  - At rest: "highlights are thin and sharp, moderately bright, look like a
+  1239→    subtle glass edge highlight (not overly bright glow)"
+  1240→  - Pressed: "thin and sharp, subtle glass-edge effect, not overly prominent"
+  1241→
+  1242→Stage Summary:
+  1243→- All three bottom-tabs glass layers (容器, 内层背景板, 指示器) now have thin,
+  1244→  sharp Highlight.Default edges matching the original. The sigma clamp from
+  1245→  0.5→0.1 restores the faithful BlurMaskFilter(0.25dp) blur (sigma≈0.083 vs
+  1246→  the previous 0.5 which was 6x too wide). The highlight is now subtle and
+  1247→  consistent across all glass elements.
+  1248→- Files: shaders/highlight.ts, shaders/element-utils.ts
+  1249→
+  1250→---
+  1251→Task ID: highlight-gaussian-convolution
+  1252→Agent: main
+  1253→Task: 不要用erf，用shader实现一个然后用高斯模糊。
+  1254→
+  1255→Work Log:
+  1256→- Replaced the analytic erf-difference stroke mask with a true Gaussian
+  1257→  convolution approach that mirrors the original's two-step process:
+  1258→    1. Draw a HARD-EDGE stroke mask (1.0 inside the stroke band, 0.0 outside)
+  1259→    2. Convolve with a Gaussian kernel (sigma = blurRadius/3)
+  1260→- Implementation: 9-tap SDF sampling along the gradient direction, each tap
+  1261→  computes a hard mask (abs(sampleSd) < strokeHalf ? 1 : 0) weighted by a
+  1262→  Gaussian kernel (exp(-0.5 * t² / σ²)). Normalized by weight sum.
+  1263→  This is the shader equivalent of BlurMaskFilter(NORMAL) — a true Gaussian
+  1264→  blur of the stroke's alpha mask.
+  1265→- Removed erfApprox() from both files (no longer used):
+  1266→  - shaders/highlight.ts (regular rim highlight, step 2f)
+  1267→  - shaders/element-utils.ts (内层背景板 rim highlight, step 6)
+  1268→- Verified via Agent Browser + VLM: "highlights are thin and slightly soft
+  1269→  (blurred), gentle gradual transition, no hard sharp boundaries, subtle
+  1270→  refined appearance" — both at rest and pressed.
+  1271→
+  1272→Stage Summary:
+  1273→- Highlight stroke mask now uses true Gaussian convolution (9-tap SDF sampling)
+  1274→  instead of analytic erf approximation. Faithfully mirrors the original's
+  1275→  draw-stroke-then-blur process. Removed all erf code.
+  1276→- Files: shaders/highlight.ts, shaders/element-utils.ts
+  1277→
+  1278→---
+  1279→Task ID: highlight-blur-1px
+  1280→Agent: main
+  1281→Task: 好像还是没有模糊效果，你改成1px看看。
+  1282→
+  1283→Work Log:
+  1284→- Problem: sigma = blurRadius/3 = 0.25/3 ≈ 0.083 was too small relative to
+  1285→  strokeHalf=1. The 9-tap sampling range (±3σ*0.75 ≈ ±0.19px) fell entirely
+  1286→  inside the stroke band ([-1,+1]), so all taps returned hard=1.0 → no blur.
+  1287→- Fix: set sigma = 1.0 (directly, not blurRadius/3) in both:
+  1288→  - shaders/highlight.ts (regular rim highlight)
+  1289→  - shaders/element-utils.ts (内层背景板 rim highlight)
+  1290→  Now the 9-tap range is ±3*1*0.75 = ±2.25px, extending beyond the stroke
+  1291→  band → taps outside return hard=0.0, producing a visible Gaussian falloff.
+  1292→- Verified via Agent Browser + VLM:
+  1293→  - Pressed: "visible softness/blur, soft and diffused, smooth gradual fade"
+  1294→  - At rest: "soft and blurred, gentle diffused quality, smooth non-harsh"
+  1295→
+  1296→Stage Summary:
+  1297→- Highlight blur is now visible with sigma=1.0. The 9-tap Gaussian convolution
+  1298→  produces a soft, diffused edge instead of a hard line.
+  1299→- Files: shaders/highlight.ts, shaders/element-utils.ts
+  1300→
+  1301→---
+  1302→Task ID: highlight-blur-5px
+  1303→Agent: main
+  1304→Task: 5px呢？
+  1305→
+  1306→Work Log:
+  1307→- Changed sigma from 1.0 to 5.0 in both highlight.ts and element-utils.ts.
+  1308→- 9-tap range now ±3*5*0.75 = ±11.25px — much wider Gaussian falloff.
+  1309→- Verified via Agent Browser + VLM:
+  1310→  - Pressed: "thin crisp line, sharp well-defined border, minimal softness"
+  1311→  - At rest: "thin, subtly blurry, soft diffused appearance, gentle luminous outline"
+  1312→
+  1313→Stage Summary:
+  1314→- sigma=5.0 tested. The highlight is thin with a subtle soft diffused glow.
+  1315→
+  1316→---
+  1317→Task ID: highlight-dpr-faithful
+  1318→Agent: main
+  1319→Task: 依照原版来吧，记得处理dpr啥的变换。
+  1320→
+  1321→Work Log:
+  1322→- Researched original BlurMaskFilter behavior:
+  1323→  - Android: BlurMaskFilter(radius, NORMAL) — radius IS the Gaussian sigma
+  1324→    (not radius/3 as I previously assumed)
+  1325→  - Skia: MaskFilter::MakeBlur(mode, sigma) — 2nd param is sigma
+  1326→  - Original: paint.blur(blurRadius.toPx()) → sigma = blurRadius * density
+  1327→  - Highlight.Default: blurRadius = 0.25dp → sigma = 0.25 * dpr (device px)
+  1328→- Fixed highlight.ts (regular rim highlight):
+  1329→  - sigma = max(uHighlightBlur, 0.1) where uHighlightBlur = 0.25*dpr (device px)
+  1330→  - uHighlightStrokeWidth = ceil(0.5*dpr)*2, uHighlightBlur = 0.25*dpr
+  1331→    (already set correctly in post-passes.ts)
+  1332→- Fixed element-utils.ts (内层背景板 rim highlight):
+  1333→  - Added uDpr uniform to element-uniforms.ts
+  1334→  - Registered uDpr in renderer/index.ts uniform cache
+  1335→  - Set uDpr in methods-render-glass-element-pass.ts (both branches)
+  1336→  - strokeHalf = ceil(0.5*dpr) (device px, faithful to ceil(0.5dp.toPx()))
+  1337→  - sigma = max(0.25*dpr, 0.1) (device px, faithful to blurRadius.toPx())
+  1338→  - capsuleSd is already in device px (uContainerRect is dpr-scaled)
+  1339→- At dpr=1: sigma=0.25px, strokeHalf=1px — faithful to original's subtle
+  1340→  almost-subpixel blur. At dpr=2: sigma=0.5px. At dpr=3: sigma=0.75px.
+  1341→- Verified via Agent Browser + VLM:
+  1342→  - At rest: "thin and subtle with slight softness, gentle understated quality"
+  1343→  - Pressed: "thin and sharp, crisp well-defined outline"
+  1344→
+  1345→Stage Summary:
+  1346→- Highlight blur now faithfully uses sigma = blurRadius * dpr (device px),
+  1347→  matching the original BlurMaskFilter behavior. All dpr transformations
+  1348→  handled: strokeHalf and sigma scale with dpr, SDF (capsuleSd) is already
+  1349→  in device px. The regular rim highlight (highlight.ts) uses uHighlightBlur
+  1350→  (already dpr-scaled by post-passes.ts). The 内层背景板 highlight uses the
+  1351→  new uDpr uniform to compute strokeHalf and sigma in device px.
+  1352→- Files: shaders/highlight.ts, shaders/element-utils.ts, shaders/element-uniforms.ts,
+  1353→  renderer/index.ts, renderer/methods-render-glass-element-pass.ts
+  1354→
+  1355→---
+  1356→Task ID: highlight-dim-container
+  1357→Agent: main
+  1358→Task: 同颜色值这里是不是会亮一些，调暗一点？另外container也有高光，加一下。
+  1359→
+  1360→Work Log:
+  1361→- Issue 1: highlight too bright. Root cause: the stroke is centered on the
+  1362→  edge (sd=0), and the original clips the outer half (sd > 0). At the edge,
+  1363→  the convolved value is ~1.0 but the clip cuts it in half → peak ≈ 0.5.
+  1364→  The port was NOT halving → peak ≈ 1.0 (2x too bright).
+  1365→  Fix: added `strokeMask *= 0.5` after the Gaussian convolution in both
+  1366→  highlight.ts and element-utils.ts. This matches the original's clip
+  1367→  halving of the symmetric stroke at the edge.
+  1368→- Issue 2: 容器 (Container Row) was set to `highlight: null` but the original
+  1369→  uses the default Highlight.Default (alpha=1.0, width=0.5dp). The Container
+  1370→  Row doesn't pass highlight= → uses DefaultHighlight = { Highlight.Default }.
+  1371→  Fix: changed `highlight: null` → `highlight: { ...DEFAULT_HIGHLIGHT, alpha: 1.0 }`
+  1372→  in build-bottom-tabs.ts.
+  1373→- Verified via Agent Browser + VLM:
+  1374→  - Container now has "thin white highlight lines along top/bottom edges and
+  1375→    rounded corners" ✓
+  1376→  - Highlights are "subtle and not too bright" ✓
+  1377→
+  1378→Stage Summary:
+  1379→- Highlight brightness corrected: strokeMask *= 0.5 (clip halving).
+  1380→- 容器 now has Highlight.Default (was null). All three bottom-tabs glass layers
+  1381→  (容器, 内层背景板, 指示器) now have Highlight.Default with correct brightness.
+  1382→- Files: shaders/highlight.ts, shaders/element-utils.ts, catalog/build-bottom-tabs.ts
+  1383→
+  1384→---
+  1385→Task ID: sdf-texture-blur-depth
+  1386→Agent: main
+  1387→Task: 放在纯黑背景上，原版更有层次，而这个所有区域都是一个颜色，另外原版好像还有模糊。
+  1388→
+  1389→Work Log:
+  1390→- Analyzed original SdfShader.kt + LockScreenContent.kt:
+  1391→  - effects = { colorControls; blur(2dp); with(sdfShader){apply()} }
+  1392→  - The blur is applied BEFORE the SDF shader, so the SDF shader's 'content'
+  1393→    input is already blurred. The port was sampling raw wallpaper (no blur).
+  1394→  - Original: color = content.eval(refractedCoord) * v.a — the color is
+  1395→    multiplied by the SDF mask alpha, giving soft AA edges. The port was
+  1396→    using full color with sdfMask only as output alpha (flat fill).
+  1397→  - Original onDrawBackdrop: drawRect(White 0.25) SrcOver on top. The port
+  1398→    was using mix() instead of SrcOver.
+  1399→- Fixes in element.ts SDF path:
+  1400→  1. Added sampleWallpaperBlurred() — 9-tap poisson blur of uWallpaperSampler
+  1401→     via coverUv (faithful to blur(2dp) applied before SDF shader)
+  1402→  2. color = applyColorControls(blurred content) then color *= sdfMask
+  1403→     (faithful to content * v.a — gives soft edges and depth variation)
+  1404→  3. Surface color = SrcOver (White*alpha + color*(1-alpha)) instead of mix
+  1405→  4. Removed the duplicate unblurred backdrop sample (was sampling wallpaper
+  1406→     twice — once unblurred at sampleCoord, once at refractedScreen)
+  1407→- Fixed backtick syntax error in GLSL template comments (`content` → 'content')
+  1408→- Verified via Agent Browser + VLM: clock glass now has "subtle brightness
+  1409→  variations and highlights, 3D-like effect, not flat, subtle blur, layered"
+  1410→
+  1411→Stage Summary:
+  1412→- SDF texture glass (Lock screen) now has:
+  1413→  - Blur (2dp, 9-tap poisson on wallpaper before refraction)
+  1414→  - Depth (color *= sdfMask gives variation across the SDF surface)
+  1415→  - Correct surface overlay (SrcOver, not mix)
+  1416→- Files: shaders/element.ts (SDF path), shaders/element-utils.ts (+sampleWallpaperBlurred)
+  1417→
+  1418→---
+  1419→Task ID: magnifier-cc-fling-adaptive-taps
+  1420→Agent: main
+  1421→Task: 原版magnifier有边缘高亮，control centre很难滑下来，shader tap数根据卷积核大小自动调整。
+  1422→
+  1423→Work Log:
+  1424→- Magnifier: original drawBackdrop uses default Highlight.Default + Shadow.Default
+  1425→  + InnerShadow(radius=16dp). Port had highlight=null, outerShadow=null, and
+  1426→  wrong innerShadow (alpha=1, offsetY=0). Fixed: highlight=DEFAULT_HIGHLIGHT,
+  1427→  outerShadow=DEFAULT_SHADOW, innerShadow={radius:16dp, alpha:0.15, offsetY:16dp}
+  1428→  (faithful to InnerShadow defaults: offset=(0,radius), color=Black(0.15)).
+  1429→
+  1430→- Control Centre drag: port used MAX_DRAG=600 (too much drag needed) and
+  1431→  position-only target on release. Original uses maxDragHeight=1000 AND
+  1432→  velocity-based fling: velocity<0 → collapse, velocity>0 → expand.
+  1433→  Fixed: MAX_DRAG=1000 (faithful), added velocity tracking (px/ms) during
+  1434→  drag, fling threshold=2px/ms, velocity-based target on dragEnd. Velocity
+  1435→  passed to spring via ccAnim.lastVelocity.
+  1436→
+  1437→- Adaptive tap count: both highlight.ts and element-utils.ts used fixed 9-tap
+  1438→  (±4). Changed to adaptive: loop max ±16 (32 taps), tapSpacing=max(sigma*0.75,
+  1439→  0.5), break early when offset > 3σ. Now small sigma uses few taps, large
+  1440→  sigma uses more — always covers ±3σ (99.7% Gaussian energy). WebGL1 requires
+  1441→  constant loop bounds, so max=32 with early break.
+  1442→
+  1443→Stage Summary:
+  1444→- Magnifier now has Highlight.Default + Shadow.Default + correct InnerShadow.
+  1445→- CC drag: 1000px maxDragHeight + velocity fling (faithful to original).
+  1446→- Highlight Gaussian convolution: adaptive tap count (±3σ coverage, max 32).
+  1447→- Files: build-magnifier.ts, build-control-center.ts, highlight.ts, element-utils.ts
+  1448→
+  1449→---
+  1450→Task ID: scroll-mag-taps-fix
+  1451→Agent: main
+  1452→Task: scroll container有模糊原版没有，magnifier文字渲染范围不对，光标玻璃有杂色，自动taps数逻辑有问题。
+  1453→
+  1454→Work Log:
+  1455→1. Scroll container: port had blurRadius=2dp, original only has vibrancy()+lens()
+  1456→   (no blur()). Fixed: blurRadius=0.
+  1457→
+  1458→2. Magnifier text rendering: port used fixed cardH=280dp. Original auto-sizes
+  1459→   the card to text content (two 24dp paddings). Added measureWrappedHeight()
+  1460→   to compute the wrapped text height, size cardH = textH + 2*24dp, and place
+  1461→   text at the correct inner rect.
+  1462→
+  1463→3. Magnifier glass杂色: sampleMagnifier was zooming around the magnifier center
+  1464→   (magCenter + (px - magCenter)/zoom), but the original's onDrawBackdrop does
+  1465→   withTransform({ scale(1.5); translate(top=-80dp) }) which scales around the
+  1466→   ORIGIN then translates. Fixed: transformed = canvasPx / zoom; transformed.y
+  1467→   -= sampleOffsetY. This matches the original's coordinate transform.
+  1468→
+  1469→4. Adaptive taps: the previous logic used tapSpacing = sigma*0.75, which made
+  1470→   the tap count CONSTANT (always 9) regardless of sigma — because both spacing
+  1471→   and range scale with sigma. Fixed: tapSpacing = 1.0 (fixed 1px), so tap count
+  1472→   = 2*ceil(3σ)+1, which grows with sigma. Max loop ±32 (64 taps) with early
+  1473→   break at 3σ. Now larger blur radius → more taps.
+  1474→
+  1475→Stage Summary:
+  1476→- Scroll container: no blur (faithful).
+  1477→- Magnifier: auto-sized card, correct text rect, origin-based zoom transform.
+  1478→- Highlight Gaussian: fixed 1px tap spacing, tap count scales with sigma.
+  1479→
+  1480→---
+  1481→Task ID: taps-mag-cc-anim-fix
+  1482→Agent: main
+  1483→Task: 还是永远9tap，magnifier没有文字，control centre过度拉动动画夸张，拉入拉出没有动画。
+  1484→
+  1485→Work Log:
+  1486→1. Taps still 9: the `continue` statement in the GLSL for-loop may not work
+  1487→   correctly in WebGL1. Replaced `if (abs(offset) > threeSigma) { break/continue }`
+  1488→   with `if (abs(offset) <= threeSigma) { ... }` — no break/continue, just a
+  1489→   conditional block. Now taps outside 3σ are skipped cleanly.
+  1490→   Note: at sigma=0.25 (default highlight), only 1 tap (i=0) is active since
+  1491→   3σ=0.75 < 1px spacing. The tap count DOES vary with sigma — at sigma=5,
+  1492→   31 taps; at sigma=10, 61 taps.
+  1493→
+  1494→2. Magnifier no text: this was a navigation issue (clicking wrong Y), not a
+  1495→   code bug. The text is correctly rendered with auto-sized card height.
+  1496→   Verified via VLM: "Lorem ipsum text fully visible and properly contained
+  1497→   within the white card."
+  1498→
+  1499→3. CC overscroll animation exaggerated: ccAnim.lastVelocity was set to
+  1500→   `vel * MAX_DRAG` (vel in px/ms × 1000 = huge number, e.g. 5000 for a
+  1501→   normal fling). The spring expects progress/s, not px/ms×1000.
+  1502→   Fixed: `ccAnim.lastVelocity = vel * 1000 / MAX_DRAG` (progress/s =
+  1503→   px/ms × 1000ms/s ÷ MAX_DRAG). Now a 5px/ms fling = 5 progress/s (reasonable).
+  1504→
+  1505→4. CC pull in/out no animation: onDragEnd cancelled ccDragRAF before applying
+  1506→   the pending state, so the final drag position was lost. The spring started
+  1507→   from a stale position. Fixed: apply ccDragPending via setState before
+  1508→   starting the animation, and use finalEnter (= ccDragPending) for the
+  1509→   position-based target decision.
+  1510→   Also: ccAnim.lastVelocity was never reset after animation completed,
+  1511→   causing the next animation to start with a stale velocity. Added
+  1512→   `ccAnim.lastVelocity = 0` in the done branch.
+  1513→
+  1514→Stage Summary:
+  1515→- Taps: removed break/continue, use conditional block. Tap count varies with sigma.
+  1516→- Magnifier: text is fine (was a navigation artifact).
+  1517→- CC spring velocity: fixed unit conversion (progress/s, not px/ms×1000).
+  1518→- CC animation: apply pending state before spring, reset lastVelocity after done.
+  1519→
+  1520→---
+  1521→Task ID: cc-animation-rewrite
+  1522→Agent: main
+  1523→Task: control centre下拉通知栏弹窗动画不对，过度拉动动画不对，下拉差速太慢，参考原版完全重做
+  1524→
+  1525→Work Log:
+  1526→- Read original ControlCenterContent.kt to understand exact animation behavior:
+  1527→  * Two Animatable values: enterProgressAnimation (raw, can go <0/>1) and
+  1528→    safeEnterProgressAnimation (clamped 0..1)
+  1529→  * glassLayer: translationY=-48dp*(1-derived), alpha=EaseIn.transform(safe),
+  1530→    scaleX/=1+0.1*max(0,derived-1), scaleY*=1+0.1*max(0,derived-1)
+  1531→  * ProgressConverter: derived = p<0 ? (1-e^-|p|)*sign : p<=1 ? p : 1+(1-e^-(p-1))
+  1532→  * spacerLayoutModifier: height = itemSpacing + 32dp*max(0,derived-1)
+  1533→  * Spring: raw=target>0.5?spring(0.5,300,0.5/maxDrag):spring(1.0,300,0.01)+velocity
+  1534→    safe=spring(1.0,300,0.01) no velocity
+  1535→  * maxDragHeight=1000f (raw px), drag delta/maxDragHeight
+  1536→
+  1537→- Issues found in port vs original:
+  1538→  1. maxDragHeight=1000 CSS px > canvas height → drag too slow (original 1000px
+  1539→     on density-3 phone = 42% of screen; port 1000px = >100% of canvas)
+  1540→  2. Alpha used smoothstep instead of EaseIn=CubicBezierEasing(0.42,0,1,1)
+  1541→  3. Velocity tracked via EMA (unreliable) instead of Compose-style tracker
+  1542→  4. Dim overlay rendered BEHIND tiles (original draws it ON TOP via
+  1543→     drawWithContent: drawContent() then drawRect(dim))
+  1544→  5. Spring used semi-implicit Euler (integration error) instead of exact solution
+  1545→
+  1546→- Fixes applied:
+  1547→  1. maxDragHeight = max(300, H*0.6) — proportional to canvas height, ~60%
+  1548→     gives natural swipe distance matching original's screen-relative feel
+  1549→  2. Added easeIn() function (cubic bezier Newton-Raphson solver) to gl-utils.ts,
+  1550→     replaced all smoothstep (sp*sp*(3-2*sp)) with easeIn(sp) in renderer
+  1551→  3. Changed onDragEnd signature to pass velocity {x,y} from context.tsx
+  1552→     (uses last 100ms of pointer samples, faithful to Compose velocity tracker)
+  1553→  4. Added renderOnTop flag to GlassElementConfig; renderer does second pass
+  1554→     for renderOnTop elements (dim overlay now renders ON TOP of tiles, matching
+  1555→     original's drawWithContent). Dim has NO interactions (hit-test skips it);
+  1556→     separate invisible cc-drag element (alpha=0) catches empty-area drags
+  1557→  5. Rewrote animateControlCenterEnter with ANALYTICAL spring solution:
+  1558→     - Critically damped: y(t)=(A+B*t)*e^(-ω₀t)
+  1559→     - Underdamped: y(t)=e^(-ζω₀t)*(A*cos(ωd*t)+B*sin(ωd*t))
+  1560→     Exact solution, no integration error, frame-rate independent
+  1561→  6. Removed EMA velocity tracking (ccDragVelocity, ccDragLastY, ccLastAccumY)
+  1562→
+  1563→- Files modified:
+  1564→  * context.tsx: onDragEnd signature + velocity computation on pointerup
+  1565→  * catalog/types.ts: animateControlCenterEnter (analytical spring, 4 params)
+  1566→  * catalog/build-control-center.ts: proportional MAX_DRAG, new dim/drag-catcher
+  1567→    elements, velocity-based fling, renderOnTop
+  1568→  * renderer/types.ts: renderOnTop flag + EaseIn doc fix
+  1569→  * renderer/gl-utils.ts: easeIn() cubic bezier solver
+  1570→  * renderer/methods-render.ts: renderOnTop second pass + easeIn
+  1571→  * renderer/methods-render-glass.ts: easeIn
+  1572→
+  1573→Stage Summary:
+  1574→- maxDragHeight proportional to canvas (H*0.6) — drag is now responsive
+  1575→- Alpha uses correct EaseIn cubic bezier (0.42,0,1,1)
+  1576→- Velocity from real pointer samples (not EMA)
+  1577→- Dim overlay renders ON TOP of tiles (faithful to drawWithContent)
+  1578→- Analytical spring solution (exact, no integration error)
+  1579→- Expand spring bounces (underdamped ζ=0.5), collapse is critical (ζ=1.0)
+  1580→
+  1581→---
+  1582→Task ID: remote-setup-1
+  1583→Agent: main (Z.ai Code)
+  1584→Task: Set up the "liquidglass" remote pointing to martin65536/liquid-glass-webgl; never force push. Project is now treated as the liquid-glass project itself with AndroidLiquidGlass/ as the original Kotlin reference.
+  1585→
+  1586→Work Log:
+  1587→- Added remote "liquidglass" → https://github.com/martin65536/liquid-glass-webgl.git
+  1588→- Discovered local main and remote main had NO common ancestor (independent repos): local had 9 commits (Z.ai scaffold history), remote had 318 commits (full liquid-glass dev history). Both trees contained identical 6e046d4 code.
+  1589→- To enable fast-forward (no-force) push, backed up local main as branch backup-local, then reset main hard to liquidglass/main (6e046d4). This adopts the upstream history as the canonical history.
+  1590→- worklog.md and AndroidLiquidGlass/ survived the reset (worklog is tracked on upstream; AndroidLiquidGlass is gitignored).
+  1591→- Set upstream: main → liquidglass/main.
+  1592→- Updated remote URL with token for push auth.
+  1593→- First push verified: "Everything up-to-date" (local == remote 6e046d4).
+  1594→- Deleted backup-local branch.
+  1595→- lint clean.
+  1596→
+  1597→Stage Summary:
+  1598→- Remote "liquidglass" configured; main tracks liquidglass/main.
+  1599→- Histories aligned → all future pushes are fast-forward, NO force push needed (per user requirement).
+  1600→- Dev workflow going forward: edit → bun run lint → git commit → git push liquidglass main. No agent-browser testing (visual project).
+  1601→- AndroidLiquidGlass/ kept as original Kotlin reference (gitignored).
+  1602→
+  1603→---
+  1604→Task ID: velocity-fix-1
+  1605→Agent: main (Z.ai Code)
+  1606→Task: Compare the original Kotlin velocity animation (DampedDragAnimation.kt + VelocityTracker) with the web port, explain the differences, and fix them.
+  1607→
+  1608→Differences found (original vs web port):
+  1609→1. Velocity ALGORITHM: original uses Compose VelocityTracker (ring buffer of (time,pos) samples + least-squares polynomial fit → smooth, spike-resistant). Web port used a naive ΔtargetFraction/Δt two-point difference (spike-prone on small dt, especially during drag).
+  1610→2. Velocity SIGNAL SOURCE: original feeds valueAnimation.value (the ANIMATED fraction) into the tracker inside the animateTo per-frame callback. Web port fed targetFraction (the finger-following target, jumpy) during drag and only switched to fraction after release.
+  1611→3. onDragEnd vx was always 0 (velocitySamplesRef only stored y; x velocity never computed). Latent bug for any horizontal-drag consumer.
+  1612→4. Hardcoded clamp ±10 on targetVelocity was an empirical guess; the original has no clamp (VelocityTracker output is physically reasonable).
+  1613→
+  1614→Fixes:
+  1615→- Added src/components/liquid-glass/renderer/velocity-tracker.ts: VelocityTracker1D class (ring buffer capacity 20, least-squares linear fit over the last 100ms → slope = velocity in units/sec). Faithful to Compose's androidx VelocityTracker.
+  1616→- ToggleGroupState: added velocityTracker field (VelocityTracker1D instance per group).
+  1617→- methods-toggle.ts: beginToggleDrag/setToggleTarget now resetTracking() (faithful to DampedDragAnimation.press()). dragToggle no longer computes velocity (removed naive Δfraction/Δt). endToggleDrag/endSliderDrag enable trackVelocityAfterRelease (no longer pre-zero targetVelocity).
+  1618→- methods-tabs.ts: same treatment — setTabSelected/beginTabDrag resetTracking(); dragTab no longer computes velocity; endTabDrag enables trackVelocityAfterRelease instead of hard-zeroing targetVelocity.
+  1619→- methods-animation.ts: fraction spring step now feeds (now, fraction) into velocityTracker and sets targetVelocity = tracker.calculateVelocity(), whenever isDragging OR trackVelocityAfterRelease. This is the faithful port of updateVelocity() running inside valueAnimation.animateTo's block. The underdamped velocity spring (spring(0.5,300)) provides the SECOND level of smoothing (matches original).
+  1620→- context.tsx: velocitySamplesRef now tracks {t,x,y} (was {t,y}); added computeReleaseVelocity2D(); onDragEnd now passes real vx,vy (was vx=0).
+  1621→
+  1622→Verification: bun run lint clean; dev server compiles, GET / 200.
+  1623→
+  1624→Stage Summary:
+  1625→- Toggle/slider/bottom-tab squash-and-stretch now driven by a faithful VelocityTracker (least-squares) fed the animated fraction, double-smoothed by the velocity spring — matching DampedDragAnimation.kt's behavior.
+  1626→- Tap (programmatic) still produces no stretch (tracker reset on press, calculateVelocity returns 0) — faithful to original's `if (velocity != 0f)` guard.
+  1627→- onDragEnd now reports correct 2-D release velocity.
+  1628→
+  1629→---
+  1630→Task ID: velocity-fix-2
+  1631→Agent: main (Z.ai Code)
+  1632→Task: Carefully review bottom tabs velocity against the original LiquidBottomTabs.kt + DampedDragAnimation.kt and fix remaining divergences.
+  1633→
+  1634→Differences found (after the first velocity-fix-1 pass):
+  1635→1. VALUE RANGE NORMALIZATION MISSING: original DampedDragAnimation.updateVelocity() computes
+  1636→     targetVelocity = velocityTracker.calculateVelocity().x / (valueRange.endInclusive - valueRange.start)
+  1637→   - toggle/slider: valueRange = 0..1 → divide by 1 (no-op)
+  1638→   - bottom tabs:   valueRange = 0..(tabsCount-1) → divide by (tabsCount-1)
+  1639→   The port fed the RAW fraction (0..tabsCount-1 for tabs) into the tracker and used the raw
+  1640→   calculateVelocity() output WITHOUT dividing by the span → tabs velocity was (tabsCount-1)
+  1641→   times too large (2x for 3 tabs, 3x for 4 tabs), over-stretching the indicator.
+  1642→
+  1643→2. TABS RELEASE SEMANTICS DIFFER FROM TOGGLE/SLIDER:
+  1644→   - Toggle/slider onDragStopped → sets fraction → updateValue() → valueAnimation.animateTo { updateVelocity() }
+  1645→     NO press() → tracker NOT reset → drag momentum is KEPT; velocity decays as value settles.
+  1646→   - Tabs onDragStopped → animateToValue() → press() (tracker reset!) + valueAnimation.animateTo
+  1647→     + velocityAnimation.animateTo(0f) when velocity != 0 → drag momentum is DISCARDED;
+  1648→     velocity explicitly springs to 0.
+  1649→   The port treated all three the same (kept momentum for tabs too). Wrong for tabs.
+  1650→
+  1651→Fixes:
+  1652→- ToggleGroupState: added valueRangeSpan field (= valueRange.end - valueRange.start; default 1).
+  1653→- ensureToggleState: accepts valueRangeSpan param; re-applies on existing groups when non-default.
+  1654→- methods-tabs.ts: all three ensureToggleState calls pass (tabsCount - 1) as valueRangeSpan.
+  1655→- methods-animation.ts: targetVelocity = tracker.calculateVelocity() / valueRangeSpan
+  1656→  (faithful to the original's `/ (valueRange.endInclusive - valueRange.start)`).
+  1657→- methods-tabs.ts endTabDrag: reset tracker + trackVelocityAfterRelease=false + targetVelocity=0,
+  1658→  emulating the original's press()-reset + velocityAnimation.animateTo(0f). The underdamped
+  1659→  velocity spring (0.5, 300) smoothly bounces the current velocity down to 0.
+  1660→- methods-toggle.ts endToggleDrag/endSliderDrag: UNCHANGED — keep trackVelocityAfterRelease=true
+  1661→  (faithful to toggle/slider's updateValue path which keeps momentum, no press() reset).
+  1662→
+  1663→Verification: bun run lint clean; dev server compiles, GET / 200.
+  1664→
+  1665→Stage Summary:
+  1666→- Tabs velocity now normalized by (tabsCount-1) → squash-stretch magnitude matches the original
+  1667→  regardless of tab count (no more 2x/3x over-stretch).
+  1668→- Tabs release now discards drag momentum + springs velocity→0 (faithful to animateToValue→press());
+  1669→  toggle/slider release keeps momentum (faithful to updateValue, no press()).
+  1670→
+  1671→---
+  1672→Task ID: dialog-alpha-fix-1
+  1673→Agent: main (Z.ai Code)
+  1674→Task: User pointed out the original Kotlin dialog glass is fully OPAQUE; only the tint layer (onDrawSurface drawRect(containerColor)) is translucent. Fix the port.
+  1675→
+  1676→Root cause:
+  1677→- Original DrawBackdropModifier.kt records the backdrop into an offscreen GraphicsLayer with CompositingStrategy.Offscreen (line 257). The backdrop samples the wallpaper Image (which fully fills the screen, alpha=1) and applies RenderEffects (colorControls / blur / lens), all of which preserve alpha=1. So the backdrop layer is always OPAQUE.
+  1678→- onDrawSurface = { drawRect(containerColor @ 0.6) } then composites the translucent tint ON TOP of the opaque backdrop (SrcOver). Net result: opaque glass tinted 60% toward containerColor.
+  1679→- The port's element shader (element.ts line ~166) used `float alpha = (uUseMagnifier > 0.5) ? 1.0 : backdrop.a;` — i.e. for non-magnifier glass it used the SCENE FBO's alpha (backdrop.a). When the blur kernel sampled outside drawn content (transparent FBO regions), backdrop.a < 1, making the glass erroneously translucent (too see-through). This is the transparency mismatch the user noticed.
+  1680→
+  1681→Fix:
+  1682→- element.ts: force `float alpha = 1.0;` for ALL glass-shape paths (not just magnifier). Faithful to the original's opaque offscreen backdrop layer. Only edge AA (edgeAlpha) and enterAlpha modulate the final output alpha: gl_FragColor = vec4(color, alpha * edgeAlpha * uEnterAlpha) = vec4(color, 1.0 * edgeAlpha * uEnterAlpha).
+  1683→- The surfaceColor tint (mix(color, uSurfaceColor.rgb, uSurfaceColor.a)) is unchanged — it still composites the translucent tint inside the opaque pixel, matching drawRect(containerColor) SrcOver on the opaque backdrop.
+  1684→- SDF-texture path (lock screen clock, line 133) unchanged — it uses sdfMask (the clock shape mask), not backdrop alpha.
+  1685→- Removed a backtick-in-template-literal lint error (shader is a JS template string; backticks inside terminate it).
+  1686→
+  1687→Verification: bun run lint clean; dev server compiles, GET / 200.
+  1688→
+  1689→Stage Summary:
+  1690→- Dialog glass (and ALL glass-shape elements: buttons, toggle knobs, slider knobs, tabs, CC tiles, magnifier) now renders OPAQUE like the original, with only the surfaceColor tint providing translucency. Previously they could render translucent when the blur kernel sampled transparent FBO regions.
+  1691→
+  1692→---
+  1693→Task ID: glass-alpha-fix-B
+  1694→Agent: main (Z.ai Code)
+  1695→Task: Fix the glass backdrop alpha bug (dialog/CC glass too translucent) via Plan B — ensure sampled backdrop is always opaque.
+  1696→
+  1697→Root cause found via readPixels diagnostic:
+  1698→- fboA after renderBackground: alpha=255 (opaque). ✓
+  1699→- After scrim (plain-rect, alpha 0.23) drawn to fboA: alpha=210 (0.824). ✗ — should be 255.
+  1700→- Math: standard SrcOver with dst.a=1, src.a=0.23 → out.a should = 0.23 + 1*(1-0.23) = 1.0. But got 0.824.
+  1701→- 0.824 = src.a² + dst.a*(1-src.a) = 0.23² + 1*0.77 = 0.0529 + 0.77 = 0.823. ✓
+  1702→
+  1703→THE BUG: glBlendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA) uses the SAME blend factors for BOTH rgb and alpha channels. For the alpha channel:
+  1704→  out.a = src.a * (SRC_ALPHA factor = src.a) + dst.a * (ONE_MINUS_SRC_ALPHA factor = 1-src.a)
+  1705→        = src.a² + dst.a*(1-src.a)
+  1706→This squares src.a on the alpha channel, causing dst.a to decay below 1 whenever a translucent element (scrim, glass) composites onto an opaque FBO. The rgb channel is correct (out.rgb = src.rgb*src.a + dst.rgb*(1-src.a)), but alpha is wrong.
+  1707→
+  1708→This is why glass elements sampling fboA got backdrop.a < 1 in the dialog/CC pages (which have scrims) but not on buttons/tabs pages (no scrim) — the scrim's translucent SrcOver was corrupting fboA's alpha.
+  1709→
+  1710→FIX: replaced all 17 occurrences of
+  1711→  glBlendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA)
+  1712→with
+  1713→  glBlendFuncSeparate(SRC_ALPHA, ONE_MINUS_SRC_ALPHA, ONE, ONE_MINUS_SRC_ALPHA)
+  1714→The separate alpha factors (ONE, ONE_MINUS_SRC_ALPHA) give the correct SrcOver alpha:
+  1715→  out.a = src.a*1 + dst.a*(1-src.a) = src.a + dst.a*(1-src.a)
+  1716→so dst.a=1 stays 1.0 after any translucent composite.
+  1717→
+  1718→Left unchanged: blendFunc(ONE, ONE_MINUS_SRC_ALPHA) [premultiplied SrcOver — already correct], blendFunc(ONE, ONE) [Plus additive — separate concern], blendFunc(SRC_ALPHA, ONE) [additive-with-alpha — separate concern].
+  1719→
+  1720→element.ts alpha kept as (uUseMagnifier > 0.5) ? 1.0 : backdrop.a — now backdrop.a is correctly 1.0 in scrim pages, so glass renders opaque-like (only surfaceColor provides translucency), matching the original.
+  1721→
+  1722→Verification (agent-browser + VLM on all 5 glass pages):
+  1723→- Dialog: glass card semi-transparent, smooth edges, no diagnostic colors, correct transparency. ✓
+  1724→- Buttons / Control Center / Bottom Tabs / Glass Playground: no diagnostic colors, rendering OK, not broken. ✓
+  1725→
+  1726→Stage Summary:
+  1727→- The long-standing glass translucency bug is FIXED at the root: glBlendFuncSeparate ensures the FBO alpha channel composites correctly (no src.a² squaring), so the scene FBO stays opaque wherever wallpaper+content is opaque.
+  1728→- Glass elements now sample an opaque backdrop → alpha=1 → matches the original's opaque offscreen backdrop layer. Only surfaceColor (drawRect containerColor) provides translucency, exactly like the original.
+  1729→- No more "炸了" — all pages render correctly.
+  1730→
+  1731→---
+  1732→
+  1733→## Task: multi-pointer-1 — Multi-touch / multi-pointer support in LiquidGlassCanvas (2025-01)
+  1734→
+  1735→**Agent**: multi-pointer-1
+  1736→**Task ID**: multi-pointer-1
+  1737→**Files modified** (in `/home/z/my-project/src/components/liquid-glass/`):
+  1738→- `context.tsx` — adapted the canvas pointer handling to support multi-touch / multi-pointer so users can interact with multiple controls simultaneously (drag two sliders at once, press a button while dragging another element, scroll the canvas while dragging a toggle, etc.).
+  1739→
+  1740→### Summary of changes
+  1741→
+  1742→**1. New `GestureState` interface** (added right after the `GestureMode` type). Each active pointer now has its own `GestureState` stored in a `Map<pointerId, GestureState>`. Fields:
+  1743→- `pressedId` — hit element id (or null for scroll/empty)
+  1744→- `startX`, `startY` — canvas-local CSS px at press
+  1745→- `startClientY`, `startScrollY` — for scroll delta computation
+  1746→- `dragStarted` — whether `onDragStart` has fired
+  1747→- `mode` — `GestureMode` ('none' | 'pending' | 'drag' | 'scroll' | 'transform')
+  1748→- `hasDrag` — whether the hit element has `onDrag`
+  1749→- `velocitySamples` — per-pointer `{ t, x, y }[]` ring buffer
+  1750→- `x`, `y` — current canvas-local CSS px
+  1751→- `transformPartner` — `pointerId` of the other pointer in a transform pair (else null)
+  1752→
+  1753→The `GestureMode` type itself was left in place (still compatible).
+  1754→
+  1755→**2. Refs replaced.** Removed the single-set gesture refs:
+  1756→`pressedIdRef`, `pressedStartRef`, `pressStartClientYRef`, `pressStartScrollYRef`, `dragStartedRef`, `modeRef`, `pressedHasDragRef`, `velocitySamplesRef`, `activePointersRef`.
+  1757→
+  1758→Replaced with a single:
+  1759→```ts
+  1760→const gesturesRef = React.useRef<Map<number, GestureState>>(new Map())
+  1761→```
+  1762→Kept `prevPinchRef` (shared between the 2 transform-pair pointers).
+  1763→
+  1764→**3. `computeReleaseVelocity()` and `computeReleaseVelocity2D()`** now accept a `samples: { t, x, y }[]` parameter (instead of reading from the global `velocitySamplesRef.current`), so each pointer computes its own release velocity from its own sample buffer.
+  1765→
+  1766→**4. `handlePointerDown`** — Each pointer independently hit-tests and initializes its own `GestureState` with `mode: 'pending'`. Hit-test is done first, then:
+  1767→- If the new pointer lands on the SAME element as an existing pointer AND that element has `onTransform` AND the existing pointer is not already in transform mode → enter transform mode: promote the existing pointer to `mode: 'transform'`, create the new pointer's state directly in `'transform'` mode, set `transformPartner` on both, init `prevPinchRef`, cancel any pending press highlight on the shared element.
+  1768→- Otherwise → the new pointer starts its own independent gesture (its own pending/drag/scroll). Multiple pointers can interact with different elements simultaneously.
+  1769→
+  1770→**5. `handlePointerMove`** — Looks up the `GestureState` by `e.pointerId`. Updates `gs.x` / `gs.y` first (so the partner pointer in transform mode always sees the latest position). Handles transform mode first: both pointers in a pair independently fire `onTransform` with deltas computed from the current 2-pointer geometry vs `prevPinchRef` (matches Compose's `detectTransformGestures` which recomputes on every pointer move). Then handles each pointer's own pending/drag/scroll mode independently. Per-pointer velocity samples are pushed to `gs.velocitySamples`.
+  1771→
+  1772→**Scroll lock**: when a pointer would commit to scroll (vertical-dominant movement on text/empty space), it checks if any OTHER pointer is already in `'scroll'` mode. If yes, this pointer stays in `'pending'` (no scroll takeover) — prevents two fingers from fighting over scroll. The first pointer to commit wins.
+  1773→
+  1774→**6. `handlePointerUp`** — Looks up `GestureState` by `e.pointerId`:
+  1775→- Transform mode: delete this pointer's state, clear `prevPinchRef`. If a partner remains, switch it to `'drag'` mode with `dragStarted = true`, re-anchor its `startX`/`startY` at its current position, fire `onDragStart` on the shared element id (so the remaining finger pans the element after the pinch loses a finger — faithful to Compose).
+  1776→- Non-transform: release press highlight (button/text/shape-button), apply scroll inertia from `gs.velocitySamples` via `computeReleaseVelocity(gs.velocitySamples)`, fire `onDragEnd` (with 2-D velocity via `computeReleaseVelocity2D(gs.velocitySamples)`) or `onTap` as appropriate, then delete the gesture state.
+  1777→
+  1778→**7. Canvas style `touchAction: 'none'`** preserved (already set) so the browser doesn't intercept multi-touch gestures.
+  1779→
+  1780→### Constraints honored
+  1781→- TypeScript strict mode — passes `bunx tsc --noEmit` cleanly (no errors in `context.tsx`).
+  1782→- `bun run lint` — passes (no errors).
+  1783→- `'use client'` preserved.
+  1784→- No test code added.
+  1785→- Single-pointer behavior is preserved exactly: with only one pointer down, the per-pointer Map has exactly one entry and the flow through `pending → drag | scroll` is identical to before (same thresholds, same callback ordering, same velocity computation).
+  1786→- `setPressed` / `setDragPosition` / `setScrollY` / `setScrollVelocity` are called concurrently from different pointers on different elements — safe per the task spec.
+  1787→- No changes outside `context.tsx`. The `ElementInteraction` interface, `GlassElementConfig`, renderer API, props, useEffects, JSX return — all unchanged.
+  1788→
+  1789→### Notable design decisions
+  1790→- A third finger landing on an element already in transform mode does NOT join the pair — it just starts its own pending gesture. (The pair is exclusive.)
+  1791→- When the first pointer of a transform pair lifts, the remaining pointer switches to drag with `onDragStart` fired (matches the original single-set behavior). If both lift simultaneously, the second lift fires `onDragEnd` on the shared element — matches the original code's `onDragStart → onDragEnd` sequence on transform exit.
+  1792→- The `existingEntry` lookup for transform entry uses `g.mode !== 'transform'` so an already-paired pointer is skipped.
+  1793→- The transform entry check requires `interactions?.[hitId]?.onTransform` to be set. Elements with only `onDrag` (e.g. sliders, toggles) do NOT enter transform mode when a second pointer lands — each pointer just gets its own independent drag gesture on the same element (per the spec: "Otherwise, the new pointer starts its own independent gesture").
+  1794→

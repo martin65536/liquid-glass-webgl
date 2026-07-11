@@ -135,7 +135,7 @@ void main() {
     }
 
     // SDF in ORIGINAL space — shape is a correct (unscaled) rounded rect.
-    float sd = sdRoundedRect(centeredOrigRot, origHalfSize, origRadius);
+    float sd = sdShape(centeredOrigRot, origHalfSize, origRadius);
 
     // Outside the shape — fully transparent (clip).
     // sd is in original px; 0.5px threshold in original space = 0.5*layerScale
@@ -339,7 +339,7 @@ void main() {
         // SDF approach: we're inside the shape (sd < 0) and the offset
         // shape's SDF at this pixel is > 0 (outside the offset shape).
         vec2 offsetCentered = centeredOrigRot - uInnerShadowOffset;
-        float offsetSd = sdRoundedRect(offsetCentered, origHalfSize, origRadius);
+        float offsetSd = sdShape(offsetCentered, origHalfSize, origRadius);
         // Ring = inside original (sd < 0) AND outside offset shape (offsetSd > 0)
         // Plus blur falloff based on distance into the ring.
         float ring = smoothstep(0.0, uInnerShadowRadius, offsetSd) *

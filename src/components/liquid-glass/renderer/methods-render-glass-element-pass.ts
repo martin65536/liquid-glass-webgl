@@ -432,6 +432,8 @@ export const glassElementPassMethods = {
     }
     // Global enter alpha (ControlCenter enter progress)
     gl.uniform1f(this.uEl['uEnterAlpha'], state.enterAlpha)
+    // Corner style: 0 = circular, 1 = continuous (squircle)
+    gl.uniform1f(this.uEl['uCornerStyle'], this.cornerStyle)
     // Magnifier glass uniforms
     if (el.isMagnifier) {
       gl.uniform1f(this.uEl['uUseMagnifier'], 1.0)

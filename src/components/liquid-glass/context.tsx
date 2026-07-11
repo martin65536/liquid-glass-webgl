@@ -63,6 +63,8 @@ export interface LiquidGlassCanvasProps {
    *  Small blur radii automatically use fewer taps (computeBlur1DTapCount);
    *  this caps the MAXIMUM. */
   blurTapCap?: number
+  /** Corner style: 0 = circular, 1 = continuous (squircle). */
+  cornerStyle?: number
 }
 
 export interface ElementInteraction {
@@ -138,6 +140,7 @@ export function LiquidGlassCanvas({
   className,
   dpr,
   blurTapCap,
+  cornerStyle,
 }: LiquidGlassCanvasProps) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
   const containerRef = React.useRef<HTMLDivElement>(null)
@@ -189,6 +192,7 @@ export function LiquidGlassCanvas({
     }
     // Apply blur tap cap (Settings slider) so 2-pass separable blur uses it.
     if (blurTapCap != null) renderer.blurTapCap = Math.max(1, Math.min(33, blurTapCap | 0))
+    if (cornerStyle != null) renderer.cornerStyle = cornerStyle
     resize()
     const ro = new ResizeObserver(resize)
     ro.observe(containerRef.current)
@@ -235,6 +239,14 @@ export function LiquidGlassCanvas({
     if (!renderer || blurTapCap == null) return
     renderer.blurTapCap = Math.max(1, Math.min(33, blurTapCap | 0))
   }, [blurTapCap])
+
+  // Apply corner style when it changes (Settings page toggle).
+  React.useEffect(() => {
+    const renderer = rendererRefInternal.current
+    if (!renderer || cornerStyle == null) return
+    renderer.cornerStyle = cornerStyle
+    renderer.requestRender()
+  }, [cornerStyle])
 
   // Push the latest element list to the renderer.
   React.useEffect(() => {

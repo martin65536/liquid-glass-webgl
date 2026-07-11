@@ -1791,3 +1791,74 @@ Kept `prevPinchRef` (shared between the 2 transform-pair pointers).
 - When the first pointer of a transform pair lifts, the remaining pointer switches to drag with `onDragStart` fired (matches the original single-set behavior). If both lift simultaneously, the second lift fires `onDragEnd` on the shared element — matches the original code's `onDragStart → onDragEnd` sequence on transform exit.
 - The `existingEntry` lookup for transform entry uses `g.mode !== 'transform'` so an already-paired pointer is skipped.
 - The transform entry check requires `interactions?.[hitId]?.onTransform` to be set. Elements with only `onDrag` (e.g. sliders, toggles) do NOT enter transform mode when a second pointer lands — each pointer just gets its own independent drag gesture on the same element (per the spec: "Otherwise, the new pointer starts its own independent gesture").
+
+
+## Task: continuous-curve-1 — Port Kotlin ContinuousCurvatureRoundedRectangleCornerBuilder to TypeScript (2025-01)
+
+**Agent**: general-purpose (continuous-curve-1)
+**Task ID**: continuous-curve-1
+
+**Source ported**:
+- `/home/z/my-project/Kyant-shapes/shapes/src/commonMain/kotlin/com/kyant/shapes/ContinuousCurvatureRoundedRectangleCornerBuilder.kt` — Kotlin implementation of G2-continuous ("continuous curvature") rounded-rectangle corner Bezier control points (used by the original Android app's `Capsule` and `RoundedRectangle` shapes from `io.github.kyant:shapes`).
+- `/home/z/my-project/Kyant-shapes/shapes/src/commonMain/kotlin/com/kyant/shapes/RoundedRectangleOutline.kt` — read for context on how the 20-element Bezier array is consumed by the corner path (3 `cubicTo` segments per corner; the array is 10 (x,y) pairs in the unit square, scaled by `r` and anchored at the corner).
+
+**File created** (no other files modified):
+- `src/components/liquid-glass/shapes/continuous-corners.ts` — new file (new `shapes/` subdirectory).
+
+### Exports
+
+1. **`getContinuousCornerBezierPoints(tW: number = 1.0, tH: number = 1.0): number[]`** — faithful port of `ContinuousCurvatureRoundedRectangleCornerBuilder.getCornerBezierPoints`. Returns the 20-element flat array of Bezier control-point parameters (10 `(x,y)` pairs in the unit square).
+   - Parameter naming follows the call-site convention in `RoundedRectangleOutline.kt` (which calls `getCornerBezierPoints(tW, tH)` passing its own `tW` / `tH` locals positionally to the Kotlin signature's `(tH, tV)`). Our `tW` is the builder's `tH`, our `tH` is the builder's `tV` — mathematically identical (two positional stretch values).
+   - For `(tW, tH) ∈ {0, 1}²` returns a cached array (do not mutate — matches Kotlin's `cache` field). Otherwise builds a fresh array each call.
+2. **`continuousCapsuleCornerPoints(width: number, height: number): number[]`** — Bezier points for a capsule of the given pixel dimensions:
+   - `r = Math.min(width, height) / 2`
+   - `tW = clamp((width * 0.5 - r) / r, 0, 1)`
+   - `tH = clamp((height * 0.5 - r) / r, 0, 1)`
+   - returns `getContinuousCornerBezierPoints(tW, tH)`
+   - Matches the per-corner call inside `RoundedRectangleOutline.kt`'s `continuousCurvatureRoundedRectanglePath(size, radius)` when the rectangle is the capsule degenerate (radius = maxRadius).
+3. **Constants** `SQRT_2 = 1.4142135623730951`, `FRAC_PI_4 = 0.7853981633974483`, `FRAC_1_SQRT_2 = 0.7071067811865476` — exported verbatim from the Kotlin `private const val`s.
+
+### Faithful ports (private to the module)
+
+- **`solveCubicSingle(a, b, c, d)`** — Cardano's formula for one real root of `a·x³ + b·x² + c·x + d = 0`. Uses `Math.cbrt` (real cube root, handles negatives — matches Kotlin's `cbrt`). Returns NaN if the depressed-cubic discriminant `h < 0` (matches Kotlin's `sqrt(negative) = NaN` propagating through `cbrt(NaN)`).
+- **`solveDepressedQuarticSingle(p, q, r)`** — Resolvent-cubic + double-quadratic formula for one real root of `x⁴ + p·x² + q·x + r = 0`. The Kotlin source shadows the `r` parameter with a local `val r = sqrt(...)`; the TS port renames the local to `r2` to avoid shadowing (cosmetic — same math).
+- **`buildEvenCornerBezierPoints(t)`** — symmetric corner (tH == tV). Solves one cubic for `kappa`, then a degenerate (single-quadratic) for the middle-segment lambda.
+- **`buildUnevenCornerBezierPoints(tH, tV)`** — asymmetric corner. Solves two cubics (`kappa3`, `kappa6`) for the two ends and a depressed quartic for the middle-segment lambdas.
+- **`buildCornerBezierPoints(tH, tV)`** — dispatches to even vs. uneven based on `tH === tV`.
+- **`cache`** — 2×2 `number[][]` for `(tH, tV) ∈ {0, 1}²`, initialized at module load with the same four entries as Kotlin's `cache` field.
+
+### Module-level precomputed constants (mirror Kotlin class init)
+
+- `extendedFraction = 2.0 / 3.0`, `arcFraction = 0.5` (Kotlin `Default` companion).
+- `theta = (1 - arcFraction) * FRAC_PI_4` = π/8 (for the default `arcFraction`).
+- `cosT`, `sinT`, `cot`, `cos2`, `sin2`, `cos3`, `sin3` — Kotlin shadows `cos`/`sin` (the imported `kotlin.math` functions) with class-member `val`s of the same name; the TS port renames these to `cosT`/`sinT` to avoid clashing with `Math.cos`/`Math.sin` used in the solvers (cosmetic — same values).
+- `k0`, `k1`, `k2`, `k3` — cubic coefficients of the kappa equation, precomputed once.
+
+### Notes on the algorithm
+
+- Output is 10 `(x, y)` pairs in the unit square, packed as a flat 20-element array. The corner curve is 3 cubic Bezier segments:
+  - Segment 1 (extension on the top/left edge): `p[0..1]` → `p[6..7]`, cps `p[2..3]`, `p[4..5]`. The first three points share `y=0` (horizontal tangent), giving G2 continuity with the straight edge (zero curvature at the transition).
+  - Segment 2 (the corner arc itself): `p[6..7]` → `p[12..13]`, cps `p[8..9]`, `p[10..11]`.
+  - Segment 3 (extension on the right/bottom edge): `p[12..13]` → `p[18..19]`, cps `p[14..15]`, `p[16..17]`. Last three points share `x=1` (vertical tangent).
+- `extendedFraction = 2/3` means the extension segments reach `2r/3` past the corner box on each side. The continuous-curvature construction also has a slight outward bulge of up to ~0.187r beyond the rectangle's nominal edges (visible in the negative `p[7]` and the >1 `p[12]` values for the `t=1` case) — this is a property of the original Kyant algorithm (faithfully preserved), not a bug.
+
+### Verification
+
+- `bun run lint` passes (no errors, no warnings).
+- A standalone sanity-check script (run, then deleted — not committed) confirmed:
+  - All cached (`tW, tH ∈ {0,1}²`) and non-cached (`(0.5, 0.5)`, `(0.3, 0.7)`) calls return 20 finite numbers.
+  - Cached calls return the same array reference on repeat invocations; non-cached calls return fresh arrays.
+  - Endpoint sanity for `t=1` even case: `p[0] = -2/3` (=-`extendedFraction`), `p[1] = 0`, `p[14] = 1`, `p[19] = 5/3` (= 1 - `p[0]`).
+  - `continuousCapsuleCornerPoints(200, 200)` → returns the `(tW=0, tH=0)` cache entry; `(400, 200)` → `(tW=1, tH=0)`; `(200, 400)` → `(tW=0, tH=1)`; `(300, 200)` → fresh build with `p[0] = -1/3` (=-`extendedFraction * 0.5`).
+- Numerical reference values (rounded to 6 dp) for `getContinuousCornerBezierPoints(1, 1)`:
+  ```
+  -0.666667, 0.000000, 0.018219, 0.000000, 0.440136, 0.000000,
+  -0.010749, -0.186763, 0.531220, 0.037728, 0.962272, 0.468780,
+   1.186763,  1.010749, 1.000000, 0.559864, 1.000000, 0.981781,
+   1.000000,  1.666667
+  ```
+
+### Next actions
+
+- This file is a pure compute module — no rendering or integration yet. A follow-up task can use `getContinuousCornerBezierPoints` / `continuousCapsuleCornerPoints` to (a) generate a corner Bezier path in `Path2D` form for canvas-2D overlays, or (b) bake a signed-distance-field texture for the GPU glass shader's rounded-rectangle/capsule mask (replacing the current circular-arc SDF in `shaders/sdf.ts` with the smoother G2-continuous profile).
+- The 4 cached arrays are shared references — callers must not mutate. If a future caller needs to mutate, it should `.slice()` first.

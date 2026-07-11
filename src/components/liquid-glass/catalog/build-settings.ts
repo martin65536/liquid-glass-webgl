@@ -185,6 +185,40 @@ export function buildSettings(
   )
   nextY += 16 + 16
 
+  // --- Continuous corners toggle ---
+  elements.push(
+    makeText(
+      'settings-corner-title',
+      { x: pad, y: nextY, w: W - 2 * pad, h: 20 },
+      'Corners',
+      { color: labelColor, fontSizePx: 16, fontWeight: 600, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
+    )
+  )
+  nextY += 20 + 8
+
+  const cornerLabel = state.continuousCorners ? 'Continuous: ON' : 'Continuous: OFF'
+  const cornerBtnColor = state.continuousCorners
+    ? ([0x00 / 255, 0x88 / 255, 0xff / 255, 1] as [number, number, number, number])
+    : ([0.5, 0.5, 0.5, 1] as [number, number, number, number])
+  const cornerTextW = measureTextWidth(cornerLabel, TEXT_FONT_SIZE_PX)
+  const cornerBtnW = Math.ceil(cornerTextW + 2 * BUTTON_HORIZONTAL_PADDING)
+  const cornerBtn = makeButton(
+    'settings-corners',
+    { x: pad, y: nextY, w: cornerBtnW, h: BUTTON_HEIGHT },
+    {
+      label: cornerLabel,
+      tintColor: cornerBtnColor,
+      surfaceColor: [0, 0, 0, 0],
+      labelColor: [1, 1, 1, 1],
+    },
+    true
+  )
+  elements.push(cornerBtn)
+  interactions['settings-corners'] = {
+    onTap: () => setState((prev) => ({ continuousCorners: !prev.continuousCorners })),
+  }
+  nextY += BUTTON_HEIGHT + 16
+
   // Reset button (orange, below blur settings)
   const ORANGE = [0xff / 255, 0x8d / 255, 0x28 / 255, 1] as [number, number, number, number]
   const resetLabel = 'Reset'
@@ -204,7 +238,7 @@ export function buildSettings(
   elements.push(resetBtn)
   interactions['settings-reset'] = {
     onTap: () => {
-      setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 17, blurDownsample: 1, liveDpr: null, liveTapCap: null })
+      setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 17, blurDownsample: 1, continuousCorners: true, liveDpr: null, liveTapCap: null })
       // Directly animate both slider knobs to their reset positions so they
       // visually spring back (the toggleTargets effect should do this, but a
       // direct call guarantees it even if React bails out of the state update

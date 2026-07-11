@@ -132,6 +132,9 @@ export class LiquidGlassRenderer {
   /** Blur downsample factor (1=full-res, 2=half-res, 4=quarter). Higher = much
    *  faster but slightly lower quality. Set from CatalogState.blurDownsample. */
   blurDownsample = 1
+  /** Corner style: 0 = circular, 1 = continuous (squircle). Set from
+   *  CatalogState.capsuleShape. Default 1 (Continuous, matching original). */
+  cornerStyle = 1
 
   // SDF texture (clock_sdf) for LockScreen glass
   sdfTexture: WebGLTexture | null = null
@@ -259,7 +262,7 @@ export class LiquidGlassRenderer {
       'uTabContentRects[4]', 'uTabContentRects[5]', 'uTabContentRects[6]', 'uTabContentRects[7]',
       'uTabContentCount', 'uTabsGlassLayer',
       'uSdfTexSampler', 'uUseSdfTexture', 'uSdfTexSize', 'uSdfLightAngle', 'uEnterAlpha',
-      'uSkipColorControls',
+      'uCornerStyle', 'uSkipColorControls',
       'uUseMagnifier', 'uMagnifierZoom', 'uMagnifierOffsetY',
       'uElementRotation',
     ]
