@@ -1577,3 +1577,25 @@ Stage Summary:
 - Dim overlay renders ON TOP of tiles (faithful to drawWithContent)
 - Analytical spring solution (exact, no integration error)
 - Expand spring bounces (underdamped ζ=0.5), collapse is critical (ζ=1.0)
+
+---
+Task ID: remote-setup-1
+Agent: main (Z.ai Code)
+Task: Set up the "liquidglass" remote pointing to martin65536/liquid-glass-webgl; never force push. Project is now treated as the liquid-glass project itself with AndroidLiquidGlass/ as the original Kotlin reference.
+
+Work Log:
+- Added remote "liquidglass" → https://github.com/martin65536/liquid-glass-webgl.git
+- Discovered local main and remote main had NO common ancestor (independent repos): local had 9 commits (Z.ai scaffold history), remote had 318 commits (full liquid-glass dev history). Both trees contained identical 6e046d4 code.
+- To enable fast-forward (no-force) push, backed up local main as branch backup-local, then reset main hard to liquidglass/main (6e046d4). This adopts the upstream history as the canonical history.
+- worklog.md and AndroidLiquidGlass/ survived the reset (worklog is tracked on upstream; AndroidLiquidGlass is gitignored).
+- Set upstream: main → liquidglass/main.
+- Updated remote URL with token for push auth.
+- First push verified: "Everything up-to-date" (local == remote 6e046d4).
+- Deleted backup-local branch.
+- lint clean.
+
+Stage Summary:
+- Remote "liquidglass" configured; main tracks liquidglass/main.
+- Histories aligned → all future pushes are fast-forward, NO force push needed (per user requirement).
+- Dev workflow going forward: edit → bun run lint → git commit → git push liquidglass main. No agent-browser testing (visual project).
+- AndroidLiquidGlass/ kept as original Kotlin reference (gitignored).
