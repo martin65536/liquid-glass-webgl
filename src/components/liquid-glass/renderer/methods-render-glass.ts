@@ -357,23 +357,24 @@ export const glassRenderMethods = {
     // For normal elements: render the element pass directly to otherFbo
     // (sampling curTex) with inline 16-tap Vogel disc blur.
     if (el.useSeparableBlur && el.blurRadius >= 0.5) {
-      // 2-pass blur the backdrop (curTex) → blurred texture.
-      // NOTE: cannot cache across elements because curTex changes every
-      // element (FBO ping-pong: each glass element composites onto the
-      // scene, swapping curTex). Each element must blur its own curTex.
       const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr
-      const blurredBackdrop = this.blurTexture(curTex, blurRadiusPx)
+      // For backdropFbo elements (dialog card), blur the dialogBackdropTex
+      // (wallpaper+scrim+colorControls opaque layer) instead of the scene FBO.
+      // colorControls was already applied BEFORE blur (in renderDialogBackdrop),
+      // matching the original's colorControls→blur→lens order.
+      const backdropSrc = (el.backdropFbo && this.dialogBackdropTex) ? this.dialogBackdropTex : curTex
+      const blurredBackdrop = this.blurTexture(backdropSrc, blurRadiusPx)
       // blurTexture disables BLEND — re-enable it so renderGlassElementPass
-      // composites the glass onto otherFbo with alpha blending (otherwise
-      // the glass's transparent pixels overwrite the scene → black).
+      // composites the glass onto otherFbo with alpha blending.
       this.gl.enable(this.gl.BLEND)
       this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA)
-      // Render element pass to otherFbo, sampling the blurred backdrop.
-      // inlineBlurRadius is already 0 (useSeparableBlur + blurRadius>=0.5
-      // in renderGlassElementPass), so no double blur.
       this.bindFBO(otherFbo)
       this.gl.viewport(0, 0, this.fboW, this.fboH)
-      this.renderGlassElementPass(state, blurredBackdrop)
+      // Pass the pre-blurred texture as curTex. For backdropFbo elements,
+      // temporarily disable backdropFbo so the element pass binds curTex
+      // (the blurred backdrop) instead of the raw dialogBackdropTex.
+      const passState = el.backdropFbo ? { ...state, el: { ...el, backdropFbo: false } } : state
+      this.renderGlassElementPass(passState, blurredBackdrop)
     } else {
       this.renderGlassElementPass(state, curTex)
     }

@@ -28,13 +28,12 @@ export const glassElementPassMethods = {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
     gl.activeTexture(gl.TEXTURE0)
-    // uBackdrop = the current scene FBO (curTex). The shader's sampleBackdrop
-    // samples this for normal glass. For el.sampleWallpaper elements (Dialog
-    // card, ControlCenter tiles), the shader instead samples uWallpaperSampler
-    // (TEXTURE1, bound below) via coverUv, bypassing the scene FBO to get an
-    // opaque backdrop. uBackdrop is still bound here for non-sampleWallpaper
-    // elements and for the post-passes (shadow/foreground) which always use
-    // the scene.
+    // uBackdrop: the backdrop texture the glass samples (refraction + blur).
+    // - backdropFbo elements (dialog card): bind dialogBackdropTex
+    //   (wallpaper+scrim+colorControls as one opaque layer, alpha=1). For
+    //   useSeparableBlur, curTex is the pre-blurred dialogBackdropTex passed
+    //   in from renderGlassElement.
+    // - normal elements: bind curTex (the scene FBO built up so far).
     gl.bindTexture(gl.TEXTURE_2D, curTex)
     gl.uniform1i(this.uEl['uBackdrop'], 0)
 
@@ -442,18 +441,11 @@ export const glassElementPassMethods = {
       gl.uniform1f(this.uEl['uUseMagnifier'], 0.0)
     }
 
-    // sampleWallpaper: sample the CLEAN wallpaper (coverUv + uWallpaperSampler)
-    // instead of the scene FBO. Used by glass over a scrim/dim (Dialog card,
-    // ControlCenter tiles) so the backdrop is opaque (wallpaper alpha=1),
-    // bypassing the scene FBO's alpha decay. The shader's sampleBackdrop
-    // checks uSampleWallpaper to switch between sceneUv+uBackdrop and
-    // coverUv+uWallpaperSampler.
-    gl.uniform1f(this.uEl['uSampleWallpaper'], el.sampleWallpaper ? 1.0 : 0.0)
-    // Scrim color applied to the wallpaper backdrop (only when sampleWallpaper).
-    // Faithful to the original where the scrim is painted onto the wallpaper
-    // Image before the backdrop effects run.
-    const sc = el.scrimColor ?? [0, 0, 0, 0]
-    gl.uniform4f(this.uEl['uScrimColor'], sc[0], sc[1], sc[2], sc[3])
+    // uSkipColorControls: when useSeparableBlur is active on a backdropFbo
+    // element, colorControls was already applied as a fullscreen pass BEFORE
+    // the 2-pass blur (in renderDialogBackdrop + renderGlassElement's blur
+    // branch), matching the original's colorControls→blur order. Skip it here.
+    gl.uniform1f(this.uEl['uSkipColorControls'], (el.backdropFbo && el.useSeparableBlur && el.blurRadius >= 0.5) ? 1.0 : 0.0)
 
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 

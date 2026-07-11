@@ -64,18 +64,14 @@ export function buildDialog(W: number, H: number, onBack: () => void, palette: T
       depthEffect: true,
     }
   )
-  // Sample the CLEAN wallpaper (sampleWallpaper) and apply the scrim in-shader
-  // (scrimColor), replicating the original DialogContent.kt where the scrim is
-  // painted onto the wallpaper Image (via BackdropDemoScaffold's drawWithContent
-  // modifier), so the LayerBackdrop captures wallpaper+scrim as ONE OPAQUE
-  // layer, then drawBackdrop's effects (colorControls/blur/lens) run on that.
-  //
-  // This bypasses the scene FBO's alpha decay (caused by the scrim's
-  // translucent SrcOver via glBlendFunc's alpha-squaring), so the dialog card's
-  // backdrop is opaque (alpha=1) — matching the original. The scrim plain-rect
-  // above still darkens the card's surroundings (outside the card shape).
-  dialogCard.sampleWallpaper = true
+  // Use a dedicated backdrop FBO (backdropFbo) holding wallpaper+scrim+
+  // colorControls as one opaque layer, then 2-pass blur it (useSeparableBlur),
+  // then lens refraction. This matches the original's effects order
+  // (colorControls→blur→lens) and bypasses the scene FBO's alpha decay.
+  // The scrim plain-rect above still darkens the card's surroundings.
+  dialogCard.backdropFbo = true
   dialogCard.scrimColor = palette.dialogDim
+  dialogCard.useSeparableBlur = true
   elements.push(dialogCard)
   // Title — contentColor flips with theme.
   // Faithful to DialogContent.kt: TextStyle(contentColor, 24f.sp, FontWeight.Medium).

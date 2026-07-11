@@ -72,6 +72,41 @@ void main() {
 `
 
 /* ------------------------------------------------------------------ *
+ * COLOR_CONTROLS_FRAGMENT_SHADER — fullscreen colorControls (brightness/
+ * contrast/saturation) pass. Used to apply colorControls to a backdrop FBO
+ * BEFORE the 2-pass blur, matching the original's colorControls→blur→lens
+ * order. Same matrix as applyColorControls in element-utils.ts.
+ * ------------------------------------------------------------------ */
+export const COLOR_CONTROLS_FRAGMENT_SHADER = /* glsl */ `
+precision highp float;
+
+uniform sampler2D uTexture;
+uniform vec2 uTexSize;
+uniform float uBrightness;
+uniform float uContrast;
+uniform float uSaturation;
+
+void main() {
+    vec2 uv = vec2(gl_FragCoord.x / uTexSize.x, gl_FragCoord.y / uTexSize.y);
+    vec4 c = texture2D(uTexture, uv);
+    float invSat = 1.0 - uSaturation;
+    float r = 0.213 * invSat;
+    float g = 0.715 * invSat;
+    float b = 0.072 * invSat;
+    float t = (0.5 - uContrast * 0.5 + uBrightness);
+    float cs = uContrast * uSaturation;
+    float cr = uContrast * r;
+    float cg = uContrast * g;
+    float cb = uContrast * b;
+    vec3 outc;
+    outc.r = (cr + cs) * c.r + cg * c.g + cb * c.b + t;
+    outc.g = cr * c.r + (cg + cs) * c.g + cb * c.b + t;
+    outc.b = cr * c.r + cg * c.g + (cb + cs) * c.b + t;
+    gl_FragColor = vec4(outc, c.a);
+}
+`
+
+/* ------------------------------------------------------------------ *
  * TINT_FRAGMENT_SHADER — fullscreen texture copy with ColorFilter.tint.
  * Used by the bottom-tabs 指示器's 内层背景板 (tabsBackdrop) FBO pass: the current
  * scene (容器 glass + 标签内容) is copied into the tabsBackdrop FBO

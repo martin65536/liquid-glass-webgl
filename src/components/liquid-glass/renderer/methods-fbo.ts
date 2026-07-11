@@ -7,6 +7,9 @@ declare module './index' {
     bindFBO(fb: WebGLFramebuffer | null): void
     drawCopy(srcTex: WebGLTexture): void
     drawSolidFill(r: number, g: number, b: number, a: number): void
+    /** Fullscreen colorControls pass: copy srcTex to the bound FBO applying
+     *  brightness/contrast/saturation. Caller must bind the destination FBO. */
+    drawColorControls(srcTex: WebGLTexture, brightness: number, contrast: number, saturation: number): void
   }
 }
 
@@ -71,6 +74,13 @@ export const fboMethods = {
     this.blurFboATex = ba.tex
     this.blurFboB = bb.fb
     this.blurFboBTex = bb.tex
+    // Dialog backdrop FBO (wallpaper+scrim+cc opaque layer for 2-pass blur).
+    if (this.dialogBackdropFbo) gl.deleteFramebuffer(this.dialogBackdropFbo)
+    if (this.dialogBackdropTex) gl.deleteTexture(this.dialogBackdropTex)
+    const db = this.createFBO(w, h)
+    this.dialogBackdropFbo = db.fb
+    this.dialogBackdropTex = db.tex
+    this.dialogBackdropKey = null
     this.fboW = w
     this.fboH = h
   },
@@ -116,6 +126,31 @@ export const fboMethods = {
     gl.enableVertexAttribArray(this.aPosLocSf)
     gl.vertexAttribPointer(this.aPosLocSf, 2, gl.FLOAT, false, 0, 0)
     gl.uniform4f(this.uSf['uColor'], r, g, b, a)
+    gl.disable(gl.BLEND)
+    gl.drawArrays(gl.TRIANGLES, 0, 6)
+  },
+
+  /** Fullscreen colorControls pass — copies srcTex to the bound FBO applying
+   *  brightness/contrast/saturation. Caller must bind the destination FBO. */
+  drawColorControls(
+    this: LiquidGlassRenderer,
+    srcTex: WebGLTexture,
+    brightness: number,
+    contrast: number,
+    saturation: number
+  ) {
+    const gl = this.gl
+    gl.useProgram(this.colorControlsProgram)
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+    gl.enableVertexAttribArray(this.aPosLocCc)
+    gl.vertexAttribPointer(this.aPosLocCc, 2, gl.FLOAT, false, 0, 0)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, srcTex)
+    gl.uniform1i(this.uCc['uTexture'], 0)
+    gl.uniform2f(this.uCc['uTexSize'], this.fboW, this.fboH)
+    gl.uniform1f(this.uCc['uBrightness'], brightness)
+    gl.uniform1f(this.uCc['uContrast'], contrast)
+    gl.uniform1f(this.uCc['uSaturation'], saturation)
     gl.disable(gl.BLEND)
     gl.drawArrays(gl.TRIANGLES, 0, 6)
   },

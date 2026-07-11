@@ -13,6 +13,7 @@ import {
   WALLPAPER_FRAGMENT_SHADER,
   COPY_FRAGMENT_SHADER,
   SOLID_FILL_FRAGMENT_SHADER,
+  COLOR_CONTROLS_FRAGMENT_SHADER,
   SCENE_TINT_FRAGMENT_SHADER,
   generateSeparableBlurShader,
   computeBlur1DTapCount,
@@ -58,6 +59,7 @@ export class LiquidGlassRenderer {
   progressiveBlurProgram: WebGLProgram
   copyProgram: WebGLProgram
   solidFillProgram: WebGLProgram
+  colorControlsProgram: WebGLProgram
   sceneTintProgram: WebGLProgram
   quadBuffer: WebGLBuffer
   wallpaperTexture: WebGLTexture | null = null
@@ -114,6 +116,14 @@ export class LiquidGlassRenderer {
   blurFboATex: WebGLTexture | null = null
   blurFboB: WebGLFramebuffer | null = null
   blurFboBTex: WebGLTexture | null = null
+  // --- Dialog backdrop FBO ---
+  // Holds wallpaper+scrim+colorControls as one opaque layer for the dialog
+  // card's 2-pass blur path. Rendered by renderDialogBackdrop; the dialog card
+  // (backdropFbo=true + useSeparableBlur) samples this via 2-pass blur.
+  dialogBackdropFbo: WebGLFramebuffer | null = null
+  dialogBackdropTex: WebGLTexture | null = null
+  /** Cache key for dialogBackdropFbo (scrim+cc params) — skip re-render if unchanged. */
+  dialogBackdropKey: string | null = null
   /** Blur shader variants keyed by 1D tap count (H + V programs each). */
   blurPrograms = new Map<number, { hProg: WebGLProgram; vProg: WebGLProgram; uH: Record<string, WebGLUniformLocation | null>; uV: Record<string, WebGLUniformLocation | null>; aPosH: number; aPosV: number }>()
   /** Max 1D taps per blur pass (1..33). Lower = faster, Higher = better quality.
@@ -148,6 +158,7 @@ export class LiquidGlassRenderer {
   aPosLocPb: number
   aPosLocCp: number
   aPosLocSf: number
+  aPosLocCc: number
   aPosLocSt: number
 
   // Program uniform locations (cached)
@@ -162,6 +173,7 @@ export class LiquidGlassRenderer {
   uPb: Record<string, WebGLUniformLocation | null> = {}
   uCp: Record<string, WebGLUniformLocation | null> = {}
   uSf: Record<string, WebGLUniformLocation | null> = {}
+  uCc: Record<string, WebGLUniformLocation | null> = {}
   uSt: Record<string, WebGLUniformLocation | null> = {}
 
   /** The pressed scale for bottom tabs indicator (78f/56f in Kotlin). */
@@ -189,6 +201,7 @@ export class LiquidGlassRenderer {
     this.progressiveBlurProgram = createProgram(gl, VERTEX_SHADER, PROGRESSIVE_BLUR_FRAGMENT_SHADER)
     this.copyProgram = createProgram(gl, VERTEX_SHADER, COPY_FRAGMENT_SHADER)
     this.solidFillProgram = createProgram(gl, VERTEX_SHADER, SOLID_FILL_FRAGMENT_SHADER)
+    this.colorControlsProgram = createProgram(gl, VERTEX_SHADER, COLOR_CONTROLS_FRAGMENT_SHADER)
     this.sceneTintProgram = createProgram(gl, VERTEX_SHADER, SCENE_TINT_FRAGMENT_SHADER)
 
     // Fullscreen quad
@@ -211,6 +224,7 @@ export class LiquidGlassRenderer {
     this.aPosLocPb = gl.getAttribLocation(this.progressiveBlurProgram, 'aPos')
     this.aPosLocCp = gl.getAttribLocation(this.copyProgram, 'aPos')
     this.aPosLocSf = gl.getAttribLocation(this.solidFillProgram, 'aPos')
+    this.aPosLocCc = gl.getAttribLocation(this.colorControlsProgram, 'aPos')
     this.aPosLocSt = gl.getAttribLocation(this.sceneTintProgram, 'aPos')
 
     // Offscreen 2D canvas for the foreground texture.
@@ -245,8 +259,8 @@ export class LiquidGlassRenderer {
       'uTabContentRects[4]', 'uTabContentRects[5]', 'uTabContentRects[6]', 'uTabContentRects[7]',
       'uTabContentCount', 'uTabsGlassLayer',
       'uSdfTexSampler', 'uUseSdfTexture', 'uSdfTexSize', 'uSdfLightAngle', 'uEnterAlpha',
+      'uSkipColorControls',
       'uUseMagnifier', 'uMagnifierZoom', 'uMagnifierOffsetY',
-      'uSampleWallpaper', 'uScrimColor',
       'uElementRotation',
     ]
     for (const n of elNames) this.uEl[n] = gl.getUniformLocation(this.elementProgram, n)
@@ -286,6 +300,8 @@ export class LiquidGlassRenderer {
     for (const n of cpNames) this.uCp[n] = gl.getUniformLocation(this.copyProgram, n)
     const sfNames = ['uColor']
     for (const n of sfNames) this.uSf[n] = gl.getUniformLocation(this.solidFillProgram, n)
+    const ccNames = ['uTexture', 'uTexSize', 'uBrightness', 'uContrast', 'uSaturation']
+    for (const n of ccNames) this.uCc[n] = gl.getUniformLocation(this.colorControlsProgram, n)
     const stNames = ['uTexture', 'uCanvasSize', 'uTintColor']
     for (const n of stNames) this.uSt[n] = gl.getUniformLocation(this.sceneTintProgram, n)
   }
@@ -405,6 +421,11 @@ export class LiquidGlassRenderer {
     if (this.blurFboBTex) gl.deleteTexture(this.blurFboBTex)
     this.gpElementFbo = this.blurFboA = this.blurFboB = null
     this.gpElementTex = this.blurFboATex = this.blurFboBTex = null
+    if (this.dialogBackdropFbo) gl.deleteFramebuffer(this.dialogBackdropFbo)
+    if (this.dialogBackdropTex) gl.deleteTexture(this.dialogBackdropTex)
+    this.dialogBackdropFbo = null
+    this.dialogBackdropTex = null
+    this.dialogBackdropKey = null
     for (const { hProg, vProg } of this.blurPrograms.values()) {
       gl.deleteProgram(hProg)
       gl.deleteProgram(vProg)
@@ -423,6 +444,7 @@ export class LiquidGlassRenderer {
     gl.deleteProgram(this.progressiveBlurProgram)
     gl.deleteProgram(this.copyProgram)
     gl.deleteProgram(this.solidFillProgram)
+    gl.deleteProgram(this.colorControlsProgram)
     gl.deleteProgram(this.sceneTintProgram)
     gl.deleteBuffer(this.quadBuffer)
   }
