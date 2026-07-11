@@ -106,8 +106,12 @@ export function buildDialog(
       depthEffect: true,
     }
   )
-  card.backdropFbo = true
-  card.scrimColor = palette.dialogDim
+  // 2-pass separable blur (high-quality 16dp blur). Now that plain-rect's
+  // glBlendFuncSeparate keeps the scene FBO alpha at 1.0, the card can sample
+  // the scene FBO directly (wallpaper+scrim, alpha=1) — no backdropFbo needed.
+  // colorControls is applied inline in the element pass (uSkipColorControls=0
+  // since no backdropFbo). blur→cc is mathematically equivalent to cc→blur
+  // for inline blur (no intermediate clamp).
   card.useSeparableBlur = true
   elements.push(card)
 

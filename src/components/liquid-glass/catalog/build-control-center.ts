@@ -294,16 +294,11 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
       el.enterProgress = state.controlCenterEnter
       el.enterSafeProgress = state.controlCenterSafeEnter
       el.enterStretchFactor = ccStretchFactor[id]
-      // Use a dedicated backdrop FBO (backdropFbo) holding wallpaper+dim+
-      // colorControls as one opaque layer, then 2-pass blur (useSeparableBlur),
-      // then lens refraction. Faithful to the original where the dim is painted
-      // onto the wallpaper Image (LayerBackdrop captures wallpaper+dim), then
-      // effects run on that. This bypasses the scene FBO's alpha decay.
-      // dimColor = Color.Black.copy(0.4f); dim alpha = 0.4 * safeProgress.
-      el.backdropFbo = true
+      // 2-pass separable blur (high-quality 8dp blur). Now that plain-rect's
+      // glBlendFuncSeparate keeps the scene FBO alpha at 1.0, the tiles can
+      // sample the scene FBO directly (wallpaper+dim, alpha=1) — no backdropFbo
+      // needed. colorControls applied inline in the element pass.
       el.useSeparableBlur = true
-      const sp = Math.max(0, Math.min(1, state.controlCenterSafeEnter))
-      el.scrimColor = [0, 0, 0, 0.4 * sp]
     }
     interactions[id] = {
       onDragStart: ccOnDragStart,
