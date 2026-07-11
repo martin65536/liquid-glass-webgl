@@ -1688,3 +1688,42 @@ Verification: bun run lint clean; dev server compiles, GET / 200.
 
 Stage Summary:
 - Dialog glass (and ALL glass-shape elements: buttons, toggle knobs, slider knobs, tabs, CC tiles, magnifier) now renders OPAQUE like the original, with only the surfaceColor tint providing translucency. Previously they could render translucent when the blur kernel sampled transparent FBO regions.
+
+---
+Task ID: glass-alpha-fix-B
+Agent: main (Z.ai Code)
+Task: Fix the glass backdrop alpha bug (dialog/CC glass too translucent) via Plan B — ensure sampled backdrop is always opaque.
+
+Root cause found via readPixels diagnostic:
+- fboA after renderBackground: alpha=255 (opaque). ✓
+- After scrim (plain-rect, alpha 0.23) drawn to fboA: alpha=210 (0.824). ✗ — should be 255.
+- Math: standard SrcOver with dst.a=1, src.a=0.23 → out.a should = 0.23 + 1*(1-0.23) = 1.0. But got 0.824.
+- 0.824 = src.a² + dst.a*(1-src.a) = 0.23² + 1*0.77 = 0.0529 + 0.77 = 0.823. ✓
+
+THE BUG: glBlendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA) uses the SAME blend factors for BOTH rgb and alpha channels. For the alpha channel:
+  out.a = src.a * (SRC_ALPHA factor = src.a) + dst.a * (ONE_MINUS_SRC_ALPHA factor = 1-src.a)
+        = src.a² + dst.a*(1-src.a)
+This squares src.a on the alpha channel, causing dst.a to decay below 1 whenever a translucent element (scrim, glass) composites onto an opaque FBO. The rgb channel is correct (out.rgb = src.rgb*src.a + dst.rgb*(1-src.a)), but alpha is wrong.
+
+This is why glass elements sampling fboA got backdrop.a < 1 in the dialog/CC pages (which have scrims) but not on buttons/tabs pages (no scrim) — the scrim's translucent SrcOver was corrupting fboA's alpha.
+
+FIX: replaced all 17 occurrences of
+  glBlendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA)
+with
+  glBlendFuncSeparate(SRC_ALPHA, ONE_MINUS_SRC_ALPHA, ONE, ONE_MINUS_SRC_ALPHA)
+The separate alpha factors (ONE, ONE_MINUS_SRC_ALPHA) give the correct SrcOver alpha:
+  out.a = src.a*1 + dst.a*(1-src.a) = src.a + dst.a*(1-src.a)
+so dst.a=1 stays 1.0 after any translucent composite.
+
+Left unchanged: blendFunc(ONE, ONE_MINUS_SRC_ALPHA) [premultiplied SrcOver — already correct], blendFunc(ONE, ONE) [Plus additive — separate concern], blendFunc(SRC_ALPHA, ONE) [additive-with-alpha — separate concern].
+
+element.ts alpha kept as (uUseMagnifier > 0.5) ? 1.0 : backdrop.a — now backdrop.a is correctly 1.0 in scrim pages, so glass renders opaque-like (only surfaceColor provides translucency), matching the original.
+
+Verification (agent-browser + VLM on all 5 glass pages):
+- Dialog: glass card semi-transparent, smooth edges, no diagnostic colors, correct transparency. ✓
+- Buttons / Control Center / Bottom Tabs / Glass Playground: no diagnostic colors, rendering OK, not broken. ✓
+
+Stage Summary:
+- The long-standing glass translucency bug is FIXED at the root: glBlendFuncSeparate ensures the FBO alpha channel composites correctly (no src.a² squaring), so the scene FBO stays opaque wherever wallpaper+content is opaque.
+- Glass elements now sample an opaque backdrop → alpha=1 → matches the original's opaque offscreen backdrop layer. Only surfaceColor (drawRect containerColor) provides translucency, exactly like the original.
+- No more "炸了" — all pages render correctly.

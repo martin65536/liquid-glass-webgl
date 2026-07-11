@@ -105,7 +105,7 @@ export const glassPostPassMethods = {
       }
       gl.uniform2f(this.uHl['uPosition'], px, py)
       gl.drawArrays(gl.TRIANGLES, 0, 6)
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+      gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
     }
 
     // --- Step 2d: Toggle knob white overlay (faithful to LiquidToggle.kt
@@ -116,7 +116,7 @@ export const glassPostPassMethods = {
       gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
       gl.enableVertexAttribArray(this.aPosLocTn)
       gl.vertexAttribPointer(this.aPosLocTn, 2, gl.FLOAT, false, 0, 0)
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+      gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
       gl.uniform2f(this.uTn['uCanvasSize'], this.canvas.width, this.canvas.height)
       gl.uniform2f(this.uTn['uOffset'], sx * this.dpr, sy * this.dpr)
       gl.uniform2f(this.uTn['uSize'], sw * this.dpr, sh * this.dpr)
@@ -152,7 +152,7 @@ export const glassPostPassMethods = {
       gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
       gl.enableVertexAttribArray(this.aPosLocTn)
       gl.vertexAttribPointer(this.aPosLocTn, 2, gl.FLOAT, false, 0, 0)
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+      gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
       gl.uniform2f(this.uTn['uCanvasSize'], this.canvas.width, this.canvas.height)
       gl.uniform2f(this.uTn['uOffset'], sx * this.dpr, sy * this.dpr)
       gl.uniform2f(this.uTn['uSize'], sw * this.dpr, sh * this.dpr)
@@ -167,7 +167,7 @@ export const glassPostPassMethods = {
       // Second overlay: black at 0.03 * progress — fades in on press.
       gl.uniform4f(this.uTn['uColor'], 0, 0, 0, 0.03 * p)
       gl.drawArrays(gl.TRIANGLES, 0, 6)
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+      gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
     }
 
     // --- Step 2e: Foreground (label or icon) pass (button only) ---
@@ -198,7 +198,7 @@ export const glassPostPassMethods = {
       gl.uniform2f(this.uFg['uLayerScale'], layerScaleX, layerScaleY)
         gl.uniform1f(this.uFg['uAlpha'], 1.0 - 0.15 * p)
         gl.drawArrays(gl.TRIANGLES, 0, 6)
-        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+        gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
       }
     }
 
@@ -217,7 +217,7 @@ export const glassPostPassMethods = {
 
       if (el.highlight.mode === 1) {
         // Ambient — SrcOver blend (matches HighlightModifier.kt)
-        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+        gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
       } else {
         // Default / Plain — Plus blend (matches HighlightModifier.kt)
         gl.blendFunc(gl.ONE, gl.ONE)
@@ -261,7 +261,7 @@ export const glassPostPassMethods = {
         gl.drawArrays(gl.TRIANGLES, 0, 6)
       }
 
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+      gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
     }
 
     // --- Step 2g: 内层背景板 rim highlight (指示器 only) ---
