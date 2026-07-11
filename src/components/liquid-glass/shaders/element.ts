@@ -138,8 +138,6 @@ void main() {
     float sd = sdShape(centeredOrigRot, origHalfSize, origRadius);
 
     // Outside the shape — fully transparent (clip).
-    // sd is in original px; 0.5px threshold in original space = 0.5*layerScale
-    // screen px (matches original which clips at original resolution then scales).
     if (sd > 0.5) {
         discard;
     }
@@ -349,10 +347,11 @@ void main() {
     }
 
     // --- 7. Edge anti-aliasing -----------------------------------
-    // sd is in ORIGINAL px. smoothstep(-0.5, 0.5, sd) gives 0.5 original-px AA,
-    // which becomes 0.5*layerScale screen px after graphicsLayer scaling —
-    // matching the original which renders AA at original resolution then scales.
-    float edgeAlpha = 1.0 - smoothstep(-0.5, 0.5, sd);
+    // For analytic SDF (sdRoundedRect): 0.5px AA band (precise).
+    // For texture SDF (sdContinuousCurvature): widen to 1.5px to compensate
+    // for texture interpolation imprecision at the edge (sd≈0).
+    float aaWidth = (uUseContinuousSdf > 0.5) ? 1.5 : 0.5;
+    float edgeAlpha = 1.0 - smoothstep(-aaWidth, aaWidth, sd);
 
     gl_FragColor = vec4(color, alpha * edgeAlpha * uEnterAlpha);
 }
