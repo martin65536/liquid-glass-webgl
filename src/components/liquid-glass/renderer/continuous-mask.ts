@@ -51,11 +51,13 @@ export function generateContinuousCurvatureMask(
   const scale = drawW / w
   const drawRadius = radius * scale
 
-  // Draw the continuous-curvature path — browser does native AA on edges.
-  const path = continuousCurvatureRoundedRectPath(ctx, drawW, drawH, drawRadius)
+  // Draw using ctx.roundRect (circular arc) — matches sdRoundedRect exactly,
+  // so clip shape and highlight stroke shape are identical (no mismatch).
   ctx.fillStyle = 'white'
   ctx.translate(offsetX, offsetY)
-  ctx.fill(path)
+  ctx.beginPath()
+  ctx.roundRect(0, 0, drawW, drawH, drawRadius)
+  ctx.fill()
   ctx.translate(-offsetX, -offsetY)
 
   // Read pixels and pack coverage into R channel (A = 255 for opaque tex).
