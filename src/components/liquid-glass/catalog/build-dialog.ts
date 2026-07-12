@@ -115,15 +115,7 @@ export function buildDialog(
   // since no backdropFbo). blur→cc is mathematically equivalent to cc→blur
   // for inline blur (no intermediate clamp).
   card.useSeparableBlur = true
-  // Capsule shape: when state.capsuleShape is true, the card samples a
-  // precomputed continuous-curvature SDF texture (generated from the
-  // G2-continuous Bezier path) for its shape — pixel-perfect squircle
-  // corners, vs the analytic sdRoundedRect which uses a circular arc.
-  // The renderer's loadContinuousSdf() is called from the render loop
-  // before rendering this element (see methods-render.ts).
-  if (state.capsuleShape) {
-    card.useContinuousSdf = true
-  }
+  // Capsule shape is applied globally in catalog/index.ts for all glass elements.
   elements.push(card)
 
   // --- Title ---
