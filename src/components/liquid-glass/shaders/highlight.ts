@@ -432,6 +432,23 @@ void main() {
     vec2 origHalfSize = uOriginalSize * 0.5;
     float origRadius = uOriginalCornerRadius;
 
+    // Faithful clip-after-blur: the original does clipOutline → stroke(blur),
+    // but Skia applies clip at the canvas level AFTER the BlurMaskFilter
+    // spreads alpha. So alpha that blurred OUTSIDE the shape is clipped away.
+    // Our stroke shader clips before blur (discard sd>0), then blur spreads
+    // alpha back outside — we must clip AGAIN here to match. Without this,
+    // the highlight "leaks" outside the shape, making it brighter than the
+    // original (which has zero contribution outside the clip region).
+    float sd = sdShape(centeredOrigRot, origHalfSize, origRadius);
+    float clipAA;
+    if (uUseContinuousSdf > 0.5) {
+        clipAA = sampleClipMask(centeredOrigRot, origHalfSize, origRadius);
+    } else {
+        clipAA = 1.0 - smoothstep(-0.5, 0.5, sd);
+    }
+    mask *= clipAA;
+    if (mask < 0.001) discard;
+
     float intensity;
     if (uHighlightMode < 1.5) {
         // Default + Ambient use the SDF gradient · normal.
