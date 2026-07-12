@@ -8,6 +8,32 @@ import {
   DEFAULT_CATALOG_STATE,
   type CatalogState,
 } from '@/components/liquid-glass/catalog'
+import { continuousCurvatureRoundedRectPath } from '@/components/liquid-glass/renderer/continuous-curve'
+
+/** Debug component: draws the G2 continuous-curvature mask on a small canvas. */
+function CanvasMaskPreview({ w, h, radius }: { w: number; h: number; radius: number }) {
+  const canvasRef = React.useRef<HTMLCanvasElement>(null)
+  React.useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    canvas.width = 280
+    canvas.height = 60
+    const ctx = canvas.getContext('2d')!
+    ctx.clearRect(0, 0, 280, 60)
+    // Scale to fit
+    const scale = 260 / Math.max(w, h)
+    const dw = w * scale, dh = h * scale, dr = radius * scale
+    const ox = (280 - dw) / 2, oy = (60 - dh) / 2
+    ctx.save()
+    ctx.translate(ox, oy)
+    const path = continuousCurvatureRoundedRectPath(ctx, dw, dh, dr)
+    ctx.fillStyle = 'white'
+    ctx.fill(path)
+    ctx.restore()
+  }, [w, h, radius])
+  return <canvas ref={canvasRef} style={{ width: 280, height: 60 }} />
+}
+
 import type { LiquidGlassRenderer } from '@/components/liquid-glass/renderer'
 
 /* ------------------------------------------------------------------ *
@@ -444,6 +470,25 @@ export default function Page() {
           }}
         />
       </div>
+      {/* Debug: show capsule mask shape below the frame */}
+      {destination === CatalogDestination.Dialog && (
+        <div style={{
+          position: 'fixed',
+          bottom: 20,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          width: 300,
+          height: 80,
+          background: '#000',
+          border: '2px solid #ff0',
+          zIndex: 99999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+          <CanvasMaskPreview w={200} h={48} radius={24} />
+        </div>
+      )}
     </div>
   )
 }
