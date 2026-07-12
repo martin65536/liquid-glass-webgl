@@ -29,8 +29,20 @@ function CanvasMaskPreview({ w, h, radius }: { w: number; h: number; radius: num
     ctx.save()
     ctx.translate(ox, oy)
     const path = continuousCurvatureRoundedRectPath(ctx, dw, dh, dr)
-    ctx.fillStyle = 'white'
+    // Fill (mask shape)
+    ctx.fillStyle = '#333'
     ctx.fill(path)
+    // Stroke (highlight border — faithful to HighlightModifier.kt:
+    //   paint.style = Stroke, paint.strokeWidth = ceil(width.toPx()) * 2,
+    //   paint.blur(blurRadius.toPx()) → BlurMaskFilter)
+    // width = 0.5dp, blurRadius = 0.25dp. At our scale:
+    const strokeW = Math.ceil(0.5 * scale) * 2
+    const blurR = 0.25 * scale
+    ctx.lineWidth = strokeW
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)'
+    ctx.shadowColor = 'rgba(255,255,255,0.8)'
+    ctx.shadowBlur = blurR
+    ctx.stroke(path)
     ctx.restore()
   }, [w, h, radius])
   return <canvas ref={canvasRef} style={{ width: 600, height: 150, imageRendering: 'auto' }} />
