@@ -294,25 +294,8 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
       el.enterProgress = state.controlCenterEnter
       el.enterSafeProgress = state.controlCenterSafeEnter
       el.enterStretchFactor = ccStretchFactor[id]
-      // CC blurred backdrop: the original ControlCenterContent.kt applies
-      // BlurEffect(4dp * progress) to the backdrop Image (wallpaper+dim) via
-      // an outer graphicsLayer — ONE opaque blurred layer shared by ALL tiles.
-      // Tiles then apply vibrancy (sat=1.5) + lens per-element on top.
-      //
-      // We replicate this with ccBlurredBackdrop: the renderer blurs a CLEAN
-      // wallpaper+dim layer ONCE (ensureCcBlurredBackdrop, cached by
-      // quantized radius) and all tiles sample it. This avoids the saturation
-      // buildup that happens when tiles sample the live scene FBO (which
-      // accumulates each tile's saturated glass output → 1.5^n growth).
-      //
-      // useSeparableBlur stays true so the element pass sets inlineBlurRadius=0
-      // (no double-blur on the already-blurred backdrop). The per-tile
-      // blurTexture branch is skipped because ccBlurredBackdrop takes priority.
-      el.ccBlurredBackdrop = true
-      el.ccDimAlpha = dimAlpha
-      el.useSeparableBlur = true
-      const sp = Math.max(0, Math.min(1, state.controlCenterSafeEnter))
-      el.blurRadius = 4 * DP * sp
+      // No blur on tiles. blurRadius=0, no useSeparableBlur, no ccBlurredBackdrop.
+      el.blurRadius = 0
       // Capsule shape: original CC tiles use RoundedRectangle(itemSize/2).
       // For non-square tiles (152×68 etc), the original's Continuous style
       // kicks in (width != height → continuous Bezier path). Apply
