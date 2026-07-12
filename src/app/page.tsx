@@ -8,44 +8,6 @@ import {
   DEFAULT_CATALOG_STATE,
   type CatalogState,
 } from '@/components/liquid-glass/catalog'
-import { continuousCurvatureRoundedRectPath } from '@/components/liquid-glass/renderer/continuous-curve'
-
-/** Debug component: draws the G2 continuous-curvature mask on a small canvas. */
-function CanvasMaskPreview({ w, h, radius }: { w: number; h: number; radius: number }) {
-  const canvasRef = React.useRef<HTMLCanvasElement>(null)
-  React.useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    // Canvas sized to the aspect ratio of the shape, 2x for sharpness
-    const aspect = w / h
-    const dispW = 400
-    const dispH = Math.round(dispW / aspect)
-    canvas.width = dispW * 2
-    canvas.height = dispH * 2
-    const ctx = canvas.getContext('2d')!
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-    // Scale shape to fill most of the canvas
-    const scale = (canvas.width - 40) / w
-    const dw = w * scale, dh = h * scale, dr = radius * scale
-    const ox = (canvas.width - dw) / 2, oy = (canvas.height - dh) / 2
-    ctx.save()
-    ctx.translate(ox, oy)
-    const path = continuousCurvatureRoundedRectPath(ctx, dw, dh, dr)
-    // Fill (mask shape)
-    ctx.fillStyle = '#333'
-    ctx.fill(path)
-    // Stroke (highlight border)
-    const strokeW = Math.ceil(0.5 * scale) * 2
-    const blurR = 0.25 * scale
-    ctx.lineWidth = strokeW
-    ctx.strokeStyle = 'rgba(255,255,255,0.8)'
-    ctx.shadowColor = 'rgba(255,255,255,0.8)'
-    ctx.shadowBlur = blurR
-    ctx.stroke(path)
-    ctx.restore()
-  }, [w, h, radius])
-  return <canvas ref={canvasRef} style={{ width: 400, height: Math.round(400 / (w / h)), display: 'block' }} />
-}
 
 import type { LiquidGlassRenderer } from '@/components/liquid-glass/renderer'
 
@@ -483,21 +445,6 @@ export default function Page() {
           }}
         />
       </div>
-      {/* Debug: show capsule mask shape below the frame */}
-      {destination === CatalogDestination.Dialog && (
-        <div style={{
-          position: 'fixed',
-          bottom: 10,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          background: '#000',
-          border: '2px solid #ff0',
-          zIndex: 99999,
-          padding: 8,
-        }}>
-          <CanvasMaskPreview w={340} h={276} radius={48} />
-        </div>
-      )}
     </div>
   )
 }
