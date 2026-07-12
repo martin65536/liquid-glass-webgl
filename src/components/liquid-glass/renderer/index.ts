@@ -7,6 +7,8 @@ import {
   PLAIN_RECT_FRAGMENT_SHADER,
   PROGRESSIVE_BLUR_FRAGMENT_SHADER,
   RIM_HIGHLIGHT_FRAGMENT_SHADER,
+  HIGHLIGHT_STROKE_FRAGMENT_SHADER,
+  HIGHLIGHT_COMPOSITE_FRAGMENT_SHADER,
   SHADOW_FRAGMENT_SHADER,
   TINT_FRAGMENT_SHADER,
   VERTEX_SHADER,
@@ -55,6 +57,10 @@ export class LiquidGlassRenderer {
   highlightProgram: WebGLProgram
   tintProgram: WebGLProgram
   rimHighlightProgram: WebGLProgram
+  /** Pass 1: stroke mask (clip + hard stroke, no blur/intensity). */
+  highlightStrokeProgram: WebGLProgram
+  /** Pass 3: composite (blurred mask * intensity * color). */
+  highlightCompositeProgram: WebGLProgram
   plainRectProgram: WebGLProgram
   progressiveBlurProgram: WebGLProgram
   copyProgram: WebGLProgram
@@ -116,6 +122,15 @@ export class LiquidGlassRenderer {
   blurFboATex: WebGLTexture | null = null
   blurFboB: WebGLFramebuffer | null = null
   blurFboBTex: WebGLTexture | null = null
+  // --- Highlight mask FBO (3-pass faithful highlight) ---
+  // Pass 1: HIGHLIGHT_STROKE_FRAGMENT_SHADER renders the clipped stroke alpha
+  //   mask here (transparent surround, alpha=1 in the stroke band).
+  // Pass 2: blurTexture(highlightMaskTex, sigma) → blurFboB (2-pass Gaussian,
+  //   faithful to Skia BlurMaskFilter NORMAL).
+  // Pass 3: HIGHLIGHT_COMPOSITE_FRAGMENT_SHADER samples blurFboB, multiplies
+  //   by intensity+color, blends into the scene FBO.
+  highlightMaskFbo: WebGLFramebuffer | null = null
+  highlightMaskTex: WebGLTexture | null = null
   // --- Dialog backdrop FBO ---
   // Holds wallpaper+scrim+colorControls as one opaque layer for the dialog
   // card's 2-pass blur path. Rendered by renderDialogBackdrop; the dialog card
@@ -168,6 +183,8 @@ export class LiquidGlassRenderer {
   aPosLocHl: number
   aPosLocTn: number
   aPosLocRm: number
+  aPosLocHs: number  // highlight stroke
+  aPosLocHc: number  // highlight composite
   aPosLocPr: number
   aPosLocPb: number
   aPosLocCp: number
@@ -183,6 +200,8 @@ export class LiquidGlassRenderer {
   uHl: Record<string, WebGLUniformLocation | null> = {}
   uTn: Record<string, WebGLUniformLocation | null> = {}
   uRm: Record<string, WebGLUniformLocation | null> = {}
+  uHs: Record<string, WebGLUniformLocation | null> = {}
+  uHc: Record<string, WebGLUniformLocation | null> = {}
   uPr: Record<string, WebGLUniformLocation | null> = {}
   uPb: Record<string, WebGLUniformLocation | null> = {}
   uCp: Record<string, WebGLUniformLocation | null> = {}
@@ -211,6 +230,8 @@ export class LiquidGlassRenderer {
     this.highlightProgram = createProgram(gl, VERTEX_SHADER, HIGHLIGHT_FRAGMENT_SHADER)
     this.tintProgram = createProgram(gl, VERTEX_SHADER, TINT_FRAGMENT_SHADER)
     this.rimHighlightProgram = createProgram(gl, VERTEX_SHADER, RIM_HIGHLIGHT_FRAGMENT_SHADER)
+    this.highlightStrokeProgram = createProgram(gl, VERTEX_SHADER, HIGHLIGHT_STROKE_FRAGMENT_SHADER)
+    this.highlightCompositeProgram = createProgram(gl, VERTEX_SHADER, HIGHLIGHT_COMPOSITE_FRAGMENT_SHADER)
     this.plainRectProgram = createProgram(gl, VERTEX_SHADER, PLAIN_RECT_FRAGMENT_SHADER)
     this.progressiveBlurProgram = createProgram(gl, VERTEX_SHADER, PROGRESSIVE_BLUR_FRAGMENT_SHADER)
     this.copyProgram = createProgram(gl, VERTEX_SHADER, COPY_FRAGMENT_SHADER)
@@ -234,6 +255,8 @@ export class LiquidGlassRenderer {
     this.aPosLocHl = gl.getAttribLocation(this.highlightProgram, 'aPos')
     this.aPosLocTn = gl.getAttribLocation(this.tintProgram, 'aPos')
     this.aPosLocRm = gl.getAttribLocation(this.rimHighlightProgram, 'aPos')
+    this.aPosLocHs = gl.getAttribLocation(this.highlightStrokeProgram, 'aPos')
+    this.aPosLocHc = gl.getAttribLocation(this.highlightCompositeProgram, 'aPos')
     this.aPosLocPr = gl.getAttribLocation(this.plainRectProgram, 'aPos')
     this.aPosLocPb = gl.getAttribLocation(this.progressiveBlurProgram, 'aPos')
     this.aPosLocCp = gl.getAttribLocation(this.copyProgram, 'aPos')
@@ -308,6 +331,23 @@ export class LiquidGlassRenderer {
       'uUseContinuousSdf', 'uContinuousSdf', 'uContinuousSdfTexSize', 'uContinuousSdfElementSize',
     ]
     for (const n of rmNames) this.uRm[n] = gl.getUniformLocation(this.rimHighlightProgram, n)
+    // Highlight stroke pass (pass 1): renders the clipped stroke alpha mask.
+    const hsNames = [
+      'uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uHighlightStrokeWidth',
+      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation',
+      'uCornerStyle',
+      'uUseContinuousSdf', 'uContinuousSdf', 'uContinuousSdfTexSize', 'uContinuousSdfElementSize',
+    ]
+    for (const n of hsNames) this.uHs[n] = gl.getUniformLocation(this.highlightStrokeProgram, n)
+    // Highlight composite pass (pass 3): samples blurred mask, multiplies intensity+color.
+    const hcNames = [
+      'uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii',
+      'uBlurredMask', 'uMaskTexSize',
+      'uHighlightColor', 'uHighlightAngle', 'uHighlightFalloff', 'uHighlightAlpha', 'uHighlightMode',
+      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation', 'uCornerStyle',
+      'uUseContinuousSdf', 'uContinuousSdf', 'uContinuousSdfTexSize', 'uContinuousSdfElementSize',
+    ]
+    for (const n of hcNames) this.uHc[n] = gl.getUniformLocation(this.highlightCompositeProgram, n)
     const prNames = ['uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uColor', 'uCornerStyle',
       'uUseContinuousSdf', 'uContinuousSdf', 'uContinuousSdfTexSize', 'uContinuousSdfElementSize']
     for (const n of prNames) this.uPr[n] = gl.getUniformLocation(this.plainRectProgram, n)
@@ -441,6 +481,10 @@ export class LiquidGlassRenderer {
     if (this.blurFboBTex) gl.deleteTexture(this.blurFboBTex)
     this.gpElementFbo = this.blurFboA = this.blurFboB = null
     this.gpElementTex = this.blurFboATex = this.blurFboBTex = null
+    if (this.highlightMaskFbo) gl.deleteFramebuffer(this.highlightMaskFbo)
+    if (this.highlightMaskTex) gl.deleteTexture(this.highlightMaskTex)
+    this.highlightMaskFbo = null
+    this.highlightMaskTex = null
     if (this.dialogBackdropFbo) gl.deleteFramebuffer(this.dialogBackdropFbo)
     if (this.dialogBackdropTex) gl.deleteTexture(this.dialogBackdropTex)
     this.dialogBackdropFbo = null
@@ -464,6 +508,8 @@ export class LiquidGlassRenderer {
     gl.deleteProgram(this.highlightProgram)
     gl.deleteProgram(this.tintProgram)
     gl.deleteProgram(this.rimHighlightProgram)
+    gl.deleteProgram(this.highlightStrokeProgram)
+    gl.deleteProgram(this.highlightCompositeProgram)
     gl.deleteProgram(this.plainRectProgram)
     gl.deleteProgram(this.progressiveBlurProgram)
     gl.deleteProgram(this.copyProgram)

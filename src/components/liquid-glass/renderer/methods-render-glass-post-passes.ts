@@ -218,83 +218,118 @@ export const glassPostPassMethods = {
       }
     }
 
-    // --- Step 2f: Rim highlight pass (Default/Ambient/Plain) ---
-    // For toggle knobs, the highlight alpha is modulated by pressProgress
-    // (elHighlightAlpha = highlight.alpha * progress). At rest (progress=0),
-    // alpha=0 → no highlight. Pressed (progress=1), alpha=full → edge glow.
-    // This is the ONLY pass that draws the highlight — the element shader
-    // sets the uniforms but does NOT use them (the highlight is composited
-    // as a separate layer with its own blend mode, matching HighlightModifier.kt).
+    // --- Step 2f: Rim highlight (3-pass faithful: stroke mask → 2-pass blur → composite) ---
+    // Faithful to HighlightModifier.kt:
+    //   1. GraphicsLayer.record { clipOutline(shape); drawOutline(shape, paint.Stroke + BlurMaskFilter) }
+    //      → renders the clipped stroke alpha mask (this is our pass 1).
+    //   2. Skia BlurMaskFilter(NORMAL, sigma) blurs the mask in 2D — we do a
+    //      2-pass separable Gaussian (H then V) via blurTexture (pass 2).
+    //   3. AGSL RuntimeShader (DefaultHighlightShaderString) multiplies by
+    //      intensity = pow(abs(dot(grad,normal)), falloff) and color; the
+    //      GraphicsLayer composites with alpha + blendMode (Plus/SrcOver)
+    //      (this is our pass 3).
+    //
+    // This replaces the old single-pass RIM_HIGHLIGHT_FRAGMENT_SHADER which
+    // faked the blur with a 1D SDF-gradient convolution (inaccurate at corners
+    // where the gradient direction changes — a true 2D blur spreads the edge
+    // highlight around corners, 1D does not).
     if (el.highlight && el.highlight.alpha > 0.001) {
-      gl.useProgram(this.rimHighlightProgram)
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
-      gl.enableVertexAttribArray(this.aPosLocRm)
-      gl.vertexAttribPointer(this.aPosLocRm, 2, gl.FLOAT, false, 0, 0)
-
-      if (el.highlight.mode === 1) {
-        // Ambient — SrcOver blend (matches HighlightModifier.kt)
-        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-      } else {
-        // Default / Plain — Plus blend (matches HighlightModifier.kt)
-        gl.blendFunc(gl.ONE, gl.ONE)
-      }
-
-      gl.uniform2f(this.uRm['uCanvasSize'], this.canvas.width, this.canvas.height)
-      gl.uniform2f(this.uRm['uOffset'], sx * this.dpr, sy * this.dpr)
-      gl.uniform2f(this.uRm['uSize'], sw * this.dpr, sh * this.dpr)
-      gl.uniform4f(
-        this.uRm['uCornerRadii'],
-        radii[0] * this.dpr,
-        radii[1] * this.dpr,
-        radii[2] * this.dpr,
-        radii[3] * this.dpr
-      )
-      gl.uniform2f(this.uRm['uOriginalSize'], origSizeX, origSizeY)
-      gl.uniform1f(this.uRm['uOriginalCornerRadius'], origRadius)
-      gl.uniform2f(this.uRm['uLayerScale'], layerScaleX, layerScaleY)
-      gl.uniform1f(this.uRm['uElementRotation'], state.elementRotation)
-      gl.uniform1f(this.uRm['uCornerStyle'], this.cornerStyle)
-      // Continuous-curvature SDF (dialog card): bind the SDF texture and set
-      // uniforms so the rim highlight's sdShape() uses the continuous SDF too.
-      if (el.useContinuousSdf && this.continuousSdfTexture) {
-        gl.activeTexture(gl.TEXTURE2)
-        gl.bindTexture(gl.TEXTURE_2D, this.continuousSdfTexture)
-        gl.uniform1i(this.uRm['uContinuousSdf'], 2)
-        gl.uniform1f(this.uRm['uUseContinuousSdf'], 1.0)
-        gl.uniform2f(this.uRm['uContinuousSdfTexSize'], this.continuousSdfTexSize[0], this.continuousSdfTexSize[1])
-        gl.uniform2f(this.uRm['uContinuousSdfElementSize'], state.origW * this.dpr, state.origH * this.dpr)
-      } else {
-        gl.uniform1f(this.uRm['uUseContinuousSdf'], 0.0)
-      }
-      gl.uniform4f(this.uRm['uHighlightColor'], el.highlight.color[0], el.highlight.color[1], el.highlight.color[2], 1.0)
-      // useGravityAngle: read live from renderer.gravityAngle (updated via
-      // setGravityAngle without rebuilding the catalog). Else use the static
-      // angle baked at build time.
-      gl.uniform1f(this.uRm['uHighlightAngle'], el.useGravityAngle ? this.gravityAngle : el.highlight.angle)
-      gl.uniform1f(this.uRm['uHighlightFalloff'], el.highlight.falloff)
-      // For toggle knobs AND bottom-tab indicators, use the pressProgress-modulated
-      // alpha (elHighlightAlpha = highlight.alpha * progress). At rest both have
-      // alpha=0 (no edge highlight); pressed → full. For non-toggle elements,
-      // use the original alpha.
+      // For toggle knobs AND bottom-tab indicators, alpha is pressProgress-modulated.
       const rimAlpha = (el.isToggleKnob || el.isBottomTabIndicator) ? elHighlightAlpha : el.highlight.alpha
-      // Apply enter alpha (ControlCenter fade) so the rim highlight fades too.
-      gl.uniform1f(this.uRm['uHighlightAlpha'], rimAlpha * state.enterAlpha)
-      gl.uniform1f(this.uRm['uHighlightMode'], el.highlight.mode)
-      // Stroke width + blur in ORIGINAL px (the rim-highlight SDF is now
-      // computed in ORIGINAL space, faithful to graphicsLayer post-scaling).
-      // No layerScale multiplication — the graphicsLayer scales the stroke
-      // along with the layer, which our original-space SDF already models.
-      const widthPx = el.highlight.widthDp * this.dpr
-      const strokeWidthDevice = Math.ceil(widthPx) * 2
-      const blurRadiusDp = el.highlight.blurRadiusDp ?? (el.highlight.widthDp * 0.5)
-      const blurDevice = blurRadiusDp * this.dpr
-      gl.uniform1f(this.uRm['uHighlightStrokeWidth'], strokeWidthDevice)
-      gl.uniform1f(this.uRm['uHighlightBlur'], blurDevice)
-      if (rimAlpha > 0.001) {
-        gl.drawArrays(gl.TRIANGLES, 0, 6)
-      }
+      const finalAlpha = rimAlpha * state.enterAlpha
+      if (finalAlpha > 0.001) {
+        const widthPx = el.highlight.widthDp * this.dpr
+        const strokeWidthDevice = Math.ceil(widthPx) * 2
+        const blurRadiusDp = el.highlight.blurRadiusDp ?? (el.highlight.widthDp * 0.5)
+        const blurDevice = blurRadiusDp * this.dpr
 
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+        // Save the scene FBO (the element pass's target, where post-passes
+        // composite). Pass 1 + pass 2 bind other FBOs; pass 3 must restore this.
+        const sceneFbo = gl.getParameter(gl.FRAMEBUFFER_BINDING)
+
+        // --- Pass 1: stroke mask → highlightMaskFbo ---
+        this.bindFBO(this.highlightMaskFbo!)
+        gl.disable(gl.BLEND)
+        gl.clearColor(0, 0, 0, 0)
+        gl.clear(gl.COLOR_BUFFER_BIT)
+        gl.useProgram(this.highlightStrokeProgram)
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+        gl.enableVertexAttribArray(this.aPosLocHs)
+        gl.vertexAttribPointer(this.aPosLocHs, 2, gl.FLOAT, false, 0, 0)
+        gl.uniform2f(this.uHs['uCanvasSize'], this.canvas.width, this.canvas.height)
+        gl.uniform2f(this.uHs['uOffset'], sx * this.dpr, sy * this.dpr)
+        gl.uniform2f(this.uHs['uSize'], sw * this.dpr, sh * this.dpr)
+        gl.uniform4f(this.uHs['uCornerRadii'], radii[0] * this.dpr, radii[1] * this.dpr, radii[2] * this.dpr, radii[3] * this.dpr)
+        gl.uniform1f(this.uHs['uHighlightStrokeWidth'], strokeWidthDevice)
+        gl.uniform2f(this.uHs['uOriginalSize'], origSizeX, origSizeY)
+        gl.uniform1f(this.uHs['uOriginalCornerRadius'], origRadius)
+        gl.uniform2f(this.uHs['uLayerScale'], layerScaleX, layerScaleY)
+        gl.uniform1f(this.uHs['uElementRotation'], state.elementRotation)
+        gl.uniform1f(this.uHs['uCornerStyle'], this.cornerStyle)
+        if (el.useContinuousSdf && this.continuousSdfTexture) {
+          gl.activeTexture(gl.TEXTURE2)
+          gl.bindTexture(gl.TEXTURE_2D, this.continuousSdfTexture)
+          gl.uniform1i(this.uHs['uContinuousSdf'], 2)
+          gl.uniform1f(this.uHs['uUseContinuousSdf'], 1.0)
+          gl.uniform2f(this.uHs['uContinuousSdfTexSize'], this.continuousSdfTexSize[0], this.continuousSdfTexSize[1])
+          gl.uniform2f(this.uHs['uContinuousSdfElementSize'], state.origW * this.dpr, state.origH * this.dpr)
+        } else {
+          gl.uniform1f(this.uHs['uUseContinuousSdf'], 0.0)
+        }
+        gl.drawArrays(gl.TRIANGLES, 0, 6)
+
+        // --- Pass 2: 2-pass Gaussian blur on the mask (faithful to BlurMaskFilter) ---
+        const blurredMaskTex = blurDevice >= 0.5
+          ? this.blurTexture(this.highlightMaskTex!, blurDevice)
+          : this.highlightMaskTex!
+
+        // --- Pass 3: composite (blurred mask × intensity × color) → scene FBO ---
+        gl.bindFramebuffer(gl.FRAMEBUFFER, sceneFbo)
+        gl.viewport(0, 0, this.fboW, this.fboH)
+        gl.enable(gl.BLEND)
+        if (el.highlight.mode === 1) {
+          // Ambient — SrcOver blend (matches HighlightModifier.kt)
+          gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+        } else {
+          // Default / Plain — Plus blend (matches HighlightModifier.kt)
+          gl.blendFunc(gl.ONE, gl.ONE)
+        }
+        gl.useProgram(this.highlightCompositeProgram)
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+        gl.enableVertexAttribArray(this.aPosLocHc)
+        gl.vertexAttribPointer(this.aPosLocHc, 2, gl.FLOAT, false, 0, 0)
+        gl.uniform2f(this.uHc['uCanvasSize'], this.canvas.width, this.canvas.height)
+        gl.uniform2f(this.uHc['uOffset'], sx * this.dpr, sy * this.dpr)
+        gl.uniform2f(this.uHc['uSize'], sw * this.dpr, sh * this.dpr)
+        gl.uniform4f(this.uHc['uCornerRadii'], radii[0] * this.dpr, radii[1] * this.dpr, radii[2] * this.dpr, radii[3] * this.dpr)
+        gl.activeTexture(gl.TEXTURE0)
+        gl.bindTexture(gl.TEXTURE_2D, blurredMaskTex)
+        gl.uniform1i(this.uHc['uBlurredMask'], 0)
+        gl.uniform2f(this.uHc['uMaskTexSize'], this.fboW, this.fboH)
+        gl.uniform4f(this.uHc['uHighlightColor'], el.highlight.color[0], el.highlight.color[1], el.highlight.color[2], 1.0)
+        gl.uniform1f(this.uHc['uHighlightAngle'], el.useGravityAngle ? this.gravityAngle : el.highlight.angle)
+        gl.uniform1f(this.uHc['uHighlightFalloff'], el.highlight.falloff)
+        gl.uniform1f(this.uHc['uHighlightAlpha'], finalAlpha)
+        gl.uniform1f(this.uHc['uHighlightMode'], el.highlight.mode)
+        gl.uniform2f(this.uHc['uOriginalSize'], origSizeX, origSizeY)
+        gl.uniform1f(this.uHc['uOriginalCornerRadius'], origRadius)
+        gl.uniform2f(this.uHc['uLayerScale'], layerScaleX, layerScaleY)
+        gl.uniform1f(this.uHc['uElementRotation'], state.elementRotation)
+        gl.uniform1f(this.uHc['uCornerStyle'], this.cornerStyle)
+        if (el.useContinuousSdf && this.continuousSdfTexture) {
+          gl.activeTexture(gl.TEXTURE2)
+          gl.bindTexture(gl.TEXTURE_2D, this.continuousSdfTexture)
+          gl.uniform1i(this.uHc['uContinuousSdf'], 2)
+          gl.uniform1f(this.uHc['uUseContinuousSdf'], 1.0)
+          gl.uniform2f(this.uHc['uContinuousSdfTexSize'], this.continuousSdfTexSize[0], this.continuousSdfTexSize[1])
+          gl.uniform2f(this.uHc['uContinuousSdfElementSize'], state.origW * this.dpr, state.origH * this.dpr)
+        } else {
+          gl.uniform1f(this.uHc['uUseContinuousSdf'], 0.0)
+        }
+        gl.drawArrays(gl.TRIANGLES, 0, 6)
+
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+      }
     }
 
     // --- Step 2g: 内层背景板 rim highlight (指示器 only) ---

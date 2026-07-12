@@ -74,6 +74,12 @@ export const fboMethods = {
     this.blurFboATex = ba.tex
     this.blurFboB = bb.fb
     this.blurFboBTex = bb.tex
+    // Highlight mask FBO (3-pass faithful highlight: stroke mask → blur → composite).
+    if (this.highlightMaskFbo) gl.deleteFramebuffer(this.highlightMaskFbo)
+    if (this.highlightMaskTex) gl.deleteTexture(this.highlightMaskTex)
+    const hm = this.createFBO(w, h)
+    this.highlightMaskFbo = hm.fb
+    this.highlightMaskTex = hm.tex
     // Dialog backdrop FBO (wallpaper+scrim+cc opaque layer for 2-pass blur).
     if (this.dialogBackdropFbo) gl.deleteFramebuffer(this.dialogBackdropFbo)
     if (this.dialogBackdropTex) gl.deleteTexture(this.dialogBackdropTex)
