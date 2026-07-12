@@ -296,8 +296,13 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
       el.enterStretchFactor = ccStretchFactor[id]
       // CC blurred backdrop: original applies BlurEffect(4dp * progress) on
       // the whole backdrop (wallpaper+dim) via graphicsLayer, BEFORE tiles'
-      // drawBackdrop. We blur the scene FBO once and all tiles sample it.
-      el.ccBlurredBackdrop = true
+      // drawBackdrop. We use useSeparableBlur with dynamic blurRadius so each
+      // tile 2-pass blurs its backdrop (the scene FBO = wallpaper+dim).
+      // All CC tiles sample the same scene FBO, so per-tile blur is equivalent
+      // to the original's global blur.
+      el.useSeparableBlur = true
+      const sp = Math.max(0, Math.min(1, state.controlCenterSafeEnter))
+      el.blurRadius = 4 * DP * sp
       // Capsule shape: original CC tiles use RoundedRectangle(itemSize/2).
       // For non-square tiles (152×68 etc), the original's Continuous style
       // kicks in (width != height → continuous Bezier path). Apply

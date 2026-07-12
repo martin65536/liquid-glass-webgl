@@ -29,14 +29,7 @@ export const glassElementPassMethods = {
 
     gl.activeTexture(gl.TEXTURE0)
     // uBackdrop: the backdrop texture the glass samples (refraction + blur).
-    // - ccBlurredBackdrop elements (CC tiles): bind the pre-blurred scene FBO
-    //   (blurred once with 4dp*progress, matching the original's BlurEffect).
-    // - normal elements: bind curTex (the scene FBO built up so far).
-    if (el.ccBlurredBackdrop && this.ccBlurredBackdropTex) {
-      gl.bindTexture(gl.TEXTURE_2D, this.ccBlurredBackdropTex)
-    } else {
-      gl.bindTexture(gl.TEXTURE_2D, curTex)
-    }
+    gl.bindTexture(gl.TEXTURE_2D, curTex)
     gl.uniform1i(this.uEl['uBackdrop'], 0)
 
     // Bind wallpaper texture to TEXTURE1 for the toggle knob CombinedBackdrop

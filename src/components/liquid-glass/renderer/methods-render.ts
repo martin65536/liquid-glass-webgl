@@ -133,30 +133,6 @@ export const renderMethods = {
         this.renderDialogBackdrop(el.scrimColor, el.brightness, el.contrast, el.saturation)
       }
 
-      // --- CC blurred backdrop: blur scene FBO once (4dp * safeProgress).
-      // Faithful to original's graphicsLayer { BlurEffect(4dp * progress) }.
-      // Quantize blur radius to 0.5dp steps + cache to avoid re-blurring
-      // every frame when progress hasn't changed significantly. ---
-      if (el.ccBlurredBackdrop) {
-        const sp = el.enterSafeProgress != null
-          ? Math.max(0, Math.min(1, el.enterSafeProgress))
-          : Math.max(0, Math.min(1, el.enterProgress ?? 0))
-        const blurRadiusPx = 4 * DP * sp * this.dpr
-        // Quantize to 0.5 device px steps to reduce re-blur frequency.
-        const quantized = Math.round(blurRadiusPx * 2) / 2
-        const key = quantized.toFixed(1)
-        if (quantized >= 0.5) {
-          if (this.ccBlurredBackdropKey !== key) {
-            this.ccBlurredBackdropTex = this.blurTexture(curTex, quantized)
-            this.ccBlurredBackdropKey = key
-          }
-        } else {
-          // No blur — use raw scene FBO.
-          this.ccBlurredBackdropTex = curTex
-          this.ccBlurredBackdropKey = null
-        }
-      }
-
       // --- Continuous-curvature SDF texture (capsule shape) ---
       // For elements with useContinuousSdf=true (dialog card), ensure the
       // SDF texture for the element's (w, h, radius) is generated + uploaded
