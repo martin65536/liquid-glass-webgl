@@ -16,8 +16,10 @@ function CanvasMaskPreview({ w, h, radius }: { w: number; h: number; radius: num
   React.useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    // High-res canvas: 4x the display size for sharp edges
-    const dispW = 600, dispH = 150
+    // Canvas sized to the aspect ratio of the shape, 2x for sharpness
+    const aspect = w / h
+    const dispW = 400
+    const dispH = Math.round(dispW / aspect)
     canvas.width = dispW * 2
     canvas.height = dispH * 2
     const ctx = canvas.getContext('2d')!
@@ -32,10 +34,7 @@ function CanvasMaskPreview({ w, h, radius }: { w: number; h: number; radius: num
     // Fill (mask shape)
     ctx.fillStyle = '#333'
     ctx.fill(path)
-    // Stroke (highlight border — faithful to HighlightModifier.kt:
-    //   paint.style = Stroke, paint.strokeWidth = ceil(width.toPx()) * 2,
-    //   paint.blur(blurRadius.toPx()) → BlurMaskFilter)
-    // width = 0.5dp, blurRadius = 0.25dp. At our scale:
+    // Stroke (highlight border)
     const strokeW = Math.ceil(0.5 * scale) * 2
     const blurR = 0.25 * scale
     ctx.lineWidth = strokeW
@@ -45,7 +44,7 @@ function CanvasMaskPreview({ w, h, radius }: { w: number; h: number; radius: num
     ctx.stroke(path)
     ctx.restore()
   }, [w, h, radius])
-  return <canvas ref={canvasRef} style={{ width: 600, height: 150, imageRendering: 'auto' }} />
+  return <canvas ref={canvasRef} style={{ width: 400, height: Math.round(400 / (w / h)), display: 'block' }} />
 }
 
 import type { LiquidGlassRenderer } from '@/components/liquid-glass/renderer'
@@ -488,16 +487,13 @@ export default function Page() {
       {destination === CatalogDestination.Dialog && (
         <div style={{
           position: 'fixed',
-          bottom: 20,
+          bottom: 10,
           left: '50%',
           transform: 'translateX(-50%)',
           background: '#000',
           border: '2px solid #ff0',
           zIndex: 99999,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: 10,
+          padding: 8,
         }}>
           <CanvasMaskPreview w={340} h={276} radius={48} />
         </div>
