@@ -453,6 +453,11 @@ export interface GlassElementConfig extends GlassButtonConfig {
    *  which captures wallpaper+scrim. Used by the dialog card with 2-pass blur
    *  to get the correct colorControls→blur→lens order. */
   backdropFbo?: boolean
+  /** When true, this element samples the CC blurred backdrop (scene FBO
+   *  blurred once with 4dp*progress) instead of the raw scene FBO. Used by
+   *  CC tiles to refract a pre-blurred backdrop, matching the original's
+   *  outer graphicsLayer { BlurEffect }. */
+  ccBlurredBackdrop?: boolean
   /** When true, the element pass samples a precomputed continuous-curvature
    *  SDF texture (generated from the G2-continuous Bezier path in
    *  continuous-curve.ts) for its shape, instead of the analytic

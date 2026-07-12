@@ -294,11 +294,10 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
       el.enterProgress = state.controlCenterEnter
       el.enterSafeProgress = state.controlCenterSafeEnter
       el.enterStretchFactor = ccStretchFactor[id]
-      // 2-pass separable blur (high-quality 8dp blur). Now that plain-rect's
-      // glBlendFuncSeparate keeps the scene FBO alpha at 1.0, the tiles can
-      // sample the scene FBO directly (wallpaper+dim, alpha=1) — no backdropFbo
-      // needed. colorControls applied inline in the element pass.
-      el.useSeparableBlur = true
+      // CC blurred backdrop: original applies BlurEffect(4dp * progress) on
+      // the whole backdrop (wallpaper+dim) via graphicsLayer, BEFORE tiles'
+      // drawBackdrop. We blur the scene FBO once and all tiles sample it.
+      el.ccBlurredBackdrop = true
       // Capsule shape: original CC tiles use RoundedRectangle(itemSize/2).
       // For non-square tiles (152×68 etc), the original's Continuous style
       // kicks in (width != height → continuous Bezier path). Apply

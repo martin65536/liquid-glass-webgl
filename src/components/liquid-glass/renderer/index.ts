@@ -147,6 +147,10 @@ export class LiquidGlassRenderer {
   continuousSdfTexture: WebGLTexture | null = null
   continuousSdfTexSize: [number, number] = [256, 256]
   continuousSdfKey: string | null = null
+  /** CC blurred backdrop: scene FBO blurred once (BlurEffect(4dp*progress)).
+   *  Cached by quantized blur radius. All CC tiles sample this. */
+  ccBlurredBackdropTex: WebGLTexture | null = null
+  ccBlurredBackdropKey: string | null = null
 
   // Offscreen 2D canvas for the foreground (label + chevron). Reused
   // across buttons — we re-rasterize + re-upload per button per frame.
@@ -453,6 +457,9 @@ export class LiquidGlassRenderer {
     this.continuousSdfPool.clear()
     this.continuousSdfTexture = null
     this.continuousSdfKey = null
+    if (this.ccBlurredBackdropTex) gl.deleteTexture(this.ccBlurredBackdropTex)
+    this.ccBlurredBackdropTex = null
+    this.ccBlurredBackdropKey = null
     gl.deleteProgram(this.elementProgram)
     gl.deleteProgram(this.shadowProgram)
     gl.deleteProgram(this.wallpaperProgram)
