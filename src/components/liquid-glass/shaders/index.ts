@@ -39,4 +39,9 @@ export {
   PLAIN_RECT_FRAGMENT_SHADER,
   PROGRESSIVE_BLUR_FRAGMENT_SHADER,
 } from './scene-fg'
-export { generateSeparableBlurShader, computeBlur1DTapCount } from './separable-blur'
+export {
+  generateSeparableBlurShader,
+  computeBlur1DTapCount,
+  generateHighlightBlurShader,
+  computeHighlightBlurTapCount,
+} from './separable-blur'

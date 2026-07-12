@@ -19,6 +19,8 @@ import {
   SCENE_TINT_FRAGMENT_SHADER,
   generateSeparableBlurShader,
   computeBlur1DTapCount,
+  generateHighlightBlurShader,
+  computeHighlightBlurTapCount,
 } from '../shaders'
 import { compileShader, createProgram } from './gl-utils'
 import type {
@@ -141,6 +143,10 @@ export class LiquidGlassRenderer {
   dialogBackdropKey: string | null = null
   /** Blur shader variants keyed by 1D tap count (H + V programs each). */
   blurPrograms = new Map<number, { hProg: WebGLProgram; vProg: WebGLProgram; uH: Record<string, WebGLUniformLocation | null>; uV: Record<string, WebGLUniformLocation | null>; aPosH: number; aPosV: number }>()
+  /** Highlight blur programs — separate from blurPrograms because these blur
+   *  ALPHA (mask), use Android BlurMaskFilter sigma semantics (uRadius=sigma),
+   *  and support sub-pixel sigma (no 0.5 early-return). */
+  highlightBlurPrograms = new Map<number, { hProg: WebGLProgram; vProg: WebGLProgram; uH: Record<string, WebGLUniformLocation | null>; uV: Record<string, WebGLUniformLocation | null>; aPosH: number; aPosV: number }>()
   /** Gravity angle for glass highlight direction, in RADIANS. Updated live via
    *  setGravityAngle (no catalog rebuild). Default 45° = 0.785 rad.
    *  Elements with useGravityAngle=true read this at render time. */
@@ -453,6 +459,96 @@ export class LiquidGlassRenderer {
     return this.blurFboBTex!
   }
 
+  /** Lazy-compile highlight blur programs (alpha-blurring, sigma semantics).
+   *  Separate from ensureBlurPrograms because the shader is different
+   *  (blurs alpha, no early-return, integer-σ-spaced taps). */
+  ensureHighlightBlurPrograms(tapCount: number): void {
+    if (this.highlightBlurPrograms.has(tapCount)) return
+    const gl = this.gl
+    const hFs = compileShader(gl, gl.FRAGMENT_SHADER, generateHighlightBlurShader(tapCount, 'horizontal'))
+    const vFs = compileShader(gl, gl.FRAGMENT_SHADER, generateHighlightBlurShader(tapCount, 'vertical'))
+    const mk = (fs: WebGLShader) => {
+      const vs = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER)
+      const p = gl.createProgram()!
+      gl.attachShader(p, vs)
+      gl.attachShader(p, fs)
+      gl.bindAttribLocation(p, 0, 'aPos')
+      gl.linkProgram(p)
+      gl.deleteShader(vs)
+      gl.deleteShader(fs)
+      if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+        const log = gl.getProgramInfoLog(p)
+        gl.deleteProgram(p)
+        throw new Error('Highlight blur program link error (taps=' + tapCount + '): ' + log)
+      }
+      return p
+    }
+    const hProg = mk(hFs)
+    const vProg = mk(vFs)
+    const uH: Record<string, WebGLUniformLocation | null> = {
+      uTexture: gl.getUniformLocation(hProg, 'uTexture'),
+      uTexSize: gl.getUniformLocation(hProg, 'uTexSize'),
+      uRadius: gl.getUniformLocation(hProg, 'uRadius'),
+    }
+    const uV: Record<string, WebGLUniformLocation | null> = {
+      uTexture: gl.getUniformLocation(vProg, 'uTexture'),
+      uTexSize: gl.getUniformLocation(vProg, 'uTexSize'),
+      uRadius: gl.getUniformLocation(vProg, 'uRadius'),
+    }
+    this.highlightBlurPrograms.set(tapCount, { hProg, vProg, uH, uV, aPosH: 0, aPosV: 0 })
+  }
+
+  /** 2-pass Gaussian blur on a highlight stroke MASK (alpha only).
+   *  Faithful to Android BlurMaskFilter(NORMAL, sigma):
+   *    - sigma = blurRadiusPx (the Android radius param IS sigma)
+   *    - convolves the mask's ALPHA with a Gaussian kernel
+   *    - sub-pixel sigma (0.25px) still blurs (no 0.5 early-return)
+   *  Reads srcTex (alpha mask), writes blurFboB, returns blurFboBTex.
+   *  Saves/restores the currently-bound framebuffer. */
+  blurHighlightMask(srcTex: WebGLTexture, sigmaPx: number): WebGLTexture {
+    const gl = this.gl
+    const w = this.fboW
+    const h = this.fboH
+    let taps = computeHighlightBlurTapCount(sigmaPx)
+    taps = Math.min(taps, Math.max(3, this.blurTapCap | 0))
+    this.ensureHighlightBlurPrograms(taps)
+    const entry = this.highlightBlurPrograms.get(taps)!
+    const savedFb = gl.getParameter(gl.FRAMEBUFFER_BINDING)
+    gl.disable(gl.BLEND)
+
+    // Pass 1: horizontal — srcTex → blurFboA
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurFboA)
+    gl.viewport(0, 0, w, h)
+    gl.useProgram(entry.hProg)
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+    gl.enableVertexAttribArray(entry.aPosH)
+    gl.vertexAttribPointer(entry.aPosH, 2, gl.FLOAT, false, 0, 0)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, srcTex)
+    gl.uniform1i(entry.uH['uTexture'], 0)
+    gl.uniform2f(entry.uH['uTexSize'], w, h)
+    gl.uniform1f(entry.uH['uRadius'], sigmaPx)
+    gl.drawArrays(gl.TRIANGLES, 0, 6)
+
+    // Pass 2: vertical — blurFboATex → blurFboB
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurFboB)
+    gl.viewport(0, 0, w, h)
+    gl.useProgram(entry.vProg)
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+    gl.enableVertexAttribArray(entry.aPosV)
+    gl.vertexAttribPointer(entry.aPosV, 2, gl.FLOAT, false, 0, 0)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, this.blurFboATex!)
+    gl.uniform1i(entry.uV['uTexture'], 0)
+    gl.uniform2f(entry.uV['uTexSize'], w, h)
+    gl.uniform1f(entry.uV['uRadius'], sigmaPx)
+    gl.drawArrays(gl.TRIANGLES, 0, 6)
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, savedFb)
+    gl.viewport(0, 0, w, h)
+    return this.blurFboBTex!
+  }
+
   dispose() {
     if (this.rafId !== null) cancelAnimationFrame(this.rafId)
     this.rafId = null
@@ -495,6 +591,11 @@ export class LiquidGlassRenderer {
       gl.deleteProgram(vProg)
     }
     this.blurPrograms.clear()
+    for (const { hProg, vProg } of this.highlightBlurPrograms.values()) {
+      gl.deleteProgram(hProg)
+      gl.deleteProgram(vProg)
+    }
+    this.highlightBlurPrograms.clear()
     if (this.sdfTexture) gl.deleteTexture(this.sdfTexture)
     this.sdfTexture = null
     for (const { tex } of this.continuousSdfPool.values()) gl.deleteTexture(tex)

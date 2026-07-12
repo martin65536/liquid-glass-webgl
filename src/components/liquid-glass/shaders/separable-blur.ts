@@ -97,3 +97,96 @@ export function computeBlur1DTapCount(blurRadiusPx: number): number {
   const n = 2 * Math.ceil(3 * sigma) + 1
   return Math.min(33, Math.max(1, n))
 }
+
+/* ------------------------------------------------------------------ *
+ * Highlight mask separable blur — blurs the ALPHA channel of a stroke
+ * mask (RGB is unused, = 0). Faithful to Android BlurMaskFilter(NORMAL,
+ * sigma), where the `radius` param IS the Gaussian sigma (not 2σ/3σ).
+ *
+ * Differences from the glass-element separable blur (above):
+ *   1. Blurs ALPHA (the mask), not just RGB. The glass blur keeps alpha
+ *      sharp (line 69: origA) because glass silhouette must stay crisp;
+ *      highlight mask needs alpha softened to create the Gaussian fringe.
+ *   2. uRadius = sigma in PIXELS (Android BlurMaskFilter semantics), not
+ *      Skia's convertRadiusToSigma radius. offset = tap_position (in σ
+ *      units), sample at uv + dir * offset * sigma_px.
+ *   3. No early-return for uRadius < 0.5 — sub-pixel sigma (0.25px) still
+ *      produces a visible (if subtle) softening, which is exactly what the
+ *      original's 0.25dp BlurMaskFilter does.
+ *
+ * Tap count: N = 2*ceil(3σ)+1, minimum 3 (σ>0). For σ=0.25px → N=3.
+ * The 3-tap kernel (offsets -1, 0, +1 in σ units) samples at -σ, 0, +σ
+ * pixels — a minimal but faithful Gaussian.
+ * ------------------------------------------------------------------ */
+
+/** Generate a Gaussian kernel for the highlight blur.
+ *  taps are at integer multiples of σ from -half..+half.
+ *  Returns offsets (in σ units) + normalized weights. */
+function generateHighlightBlurKernel1D(tapCount: number): Array<{ offset: number; weight: number }> {
+  if (tapCount <= 1) return [{ offset: 0, weight: 1.0 }]
+  const taps: Array<{ offset: number; weight: number }> = []
+  const half = Math.floor(tapCount / 2)
+  let totalW = 0
+  for (let i = 0; i < tapCount; i++) {
+    // Integer-spaced offsets in σ units: -half, ..., 0, ..., +half
+    const offset = i - half
+    const w = Math.exp(-0.5 * offset * offset)
+    taps.push({ offset, weight: w })
+    totalW += w
+  }
+  if (totalW > 0) {
+    for (const t of taps) t.weight /= totalW
+  }
+  return taps
+}
+
+export function generateHighlightBlurShader(tapCount: number, direction: 'horizontal' | 'vertical'): string {
+  const kernel = generateHighlightBlurKernel1D(tapCount)
+  const isH = direction === 'horizontal'
+  const dirVec = isH ? 'vec2(1.0, 0.0)' : 'vec2(0.0, 1.0)'
+  let sampleCode = ''
+  if (kernel.length === 1) {
+    sampleCode = `    gl_FragColor = texture2D(uTexture, uv);\n`
+  } else {
+    // Blur ALPHA only. RGB stays 0 (stroke mask has no RGB). The alpha is
+    // a standard Gaussian-weighted average of neighbors' alpha — this is
+    // what BlurMaskFilter(NORMAL) does: convolve the mask's alpha with a
+    // Gaussian kernel, spreading the fringe in all directions.
+    sampleCode = `    float aSum = 0.0;\n`
+    for (const t of kernel) {
+      const off = t.offset.toFixed(6)
+      const w = t.weight.toFixed(8)
+      sampleCode += `    aSum += texture2D(uTexture, uv + ${dirVec} * ${off} * pxToUv).a * ${w};\n`
+    }
+    sampleCode += `    gl_FragColor = vec4(0.0, 0.0, 0.0, aSum);\n`
+  }
+  return /* glsl */ `
+precision highp float;
+
+uniform sampler2D uTexture;
+uniform vec2 uTexSize;
+uniform float uRadius;  // Gaussian sigma in pixels (Android BlurMaskFilter semantics)
+
+void main() {
+    vec2 uv = vec2(gl_FragCoord.x / uTexSize.x, gl_FragCoord.y / uTexSize.y);
+    if (uRadius < 0.01) {
+        gl_FragColor = texture2D(uTexture, uv);
+        return;
+    }
+    // pxToUv converts a pixel offset to a UV offset. offset (in σ units) *
+    // sigma_px = pixel offset; / uTexSize = UV offset.
+    vec2 pxToUv = vec2(uRadius / uTexSize.x, uRadius / uTexSize.y);
+${sampleCode}}
+`
+}
+
+/** Compute 1D tap count for highlight blur.
+ *  sigma = blurRadiusPx (Android BlurMaskFilter: radius IS sigma).
+ *  N = 2*ceil(3σ)+1, min 3 (for σ>0), max 33 (shader const loop bound).
+ *  σ=0.25 → N=3; σ=1 → N=7; σ=5 → N=33. */
+export function computeHighlightBlurTapCount(sigmaPx: number): number {
+  if (sigmaPx < 0.01) return 1
+  const n = 2 * Math.ceil(3 * sigmaPx) + 1
+  return Math.min(33, Math.max(3, n))
+}
+

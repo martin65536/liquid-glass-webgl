@@ -279,8 +279,14 @@ export const glassPostPassMethods = {
         gl.drawArrays(gl.TRIANGLES, 0, 6)
 
         // --- Pass 2: 2-pass Gaussian blur on the mask (faithful to BlurMaskFilter) ---
-        const blurredMaskTex = blurDevice >= 0.5
-          ? this.blurTexture(this.highlightMaskTex!, blurDevice)
+        // Android BlurMaskFilter(NORMAL, sigma=blurRadius_px). The radius param
+        // IS the Gaussian sigma. At dpr=1, blurRadius=0.25dp → sigma=0.25px —
+        // sub-pixel but still softens the hard stroke edge (the original's
+        // highlight has a subtle Gaussian fringe, not a razor-hard edge).
+        // We always blur (sigma>0); blurHighlightMask uses a dedicated alpha-
+        // blurring shader that supports sub-pixel sigma (no 0.5 early-return).
+        const blurredMaskTex = blurDevice >= 0.01
+          ? this.blurHighlightMask(this.highlightMaskTex!, blurDevice)
           : this.highlightMaskTex!
 
         // --- Pass 3: composite (blurred mask × intensity × color) → scene FBO ---
