@@ -106,7 +106,7 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
         blurRadius: 0,
         saturation: 1.5,
         surfaceColor: [0, 0, 0, 0.05],
-        highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 },
+        highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 },
         outerShadow: null,
         depthEffect: true,
       }
@@ -133,7 +133,7 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
         blurRadius: 0,
         saturation: 1.5,
         surfaceColor: [0, 0, 0, 0.05],
-        highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 },
+        highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 },
         outerShadow: null,
         depthEffect: true,
       }
@@ -146,32 +146,32 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
   const leftColX = leftPad
   elements.push(
     makeGlassShape('cc-c', { x: leftColX, y: cursorY, w: itemSize, h: itemSize }, {
-      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 0, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 0, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   elements.push(makeText('cc-c-icon', { x: leftColX, y: cursorY, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 24, color: iconColor, viewport: 960 } }))
   elements.push(
     makeGlassShape('cc-d', { x: leftColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: itemSize }, {
-      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 0, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 0, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   elements.push(makeText('cc-d-icon', { x: leftColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 24, color: iconColor, viewport: 960 } }))
   // Wide tile under the two small ones
   elements.push(
     makeGlassShape('cc-e', { x: leftColX, y: cursorY + itemSize + itemSpacing, w: twoSpan, h: itemSize }, {
-      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 0, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 0, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   // Right column: 2 tall tiles
   const rightColX = leftColX + twoSpan + itemSpacing
   elements.push(
     makeGlassShape('cc-f', { x: rightColX, y: cursorY, w: itemSize, h: twoSpan }, {
-      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 0, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 0, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   elements.push(
     makeGlassShape('cc-g', { x: rightColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: twoSpan }, {
-      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 0, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 0, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   cursorY += twoSpan + itemSpacing
@@ -179,25 +179,25 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
   // Row 3: [2×2 empty] / [1×1 + 1×1] / [1×1] — stretch factor 2
   elements.push(
     makeGlassShape('cc-h', { x: leftPad, y: cursorY, w: twoSpan, h: twoSpan }, {
-      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 0, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 0, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   // Right: 2 small + 1 small
   elements.push(
     makeGlassShape('cc-i', { x: rightColX, y: cursorY, w: itemSize, h: itemSize }, {
-      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 0, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 0, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   elements.push(makeText('cc-i-icon', { x: rightColX, y: cursorY, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 24, color: iconColor, viewport: 960 } }))
   elements.push(
     makeGlassShape('cc-j', { x: rightColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: itemSize }, {
-      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 0, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 0, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   elements.push(makeText('cc-j-icon', { x: rightColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 24, color: iconColor, viewport: 960 } }))
   elements.push(
     makeGlassShape('cc-k', { x: rightColX, y: cursorY + itemSize + itemSpacing, w: itemSize, h: itemSize }, {
-      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 0, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, angle: gravityAngle * Math.PI / 180, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 0, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 }, outerShadow: null, depthEffect: true,
     })
   )
   elements.push(makeText('cc-k-icon', { x: rightColX, y: cursorY + itemSize + itemSpacing, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 24, color: iconColor, viewport: 960 } }))

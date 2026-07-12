@@ -126,6 +126,10 @@ export class LiquidGlassRenderer {
   dialogBackdropKey: string | null = null
   /** Blur shader variants keyed by 1D tap count (H + V programs each). */
   blurPrograms = new Map<number, { hProg: WebGLProgram; vProg: WebGLProgram; uH: Record<string, WebGLUniformLocation | null>; uV: Record<string, WebGLUniformLocation | null>; aPosH: number; aPosV: number }>()
+  /** Gravity angle for glass highlight direction, in RADIANS. Updated live via
+   *  setGravityAngle (no catalog rebuild). Default 45° = 0.785 rad.
+   *  Elements with useGravityAngle=true read this at render time. */
+  gravityAngle = 45 * Math.PI / 180
   /** Max 1D taps per blur pass (1..33). Lower = faster, Higher = better quality.
    *  Set from CatalogState.blurTapCap. Default 17. */
   blurTapCap = 17

@@ -267,7 +267,10 @@ export const glassPostPassMethods = {
         gl.uniform1f(this.uRm['uUseContinuousSdf'], 0.0)
       }
       gl.uniform4f(this.uRm['uHighlightColor'], el.highlight.color[0], el.highlight.color[1], el.highlight.color[2], 1.0)
-      gl.uniform1f(this.uRm['uHighlightAngle'], el.highlight.angle)
+      // useGravityAngle: read live from renderer.gravityAngle (updated via
+      // setGravityAngle without rebuilding the catalog). Else use the static
+      // angle baked at build time.
+      gl.uniform1f(this.uRm['uHighlightAngle'], el.useGravityAngle ? this.gravityAngle : el.highlight.angle)
       gl.uniform1f(this.uRm['uHighlightFalloff'], el.highlight.falloff)
       // For toggle knobs AND bottom-tab indicators, use the pressProgress-modulated
       // alpha (elHighlightAlpha = highlight.alpha * progress). At rest both have

@@ -8,6 +8,11 @@ declare module './index' {
     getScrollY(): number
     getScrollVelocity(): number
     setBackgroundColor(color: [number, number, number] | null): void
+    /** Update the gravity angle (radians) for glass highlight direction.
+     *  Elements with useGravityAngle=true read this at render time. Does NOT
+     *  rebuild the catalog — just triggers a render. Faithful to the original's
+     *  UISensor which updates gravityAngle ~60/s via EMA smoothing. */
+    setGravityAngle(angleRad: number): void
     clampScrollValue(y: number): number
     clampScrollY(): void
   }
@@ -80,6 +85,15 @@ export const scrollMethods = {
     color: [number, number, number] | null
   ) {
     this.backgroundColor = color
+    this.requestRender()
+  },
+
+  setGravityAngle(
+    this: LiquidGlassRenderer,
+    angleRad: number
+  ) {
+    if (this.gravityAngle === angleRad) return
+    this.gravityAngle = angleRad
     this.requestRender()
   },
 }

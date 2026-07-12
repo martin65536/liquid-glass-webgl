@@ -464,6 +464,12 @@ export interface GlassElementConfig extends GlassButtonConfig {
    *  it and blurs fboA (wallpaper) → blurFboB → copies back to fboA before
    *  the element loop. blurRadius=0 → no blur. */
   sceneBlurRadius?: number
+  /** When true, the rim highlight angle is driven by renderer.gravityAngle
+   *  (updated live via setGravityAngle) instead of the static highlight.angle
+   *  baked at build time. Used by CC tiles so the highlight rotates smoothly
+   *  with device orientation WITHOUT rebuilding the catalog (gravityAngle is
+   *  pushed to the renderer via setGravityAngle, not via React state). */
+  useGravityAngle?: boolean
   /** When true, the element pass samples a precomputed continuous-curvature
    *  SDF texture (generated from the G2-continuous Bezier path in
    *  continuous-curve.ts) for its shape, instead of the analytic
