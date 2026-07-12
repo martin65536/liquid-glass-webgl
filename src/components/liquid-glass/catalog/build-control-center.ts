@@ -31,7 +31,7 @@ let ccDragPendingRaw: number | null = null
  * like the iOS control center. Each tile is a glass rounded-rect
  * with Default highlight. Some tiles contain flight icons.
  * ------------------------------------------------------------------ */
-export function buildControlCenter(W: number, H: number, onBack: () => void, state: CatalogState, setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void, palette: ThemePalette = LIGHT_PALETTE, gravityAngle: number = 45): CatalogResult {
+export function buildControlCenter(W: number, H: number, onBack: () => void, state: CatalogState, setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void, palette: ThemePalette = LIGHT_PALETTE): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
@@ -309,6 +309,13 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
       el.enterStretchFactor = ccStretchFactor[id]
       // No blur on tiles. blurRadius=0, no useSeparableBlur, no ccBlurredBackdrop.
       el.blurRadius = 0
+      // Rim highlight angle is driven LIVE by renderer.gravityAngle (updated
+      // via setGravityAngle from the deviceorientation effect in page.tsx),
+      // NOT baked at build time. This lets the highlight rotate smoothly with
+      // device orientation WITHOUT rebuilding the catalog (which would lose
+      // drag state). Faithful to ControlCenterContent.kt where the highlight
+      // reads uiSensor.gravityAngle live each frame.
+      el.useGravityAngle = true
       // Capsule shape: original CC tiles use RoundedRectangle(itemSize/2).
       // For non-square tiles (152×68 etc), the original's Continuous style
       // kicks in (width != height → continuous Bezier path). Apply

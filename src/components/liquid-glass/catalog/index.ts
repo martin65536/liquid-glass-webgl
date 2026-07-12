@@ -65,8 +65,7 @@ export function buildCatalog(
   rendererRef?: React.MutableRefObject<LiquidGlassRenderer | null>,
   isLightTheme: boolean = true,
   onToggleTheme?: () => void,
-  onPickImage?: () => void,
-  gravityAngle: number = 45
+  onPickImage?: () => void
 ): CatalogResult {
   const palette = getPalette(isLightTheme)
   let result: CatalogResult
@@ -93,7 +92,7 @@ export function buildCatalog(
       result = buildLockScreen(W, H, onBack, state, setState, palette)
       break
     case CatalogDestination.ControlCenter:
-      result = buildControlCenter(W, H, onBack, state, setState, palette, gravityAngle)
+      result = buildControlCenter(W, H, onBack, state, setState, palette)
       break
     case CatalogDestination.Magnifier:
       result = buildMagnifier(W, H, onBack, state, setState, palette)

@@ -173,36 +173,52 @@ export default function Page() {
   }, [])
 
   // Device orientation → gravity angle for glass highlight direction.
-  // Faithful to UISensor.kt: gravityAngle = atan2(y, x) * 180/PI (default 45°).
-  // On web, DeviceOrientationEvent gives beta (front-back tilt) and gamma
-  // (left-right tilt). We map these to a gravity angle: gamma → x, beta → y.
-  // Stored in React state so changes trigger a catalog rebuild → real-time
-  // highlight rotation on Control Center tiles.
-  // THROTTLED: only update state when angle changes by >5° to avoid
-  // rebuilding the catalog (and losing drag state) on every deviceorientation
-  // event (which fires ~60/s on mobile).
-  const [gravityAngle, setGravityAngleState] = React.useState(45)
-  const lastGravityUpdateRef = React.useRef(45)
+  // Faithful to UISensor.kt:
+  //   gravityAngle = gravityAngle * (1-alpha) + atan2(y, x) * 180/PI * alpha
+  // with alpha = 0.5, updated on every sensor event (~60Hz).
+  //
+  // CRITICAL: we push the angle DIRECTLY to the renderer via
+  // rendererRef.current.setGravityAngle() — NOT via React state. This avoids
+  // rebuilding the catalog (which would lose drag state and cause jank).
+  // CC tiles opt in via el.useGravityAngle=true; the rim highlight pass reads
+  // renderer.gravityAngle live each frame.
+  //
+  // EMA smoothing + shortest-path angle interpolation handles the atan2
+  // discontinuity at ±180° (rotating through 180° doesn't jump to -180°).
+  // Default 45° (matches UISensor.kt's initial value).
   React.useEffect(() => {
     if (typeof window === 'undefined' || !('DeviceOrientationEvent' in window)) return
+    // EMA-smoothed angle in degrees, kept in a ref (no React state).
+    let smoothed = 45
+    const alpha = 0.5
     const handler = (e: DeviceOrientationEvent) => {
       const x = e.gamma ?? 0
       const y = e.beta ?? 0
-      const angle = Math.atan2(y, x) * 180 / Math.PI
-      if (Math.abs(angle - lastGravityUpdateRef.current) >= 5) {
-        lastGravityUpdateRef.current = angle
-        setGravityAngleState(angle)
-      }
+      let target = Math.atan2(y, x) * 180 / Math.PI
+      // Shortest-path interpolation: wrap the delta to [-180, 180] so
+      // rotating through ±180° doesn't cause a 358° jump.
+      let delta = target - smoothed
+      while (delta > 180) delta -= 360
+      while (delta < -180) delta += 360
+      smoothed += delta * alpha
+      // Wrap smoothed to [-180, 180] to keep the value bounded.
+      while (smoothed > 180) smoothed -= 360
+      while (smoothed < -180) smoothed += 360
+      const rad = smoothed * Math.PI / 180
+      rendererRef.current?.setGravityAngle(rad)
     }
     window.addEventListener('deviceorientation', handler)
     return () => window.removeEventListener('deviceorientation', handler)
-  }, [])
+  }, [rendererRef])
 
   // Build the catalog for the current destination.
-  // useMemo so we don't rebuild every render (only when dest/state/W/H/theme/gravityAngle change).
+  // gravityAngle is NOT a dependency — it's pushed live to the renderer via
+  // setGravityAngle (see the deviceorientation effect above), so the catalog
+  // is NOT rebuilt when the device tilts. CC tiles use el.useGravityAngle=true
+  // to read renderer.gravityAngle each frame in the rim highlight pass.
   const catalog = React.useMemo(
-    () => buildCatalog(destination, W, H, state, setState, onNavigate, onBack, rendererRef, isLightTheme, toggleTheme, () => fileInputRef.current?.click(), gravityAngle),
-    [destination, W, H, state, setState, onNavigate, onBack, isLightTheme, toggleTheme, gravityAngle]
+    () => buildCatalog(destination, W, H, state, setState, onNavigate, onBack, rendererRef, isLightTheme, toggleTheme, () => fileInputRef.current?.click()),
+    [destination, W, H, state, setState, onNavigate, onBack, isLightTheme, toggleTheme]
   )
 
   // Home page background: faithful to the original Android app.
