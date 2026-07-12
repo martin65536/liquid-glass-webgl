@@ -192,20 +192,5 @@ export function buildCatalog(
       }
     }
   }
-  // Continuous-curvature capsule shape: apply to all glass elements that
-  // use Capsule() in the original (LiquidButton, dialog card, CC tiles, etc).
-  // The mask texture pool caches per (w,h,radius,dpr), so multiple elements
-  // with different sizes coexist. Skip special elements with their own
-  // backdrop semantics + elements with cornerRadius=0.
-  if (state.capsuleShape) {
-    for (const el of result.elements) {
-      if ((el.kind === 'button' || el.kind === 'glass-shape') &&
-          !el.isSdfTexture && !el.isMagnifier &&
-          !el.isToggleKnob && !el.isBottomTabIndicator &&
-          (el.cornerRadius ?? 0) > 0.5) {
-        el.useContinuousSdf = true
-      }
-    }
-  }
   return result
 }
