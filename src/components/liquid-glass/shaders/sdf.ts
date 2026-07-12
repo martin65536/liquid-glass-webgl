@@ -57,10 +57,8 @@ float sdContinuousRoundedRect(vec2 coord, vec2 halfSize, float radius) {
     return sdRoundedRect(coord, halfSize, radius);
 }
 
-// sampleClipMask — sample a precomputed alpha mask texture for the
-// continuous-curvature (G2 Bezier) rounded rect. Returns browser-native
-// AA coverage [0,1] (0=outside, 1=inside, edge=smooth gradient).
-// The caller uses this directly for discard + edgeAlpha — no smoothstep.
+// sampleClipMask — sample R channel (coverage) from the mask texture.
+// Returns browser-native AA coverage [0,1] for clip + edgeAlpha.
 float sampleClipMask(vec2 coord, vec2 halfSize, float radius) {
     float maxDim = max(max(uContinuousSdfElementSize.x, uContinuousSdfElementSize.y), 1e-4);
     float aspectW = uContinuousSdfElementSize.x / maxDim;
@@ -69,18 +67,37 @@ float sampleClipMask(vec2 coord, vec2 halfSize, float radius) {
     float scale = drawW / max(uContinuousSdfElementSize.x, 1e-4);
     vec2 tex = uContinuousSdfTexSize * 0.5 + coord * scale;
     vec2 uv = tex / uContinuousSdfTexSize;
-    return texture2D(uContinuousSdf, uv).r;  // [0,1] coverage
+    return texture2D(uContinuousSdf, uv).r;  // R = coverage [0,1]
+}
+
+// sampleClipSdf — sample G channel (SDF) from the mask texture.
+// Returns signed distance: negative inside, positive outside, 0 at edge.
+// Same shape as sampleClipMask (both from the same Bezier path), so clip
+// and stroke shapes are always identical.
+float sampleClipSdf(vec2 coord, vec2 halfSize, float radius) {
+    float maxDim = max(max(uContinuousSdfElementSize.x, uContinuousSdfElementSize.y), 1e-4);
+    float aspectW = uContinuousSdfElementSize.x / maxDim;
+    float margin = 4.0;
+    float drawW = (uContinuousSdfTexSize.x - 2.0 * margin) * aspectW;
+    float scale = drawW / max(uContinuousSdfElementSize.x, 1e-4);
+    vec2 tex = uContinuousSdfTexSize * 0.5 + coord * scale;
+    vec2 uv = tex / uContinuousSdfTexSize;
+    float g = texture2D(uContinuousSdf, uv).g;  // G = SDF [0,1]
+    return (g * 2.0 - 1.0) * radius;  // decode to element-space distance
 }
 
 // sdClipShape — SDF for clip/discard when uUseContinuousSdf is OFF.
-// When ON, callers should use sampleClipMask directly instead.
 float sdClipShape(vec2 coord, vec2 halfSize, float radius) {
     return sdRoundedRect(coord, halfSize, radius);
 }
 
-// sdShape — analytic SDF for refraction/highlight internal calculations.
-// Always uses sdRoundedRect.
+// sdShape — SDF for refraction/highlight internal calculations.
+// When uUseContinuousSdf=1, uses sampleClipSdf (same shape as clip mask).
+// Otherwise uses sdRoundedRect.
 float sdShape(vec2 coord, vec2 halfSize, float radius) {
+    if (uUseContinuousSdf > 0.5) {
+        return sampleClipSdf(coord, halfSize, radius);
+    }
     return sdRoundedRect(coord, halfSize, radius);
 }
 

@@ -1,14 +1,17 @@
 /* ------------------------------------------------------------------ *
- * Continuous-curvature alpha mask texture generator.
+ * Continuous-curvature mask + SDF texture generator (方案1).
  *
- * Generates an alpha mask from a continuous-curvature (G2 Bezier) rounded
- * rectangle path. Uses Canvas2D's ctx.fill(path) which provides browser-
- * native anti-aliased edges — the same quality as Skia's Path rasterization
- * in the original. The shader samples this mask for clip + edgeAA, giving
- * pixel-perfect AA without SDF precision issues.
+ * Generates a dual-channel texture from a continuous-curvature (G2 Bezier)
+ * rounded rectangle path:
+ *   R channel = alpha coverage (browser-native AA, 0~255)
+ *   G channel = signed distance field (chamfer distance transform, 0~255)
  *
- * The mask is stored in the R channel (alpha copied to R for shader
- * convenience). A = 255 everywhere (opaque texture, shader reads .r).
+ * The shader uses:
+ *   - R (coverage) for clip + edgeAA (browser-native AA quality)
+ *   - G (SDF) for highlight stroke (distance-based, matches clip shape)
+ *
+ * Both channels use the SAME continuous Bezier path, so clip and stroke
+ * shapes are always identical — no mismatch.
  *
  * Cached by (w, h, radius, dpr) so each unique element size generates once.
  * ------------------------------------------------------------------ */
@@ -17,16 +20,14 @@ import { continuousCurvatureRoundedRectPath } from './continuous-curve'
 
 const maskCache = new Map<string, { tex: Uint8Array; texSize: number }>()
 
-/** Generate an alpha mask texture for a continuous-curvature rounded rect.
- *  Returns a Uint8Array (RGBA) where R = coverage (0=outside, 255=inside,
- *  edge = browser-native AA gradient). texSize adapts to element size * dpr. */
+/** Generate a dual-channel (coverage + SDF) texture for a continuous-curvature
+ *  rounded rect. R = coverage [0,255], G = SDF [0,255] (128 = edge). */
 export function generateContinuousCurvatureMask(
   w: number,
   h: number,
   radius: number,
   dpr: number = 1
 ): { tex: Uint8Array; texSize: number } {
-  // 2x supersampling for sharp mask edges at high DPR.
   const texSize = Math.min(1024, Math.max(256, Math.round(Math.max(w, h) * dpr * 2)))
   const key = `${w},${h},${radius},${texSize}`
   const cached = maskCache.get(key)
@@ -51,24 +52,106 @@ export function generateContinuousCurvatureMask(
   const scale = drawW / w
   const drawRadius = radius * scale
 
-  // Draw using ctx.roundRect (circular arc) — matches sdRoundedRect exactly,
-  // so clip shape and highlight stroke shape are identical (no mismatch).
+  // Draw the continuous-curvature path — browser does native AA on edges.
+  const path = continuousCurvatureRoundedRectPath(ctx, drawW, drawH, drawRadius)
   ctx.fillStyle = 'white'
   ctx.translate(offsetX, offsetY)
-  ctx.beginPath()
-  ctx.roundRect(0, 0, drawW, drawH, drawRadius)
-  ctx.fill()
+  ctx.fill(path)
   ctx.translate(-offsetX, -offsetY)
 
-  // Read pixels and pack coverage into R channel (A = 255 for opaque tex).
+  // Read the alpha mask (coverage).
   const imageData = ctx.getImageData(0, 0, texSize, texSize)
+  const alpha = new Uint8Array(texSize * texSize)
+  for (let i = 0; i < texSize * texSize; i++) {
+    alpha[i] = imageData.data[i * 4 + 3]
+  }
+
+  // Compute SDF via chamfer distance transform (5-7-11 kernel).
+  const inside = new Float32Array(texSize * texSize)
+  const outside = new Float32Array(texSize * texSize)
+  const INF = 1e10
+
+  for (let i = 0; i < texSize * texSize; i++) {
+    if (alpha[i] > 128) {
+      inside[i] = 0
+      outside[i] = INF
+    } else {
+      inside[i] = INF
+      outside[i] = 0
+    }
+  }
+
+  // Forward pass.
+  for (let y = 0; y < texSize; y++) {
+    for (let x = 0; x < texSize; x++) {
+      const idx = y * texSize + x
+      if (x > 0 && y > 1) {
+        inside[idx] = Math.min(inside[idx], inside[idx - texSize - 1 - texSize] + 11)
+        outside[idx] = Math.min(outside[idx], outside[idx - texSize - 1 - texSize] + 11)
+      }
+      if (x > 0) {
+        inside[idx] = Math.min(inside[idx], inside[idx - 1] + 5)
+        outside[idx] = Math.min(outside[idx], outside[idx - 1] + 5)
+      }
+      if (x > 0 && y > 0) {
+        inside[idx] = Math.min(inside[idx], inside[idx - texSize - 1] + 7)
+        outside[idx] = Math.min(outside[idx], outside[idx - texSize - 1] + 7)
+      }
+      if (y > 0) {
+        inside[idx] = Math.min(inside[idx], inside[idx - texSize] + 5)
+        outside[idx] = Math.min(outside[idx], outside[idx - texSize] + 5)
+      }
+      if (x < texSize - 1 && y > 0) {
+        inside[idx] = Math.min(inside[idx], inside[idx - texSize + 1] + 7)
+        outside[idx] = Math.min(outside[idx], outside[idx - texSize + 1] + 7)
+      }
+      if (x < texSize - 2 && y > 0) {
+        inside[idx] = Math.min(inside[idx], inside[idx - texSize + 2] + 11)
+        outside[idx] = Math.min(outside[idx], outside[idx - texSize + 2] + 11)
+      }
+    }
+  }
+  // Backward pass.
+  for (let y = texSize - 1; y >= 0; y--) {
+    for (let x = texSize - 1; x >= 0; x--) {
+      const idx = y * texSize + x
+      if (x < texSize - 1 && y < texSize - 2) {
+        inside[idx] = Math.min(inside[idx], inside[idx + texSize + 1 + texSize] + 11)
+        outside[idx] = Math.min(outside[idx], outside[idx + texSize + 1 + texSize] + 11)
+      }
+      if (x < texSize - 1) {
+        inside[idx] = Math.min(inside[idx], inside[idx + 1] + 5)
+        outside[idx] = Math.min(outside[idx], outside[idx + 1] + 5)
+      }
+      if (x < texSize - 1 && y < texSize - 1) {
+        inside[idx] = Math.min(inside[idx], inside[idx + texSize + 1] + 7)
+        outside[idx] = Math.min(outside[idx], outside[idx + texSize + 1] + 7)
+      }
+      if (y < texSize - 1) {
+        inside[idx] = Math.min(inside[idx], inside[idx + texSize] + 5)
+        outside[idx] = Math.min(outside[idx], outside[idx + texSize] + 5)
+      }
+      if (x > 0 && y < texSize - 1) {
+        inside[idx] = Math.min(inside[idx], inside[idx + texSize - 1] + 7)
+        outside[idx] = Math.min(outside[idx], outside[idx + texSize - 1] + 7)
+      }
+      if (x > 1 && y < texSize - 1) {
+        inside[idx] = Math.min(inside[idx], inside[idx + texSize - 2] + 11)
+        outside[idx] = Math.min(outside[idx], outside[idx + texSize - 2] + 11)
+      }
+    }
+  }
+
+  // Pack: R = coverage, G = SDF (normalized to [0,255], 128 = edge).
+  const refDist = drawRadius
   const tex = new Uint8Array(texSize * texSize * 4)
   for (let i = 0; i < texSize * texSize; i++) {
-    const coverage = imageData.data[i * 4 + 3] // alpha = coverage (0-255)
-    tex[i * 4] = coverage     // R = coverage
-    tex[i * 4 + 1] = coverage // G = coverage (mirror)
-    tex[i * 4 + 2] = coverage // B = coverage (mirror)
-    tex[i * 4 + 3] = 255      // A = opaque
+    tex[i * 4] = alpha[i]  // R = coverage (browser AA)
+    const sd = (inside[i] - outside[i]) / 5.0
+    const normalized = Math.max(-1, Math.min(1, sd / refDist))
+    tex[i * 4 + 1] = Math.round((normalized * 0.5 + 0.5) * 255)  // G = SDF
+    tex[i * 4 + 2] = 0
+    tex[i * 4 + 3] = 255
   }
 
   maskCache.set(key, { tex, texSize })
