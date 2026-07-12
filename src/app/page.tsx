@@ -172,7 +172,7 @@ export default function Page() {
     setUserOverride((prev) => (prev === 'light' ? 'dark' : 'light'))
   }, [])
 
-  // Device orientation → gravity angle for glass highlight direction.
+  // Device motion → gravity angle for glass highlight direction.
   // Faithful to UISensor.kt:
   //   gravityAngle = gravityAngle * (1-alpha) + atan2(y, x) * 180/PI * alpha
   // with alpha = 0.5, updated on every sensor event (~60Hz).
@@ -183,17 +183,27 @@ export default function Page() {
   // CC tiles opt in via el.useGravityAngle=true; the rim highlight pass reads
   // renderer.gravityAngle live each frame.
   //
+  // SOURCE: DeviceMotionEvent.accelerationIncludingGravity is the exact Web
+  // equivalent of Android's Sensor.TYPE_ACCELEROMETER — both report the
+  // device's acceleration INCLUDING gravity in device-space axes:
+  //   x: right is positive  (Android values[0] / Web acceleration.x)
+  //   y: top is positive    (Android values[1] / Web acceleration.y)
+  // atan2(y, x) therefore has the SAME semantics on both platforms.
+  // (DeviceOrientationEvent's beta/gamma are EULER ANGLES, not acceleration
+  // vectors — atan2(beta, gamma) does NOT match the original.)
+  //
   // EMA smoothing + shortest-path angle interpolation handles the atan2
   // discontinuity at ±180° (rotating through 180° doesn't jump to -180°).
   // Default 45° (matches UISensor.kt's initial value).
   React.useEffect(() => {
-    if (typeof window === 'undefined' || !('DeviceOrientationEvent' in window)) return
-    // EMA-smoothed angle in degrees, kept in a ref (no React state).
+    if (typeof window === 'undefined' || !('DeviceMotionEvent' in window)) return
     let smoothed = 45
     const alpha = 0.5
-    const handler = (e: DeviceOrientationEvent) => {
-      const x = e.gamma ?? 0
-      const y = e.beta ?? 0
+    const handler = (e: DeviceMotionEvent) => {
+      const acc = e.accelerationIncludingGravity
+      if (!acc || acc.x == null || acc.y == null) return
+      const x = acc.x
+      const y = acc.y
       let target = Math.atan2(y, x) * 180 / Math.PI
       // Shortest-path interpolation: wrap the delta to [-180, 180] so
       // rotating through ±180° doesn't cause a 358° jump.
@@ -207,8 +217,8 @@ export default function Page() {
       const rad = smoothed * Math.PI / 180
       rendererRef.current?.setGravityAngle(rad)
     }
-    window.addEventListener('deviceorientation', handler)
-    return () => window.removeEventListener('deviceorientation', handler)
+    window.addEventListener('devicemotion', handler)
+    return () => window.removeEventListener('devicemotion', handler)
   }, [rendererRef])
 
   // Build the catalog for the current destination.
