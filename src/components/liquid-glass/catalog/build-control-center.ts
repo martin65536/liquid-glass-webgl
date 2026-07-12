@@ -299,6 +299,13 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
       // sample the scene FBO directly (wallpaper+dim, alpha=1) — no backdropFbo
       // needed. colorControls applied inline in the element pass.
       el.useSeparableBlur = true
+      // Capsule shape: original CC tiles use RoundedRectangle(itemSize/2).
+      // For non-square tiles (152×68 etc), the original's Continuous style
+      // kicks in (width != height → continuous Bezier path). Apply
+      // useContinuousSdf when capsuleShape is enabled.
+      if (state.capsuleShape) {
+        el.useContinuousSdf = true
+      }
     }
     interactions[id] = {
       onDragStart: ccOnDragStart,
