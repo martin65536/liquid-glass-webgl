@@ -63,7 +63,12 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
   // dim renders crisp on top of the blurred wallpaper (matching the original's
   // drawWithContent { drawContent(); drawRect(dim) }).
   const ccSafeP = Math.max(0, Math.min(1, state.controlCenterSafeEnter))
-  dimEl.sceneBlurRadius = 12 * DP * ccSafeP
+  // Faithful to ControlCenterContent.kt: BlurEffect(4f.dp.toPx() * progress).
+  // toPx() = dp * density. On Web at dpr=1, 1dp = 1 CSS px = 1 device px,
+  // so 4dp = 4 CSS px. The renderer multiplies by dpr again internally
+  // (sceneBlurRadius is CSS px, blurTexture receives device px), giving
+  // 4 device px here — matching the original's 4 device px at density 1.
+  dimEl.sceneBlurRadius = 4 * DP * ccSafeP
   elements.push(dimEl)
 
   // Invisible full-screen drag-catcher for empty areas. Pushed AFTER dim
