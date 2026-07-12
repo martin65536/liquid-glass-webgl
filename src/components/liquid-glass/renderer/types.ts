@@ -453,21 +453,6 @@ export interface GlassElementConfig extends GlassButtonConfig {
    *  which captures wallpaper+scrim. Used by the dialog card with 2-pass blur
    *  to get the correct colorControls→blur→lens order. */
   backdropFbo?: boolean
-  /** When true, this element samples the CC blurred backdrop (a CLEAN
-   *  wallpaper+dim layer blurred once with 4dp*progress) instead of the raw
-   *  scene FBO. Used by CC tiles to refract a pre-blurred backdrop, matching
-   *  the original ControlCenterContent.kt where the backdrop Image gets
-   *  `drawWithContent { drawContent(); drawRect(dim) }.graphicsLayer { BlurEffect }`.
-   *
-   *  CRITICAL: the backdrop must be a CLEAN wallpaper+dim (NO tile output),
-   *  so tiles never sample each other's saturated output → no vibrancy
-   *  buildup. The scene FBO (curTex) accumulates each tile's saturated
-   *  glass, so sampling it causes exponential saturation growth. */
-  ccBlurredBackdrop?: boolean
-  /** Dim overlay alpha for the CC clean backdrop = safeProgress * 0.4.
-   *  Only used when ccBlurredBackdrop=true. Drives the drawSolidFill(0,0,0,a)
-   *  composited onto the wallpaper in renderCcBackdrop. */
-  ccDimAlpha?: number
   /** GLOBAL backdrop blur radius (CSS px), applied to the wallpaper RIGHT
    *  AFTER renderBackground — before any element (dim, tiles) composites on
    *  top. Faithful to ControlCenterContent.kt's backdrop Image modifier:

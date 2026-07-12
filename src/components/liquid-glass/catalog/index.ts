@@ -126,15 +126,28 @@ export function buildCatalog(
   // Move the back button to the end of the element list so it's on top of
   // all layers (scrims, overlays, glass elements). It was pushed first by
   // each builder, but scrims/overlays pushed after it would cover it.
+  // When hideOverlayButtons is true (default), the back button + theme toggle
+  // are NOT rendered on non-Settings pages — use the browser back button / Esc
+  // to return to Home. Settings itself is EXEMPT so you can always toggle this
+  // setting back off (otherwise you'd be locked out of the Settings controls).
+  const isSettings = dest === CatalogDestination.Settings
+  const hideOverlays = state.hideOverlayButtons && !isSettings
   const backIdx = result.elements.findIndex((e) => e.id === '__back__')
   if (backIdx >= 0) {
-    const [backEl] = result.elements.splice(backIdx, 1)
-    result.elements.push(backEl)
+    if (hideOverlays) {
+      // Remove the back button entirely (hidden by setting).
+      result.elements.splice(backIdx, 1)
+      delete result.interactions['__back__']
+    } else {
+      const [backEl] = result.elements.splice(backIdx, 1)
+      result.elements.push(backEl)
+    }
   }
-  // It is appended AFTER the destination's elements so it sits on top in
-  // z-order (tappable even over other glass elements). The button is
+  // Theme toggle — appended AFTER the destination's elements so it sits on top
+  // in z-order (tappable even over other glass elements). The button is
   // non-scrolling (stays at top-right when the page scrolls).
-  if (onToggleTheme) {
+  // Skipped when hideOverlays is true.
+  if (onToggleTheme && !hideOverlays) {
     const themeBtn = makeThemeToggleButton(onToggleTheme, palette, isLightTheme, W, false)
     // Apply global separable blur to the theme toggle too (it's created
     // AFTER the globalSeparableBlur loop above, so it misses the mark).

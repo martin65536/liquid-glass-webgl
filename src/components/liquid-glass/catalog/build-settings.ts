@@ -222,6 +222,43 @@ export function buildSettings(
   }
   nextY += BUTTON_HEIGHT + 16
 
+  // --- UI section: hide overlay buttons (back + theme toggle) ---
+  // When true (default), the back button and theme toggle are NOT rendered on
+  // non-Settings pages, giving a clean, chrome-less preview. Settings itself
+  // is exempt so you can always toggle this back off.
+  elements.push(
+    makeText(
+      'settings-ui-title',
+      { x: pad, y: nextY, w: W - 2 * pad, h: 20 },
+      'UI',
+      { color: labelColor, fontSizePx: 16, fontWeight: 600, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
+    )
+  )
+  nextY += 20 + 8
+
+  const overlayLabel = state.hideOverlayButtons ? 'Hide overlay buttons: ON' : 'Hide overlay buttons: OFF'
+  const overlayBtnColor = state.hideOverlayButtons
+    ? ([0x00 / 255, 0x88 / 255, 0xff / 255, 1] as [number, number, number, number])
+    : ([0.5, 0.5, 0.5, 1] as [number, number, number, number])
+  const overlayTextW = measureTextWidth(overlayLabel, TEXT_FONT_SIZE_PX)
+  const overlayBtnW = Math.ceil(overlayTextW + 2 * BUTTON_HORIZONTAL_PADDING)
+  const overlayBtn = makeButton(
+    'settings-ui-hide-overlays',
+    { x: pad, y: nextY, w: overlayBtnW, h: BUTTON_HEIGHT },
+    {
+      label: overlayLabel,
+      tintColor: overlayBtnColor,
+      surfaceColor: [0, 0, 0, 0],
+      labelColor: [1, 1, 1, 1],
+    },
+    true
+  )
+  elements.push(overlayBtn)
+  interactions['settings-ui-hide-overlays'] = {
+    onTap: () => setState((prev) => ({ hideOverlayButtons: !prev.hideOverlayButtons })),
+  }
+  nextY += BUTTON_HEIGHT + 16
+
   // Reset button (orange, below blur settings)
   const ORANGE = [0xff / 255, 0x8d / 255, 0x28 / 255, 1] as [number, number, number, number]
   const resetLabel = 'Reset'
@@ -241,7 +278,7 @@ export function buildSettings(
   elements.push(resetBtn)
   interactions['settings-reset'] = {
     onTap: () => {
-      setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 17, blurDownsample: 1, capsuleShape: true, liveDpr: null, liveTapCap: null })
+      setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 17, blurDownsample: 1, capsuleShape: true, hideOverlayButtons: true, liveDpr: null, liveTapCap: null })
       // Directly animate both slider knobs to their reset positions so they
       // visually spring back (the toggleTargets effect should do this, but a
       // direct call guarantees it even if React bails out of the state update

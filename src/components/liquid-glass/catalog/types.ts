@@ -510,6 +510,10 @@ export interface CatalogState {
   // Settings — live (drag-in-progress) display values for slider labels
   liveDpr: number | null
   liveTapCap: number | null
+  // Settings — hide the overlay exit (back) and theme toggle buttons on all
+  // non-Home pages. Default true (hidden) for a clean, chrome-less preview.
+  // The back button is still reachable via the browser back button / Esc.
+  hideOverlayButtons: boolean
 }
 
 export const DEFAULT_CATALOG_STATE: CatalogState = {
@@ -544,6 +548,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   capsuleShape: true,
   liveDpr: null,
   liveTapCap: null,
+  hideOverlayButtons: true,
 }
 
 /* ------------------------------------------------------------------ *
