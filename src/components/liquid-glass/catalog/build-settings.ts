@@ -278,7 +278,7 @@ export function buildSettings(
   elements.push(resetBtn)
   interactions['settings-reset'] = {
     onTap: () => {
-      setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 17, blurDownsample: 1, capsuleShape: true, hideOverlayButtons: true, liveDpr: null, liveTapCap: null })
+      setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 17, blurDownsample: 1, capsuleShape: true, hideOverlayButtons: false, liveDpr: null, liveTapCap: null })
       // Directly animate both slider knobs to their reset positions so they
       // visually spring back (the toggleTargets effect should do this, but a
       // direct call guarantees it even if React bails out of the state update

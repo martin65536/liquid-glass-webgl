@@ -511,8 +511,8 @@ export interface CatalogState {
   liveDpr: number | null
   liveTapCap: number | null
   // Settings — hide the overlay exit (back) and theme toggle buttons on all
-  // non-Home pages. Default true (hidden) for a clean, chrome-less preview.
-  // The back button is still reachable via the browser back button / Esc.
+  // non-Home pages. Default false (buttons visible). When true, the back
+  // button is still reachable via the browser back button / Esc.
   hideOverlayButtons: boolean
 }
 
@@ -548,7 +548,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   capsuleShape: true,
   liveDpr: null,
   liveTapCap: null,
-  hideOverlayButtons: true,
+  hideOverlayButtons: false,
 }
 
 /* ------------------------------------------------------------------ *
