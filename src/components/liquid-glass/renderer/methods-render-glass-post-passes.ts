@@ -279,13 +279,16 @@ export const glassPostPassMethods = {
         gl.drawArrays(gl.TRIANGLES, 0, 6)
 
         // --- Pass 2: 2-pass Gaussian blur on the mask (faithful to BlurMaskFilter) ---
-        // Android BlurMaskFilter(NORMAL, sigma=blurRadius_px). The radius param
-        // IS the Gaussian sigma. At dpr=1, blurRadius=0.25dp → sigma=0.25px —
-        // sub-pixel but still softens the hard stroke edge (the original's
-        // highlight has a subtle Gaussian fringe, not a razor-hard edge).
-        // We always blur (sigma>0); blurHighlightMask uses a dedicated alpha-
-        // blurring shader that supports sub-pixel sigma (no 0.5 early-return).
-        const blurredMaskTex = blurDevice >= 0.01
+        // Android BlurMaskFilter(NORMAL, sigma=blurRadius_px). At dpr=1,
+        // blurRadius=0.25dp → sigma=0.25px. Skia's 2D Gaussian at σ=0.25 on a
+        // 2px stroke is negligibly soft (<5% peak change) — essentially just
+        // sub-pixel AA, which the stroke shader's 0.5px smoothstep already
+        // provides. So we skip the blur pass for sigma < 0.5 and rely on the
+        // stroke AA. This matches the original's visual result (the 0.25dp
+        // blur is too small to see as actual blur) AND keeps the mask peak
+        // high (no 3-tap normalization dimming) so edge highlight intensity
+        // matches the original.
+        const blurredMaskTex = blurDevice >= 0.5
           ? this.blurHighlightMask(this.highlightMaskTex!, blurDevice)
           : this.highlightMaskTex!
 

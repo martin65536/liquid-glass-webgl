@@ -350,18 +350,17 @@ void main() {
         edgeAA = 1.0 - smoothstep(-0.5, 0.5, sd);
     }
 
-    // Hard-edge stroke band centered on the edge (sd = 0).
-    // strokeWidth is the FULL width (ceil(width*dpr)*2); half-width on each side.
+    // Stroke band centered on the edge (sd = 0), with 0.5px coverage AA on
+    // the inner boundary. The outer boundary (sd = +strokeHalf) is clipped
+    // away by edgeAA above. Faithful to Skia Paint.Stroke's coverage AA.
+    // The BlurMaskFilter pass (when sigma >= 0.5px) softens this further;
+    // at sub-pixel sigma (0.25px) the blur is skipped and this 0.5px AA
+    // is what matches the original's look (Skia's 0.25px blur is negligibly
+    // soft — essentially just AA).
     float strokeHalf = uHighlightStrokeWidth * 0.5;
-    float hardStroke = (abs(sd) < strokeHalf) ? 1.0 : 0.0;
+    float strokeAA = 1.0 - smoothstep(strokeHalf - 0.5, strokeHalf, abs(sd));
 
-    // Output: alpha = hard stroke * edgeAA. RGB = 0 (blur pass only uses alpha).
-    // clipOutline already discarded the outer half (sd > 0), so the visible
-    // band is [−strokeHalf, 0]. The blur pass will expand this into a soft
-    // Gaussian fringe both inward and outward (outward into the transparent
-    // surround, inward into the interior), faithfully matching
-    // BlurMaskFilter(NORMAL) which blurs the alpha mask in ALL directions.
-    gl_FragColor = vec4(0.0, 0.0, 0.0, hardStroke * edgeAA);
+    gl_FragColor = vec4(0.0, 0.0, 0.0, strokeAA * edgeAA);
 }
 `
 
