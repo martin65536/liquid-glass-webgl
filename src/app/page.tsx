@@ -499,7 +499,7 @@ export default function Page() {
           justifyContent: 'center',
           padding: 10,
         }}>
-          <CanvasMaskPreview w={200} h={48} radius={24} />
+          <CanvasMaskPreview w={340} h={276} radius={48} />
         </div>
       )}
     </div>
