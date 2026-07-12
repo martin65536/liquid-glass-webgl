@@ -63,7 +63,7 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
   // dim renders crisp on top of the blurred wallpaper (matching the original's
   // drawWithContent { drawContent(); drawRect(dim) }).
   const ccSafeP = Math.max(0, Math.min(1, state.controlCenterSafeEnter))
-  dimEl.sceneBlurRadius = 4 * DP * ccSafeP
+  dimEl.sceneBlurRadius = 12 * DP * ccSafeP
   elements.push(dimEl)
 
   // Invisible full-screen drag-catcher for empty areas. Pushed AFTER dim
