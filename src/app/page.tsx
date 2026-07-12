@@ -16,14 +16,16 @@ function CanvasMaskPreview({ w, h, radius }: { w: number; h: number; radius: num
   React.useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    canvas.width = 280
-    canvas.height = 60
+    // High-res canvas: 4x the display size for sharp edges
+    const dispW = 600, dispH = 150
+    canvas.width = dispW * 2
+    canvas.height = dispH * 2
     const ctx = canvas.getContext('2d')!
-    ctx.clearRect(0, 0, 280, 60)
-    // Scale to fit
-    const scale = 260 / Math.max(w, h)
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    // Scale shape to fill most of the canvas
+    const scale = (canvas.width - 40) / w
     const dw = w * scale, dh = h * scale, dr = radius * scale
-    const ox = (280 - dw) / 2, oy = (60 - dh) / 2
+    const ox = (canvas.width - dw) / 2, oy = (canvas.height - dh) / 2
     ctx.save()
     ctx.translate(ox, oy)
     const path = continuousCurvatureRoundedRectPath(ctx, dw, dh, dr)
@@ -31,7 +33,7 @@ function CanvasMaskPreview({ w, h, radius }: { w: number; h: number; radius: num
     ctx.fill(path)
     ctx.restore()
   }, [w, h, radius])
-  return <canvas ref={canvasRef} style={{ width: 280, height: 60 }} />
+  return <canvas ref={canvasRef} style={{ width: 600, height: 150, imageRendering: 'auto' }} />
 }
 
 import type { LiquidGlassRenderer } from '@/components/liquid-glass/renderer'
@@ -477,14 +479,13 @@ export default function Page() {
           bottom: 20,
           left: '50%',
           transform: 'translateX(-50%)',
-          width: 300,
-          height: 80,
           background: '#000',
           border: '2px solid #ff0',
           zIndex: 99999,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
+          padding: 10,
         }}>
           <CanvasMaskPreview w={200} h={48} radius={24} />
         </div>
