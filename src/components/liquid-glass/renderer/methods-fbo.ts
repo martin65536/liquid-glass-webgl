@@ -81,6 +81,16 @@ export const fboMethods = {
     this.dialogBackdropFbo = db.fb
     this.dialogBackdropTex = db.tex
     this.dialogBackdropKey = null
+    // CC clean backdrop FBO (wallpaper+dim, NO tile output). Source for the
+    // blurred backdrop that all CC tiles sample. Faithful to the original's
+    // LayerBackdrop capturing wallpaper+dim as one opaque layer.
+    if (this.ccBackdropFbo) gl.deleteFramebuffer(this.ccBackdropFbo)
+    if (this.ccBackdropTex) gl.deleteTexture(this.ccBackdropTex)
+    const ccb = this.createFBO(w, h)
+    this.ccBackdropFbo = ccb.fb
+    this.ccBackdropTex = ccb.tex
+    this.ccBlurredBackdropTex = null
+    this.ccBlurredBackdropKey = null
     this.fboW = w
     this.fboH = h
   },

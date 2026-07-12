@@ -1,0 +1,583 @@
+     1→/* ------------------------------------------------------------------ *
+     2→ * Types — mirror the Kotlin modifier parameters.
+     3→ * ------------------------------------------------------------------ */
+     4→
+     5→import type { VelocityTracker1D } from './velocity-tracker'
+     6→
+     7→export interface GlassRect {
+     8→  x: number
+     9→  y: number
+    10→  w: number
+    11→  h: number
+    12→}
+    13→
+    14→export interface GlassHighlight {
+    15→  /** 0 = Default, 1 = Ambient, 2 = Plain */
+    16→  mode: 0 | 1 | 2
+    17→  color: [number, number, number]
+    18→  /** radians */
+    19→  angle: number
+    20→  falloff: number
+    21→  alpha: number
+    22→  /** Stroke width in dp. The renderer computes the device-pixel strokeWidth
+    23→   *  using the original Kotlin formula: ceil(widthDp * dpr) * 2.
+    24→   *  This matches HighlightModifier.kt:
+    25→   *    paint.strokeWidth = ceil(highlight.width.toPx()) * 2f
+    26→   *  where toPx() = dp * density. */
+    27→  widthDp: number
+    28→  /** Blur radius in dp. Faithful to Highlight.kt: blurRadius = width / 2.
+    29→   *  Defaults to widthDp / 2 if not specified. */
+    30→  blurRadiusDp?: number
+    31→}
+    32→
+    33→export interface GlassButtonConfig {
+    34→  /** Unique id used to track per-button press state across re-renders. */
+    35→  id: string
+    36→  /** Button rectangle in CSS pixels (canvas-relative, top-left origin). */
+    37→  rect: GlassRect
+    38→  /** Uniform corner radius in CSS pixels. Capsule = min(w,h)/2. */
+    39→  cornerRadius: number
+    40→  refractionHeight: number
+    41→  /** Already negated to match Kotlin's -refractionAmount. */
+    42→  refractionAmount: number
+    43→  depthEffect: boolean
+    44→  chromaticAberration: boolean
+    45→  blurRadius: number
+    46→  saturation: number
+    47→  brightness: number
+    48→  contrast: number
+    49→  /** [r,g,b,a] 0..1; alpha 0 = no tint */
+    50→  tintColor: [number, number, number, number]
+    51→  /** [r,g,b,a] 0..1; alpha 0 = no surface */
+    52→  surfaceColor: [number, number, number, number]
+    53→  highlight: GlassHighlight | null
+    54→  outerShadow: {
+    55→    radius: number
+    56→    alpha: number
+    57→    offsetX: number
+    58→    offsetY: number
+    59→    color: [number, number, number]
+    60→  } | null
+    61→  /** Button label text. */
+    62→  label: string
+    63→  /** Label color (black or white depending on tint). */
+    64→  labelColor: [number, number, number, number]
+    65→  /** Optional fixed label font size in CSS px. If not set, the rasterizer
+    66→   *  auto-scales from the button height (cssH * 15/48, matching 15sp on a
+    67→   *  48dp button). Set this for buttons that specify a fixed sp size in the
+    68→   *  original (e.g. Pick an image = 16sp on a 56dp button). */
+    69→  labelFontSizePx?: number
+    70→  /** Show the right chevron. */
+    71→  showChevron: boolean
+    72→  /** Whether to apply InteractiveHighlight press effect. */
+    73→  isInteractive: boolean
+    74→  /**
+    75→   * Press tint color for interactive 'text' elements (e.g. home list items).
+    76→   * Faithful to MainContent.kt's `ripple(color = if (isLightTheme) Color.Black else Color.White)`.
+    77→   * When set, the text press overlay uses this color with SrcOver blend at
+    78→   * alpha = 0.1 * pressProgress (matching RippleDefaults.pressedAlpha = 0.1f).
+    79→   * When unset, falls back to the legacy white Plus-blend overlay.
+    80→   *   - Light theme: [0, 0, 0, 1] (black ripple)
+    81→   *   - Dark theme:  [1, 1, 1, 1] (white ripple)
+    82→   */
+    83→  pressTintColor?: [number, number, number, number]
+    84→}
+    85→
+    86→/* ------------------------------------------------------------------ *
+    87→ * Element kinds — extends the glass-button model to cover the catalog.
+    88→ *
+    89→ *   - 'button'          : existing glass button (default)
+    90→ *   - 'glass-shape'     : glass rect with NO label and NO press effect
+    91→ *                         (e.g. dialog card, tabbar background, toggle/slider knob)
+    92→ *   - 'plain-rect'      : solid colored rounded rect (track, fill, card, scrim)
+    93→ *   - 'progressive-blur': alpha-masked backdrop blur band
+    94→ *   - 'text'            : unclipped text label (section titles, dialog body)
+    95→ *
+    96→ * The renderer treats each element uniformly through GlassElementConfig.
+    97→ * ------------------------------------------------------------------ */
+    98→
+    99→export type ElementKind =
+   100→  | 'button'
+   101→  | 'glass-shape'
+   102→  | 'plain-rect'
+   103→  | 'progressive-blur'
+   104→  | 'text'
+   105→
+   106→export interface PlainRectSpec {
+   107→  color: [number, number, number, number] // rgba
+   108→}
+   109→
+   110→export interface ProgressiveBlurSpec {
+   111→  blurRadius: number // px (canvas space)
+   112→  tintColor: [number, number, number, number] // rgba
+   113→  tintIntensity: number // 0..1
+   114→}
+   115→
+   116→export interface TextSpec {
+   117→  content: string
+   118→  color: [number, number, number, number]
+   119→  fontSizePx: number
+   120→  fontWeight: number // 400, 500, 600...
+   121→  align: 'left' | 'center' | 'right'
+   122→  /** Wrap into multiple lineshares if too long (default false = single line). */
+   123→  wrap?: boolean
+   124→  /** For 'left' / 'right' alignment: horizontal padding from rect edge (px). */
+   125→  paddingPx?: number
+   126→  /** Vertical alignment (default 'center'). 'top' starts at the rect top
+   127→   *  (used by dialog body text which is top-aligned in the original). */
+   128→  valign?: 'top' | 'center' | 'bottom'
+   129→  /** Max lines when wrapping (default = unlimited). Extra lines are clipped. */
+   130→  maxLines?: number
+   131→  /** Halo for legibility (default = auto from color brightness). */
+   132→  halo?: 'auto' | 'light' | 'dark' | 'none'
+   133→  /** Optional vector icon drawn above the text (for tab items / control
+   134→   *  center tiles). The path is SVG path data in a viewport of size
+   135→   *  `viewport` (default 24), scaled to `iconSize` px and centered. */
+   136→  icon?: {
+   137→    path: string
+   138→    /** Actual drawing size in px (matches the painter's intrinsic size,
+   139→     *  e.g. 24 for Material icons with defaultWidth=24.dp). */
+   140→    size: number
+   141→    color: [number, number, number, number]
+   142→    /** SVG viewport size the path is defined in (default 24). Use 960 for
+   143→     *  paths ported from Compose ImageVector (Material icons). */
+   144→    viewport?: number
+   145→    /** Layout box size in px (default = size). When the icon sits in a
+   146→     *  Compose `Box(size(N))` larger than the painter's intrinsic size,
+   147→     *  this is N — the icon is centered within this box for layout
+   148→     *  purposes (matching ContentScale.Inside behavior). */
+   149→    layoutSize?: number
+   150→  }
+   151→}
+   152→
+   153→export interface GlassElementConfig extends GlassButtonConfig {
+   154→  kind: ElementKind
+   155→  plainRect?: PlainRectSpec
+   156→  progressiveBlur?: ProgressiveBlurSpec
+   157→  text?: TextSpec
+   158→  /** Optional vector icon drawn on a 'button' (replaces the text label).
+   159→   *  Used by the circular back button (MD arrow_back icon). The path is
+   160→   *  SVG path data in a viewport of size `viewport` (default 24), scaled
+   161→   *  to `size` px and centered. */
+   162→  icon?: {
+   163→    path: string
+   164→    size: number // px (CSS space)
+   165→    color: [number, number, number, number]
+   166→    /** SVG viewport size the path is defined in (default 24). Use 960 for
+   167→     *  paths ported from Compose ImageVector (Material icons). */
+   168→    viewport?: number
+   169→    /** Layout box size in px (default = size). See TextSpec.icon. */
+   170→    layoutSize?: number
+   171→  }
+   172→  /** Inner shadow (optional, for toggle/slider knobs). */
+   173→  innerShadow?: {
+   174→    radius: number
+   175→    alpha: number
+   176→    offsetX: number
+   177→    offsetY: number
+   178→  } | null
+   179→  /**
+   180→   * Scroll-anchor: if set, the element's rect.y is interpreted as relative
+   181→   * to the section top, and the renderer adds `scrollY` to its screen y.
+   182→   * The renderer keeps a single scrollY for the whole canvas; elements
+   183→   * without this flag are static (drawn at their rect.y as-is).
+   184→   */
+   185→  scroll?: boolean
+   186→  /**
+   187→   * Touch hit-test rect (optional). When set, pointer hit-testing uses this
+   188→   * rect instead of `rect` — expanding the touch target without changing the
+   189→   * visual size. Used by slider tracks (visually 6dp tall, but touch target
+   190→   * is expanded to ~48dp for usability). The rect is in CSS px (same as rect,
+   191→   * canvas-relative, top-left origin). Renderer hit-test accounts for scrollY
+   192→   * the same way as `rect` (if `scroll` is true, y is section-relative).
+   193→   */
+   194→  hitRect?: { x: number; y: number; w: number; h: number }
+   195→  /**
+   196→   * Element rotation in RADIANS (applied around the element center).
+   197→   * Faithful to Compose graphicsLayer { rotationZ }. Used by Glass
+   198→   * Playground's transformable glass square. The renderer rotates the
+   199→   * SDF + refraction sampling so the glass shape rotates as a unit.
+   200→   * Default 0 (no rotation).
+   201→   */
+   202→  elementRotation?: number
+   203→  /**
+   204→   * If set, this element is a toggle knob. The renderer maintains an
+   205→   * animated `fraction` (0..1) per groupId and applies:
+   206→   *   - x-offset = fraction * dragWidth (knob slides between off/on)
+   207→   *   - scale = lerp(1, 1.5, pressProgress) (knob grows on press)
+   208→   *   - white overlay alpha = 1 - pressProgress (matches onDrawSurface in LiquidToggle.kt)
+   209→   *
+   210→   * Faithful to LiquidToggle.kt + DampedDragAnimation.kt:
+   211→   *   - valueAnimation: spring(1f, 1000f) — critically damped, no overshoot
+   212→   *   - pressProgress: spring(1f, 1000f) — critically damped
+   213→   *   - scale: spring(0.6f/0.7f, 250f) — underdamped, slight overshoot
+   214→   */
+   215→  isToggleKnob?: {
+   216→    groupId: string
+   217→    /** How far the knob moves from fraction=0 to fraction=1, in CSS px. */
+   218→    dragWidth: number
+   219→    /**
+   220→     * Velocity divisor for the squash-and-stretch effect.
+   221→     * Faithful to original:
+   222→     *   - LiquidToggle.kt: velocity / 50
+   223→     *   - LiquidSlider.kt: velocity / 10
+   224→     * Defaults to 50 (toggle). Slider sets 10.
+   225→     */
+   226→    velocityDivisor?: number
+   227→    /**
+   228→     * CombinedBackdrop track color info (faithful to LiquidToggle.kt):
+   229→     *   backdrop = rememberCombinedBackdrop(
+   230→     *     backdrop,                                            // wallpaper
+   231→     *     rememberBackdrop(trackBackdrop) { drawBackdrop ->   // track color
+   232→     *       scale(scaleX, scaleY) { drawBackdrop() }
+   233→     *     }
+   234→     *   )
+   235→     * When set, the knob samples the wallpaper (unscaled) + composited
+   236→     * scaled track color, instead of the content-scaled scene. The track
+   237→     * color is lerped between offColor and onColor by the toggle fraction.
+   238→     * The scale is (lerp(2/3, 0.75, pressProgress), lerp(0, 0.75, pressProgress))
+   239→     * around the knob's center.
+   240→     */
+   241→    trackColorOff?: [number, number, number, number]
+   242→    trackColorOn?: [number, number, number, number]
+   243→    /** Track's original width in CSS px (e.g. 64dp for toggle). */
+   244→    trackW?: number
+   245→    /** Track's original height in CSS px (e.g. 28dp for toggle). */
+   246→    trackH?: number
+   247→    /**
+   248→     * Track's original screen position (top-left, in CSS px). This is the
+   249→     * FIXED position where the trackBackdrop is captured — NOT the knob's
+   250→     * current position.
+   251→     *
+   252→     * Faithful to LiquidToggle.kt:
+   253→     *   rememberBackdrop(trackBackdrop) { drawBackdrop ->
+   254→     *     scale(scaleX, scaleY) { drawBackdrop() }  // pivot = knob.center
+   255→     *   }
+   256→     * The track content is at its original screen position, and the scale
+   257→     * pivots around the KNOB's center. So the scaled track center is at:
+   258→     *   knob_center + (track_center - knob_center) * scale
+   259→     * The scaled track content moves PARTIALLY with the knob (at rate
+   260→     * `1 - scale`), NOT fully with the knob.
+   261→     */
+   262→    trackOriginalX?: number
+   263→    trackOriginalY?: number
+   264→    /**
+   265→     * Solid backdrop color (RGBA 0..1) — used when the outer backdrop is a
+   266→     * CanvasBackdrop (e.g. toggle inside a solid-color card). Faithful to
+   267→     * ToggleContent.kt's t2 which uses:
+   268→     *   rememberCanvasBackdrop { drawRect(backgroundColor) }
+   269→     * When set, the knob samples this solid color instead of the wallpaper
+   270→     * texture for the outer backdrop portion of the CombinedBackdrop.
+   271→     * When unset, samples the wallpaper texture (LayerBackdrop case).
+   272→     */
+   273→    solidBackdropColor?: [number, number, number, number]
+   274→  }
+   275→  /**
+   276→   * If set, this element is a toggle track. Its color is lerped between
+   277→   * offColor and onColor based on the corresponding toggle group's
+   278→   * animated fraction.
+   279→   */
+   280→  isToggleTrack?: {
+   281→    groupId: string
+   282→    offColor: [number, number, number, number]
+   283→    onColor: [number, number, number, number]
+   284→  }
+   285→  /**
+   286→   * Slider fill — the accent-colored portion of a slider track. Its width is
+   287→   * driven by the toggle group's animated `fraction` (spring) so it stays
+   288→   * perfectly in sync with the knob's spring motion (no React-state lag).
+   289→   *
+   290→   * The fill extends from trackX to the knob's current center position:
+   291→   *   fillEnd = trackX + knobW/4 + fraction * (trackW - knobW/2)
+   292→   * This matches the knob center exactly (faithful to LiquidSlider.kt where
+   293→   * both fill width and knob translationX use the same `progress`), so the
+   294→   * fill never overshoots or undershoots the knob.
+   295→   */
+   296→  isSliderFill?: {
+   297→    groupId: string
+   298→    trackX: number
+   299→    trackW: number
+   300→    knobW: number
+   301→    minW: number
+   302→  }
+   303→  /**
+   304→   * Bottom tabs container — scales up on press (16dp/width).
+   305→   * Faithful to LiquidBottomTabs.kt container layerBlock:
+   306→   *   scale = lerp(1, 1 + 16dp/width, pressProgress)
+   307→   * Also shifts by panelOffset during drag.
+   308→   */
+   309→  isBottomTabContainer?: { groupId: string; tabsCount?: number }
+   310→  /**
+   311→   * Bottom tabs content (text/icon) — scales up to 1.2 on press.
+   312→   * Faithful to LiquidBottomTab.kt graphicsLayer:
+   313→   *   scale = lerp(1, 1.2, pressProgress)
+   314→   * Also shifts by panelOffset during drag.
+   315→   */
+   316→  isBottomTabContent?: {
+   317→    groupId: string
+   318→    /** Container center (the scale origin for the whole bar). Tab content
+   319→     *  scales around this point, not its own center — faithful to the
+   320→     *  original where container is the parent and its transform applies
+   321→     *  uniformly to all children. */
+   322→    containerCenterX?: number
+   323→    containerCenterY?: number
+   324→    /** Container width (for computing the layerBlock scale). */
+   325→    containerWidth?: number
+   326→  }
+   327→  /**
+   328→   * Bottom tabs indicator — DampedDragAnimation with pressedScale=78/56.
+   329→   * Faithful to LiquidBottomTabs.kt indicator layerBlock:
+   330→   *   scaleX = dampedDragAnimation.scaleX  (spring 0.6, 250, 1→78/56)
+   331→   *   scaleY = dampedDragAnimation.scaleY  (spring 0.7, 250, 1→78/56)
+   332→   *   velocity = dampedDragAnimation.velocity / 10  (not 50!)
+   333→   *   scaleX /= 1 - clamp(vel*0.75, -0.2, 0.2)
+   334→   *   scaleY *= 1 - clamp(vel*0.25, -0.2, 0.2)
+   335→   * Position: translationX = fraction * dragWidth + panelOffset
+   336→   */
+   337→  isBottomTabIndicator?: {
+   338→    groupId: string
+   339→    dragWidth: number
+   340→    /** Theme-aware dim color for onDrawSurface (Black light / White dark).
+   341→     *  Faithful to LiquidBottomTabs.kt indicator:
+   342→     *    drawRect(if (isLightTheme) Color.Black.copy(0.1f) else Color.White.copy(0.1f), alpha = 1f - progress)
+   343→     *    drawRect(Color.Black.copy(alpha = 0.03f * progress))
+   344→     *  The renderer draws both overlays in the post-pass, modulated by pressProgress. */
+   345→    dimColor?: [number, number, number, number]
+   346→    /** CombinedBackdrop (faithful to LiquidBottomTabs.kt 指示器):
+   347→     *  backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop)
+   348→     *  - backdrop (outer) = LayerBackdrop (wallpaper)
+   349→     *  - tabsBackdrop (inner) = 内层背景板 (hidden Row's 56dp glass),
+   350→     *    inset 4dp on all sides relative to the 指示器.
+   351→     *  The 指示器 samples wallpaper (outer) + the scene FBO (容器
+   352→     *  glass + content) composited inside an inset capsule SDF. */
+   353→    accentColor?: [number, number, number]
+   354→    /** Container rect (full container bar position/size). The inset capsule
+   355→     *  SDF (container rect shrunk 4dp on each side) clips the scene-FBO
+   356→     *  sample for the second backdrop layer. */
+   357→    containerRect?: { x: number; y: number; w: number; h: number }
+   358→    /** Container center (scale origin for the whole bar). The indicator
+   359→     *  scales around this point (like tab-content), matching the original
+   360→     *  where container is the parent and its transform applies uniformly. */
+   361→    containerCenterX?: number
+   362→    containerCenterY?: number
+   363→    /** Container width (for computing the layerBlock scale). */
+   364→    containerWidth?: number
+   365→    /** Tab content element IDs (for looking up fgTextures to use as blue-tint
+   366→     *  masks). Only the opaque icon/label pixels become blue. */
+   367→    tabContentIds?: string[]
+   368→    /** Tab content rects (for positioning the fgTexture samples). */
+   369→    tabContentRects?: { x: number; y: number; w: number; h: number }[]
+   370→  }
+   371→  /**
+   372→   * SDF-texture glass — uses a precomputed SDF texture for BOTH the shape mask
+   373→   * (A channel) and the refraction (R=SDF, GB=normal). Faithful to
+   374→   * LockScreenContent.kt's rememberSdfShader(clock_sdf) + SdfShader.kt.
+   375→   */
+   376→  isSdfTexture?: {
+   377→    refractionHeight: number
+   378→    lightAngle: number
+   379→  }
+   380→  /**
+   381→   * Magnifier glass — samples the scene FBO with 1.5x zoom + offset toward
+   382→   * the cursor position (80dp below the glass). Faithful to MagnifierContent.kt:
+   383→   *   onDrawBackdrop = { scale(1.5); translate(top = -80dp); drawBackdrop() }
+   384→   */
+   385→  isMagnifier?: {
+   386→    /** Zoom factor (1.5 in original). */
+   387→    zoom: number
+   388→    /** Y offset to the sampling position (80dp below glass, in CSS px). */
+   389→    sampleOffsetY: number
+   390→  }
+   391→  /**
+   392→   * Separable 2-pass blur flag — when true, the element pass renders to a
+   393→   * dedicated FBO (refraction reads CLEAR backdrop, uBlurRadius=0), then that
+   394→   * FBO is blurred via horizontal+vertical 1D Gaussian passes, then composited
+   395→   * back with alpha blend. Mirrors the original's createChainEffect(refraction, blur).
+   396→   * Only enabled for Glass Playground square (large adjustable radius).
+   397→   */
+   398→  useSeparableBlur?: boolean
+   399→  /**
+   400→   * Control-center RAW enter progress (can go <0 / >1 for overscroll).
+   401→   * Faithful to ControlCenterContent.kt enterProgressAnimation.
+   402→   * The renderer applies ProgressConverter to derive the visual progress:
+   403→   *   derived = p<0 ? convert(p) : p<=1 ? p : 1+convert(p-1)
+   404→   *   where convert(x) = (1 - exp(-|x|)) * sign(x)
+   405→   * Then:
+   406→   *   translationY = -48dp * (1 - derived)
+   407→   *   scaleX /= 1 + 0.1 * max(0, derived - 1)
+   408→   *   scaleY *= 1 + 0.1 * max(0, derived - 1)
+   409→   */
+   410→  enterProgress?: number
+   411→  /**
+   412→   * Control-center SAFE enter progress (clamped 0..1). Faithful to
+   413→   * ControlCenterContent.kt safeEnterProgressAnimation. Drives alpha:
+   414→   *   alpha = EaseIn.transform(safeProgress)
+   415→   *   where EaseIn = CubicBezierEasing(0.42, 0, 1, 1)
+   416→   * The safe progress animates independently (critical spring, no velocity)
+   417→   * so alpha/dim/blur never overshoot even when the raw progress bounces.
+   418→   */
+   419→  enterSafeProgress?: number
+   420→  /**
+   421→   * ControlCenter overscroll row-stretch. When set AND derived progress > 1,
+   422→   * the element's y is offset by `enterStretchFactor * max(0, derived-1) * 32dp`.
+   423→   * Faithful to ControlCenterContent.kt's spacerLayoutModifier which grows
+   424→   * inter-row spacing by 32dp (large spacer) or 16dp (small spacer) per unit
+   425→   * of DERIVED overshoot (not raw — the ProgressConverter dampens it).
+   426→   */
+   427→  enterStretchFactor?: number
+   428→  /**
+   429→   * Render ON TOP of all other elements (after the main render loop).
+   430→   * Used by the control-center dim overlay, which must composite above
+   431→   * the glass tiles (faithful to ControlCenterContent.kt's drawWithContent
+   432→   * which draws drawRect(dim) AFTER drawContent()). Elements with this
+   433→   * flag are collected and rendered in a second pass. Hit-test order is
+   434→   * unaffected (still array order).
+   435→   */
+   436→  renderOnTop?: boolean
+   437→  /** Sample the WALLPAPER (not the scene FBO) as the glass backdrop for
+   438→   *  refraction. Used by the back button / theme toggle on pages with a
+   439→   *  dark scrim/dim overlay (Dialog, ControlCenter) so the glass refracts
+   440→   *  the clean wallpaper instead of the darkened scene. Only affects the
+   441→   *  uBackdrop texture binding in renderGlassElementPass — the element
+   442→   *  still composites onto the scene FBO normally. */
+   443→  sampleWallpaper?: boolean
+   444→  /** Scrim color applied to the wallpaper backdrop BEFORE colorControls/blur/lens.
+   445→   *  Only used when sampleWallpaper=true. Faithful to DialogContent.kt /
+   446→   *  ControlCenterContent.kt where the scrim is painted onto the wallpaper Image
+   447→   *  (via BackdropDemoScaffold's drawWithContent modifier), so the LayerBackdrop
+   448→   *  captures wallpaper+scrim as one opaque layer. [r,g,b,a] 0..1; a=0 = no scrim. */
+   449→  scrimColor?: [number, number, number, number]
+   450→  /** When true, this element samples a dedicated backdrop FBO (rendered by
+   451→   *  renderDialogBackdrop) holding wallpaper+scrim+colorControls as one opaque
+   452→   *  layer, instead of the scene FBO. Faithful to the original's LayerBackdrop
+   453→   *  which captures wallpaper+scrim. Used by the dialog card with 2-pass blur
+   454→   *  to get the correct colorControls→blur→lens order. */
+   455→  backdropFbo?: boolean
+   456→  /** When true, this element samples the CC blurred backdrop (scene FBO
+   457→   *  blurred once with 4dp*progress) instead of the raw scene FBO. Used by
+   458→   *  CC tiles to refract a pre-blurred backdrop, matching the original's
+   459→   *  outer graphicsLayer { BlurEffect }. */
+   460→  ccBlurredBackdrop?: boolean
+   461→  /** When true, the element pass samples a precomputed continuous-curvature
+   462→   *  SDF texture (generated from the G2-continuous Bezier path in
+   463→   *  continuous-curve.ts) for its shape, instead of the analytic
+   464→   *  sdRoundedRect / sdContinuousRoundedRect SDF. Only applied to the dialog
+   465→   *  card for now. The renderer's loadContinuousSdf() must have been called
+   466→   *  for the element's (w, h, radius) before rendering — see methods-render.ts. */
+   467→  useContinuousSdf?: boolean
+   468→}
+   469→
+   470→/* Per-element interaction state — mirrors InteractiveHighlight.kt. */
+   471→export interface ElementState {
+   472→  // InteractiveHighlight state (button press + drag) — used by 'button'
+   473→  // kind. Other kinds ignore these.
+   474→  pressProgress: number
+   475→  pressVelocity: number
+   476→  targetPress: number
+   477→  dragX: number
+   478→  dragY: number
+   479→  dragVx: number
+   480→  dragVy: number
+   481→  targetDragX: number
+   482→  targetDragY: number
+   483→  startDragX: number
+   484→  startDragY: number
+   485→
+   486→  // Toggle / Slider / Tabbar state — managed by the React layer and
+   487→  // pushed in via setInteractiveValue(). The renderer just reads them
+   488→  // to position knobs / fill bars / tab indicators. We keep a spring-
+   489→  // animated `displayValue` so changes animate smoothly.
+   490→  interactiveValue: number // current animated value (0..1 for toggle/slider; integer index for tabbar)
+   491→  interactiveVelocity: number
+   492→  targetInteractiveValue: number
+   493→}
+   494→
+   495→/* ------------------------------------------------------------------ *
+   496→ * ToggleGroupState — faithful port of DampedDragAnimation.kt.
+   497→ *
+   498→ * The renderer maintains one ToggleGroupState per groupId. The fraction
+   499→ * (0..1) is animated with a critically damped spring (k=1000, ζ=1) so
+   500→ * it tracks the target with no overshoot — matching the smooth knob
+   501→ * glide of the original. The pressProgress (also critically damped)
+   502→ * drives the knob scale (1→1.5) and the white overlay alpha (1→0).
+   503→ *
+   504→ * Faithful to DampedDragAnimation.kt:
+   505→ *   - valueAnimation:        spring(1f, 1000f)  — critically damped
+   506→ *   - velocityAnimation:     spring(0.5f, 300f) — underdamped (drag velocity)
+   507→ *   - pressProgressAnimation: spring(1f, 1000f) — critically damped
+   508→ *   - scaleXAnimation:       spring(0.6f, 250f) — underdamped, more bounce
+   509→ *   - scaleYAnimation:       spring(0.7f, 250f) — underdamped, less bounce
+   510→ *
+   511→ * The velocity (tracked via a VelocityTracker on the value animation)
+   512→ * drives the squash-and-stretch in the layerBlock:
+   513→ *   scaleX /= 1 - clamp(vel/50 * 0.75, -0.2, 0.2)
+   514→ *   scaleY *= 1 - clamp(vel/50 * 0.25, -0.2, 0.2)
+   515→ * ------------------------------------------------------------------ */
+   516→export interface ToggleGroupState {
+   517→  // Knob position fraction (0..1). Animated with critically damped spring.
+   518→  fraction: number
+   519→  fractionVelocity: number
+   520→  targetFraction: number
+   521→  // Press progress (0 = released, 1 = pressed). Drives scale + white overlay.
+   522→  pressProgress: number
+   523→  pressVelocity: number
+   524→  targetPress: number
+   525→  // Knob scale X (1..1.5). Underdamped spring (ζ=0.6, k=250) — more bounce.
+   526→  scaleX: number
+   527→  scaleXVelocity: number
+   528→  targetScaleX: number
+   529→  // Knob scale Y (1..1.5). Underdamped spring (ζ=0.7, k=250) — less bounce.
+   530→  scaleY: number
+   531→  scaleYVelocity: number
+   532→  targetScaleY: number
+   533→  // Drag velocity (normalized 0..1 per second). Underdamped spring (ζ=0.5, k=300).
+   534→  // Drives the squash-and-stretch in the layerBlock. Tracked via a simple
+   535→  // velocity tracker on the fraction animation.
+   536→  velocity: number
+   537→  velocityVelocity: number
+   538→  targetVelocity: number
+   539→  // True while the user is dragging the knob. While true, drag deltas
+   540→  // update targetFraction directly (no spring lag, matches onDrag in
+   541→  // DampedDragAnimation which updates `fraction` instantly).
+   542→  isDragging: boolean
+   543→  // True after a drag release (endToggleDrag/endSliderDrag) — enables
+   544→  // velocity tracking from fraction rate-of-change. Set false by
+   545→  // setToggleTarget/setTabSelected (tap = no velocity animation).
+   546→  // Faithful to DampedDragAnimation: velocity is only non-zero after a
+   547→  // drag (VelocityTracker accumulates during drag); animateToValue (tap)
+   548→  // checks `if (velocity != 0f)` — for taps velocity is 0 → no stretch.
+   549→  trackVelocityAfterRelease: boolean
+   550→  // VelocityTracker fed (time, fraction) every animation frame — faithful
+   551→  // port of DampedDragAnimation.updateVelocity() which calls
+   552→  // velocityTracker.addPosition(now, Offset(value, 0)) inside the
+   553→  // valueAnimation.animateTo block. Replaces the old naive Δfraction/Δt
+   554→  // difference (which was spike-prone on small dt) with a least-squares
+   555→  // fit, matching Compose's VelocityTracker.calculateVelocity().
+   556→  velocityTracker: VelocityTracker1D
+   557→  // Retained for compatibility (no longer the primary velocity source).
+   558→  lastFractionForVelocity: number
+   559→  lastFractionTime: number
+   560→
+   561→  // pressedScale: target scale when pressed. 1.5 for toggle knob,
+   562→  // 78/56 ≈ 1.393 for bottom tabs indicator.
+   563→  // Set when the toggle group is first created (via ensureToggleState).
+   564→  pressedScale: number
+   565→  // valueRangeSpan = (valueRange.endInclusive - valueRange.start).
+   566→  // Faithful to DampedDragAnimation.kt's updateVelocity():
+   567→  //   targetVelocity = velocityTracker.calculateVelocity().x / valueRangeSpan
+   568→  // Toggle/slider: valueRange = 0..1 → span 1 (no division).
+   569→  // Bottom tabs:   valueRange = 0..(tabsCount-1) → span = tabsCount-1.
+   570→  // The velocity is normalized to "progress/sec" so the squash-stretch
+   571→  // magnitude is consistent regardless of how many tabs there are.
+   572→  // Defaults to 1 (toggle/slider). Set to tabsCount-1 for tab groups.
+   573→  valueRangeSpan: number
+   574→
+   575→  // Bottom tabs panelOffset (drag-driven horizontal shift of the whole bar).
+   576→  // Faithful to LiquidBottomTabs.kt:
+   577→  //   panelOffset = 4dp * sign(fraction) * EaseOut(|fraction|)
+   578→  //   offsetAnimation snaps to value+dragAmount during drag,
+   579→  //   animates to 0 on release with spring(1f, 300f) — critically damped.
+   580→  panelOffset: number
+   581→  panelOffsetVelocity: number
+   582→  targetPanelOffset: number
+   583→}

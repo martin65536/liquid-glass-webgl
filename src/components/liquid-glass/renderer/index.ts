@@ -147,8 +147,16 @@ export class LiquidGlassRenderer {
   continuousSdfTexture: WebGLTexture | null = null
   continuousSdfTexSize: [number, number] = [256, 256]
   continuousSdfKey: string | null = null
-  /** CC blurred backdrop: scene FBO blurred once (BlurEffect(4dp*progress)).
-   *  Cached by quantized blur radius. All CC tiles sample this. */
+  /** CC clean backdrop FBO: wallpaper + dim (NO tile output). Source for the
+   *  blurred backdrop. Faithful to ControlCenterContent.kt's backdrop Image
+   *  which gets drawWithContent { drawContent(); drawRect(dim) } — i.e. the
+   *  LayerBackdrop captures wallpaper+dim as one opaque layer, BEFORE tiles. */
+  ccBackdropFbo: WebGLFramebuffer | null = null
+  ccBackdropTex: WebGLTexture | null = null
+  /** CC blurred backdrop: ALIAS — points to either ccBackdropTex (when blur
+   *  radius < 0.5, no blur needed) or blurFboBTex (after blurTexture). Do NOT
+   *  delete this texture in dispose (it's an alias, not owned). Cached by
+   *  quantized blur radius. All CC tiles sample this. */
   ccBlurredBackdropTex: WebGLTexture | null = null
   ccBlurredBackdropKey: string | null = null
 
@@ -457,7 +465,13 @@ export class LiquidGlassRenderer {
     this.continuousSdfPool.clear()
     this.continuousSdfTexture = null
     this.continuousSdfKey = null
-    if (this.ccBlurredBackdropTex) gl.deleteTexture(this.ccBlurredBackdropTex)
+    // CC backdrop FBOs. ccBlurredBackdropTex is an ALIAS (points to
+    // ccBackdropTex or blurFboBTex) — do NOT delete it (would double-free
+    // the owned texture). Only delete the owned ccBackdropFbo/ccBackdropTex.
+    if (this.ccBackdropFbo) gl.deleteFramebuffer(this.ccBackdropFbo)
+    if (this.ccBackdropTex) gl.deleteTexture(this.ccBackdropTex)
+    this.ccBackdropFbo = null
+    this.ccBackdropTex = null
     this.ccBlurredBackdropTex = null
     this.ccBlurredBackdropKey = null
     gl.deleteProgram(this.elementProgram)

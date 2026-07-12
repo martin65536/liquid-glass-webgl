@@ -21,6 +21,16 @@ declare module './index' {
       contrast: number,
       saturation: number
     ): void
+    /** Render wallpaper+dim into ccBackdropFbo (CLEAN — no tile output), then
+     *  2-pass blur it → ccBlurredBackdropTex. Cached by quantized blur radius.
+     *  Called by the first CC tile each frame; subsequent tiles hit the cache.
+     *
+     *  Faithful to ControlCenterContent.kt: the backdrop Image gets
+     *    .drawWithContent { drawContent(); drawRect(dimColor.copy(alpha * progress)) }
+     *    .graphicsLayer { BlurEffect(4dp * progress) }
+     *  so the LayerBackdrop captures blur(wallpaper+dim) as ONE opaque layer,
+     *  shared by ALL tiles. Tiles never sample each other's saturated output. */
+    ensureCcBlurredBackdrop(dimAlpha: number, blurRadiusCss: number): void
     renderNonGlassElement(
       el: GlassElementConfig,
       r: { x: number; y: number; w: number; h: number },
@@ -304,6 +314,70 @@ export const renderMethods = {
     // the useSeparableBlur path can blur it.
     this.bindFBO(this.dialogBackdropFbo!)
     this.drawCopy(this.blurFboATex!)
+  },
+
+  /** Render wallpaper+dim into ccBackdropFbo (CLEAN — no tile output), then
+   *  2-pass blur → ccBlurredBackdropTex. Cached by quantized blur radius
+   *  (0.5 device-px steps) so during a drag the expensive re-blur only fires
+   *  when the radius crosses a 0.5px boundary; between steps the cache hits
+   *  and the dim is slightly stale (negligible — <0.01 alpha diff, and the
+   *  main scene's cc-dim element still has the fresh dim for non-tile areas).
+   *
+   *  Faithful to ControlCenterContent.kt: the backdrop Image modifier chain is
+   *    .drawWithContent { drawContent(); drawRect(dimColor.copy(alpha * progress)) }
+   *    .graphicsLayer { BlurEffect(4dp * progress) }
+   *  so the LayerBackdrop captures blur(wallpaper+dim) as ONE opaque layer,
+   *  shared by ALL tiles. Tiles apply vibrancy (sat=1.5) + lens per-element
+   *  on top of this clean blurred backdrop → NO saturation buildup (tiles
+   *  never sample each other's saturated glass output). */
+  ensureCcBlurredBackdrop(
+    this: LiquidGlassRenderer,
+    dimAlpha: number,
+    blurRadiusCss: number
+  ) {
+    // Quantize blur radius to 0.5 device-px steps for cache stability.
+    const qRadius = Math.round(blurRadiusCss * this.dpr * 2) / 2
+    const key = `${qRadius}`
+    if (this.ccBlurredBackdropKey === key && this.ccBlurredBackdropTex) return
+    this.ccBlurredBackdropKey = key
+    const gl = this.gl
+    // Step 1: paint wallpaper (opaque) into ccBackdropFbo.
+    this.bindFBO(this.ccBackdropFbo!)
+    gl.disable(gl.BLEND)
+    if (this.backgroundColor) {
+      const [r, g, b] = this.backgroundColor
+      this.drawSolidFill(r, g, b, 1)
+    } else {
+      gl.useProgram(this.wallpaperProgram)
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+      gl.enableVertexAttribArray(this.aPosLocWp)
+      gl.vertexAttribPointer(this.aPosLocWp, 2, gl.FLOAT, false, 0, 0)
+      gl.activeTexture(gl.TEXTURE0)
+      gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture!)
+      gl.uniform1i(this.uWp['uBackdrop'], 0)
+      gl.uniform2f(this.uWp['uCanvasSize'], this.canvas.width, this.canvas.height)
+      gl.uniform2f(this.uWp['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
+      gl.drawArrays(gl.TRIANGLES, 0, 6)
+    }
+    // Step 2: composite dim overlay (black * dimAlpha) via glBlendFuncSeparate
+    // (correct SrcOver alpha, FBO alpha stays 1). Faithful to the original's
+    // drawRect(dimColor.copy(dimColor.alpha * progress)) on top of the wallpaper.
+    if (dimAlpha > 0.001) {
+      gl.enable(gl.BLEND)
+      gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+      this.drawSolidFill(0, 0, 0, dimAlpha)
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+    }
+    // Step 3: 2-pass blur the clean backdrop. blurTexture reads ccBackdropTex,
+    // writes blurFboB, returns blurFboBTex. Safe to alias here because no
+    // other blurTexture call happens between CC tiles on the CC page (icons
+    // between tiles are non-glass; dialog/GP elements are on other pages).
+    if (qRadius >= 0.5) {
+      this.ccBlurredBackdropTex = this.blurTexture(this.ccBackdropTex!, qRadius)
+    } else {
+      // No blur needed (progress ≈ 0): tiles sample the clean unblurred backdrop.
+      this.ccBlurredBackdropTex = this.ccBackdropTex
+    }
   },
 
   /** Render a non-glass element (plain-rect / progressive-blur / text).

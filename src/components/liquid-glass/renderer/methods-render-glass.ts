@@ -345,18 +345,38 @@ export const glassRenderMethods = {
     this.renderGlassShadowPass(state)
 
     // --- Step 2b: Element pass (refraction + vibrancy + tint) ---
-    // For useSeparableBlur elements: blur the BACKDROP first (via 2-pass
-    // separable Gaussian on curTex), then render the element pass sampling
-    // the blurred backdrop. This matches the original's RenderEffect chain
-    // createChainEffect(blur, lens): blur is applied to the backdrop BEFORE
-    // the SDF/refraction shader, not to the glass output afterwards.
-    // The element pass renders directly to otherFbo (like inline blur),
-    // with inlineBlurRadius=0 (handled in renderGlassElementPass) since the
-    // backdrop is already blurred.
+    // CC tiles (ccBlurredBackdrop): sample the CLEAN pre-blurred backdrop
+    // (wallpaper+dim, blurred once with 4dp*progress). This is the FAITHFUL
+    // path — ControlCenterContent.kt's backdrop Image gets
+    //   .drawWithContent { drawContent(); drawRect(dim) }.graphicsLayer { BlurEffect }
+    // so the LayerBackdrop captures blur(wallpaper+dim) as ONE opaque layer
+    // shared by ALL tiles. Tiles apply vibrancy (sat=1.5) + lens per-element
+    // on top of this clean backdrop.
     //
-    // For normal elements: render the element pass directly to otherFbo
-    // (sampling curTex) with inline 16-tap Vogel disc blur.
-    if (el.useSeparableBlur && el.blurRadius >= 0.5) {
+    // CRITICAL: tiles must NOT sample the live scene FBO (curTex) — it
+    // accumulates each tile's saturated glass output, so the next tile would
+    // re-saturate it (1.5^n exponential buildup). The clean backdrop has no
+    // tile output, so there's zero buildup.
+    //
+    // useSeparableBlur stays true on CC tiles ONLY so the element pass sets
+    // inlineBlurRadius=0 (no double-blur on the already-blurred backdrop).
+    // The per-tile blurTexture branch below is skipped because the CC branch
+    // takes priority.
+    if (el.ccBlurredBackdrop) {
+      this.ensureCcBlurredBackdrop(el.ccDimAlpha ?? 0, el.blurRadius)
+      // ensureCcBlurredBackdrop left ccBackdropFbo bound (or blurFboB via
+      // blurTexture's save/restore). Rebind otherFbo for the element pass.
+      this.gl.enable(this.gl.BLEND)
+      this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA)
+      this.bindFBO(otherFbo)
+      this.gl.viewport(0, 0, this.fboW, this.fboH)
+      this.renderGlassElementPass(state, this.ccBlurredBackdropTex!)
+    }
+    // For useSeparableBlur elements (dialog card / GP square): blur the
+    // BACKDROP first (via 2-pass separable Gaussian on the backdrop source),
+    // then render the element pass sampling the blurred backdrop. This
+    // matches the original's RenderEffect chain createChainEffect(blur, lens).
+    else if (el.useSeparableBlur && el.blurRadius >= 0.5) {
       const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr
       // For backdropFbo elements (dialog card), blur the dialogBackdropTex
       // (wallpaper+scrim+colorControls opaque layer) instead of the scene FBO.
