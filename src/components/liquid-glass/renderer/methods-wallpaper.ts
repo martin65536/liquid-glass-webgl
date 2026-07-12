@@ -87,35 +87,34 @@ export const wallpaperMethods = {
    *  shader); G and B mirror R; A = 255. */
   loadContinuousSdf(this: LiquidGlassRenderer, w: number, h: number, radius: number) {
     const key = `${w},${h},${radius},${this.dpr}`
-    if (this.continuousSdfTexture && this.continuousSdfKey === key && this.continuousSdfReady) {
-      return // cached
+    // Pool: each unique (w,h,radius,dpr) gets its own texture.
+    let entry = this.continuousSdfPool.get(key)
+    if (!entry) {
+      const { tex, texSize } = generateContinuousCurvatureMask(w, h, radius, this.dpr)
+      const gl = this.gl
+      const texObj = gl.createTexture()!
+      gl.bindTexture(gl.TEXTURE_2D, texObj)
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true)
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, texSize, texSize, 0, gl.RGBA, gl.UNSIGNED_BYTE, tex)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+      entry = { tex: texObj, texSize }
+      this.continuousSdfPool.set(key, entry)
+      // Evict oldest if pool too large
+      if (this.continuousSdfPool.size > 16) {
+        const oldest = this.continuousSdfPool.keys().next().value
+        if (oldest) {
+          const old = this.continuousSdfPool.get(oldest)
+          if (old) gl.deleteTexture(old.tex)
+          this.continuousSdfPool.delete(oldest)
+        }
+      }
     }
-    const { tex, texSize } = generateContinuousCurvatureMask(w, h, radius, this.dpr)
-    const gl = this.gl
-    if (this.continuousSdfTexture) gl.deleteTexture(this.continuousSdfTexture)
-    const texObj = gl.createTexture()!
-    gl.bindTexture(gl.TEXTURE_2D, texObj)
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true)  // flip Y: Canvas2D Y-down → WebGL Y-up
-    gl.texImage2D(
-      gl.TEXTURE_2D,
-      0,
-      gl.RGBA,
-      texSize,
-      texSize,
-      0,
-      gl.RGBA,
-      gl.UNSIGNED_BYTE,
-      tex
-    )
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-    this.continuousSdfTexture = texObj
-    this.continuousSdfReady = true
+    this.continuousSdfTexture = entry.tex
+    this.continuousSdfTexSize = [entry.texSize, entry.texSize]
     this.continuousSdfKey = key
-    this.continuousSdfTexSize = [texSize, texSize]
-    this.requestRender()
   },
 
   /** Set canvas size (CSS pixels) + handle DPR.
