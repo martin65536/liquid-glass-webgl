@@ -56,6 +56,14 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
   const dimAlpha = Math.max(0, Math.min(1, state.controlCenterSafeEnter)) * 0.4
   const dimEl = makePlainRect('cc-dim', { x: 0, y: 0, w: W, h: Math.max(H, 800) }, [0, 0, 0, dimAlpha], 0)
   dimEl.scroll = false
+  // Global backdrop blur: faithful to ControlCenterContent.kt's backdrop Image
+  //   .graphicsLayer { BlurEffect(4dp * safeProgress) }
+  // The renderer scans for sceneBlurRadius and blurs fboA (wallpaper) right
+  // after renderBackground, BEFORE this dim element composites on top. So the
+  // dim renders crisp on top of the blurred wallpaper (matching the original's
+  // drawWithContent { drawContent(); drawRect(dim) }).
+  const ccSafeP = Math.max(0, Math.min(1, state.controlCenterSafeEnter))
+  dimEl.sceneBlurRadius = 4 * DP * ccSafeP
   elements.push(dimEl)
 
   // Invisible full-screen drag-catcher for empty areas. Pushed AFTER dim

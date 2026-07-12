@@ -468,6 +468,17 @@ export interface GlassElementConfig extends GlassButtonConfig {
    *  Only used when ccBlurredBackdrop=true. Drives the drawSolidFill(0,0,0,a)
    *  composited onto the wallpaper in renderCcBackdrop. */
   ccDimAlpha?: number
+  /** GLOBAL backdrop blur radius (CSS px), applied to the wallpaper RIGHT
+   *  AFTER renderBackground — before any element (dim, tiles) composites on
+   *  top. Faithful to ControlCenterContent.kt's backdrop Image modifier:
+   *    .drawWithContent { drawContent(); drawRect(dim) }
+   *    .graphicsLayer { BlurEffect(4dp * progress) }
+   *  The graphicsLayer wraps the wallpaper painter, so only the WALLPAPER is
+   *  blurred; the dim (drawn by drawWithContent AFTER drawContent) is crisp.
+   *  Set this on the cc-dim element (first element). The renderer scans for
+   *  it and blurs fboA (wallpaper) → blurFboB → copies back to fboA before
+   *  the element loop. blurRadius=0 → no blur. */
+  sceneBlurRadius?: number
   /** When true, the element pass samples a precomputed continuous-curvature
    *  SDF texture (generated from the G2-continuous Bezier path in
    *  continuous-curve.ts) for its shape, instead of the analytic

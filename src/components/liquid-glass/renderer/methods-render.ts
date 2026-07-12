@@ -86,6 +86,29 @@ export const renderMethods = {
       return
     }
 
+    // --- Global backdrop blur (ControlCenter) ---
+    // Faithful to ControlCenterContent.kt: the backdrop Image has
+    //   .graphicsLayer { BlurEffect(4dp * progress) }
+    // which blurs the WALLPAPER (not the dim, not the tiles). We replicate
+    // by blurring fboA (wallpaper) right after renderBackground, BEFORE any
+    // element composites on top. The cc-dim element (drawn next) renders a
+    // crisp dim on top of the blurred wallpaper — matching the original's
+    // drawWithContent { drawContent(); drawRect(dim) } where drawContent()
+    // draws the blurred wallpaper and drawRect(dim) is crisp.
+    //
+    // sceneBlurRadius is set on the cc-dim element (CSS px). We scan for it
+    // here (once per frame) and blur fboA in-place (blurTexture → blurFboB,
+    // then drawCopy back to fboA).
+    const sceneBlurEl = this.buttonConfigs.find((e) => (e.sceneBlurRadius ?? 0) >= 0.5)
+    if (sceneBlurEl) {
+      const r = sceneBlurEl.sceneBlurRadius! * this.dpr
+      const blurred = this.blurTexture(this.fboATex!, r)
+      // blurTexture restored the FBO binding to fboA (what renderBackground
+      // bound). Rebind explicitly + copy blurred result back into fboA.
+      this.bindFBO(this.fboA!)
+      this.drawCopy(blurred)
+    }
+
     // Enable blending for the remaining passes.
     gl.enable(gl.BLEND)
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
