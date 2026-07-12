@@ -207,17 +207,21 @@ export default function Page() {
 
   // Home page background: faithful to the original Android app.
   // HomeContent.kt does NOT wrap content in BackdropDemoScaffold, so the
-  // Home page shows the Activity's `windowBackground` directly (no wallpaper):
+  // Home + System UIs (Lock screen, Control center) use a solid background
+  // (the Activity's windowBackground) instead of the wallpaper image:
   //   - Light theme: themes.xml → @android:color/white  → #FFFFFF
   //   - Dark  theme: values-night/themes.xml → @android:color/black → #000000
   // Other destinations (Toggle/Slider/...) DO wrap in BackdropDemoScaffold
   // and thus show the wallpaper image — pass `null` to use the wallpaper.
-  const backgroundColor: [number, number, number] | null =
-    destination === CatalogDestination.Home
-      ? isLightTheme
-        ? [1, 1, 1]    // #FFFFFF
-        : [0, 0, 0]    // #000000
-      : null
+  const useSolidBg =
+    destination === CatalogDestination.Home ||
+    destination === CatalogDestination.LockScreen ||
+    destination === CatalogDestination.ControlCenter
+  const backgroundColor: [number, number, number] | null = useSolidBg
+    ? isLightTheme
+      ? [1, 1, 1]    // #FFFFFF
+      : [0, 0, 0]    // #000000
+    : null
 
   // Push toggle/slider targets to the renderer whenever the underlying
   // state changes (or when entering the corresponding destination).
