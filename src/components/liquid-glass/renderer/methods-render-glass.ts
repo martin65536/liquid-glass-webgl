@@ -302,14 +302,25 @@ export const glassRenderMethods = {
     // ColorFilter.tint(SrcIn) on the 内层背景板 (hidden Row)'s content. No separate FBO
     // capture is needed.
 
-    // --- Scissor: limit ALL passes (blit + shadow + element + post) to the
-    // element's bounding box + margin. This is the single biggest perf win:
-    // without scissor, every pass draws a fullscreen quad (~242k fragments at
-    // 420×577), and 90%+ are outside the element (wasted discard). With
-    // scissor, only the element region + margin is rasterized (~2-5k fragments).
+    // --- Step 1: Blit curFbo → otherFbo (FULLSCREEN — must copy the entire
+    // scene so ping-pong preserves all previously-rendered elements. Scissor
+    // cannot be used here because otherFbo's regions outside the current
+    // element still need the correct scene content for subsequent elements
+    // to sample from.) ---
+    this.bindFBO(otherFbo)
+    this.drawCopy(curTex)
+
+    // Re-enable blending after the copy (drawCopy disables it).
+    gl.enable(gl.BLEND)
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+
+    // --- Scissor: limit drawing passes (shadow + element + highlight) to the
+    // element's bounding box + margin. The blit above is fullscreen (needed
+    // for ping-pong correctness), but the actual element rendering only
+    // affects a small region. Scissor skips fragment shader execution for
+    // pixels far outside the element — the single biggest perf win.
     // Margin covers: outer shadow (~24dp), highlight blur (~2px), press scale
     // (up to 1.5x), toggle drag offset. 60 CSS px is safe.
-    // WebGL scissor uses bottom-left origin (framebuffer space), Y flipped.
     const MARGIN_CSS = 60
     const scissorX = Math.max(0, Math.round((sx - MARGIN_CSS) * this.dpr))
     const scissorY = Math.max(0, Math.round((this.cssHeight - (sy + sh + MARGIN_CSS)) * this.dpr))
@@ -317,17 +328,6 @@ export const glassRenderMethods = {
     const scissorH = Math.min(this.fboH - scissorY, Math.round((sh + 2 * MARGIN_CSS) * this.dpr))
     gl.enable(gl.SCISSOR_TEST)
     gl.scissor(scissorX, scissorY, scissorW, scissorH)
-
-    // --- Step 1: Blit curFbo → otherFbo (scissor-limited: only copies the
-    // element region, not the full screen. The rest of otherFbo retains its
-    // previous content from the last swap, which is identical to curFbo there
-    // because ping-pong preserves the scene outside the element region.) ---
-    this.bindFBO(otherFbo)
-    this.drawCopy(curTex)
-
-    // Re-enable blending after the copy (drawCopy disables it).
-    gl.enable(gl.BLEND)
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
     const state: GlassRenderState = {
       el, st, isButton, p, sx, sy, sw, sh, radii, togglePressProgress,
