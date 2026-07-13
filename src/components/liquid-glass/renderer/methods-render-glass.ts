@@ -302,7 +302,26 @@ export const glassRenderMethods = {
     // ColorFilter.tint(SrcIn) on the 内层背景板 (hidden Row)'s content. No separate FBO
     // capture is needed.
 
-    // --- Step 1: Blit curFbo → otherFbo ---
+    // --- Scissor: limit ALL passes (blit + shadow + element + post) to the
+    // element's bounding box + margin. This is the single biggest perf win:
+    // without scissor, every pass draws a fullscreen quad (~242k fragments at
+    // 420×577), and 90%+ are outside the element (wasted discard). With
+    // scissor, only the element region + margin is rasterized (~2-5k fragments).
+    // Margin covers: outer shadow (~24dp), highlight blur (~2px), press scale
+    // (up to 1.5x), toggle drag offset. 60 CSS px is safe.
+    // WebGL scissor uses bottom-left origin (framebuffer space), Y flipped.
+    const MARGIN_CSS = 60
+    const scissorX = Math.max(0, Math.round((sx - MARGIN_CSS) * this.dpr))
+    const scissorY = Math.max(0, Math.round((this.cssHeight - (sy + sh + MARGIN_CSS)) * this.dpr))
+    const scissorW = Math.min(this.fboW - scissorX, Math.round((sw + 2 * MARGIN_CSS) * this.dpr))
+    const scissorH = Math.min(this.fboH - scissorY, Math.round((sh + 2 * MARGIN_CSS) * this.dpr))
+    gl.enable(gl.SCISSOR_TEST)
+    gl.scissor(scissorX, scissorY, scissorW, scissorH)
+
+    // --- Step 1: Blit curFbo → otherFbo (scissor-limited: only copies the
+    // element region, not the full screen. The rest of otherFbo retains its
+    // previous content from the last swap, which is identical to curFbo there
+    // because ping-pong preserves the scene outside the element region.) ---
     this.bindFBO(otherFbo)
     this.drawCopy(curTex)
 
@@ -379,6 +398,10 @@ export const glassRenderMethods = {
 
     // --- Steps 2c–2f: Press glow, white overlay, foreground, rim highlight ---
     this.renderGlassPostPasses(state)
+
+    // --- Disable scissor (restore full-screen rasterization for subsequent
+    // elements + the final blit to the default framebuffer) ---
+    gl.disable(gl.SCISSOR_TEST)
 
     // --- Step 3: Swap curFbo ↔ otherFbo ---
     // otherFbo now contains: previous scene + shadow + glass body +
