@@ -186,19 +186,15 @@ void main() {
     vec2 origHalfSize = uOriginalSize * 0.5;
     float origRadius = uOriginalCornerRadius;
 
-    // SDF for stroke — always analytic sdRoundedRect.
-    float sd = sdShape(centeredOrigRot, origHalfSize, origRadius);
+    // SDF for stroke — analytic sdRoundedRect (matches the pre-capsule
+    // highlight implementation). When capsule is OFF, this is the exact
+    // shape. When capsule is ON, this is a close approximation (circular
+    // arc vs G2 Bezier — the difference is sub-pixel within the 2px stroke
+    // band, invisible in the highlight).
+    float sd = sdRoundedRect(centeredOrigRot, origHalfSize, origRadius);
 
-    // Outside the shape — clip.
-    float edgeAA;
-    if (uUseContinuousSdf > 0.5) {
-        float mask = sampleClipMask(centeredOrigRot, origHalfSize, origRadius);
-        if (mask < 0.01) discard;
-        edgeAA = mask;
-    } else {
-        if (sd > 0.0) discard;
-        edgeAA = 1.0 - smoothstep(-0.5, 0.5, sd);
-    }
+    // Outside the shape — clip (hard discard, matching pre-capsule behavior).
+    if (sd > 0.0) discard;
 
     // Stroke mask — faithful to HighlightModifier.kt:
     //   paint.style = Stroke
