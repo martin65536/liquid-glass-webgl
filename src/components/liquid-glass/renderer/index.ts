@@ -184,8 +184,8 @@ export class LiquidGlassRenderer {
   fgDirtyIds = new Set<string>()
   /** Stroke mask texture (Canvas2D-generated, re-uploaded each frame per element). */
   strokeMaskTex: WebGLTexture | null = null
-  strokeMaskCanvas: HTMLCanvasElement | OffscreenCanvas | null = null
-  strokeMaskCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null
+  strokeMaskCanvas: HTMLCanvasElement | null = null
+  strokeMaskCtx: CanvasRenderingContext2D | null = null
 
   rafId: number | null = null
   animRafId: number | null = null
@@ -289,14 +289,12 @@ export class LiquidGlassRenderer {
 
     // Stroke mask texture (Canvas2D-generated, for highlight)
     this.strokeMaskTex = gl.createTexture()
-    if (typeof OffscreenCanvas !== 'undefined') {
-      this.strokeMaskCanvas = new OffscreenCanvas(64, 64)
-    } else {
-      this.strokeMaskCanvas = document.createElement('canvas')
-      ;(this.strokeMaskCanvas as HTMLCanvasElement).width = 64
-      ;(this.strokeMaskCanvas as HTMLCanvasElement).height = 64
-    }
-    this.strokeMaskCtx = (this.strokeMaskCanvas as any).getContext('2d', { alpha: true })
+    // Always use HTMLCanvasElement (not OffscreenCanvas) — texImage2D with
+    // OffscreenCanvas has compatibility issues in some browsers.
+    this.strokeMaskCanvas = document.createElement('canvas')
+    ;(this.strokeMaskCanvas as HTMLCanvasElement).width = 64
+    ;(this.strokeMaskCanvas as HTMLCanvasElement).height = 64
+    this.strokeMaskCtx = (this.strokeMaskCanvas as HTMLCanvasElement).getContext('2d', { alpha: true })
 
     this.cacheUniforms()
   }

@@ -256,7 +256,10 @@ export const glassPostPassMethods = {
           smCanvas.height = maskH
         }
         const smCtx = this.strokeMaskCtx!
-        smCtx.clearRect(0, 0, maskW, maskH)
+        // Clear the ENTIRE canvas (not just maskW×maskH) — if the canvas is
+        // larger than needed (from a previous bigger element), stale content
+        // outside maskW×maskH would be uploaded to GPU and cause ghost layers.
+        smCtx.clearRect(0, 0, smCanvas.width, smCanvas.height)
         smCtx.save()
         smCtx.translate(strokeMargin, strokeMargin)
 
@@ -316,9 +319,10 @@ export const glassPostPassMethods = {
         gl.activeTexture(gl.TEXTURE0)
         gl.bindTexture(gl.TEXTURE_2D, this.strokeMaskTex!)
         gl.uniform1i(this.uSm['uStrokeMask'], 0)
-        // Mask offset: element top-left in device px, minus margin.
-        // screenCoord in shader is top-left origin; mask (0,0) = element top-left - margin.
-        gl.uniform2f(this.uSm['uMaskOffset'], (sx * this.dpr) - strokeMargin, (sy * this.dpr) - strokeMargin)
+        // uMaskOffset = margin (the Canvas2D translate offset). The shader
+        // maps screenCoord → element-local original space (un-scale, un-rotate),
+        // then UV = (localCoord + margin) / maskSize.
+        gl.uniform2f(this.uSm['uMaskOffset'], strokeMargin, strokeMargin)
         gl.uniform2f(this.uSm['uMaskSize'], maskW, maskH)
         gl.uniform4f(this.uSm['uHighlightColor'], el.highlight.color[0], el.highlight.color[1], el.highlight.color[2], 1.0)
         gl.uniform1f(this.uSm['uHighlightAngle'], el.useGravityAngle ? this.gravityAngle : el.highlight.angle)

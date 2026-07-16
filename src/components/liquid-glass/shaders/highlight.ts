@@ -498,17 +498,29 @@ ${SDF_GLSL}
 
 void main() {
     vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
-    vec2 maskUv = (screenCoord - uMaskOffset) / uMaskSize;
-    if (maskUv.x < 0.0 || maskUv.x > 1.0 || maskUv.y < 0.0 || maskUv.y > 1.0) discard;
-    float mask = texture2D(uStrokeMask, maskUv).a;
-    if (mask < 0.001) discard;
 
+    // Map screen coord → element-local ORIGINAL space (un-scale, un-rotate).
+    // The stroke mask is drawn in original space (origSizeX × origSizeY + margin).
+    // elementCenter is the same in scaled and original space (scaling is around center).
     vec2 elementCenter = uOffset + uSize * 0.5;
     vec2 centeredScreen = screenCoord - elementCenter;
     vec2 layerScale = max(uLayerScale, vec2(1e-4));
     vec2 centeredOrig = centeredScreen / layerScale;
     vec2 centeredOrigRot = rotateBy(centeredOrig, -uElementRotation);
+
+    // Mask UV: map original-space coord → mask texture UV.
+    // The mask was drawn with translate(margin, margin), so mask (0,0) =
+    // element-local (-margin). Element-local coord 0..origSize maps to
+    // mask UV (0+margin)/maskSize .. (origSize+margin)/maskSize.
+    // uMaskOffset = margin (scalar, passed as vec2 for convenience).
+    // uMaskSize = (origSize + 2*margin).
     vec2 origHalfSize = uOriginalSize * 0.5;
+    vec2 maskTexCoord = centeredOrigRot + origHalfSize;  // 0..origSize (element-local)
+    vec2 maskUv = (maskTexCoord + uMaskOffset) / uMaskSize;
+    if (maskUv.x < 0.0 || maskUv.x > 1.0 || maskUv.y < 0.0 || maskUv.y > 1.0) discard;
+    float mask = texture2D(uStrokeMask, maskUv).a;
+    if (mask < 0.001) discard;
+
     float origRadius = uOriginalCornerRadius;
 
     float intensity;
