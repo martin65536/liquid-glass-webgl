@@ -9,6 +9,7 @@ import {
   RIM_HIGHLIGHT_FRAGMENT_SHADER,
   HIGHLIGHT_STROKE_FRAGMENT_SHADER,
   HIGHLIGHT_COMPOSITE_FRAGMENT_SHADER,
+  STROKE_MASK_COMPOSITE_FRAGMENT_SHADER,
   SHADOW_FRAGMENT_SHADER,
   TINT_FRAGMENT_SHADER,
   VERTEX_SHADER,
@@ -63,6 +64,8 @@ export class LiquidGlassRenderer {
   highlightStrokeProgram: WebGLProgram
   /** Pass 3: composite (blurred mask * intensity * color). */
   highlightCompositeProgram: WebGLProgram
+  /** Stroke mask composite (Canvas2D stroke mask × intensity × color). */
+  strokeMaskCompositeProgram: WebGLProgram
   plainRectProgram: WebGLProgram
   progressiveBlurProgram: WebGLProgram
   copyProgram: WebGLProgram
@@ -179,6 +182,10 @@ export class LiquidGlassRenderer {
   fgCtx: CanvasRenderingContext2D
   fgTextures = new Map<string, WebGLTexture>()
   fgDirtyIds = new Set<string>()
+  /** Stroke mask texture (Canvas2D-generated, re-uploaded each frame per element). */
+  strokeMaskTex: WebGLTexture | null = null
+  strokeMaskCanvas: HTMLCanvasElement | OffscreenCanvas | null = null
+  strokeMaskCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null
 
   rafId: number | null = null
   animRafId: number | null = null
@@ -191,6 +198,7 @@ export class LiquidGlassRenderer {
   aPosLocRm: number
   aPosLocHs: number  // highlight stroke
   aPosLocHc: number  // highlight composite
+  aPosLocSm: number  // stroke mask composite
   aPosLocPr: number
   aPosLocPb: number
   aPosLocCp: number
@@ -208,6 +216,7 @@ export class LiquidGlassRenderer {
   uRm: Record<string, WebGLUniformLocation | null> = {}
   uHs: Record<string, WebGLUniformLocation | null> = {}
   uHc: Record<string, WebGLUniformLocation | null> = {}
+  uSm: Record<string, WebGLUniformLocation | null> = {}
   uPr: Record<string, WebGLUniformLocation | null> = {}
   uPb: Record<string, WebGLUniformLocation | null> = {}
   uCp: Record<string, WebGLUniformLocation | null> = {}
@@ -238,6 +247,7 @@ export class LiquidGlassRenderer {
     this.rimHighlightProgram = createProgram(gl, VERTEX_SHADER, RIM_HIGHLIGHT_FRAGMENT_SHADER)
     this.highlightStrokeProgram = createProgram(gl, VERTEX_SHADER, HIGHLIGHT_STROKE_FRAGMENT_SHADER)
     this.highlightCompositeProgram = createProgram(gl, VERTEX_SHADER, HIGHLIGHT_COMPOSITE_FRAGMENT_SHADER)
+    this.strokeMaskCompositeProgram = createProgram(gl, VERTEX_SHADER, STROKE_MASK_COMPOSITE_FRAGMENT_SHADER)
     this.plainRectProgram = createProgram(gl, VERTEX_SHADER, PLAIN_RECT_FRAGMENT_SHADER)
     this.progressiveBlurProgram = createProgram(gl, VERTEX_SHADER, PROGRESSIVE_BLUR_FRAGMENT_SHADER)
     this.copyProgram = createProgram(gl, VERTEX_SHADER, COPY_FRAGMENT_SHADER)
@@ -263,6 +273,7 @@ export class LiquidGlassRenderer {
     this.aPosLocRm = gl.getAttribLocation(this.rimHighlightProgram, 'aPos')
     this.aPosLocHs = gl.getAttribLocation(this.highlightStrokeProgram, 'aPos')
     this.aPosLocHc = gl.getAttribLocation(this.highlightCompositeProgram, 'aPos')
+    this.aPosLocSm = gl.getAttribLocation(this.strokeMaskCompositeProgram, 'aPos')
     this.aPosLocPr = gl.getAttribLocation(this.plainRectProgram, 'aPos')
     this.aPosLocPb = gl.getAttribLocation(this.progressiveBlurProgram, 'aPos')
     this.aPosLocCp = gl.getAttribLocation(this.copyProgram, 'aPos')
@@ -275,6 +286,17 @@ export class LiquidGlassRenderer {
     const fgCtx = this.fgCanvas?.getContext('2d', { alpha: true })
     if (!fgCtx) throw new Error('2D canvas not supported')
     this.fgCtx = fgCtx
+
+    // Stroke mask texture (Canvas2D-generated, for highlight)
+    this.strokeMaskTex = gl.createTexture()
+    if (typeof OffscreenCanvas !== 'undefined') {
+      this.strokeMaskCanvas = new OffscreenCanvas(64, 64)
+    } else {
+      this.strokeMaskCanvas = document.createElement('canvas')
+      ;(this.strokeMaskCanvas as HTMLCanvasElement).width = 64
+      ;(this.strokeMaskCanvas as HTMLCanvasElement).height = 64
+    }
+    this.strokeMaskCtx = (this.strokeMaskCanvas as any).getContext('2d', { alpha: true })
 
     this.cacheUniforms()
   }
@@ -354,6 +376,14 @@ export class LiquidGlassRenderer {
       'uUseContinuousSdf', 'uContinuousSdf', 'uContinuousSdfTexSize', 'uContinuousSdfElementSize',
     ]
     for (const n of hcNames) this.uHc[n] = gl.getUniformLocation(this.highlightCompositeProgram, n)
+    // Stroke mask composite (Canvas2D stroke mask approach)
+    const smNames = [
+      'uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii',
+      'uStrokeMask', 'uMaskOffset', 'uMaskSize',
+      'uHighlightColor', 'uHighlightAngle', 'uHighlightFalloff', 'uHighlightAlpha', 'uHighlightMode',
+      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation',
+    ]
+    for (const n of smNames) this.uSm[n] = gl.getUniformLocation(this.strokeMaskCompositeProgram, n)
     const prNames = ['uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uColor', 'uCornerStyle',
       'uUseContinuousSdf', 'uContinuousSdf', 'uContinuousSdfTexSize', 'uContinuousSdfElementSize']
     for (const n of prNames) this.uPr[n] = gl.getUniformLocation(this.plainRectProgram, n)
@@ -558,6 +588,10 @@ export class LiquidGlassRenderer {
     if (this.wallpaperTexture) gl.deleteTexture(this.wallpaperTexture)
     for (const tex of this.fgTextures.values()) gl.deleteTexture(tex)
     this.fgTextures.clear()
+    if (this.strokeMaskTex) gl.deleteTexture(this.strokeMaskTex)
+    this.strokeMaskTex = null
+    this.strokeMaskCanvas = null
+    this.strokeMaskCtx = null
     if (this.fboA) gl.deleteFramebuffer(this.fboA)
     if (this.fboATex) gl.deleteTexture(this.fboATex)
     if (this.fboB) gl.deleteFramebuffer(this.fboB)
@@ -611,6 +645,7 @@ export class LiquidGlassRenderer {
     gl.deleteProgram(this.rimHighlightProgram)
     gl.deleteProgram(this.highlightStrokeProgram)
     gl.deleteProgram(this.highlightCompositeProgram)
+    gl.deleteProgram(this.strokeMaskCompositeProgram)
     gl.deleteProgram(this.plainRectProgram)
     gl.deleteProgram(this.progressiveBlurProgram)
     gl.deleteProgram(this.copyProgram)

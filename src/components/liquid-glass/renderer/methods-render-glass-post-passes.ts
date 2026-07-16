@@ -1,6 +1,7 @@
 import type { LiquidGlassRenderer } from './index'
 import type { GlassRenderState } from './methods-render-glass'
 import { DP } from './spring'
+import { continuousCurvatureRoundedRectPath } from './continuous-curve'
 
 declare module './index' {
   interface LiquidGlassRenderer {
@@ -218,123 +219,116 @@ export const glassPostPassMethods = {
       }
     }
 
-    // --- Step 2f: Rim highlight (3-pass faithful: stroke mask → 2-pass blur → composite) ---
-    // Faithful to HighlightModifier.kt:
-    //   1. GraphicsLayer.record { clipOutline(shape); drawOutline(shape, paint.Stroke + BlurMaskFilter) }
-    //      → renders the clipped stroke alpha mask (this is our pass 1).
-    //   2. Skia BlurMaskFilter(NORMAL, sigma) blurs the mask in 2D — we do a
-    //      2-pass separable Gaussian (H then V) via blurTexture (pass 2).
-    //   3. AGSL RuntimeShader (DefaultHighlightShaderString) multiplies by
-    //      intensity = pow(abs(dot(grad,normal)), falloff) and color; the
-    //      GraphicsLayer composites with alpha + blendMode (Plus/SrcOver)
-    //      (this is our pass 3).
+    // --- Step 2f: Rim highlight (Canvas2D stroke mask approach) ---
+    // Uses Canvas2D ctx.stroke() (browser-native Skia) to rasterize the G2
+    // Bezier path as a stroke mask. This is the SAME method the original
+    // uses (Skia drawOutline + paint.Stroke) — the browser's Canvas2D
+    // internally calls Skia's SkCanvas::drawPath, which tessellates the
+    // Bezier into triangles and rasterizes with hardware coverage AA.
     //
-    // This replaces the old single-pass RIM_HIGHLIGHT_FRAGMENT_SHADER which
-    // faked the blur with a 1D SDF-gradient convolution (inaccurate at corners
-    // where the gradient direction changes — a true 2D blur spreads the edge
-    // highlight around corners, 1D does not).
+    // Advantages over the SDF approach:
+    //   - Exact G2 Bezier shape (not SDF approximation)
+    //   - Hardware coverage AA (sub-pixel accurate, no smoothstep needed)
+    //   - No SDF computation in shader (just one texture fetch)
+    //   - Adaptive tessellation (more samples at high-curvature corners)
+    //
+    // The mask is drawn every frame at the current dpr (no caching = no
+    // resolution ceiling). It's element-local (small texture, element size
+    // + margin), not fullscreen.
     if (el.highlight && el.highlight.alpha > 0.001) {
-      // For toggle knobs AND bottom-tab indicators, alpha is pressProgress-modulated.
       const rimAlpha = (el.isToggleKnob || el.isBottomTabIndicator) ? elHighlightAlpha : el.highlight.alpha
       const finalAlpha = rimAlpha * state.enterAlpha
       if (finalAlpha > 0.001) {
         const widthPx = el.highlight.widthDp * this.dpr
         const strokeWidthDevice = Math.ceil(widthPx) * 2
-        const blurRadiusDp = el.highlight.blurRadiusDp ?? (el.highlight.widthDp * 0.5)
-        const blurDevice = blurRadiusDp * this.dpr
 
-        // Save the scene FBO (the element pass's target, where post-passes
-        // composite). Pass 1 + pass 2 bind other FBOs; pass 3 must restore this.
-        const sceneFbo = gl.getParameter(gl.FRAMEBUFFER_BINDING)
+        // --- Generate stroke mask via Canvas2D (browser-native Skia) ---
+        // Element-local coordinates: (0,0) = element top-left in device px.
+        // Margin for stroke width + AA + blur spread.
+        const strokeMargin = Math.ceil(strokeWidthDevice) + 4
+        const maskW = Math.ceil(origSizeX + 2 * strokeMargin)
+        const maskH = Math.ceil(origSizeY + 2 * strokeMargin)
 
-        // --- Pass 1: stroke mask → highlightMaskFbo ---
-        this.bindFBO(this.highlightMaskFbo!)
-        gl.disable(gl.BLEND)
-        gl.clearColor(0, 0, 0, 0)
-        gl.clear(gl.COLOR_BUFFER_BIT)
-        gl.useProgram(this.highlightStrokeProgram)
-        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
-        gl.enableVertexAttribArray(this.aPosLocHs)
-        gl.vertexAttribPointer(this.aPosLocHs, 2, gl.FLOAT, false, 0, 0)
-        gl.uniform2f(this.uHs['uCanvasSize'], this.canvas.width, this.canvas.height)
-        gl.uniform2f(this.uHs['uOffset'], sx * this.dpr, sy * this.dpr)
-        gl.uniform2f(this.uHs['uSize'], sw * this.dpr, sh * this.dpr)
-        gl.uniform4f(this.uHs['uCornerRadii'], radii[0] * this.dpr, radii[1] * this.dpr, radii[2] * this.dpr, radii[3] * this.dpr)
-        gl.uniform1f(this.uHs['uHighlightStrokeWidth'], strokeWidthDevice)
-        gl.uniform2f(this.uHs['uOriginalSize'], origSizeX, origSizeY)
-        gl.uniform1f(this.uHs['uOriginalCornerRadius'], origRadius)
-        gl.uniform2f(this.uHs['uLayerScale'], layerScaleX, layerScaleY)
-        gl.uniform1f(this.uHs['uElementRotation'], state.elementRotation)
-        gl.uniform1f(this.uHs['uCornerStyle'], this.cornerStyle)
-        if (el.useContinuousSdf && this.continuousSdfTexture) {
-          gl.activeTexture(gl.TEXTURE2)
-          gl.bindTexture(gl.TEXTURE_2D, this.continuousSdfTexture)
-          gl.uniform1i(this.uHs['uContinuousSdf'], 2)
-          gl.uniform1f(this.uHs['uUseContinuousSdf'], 1.0)
-          gl.uniform2f(this.uHs['uContinuousSdfTexSize'], this.continuousSdfTexSize[0], this.continuousSdfTexSize[1])
-          gl.uniform2f(this.uHs['uContinuousSdfElementSize'], state.origW * this.dpr, state.origH * this.dpr)
-        } else {
-          gl.uniform1f(this.uHs['uUseContinuousSdf'], 0.0)
+        // Resize the stroke canvas if needed
+        const smCanvas = this.strokeMaskCanvas as any
+        if (smCanvas.width < maskW || smCanvas.height < maskH) {
+          smCanvas.width = maskW
+          smCanvas.height = maskH
         }
-        gl.drawArrays(gl.TRIANGLES, 0, 6)
+        const smCtx = this.strokeMaskCtx!
+        smCtx.clearRect(0, 0, maskW, maskH)
+        smCtx.save()
+        smCtx.translate(strokeMargin, strokeMargin)
 
-        // --- Pass 2: 2-pass Gaussian blur on the mask (faithful to BlurMaskFilter) ---
-        // Android BlurMaskFilter(NORMAL, sigma=blurRadius_px). At dpr=1,
-        // blurRadius=0.25dp → sigma=0.25px. Skia's 2D Gaussian at σ=0.25 on a
-        // 2px stroke is negligibly soft (<5% peak change) — essentially just
-        // sub-pixel AA, which the stroke shader's 0.5px smoothstep already
-        // provides. So we skip the blur pass for sigma < 0.5 and rely on the
-        // stroke AA. This matches the original's visual result (the 0.25dp
-        // blur is too small to see as actual blur) AND keeps the mask peak
-        // high (no 3-tap normalization dimming) so edge highlight intensity
-        // matches the original.
-        const blurredMaskTex = blurDevice >= 0.5
-          ? this.blurHighlightMask(this.highlightMaskTex!, blurDevice)
-          : this.highlightMaskTex!
+        // Build the path (element-local, 0..origSizeX × 0..origSizeY)
+        const useG2 = !!el.useContinuousSdf
+        let path: Path2D
+        if (useG2) {
+          path = continuousCurvatureRoundedRectPath(smCtx, origSizeX, origSizeY, origRadius)
+        } else {
+          path = new Path2D()
+          const r = Math.min(origRadius, origSizeX / 2, origSizeY / 2)
+          path.moveTo(r, 0)
+          path.lineTo(origSizeX - r, 0)
+          path.arcTo(origSizeX, 0, origSizeX, r, r)
+          path.lineTo(origSizeX, origSizeY - r)
+          path.arcTo(origSizeX, origSizeY, origSizeX - r, origSizeY, r)
+          path.lineTo(r, origSizeY)
+          path.arcTo(0, origSizeY, 0, origSizeY - r, r)
+          path.lineTo(0, r)
+          path.arcTo(0, 0, r, 0, r)
+          path.closePath()
+        }
 
-        // --- Pass 3: composite (blurred mask × intensity × color) → scene FBO ---
-        gl.bindFramebuffer(gl.FRAMEBUFFER, sceneFbo)
-        gl.viewport(0, 0, this.fboW, this.fboH)
+        // Stroke — browser-native Skia stroke rasterization
+        smCtx.lineWidth = strokeWidthDevice
+        smCtx.strokeStyle = 'rgba(255,255,255,1)'
+        smCtx.lineJoin = 'round'
+        smCtx.lineCap = 'round'
+        smCtx.stroke(path)
+        smCtx.restore()
+
+        // Upload to GPU texture
+        gl.bindTexture(gl.TEXTURE_2D, this.strokeMaskTex!)
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true)
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, smCanvas)
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+
+        // --- Composite: stroke mask × intensity × color → scene FBO ---
         gl.enable(gl.BLEND)
         if (el.highlight.mode === 1) {
-          // Ambient — SrcOver blend (matches HighlightModifier.kt)
           gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
         } else {
-          // Default / Plain — Plus blend (matches HighlightModifier.kt)
           gl.blendFunc(gl.ONE, gl.ONE)
         }
-        gl.useProgram(this.highlightCompositeProgram)
+        gl.useProgram(this.strokeMaskCompositeProgram)
         gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
-        gl.enableVertexAttribArray(this.aPosLocHc)
-        gl.vertexAttribPointer(this.aPosLocHc, 2, gl.FLOAT, false, 0, 0)
-        gl.uniform2f(this.uHc['uCanvasSize'], this.canvas.width, this.canvas.height)
-        gl.uniform2f(this.uHc['uOffset'], sx * this.dpr, sy * this.dpr)
-        gl.uniform2f(this.uHc['uSize'], sw * this.dpr, sh * this.dpr)
-        gl.uniform4f(this.uHc['uCornerRadii'], radii[0] * this.dpr, radii[1] * this.dpr, radii[2] * this.dpr, radii[3] * this.dpr)
+        gl.enableVertexAttribArray(this.aPosLocSm)
+        gl.vertexAttribPointer(this.aPosLocSm, 2, gl.FLOAT, false, 0, 0)
+        gl.uniform2f(this.uSm['uCanvasSize'], this.canvas.width, this.canvas.height)
+        gl.uniform2f(this.uSm['uOffset'], sx * this.dpr, sy * this.dpr)
+        gl.uniform2f(this.uSm['uSize'], sw * this.dpr, sh * this.dpr)
+        gl.uniform4f(this.uSm['uCornerRadii'], radii[0] * this.dpr, radii[1] * this.dpr, radii[2] * this.dpr, radii[3] * this.dpr)
         gl.activeTexture(gl.TEXTURE0)
-        gl.bindTexture(gl.TEXTURE_2D, blurredMaskTex)
-        gl.uniform1i(this.uHc['uBlurredMask'], 0)
-        gl.uniform2f(this.uHc['uMaskTexSize'], this.fboW, this.fboH)
-        gl.uniform4f(this.uHc['uHighlightColor'], el.highlight.color[0], el.highlight.color[1], el.highlight.color[2], 1.0)
-        gl.uniform1f(this.uHc['uHighlightAngle'], el.useGravityAngle ? this.gravityAngle : el.highlight.angle)
-        gl.uniform1f(this.uHc['uHighlightFalloff'], el.highlight.falloff)
-        gl.uniform1f(this.uHc['uHighlightAlpha'], finalAlpha)
-        gl.uniform1f(this.uHc['uHighlightMode'], el.highlight.mode)
-        gl.uniform2f(this.uHc['uOriginalSize'], origSizeX, origSizeY)
-        gl.uniform1f(this.uHc['uOriginalCornerRadius'], origRadius)
-        gl.uniform2f(this.uHc['uLayerScale'], layerScaleX, layerScaleY)
-        gl.uniform1f(this.uHc['uElementRotation'], state.elementRotation)
-        gl.uniform1f(this.uHc['uCornerStyle'], this.cornerStyle)
-        if (el.useContinuousSdf && this.continuousSdfTexture) {
-          gl.activeTexture(gl.TEXTURE2)
-          gl.bindTexture(gl.TEXTURE_2D, this.continuousSdfTexture)
-          gl.uniform1i(this.uHc['uContinuousSdf'], 2)
-          gl.uniform1f(this.uHc['uUseContinuousSdf'], 1.0)
-          gl.uniform2f(this.uHc['uContinuousSdfTexSize'], this.continuousSdfTexSize[0], this.continuousSdfTexSize[1])
-          gl.uniform2f(this.uHc['uContinuousSdfElementSize'], state.origW * this.dpr, state.origH * this.dpr)
-        } else {
-          gl.uniform1f(this.uHc['uUseContinuousSdf'], 0.0)
-        }
+        gl.bindTexture(gl.TEXTURE_2D, this.strokeMaskTex!)
+        gl.uniform1i(this.uSm['uStrokeMask'], 0)
+        // Mask offset: element top-left in device px, minus margin.
+        // screenCoord in shader is top-left origin; mask (0,0) = element top-left - margin.
+        gl.uniform2f(this.uSm['uMaskOffset'], (sx * this.dpr) - strokeMargin, (sy * this.dpr) - strokeMargin)
+        gl.uniform2f(this.uSm['uMaskSize'], maskW, maskH)
+        gl.uniform4f(this.uSm['uHighlightColor'], el.highlight.color[0], el.highlight.color[1], el.highlight.color[2], 1.0)
+        gl.uniform1f(this.uSm['uHighlightAngle'], el.useGravityAngle ? this.gravityAngle : el.highlight.angle)
+        gl.uniform1f(this.uSm['uHighlightFalloff'], el.highlight.falloff)
+        gl.uniform1f(this.uSm['uHighlightAlpha'], finalAlpha)
+        gl.uniform1f(this.uSm['uHighlightMode'], el.highlight.mode)
+        gl.uniform2f(this.uSm['uOriginalSize'], origSizeX, origSizeY)
+        gl.uniform1f(this.uSm['uOriginalCornerRadius'], origRadius)
+        gl.uniform2f(this.uSm['uLayerScale'], layerScaleX, layerScaleY)
+        gl.uniform1f(this.uSm['uElementRotation'], state.elementRotation)
         gl.drawArrays(gl.TRIANGLES, 0, 6)
 
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
