@@ -299,6 +299,10 @@ export function makeButton(
     showChevron: false,
     isInteractive: true,
     scroll,
+    // Capsule shape → tessellated mesh (hardware rasterization, analytic
+    // coverage AA, no per-pixel SDF). Major perf win vs the fullscreen-quad
+    // + discard path.
+    useTessellation: true,
   }
 }
 
@@ -501,6 +505,8 @@ export function makeGlassShape(
     isInteractive: false,
     scroll,
     innerShadow: opts.innerShadow ?? null,
+    // Rounded-rect / capsule → tessellated mesh (hardware clip + analytic AA).
+    useTessellation: true,
   }
 }
 
@@ -557,6 +563,8 @@ export function makeBackButton(
       size: iconSize,
       color: palette.backIconColor,
     },
+    // Circular shape → tessellated mesh (hardware clip + analytic AA).
+    useTessellation: true,
   }
   return {
     element,
@@ -607,6 +615,8 @@ export function makeThemeToggleButton(
       size: iconSize,
       color: palette.backIconColor,
     },
+    // Circular shape → tessellated mesh (hardware clip + analytic AA).
+    useTessellation: true,
   }
   return {
     element,

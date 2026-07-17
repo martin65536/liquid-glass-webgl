@@ -38,6 +38,18 @@ ${COVER_GLSL}
 
 ${utilsGlsl}
 
+// --- Tessellation mode ---
+// When uUseTessellation=1, the element is drawn as a per-element triangle
+// mesh (capsule-tessellator.ts) instead of a fullscreen quad. The vertex
+// shader passes vCoverage [0..1] as an analytic AA coverage varying (1 = fully
+// inside, 0 = fully outside the shape). The fragment shader uses vCoverage
+// for edgeAlpha instead of computing a per-pixel SDF — the GPU's hardware
+// rasterizer does the geometric clipping for free (no discard, no SDF math).
+// This is the Skia GrAAConvexTessellator approach: O(triangles) GPU work
+// instead of O(pixels × SDF).
+uniform float uUseTessellation;  // 0 or 1
+varying float vCoverage;         // AA coverage from tessellated mesh (1 when not tessellated)
+
 void main() {
     // gl_FragCoord origin is bottom-left in WebGL; flip to top-left.
     vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
@@ -135,10 +147,19 @@ void main() {
     }
 
     // SDF for refraction/highlight — always analytic sdRoundedRect.
+    // NOTE: When uUseTessellation=1, this SDF is used ONLY for refraction
+    // distance (lens displacement), NOT for clip/AA. The geometric clip is
+    // done by the tessellated mesh itself (triangles only cover the shape
+    // interior + 1px AA ring), and edgeAlpha comes from vCoverage.
     float sd = sdShape(centeredOrigRot, origHalfSize, origRadius);
-    // Clip + edgeAA: alpha mask (browser-native AA) when capsule enabled.
+    // Clip + edgeAA.
     float edgeAlpha;
-    if (uUseContinuousSdf > 0.5) {
+    if (uUseTessellation > 0.5) {
+        // Tessellated mesh path: coverage from vertex interpolation (analytic
+        // AA). No discard needed — the mesh geometry already clips to the
+        // shape. This is the fast path: zero SDF cost for clip/AA.
+        edgeAlpha = vCoverage;
+    } else if (uUseContinuousSdf > 0.5) {
         float mask = sampleClipMask(centeredOrigRot, origHalfSize, origRadius);
         if (mask < 0.01) discard;
         edgeAlpha = mask;

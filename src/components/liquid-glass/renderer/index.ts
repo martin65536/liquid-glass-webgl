@@ -13,6 +13,7 @@ import {
   SHADOW_FRAGMENT_SHADER,
   TINT_FRAGMENT_SHADER,
   VERTEX_SHADER,
+  TESSELLATION_VERTEX_SHADER,
   WALLPAPER_FRAGMENT_SHADER,
   COPY_FRAGMENT_SHADER,
   SOLID_FILL_FRAGMENT_SHADER,
@@ -24,6 +25,7 @@ import {
   computeHighlightBlurTapCount,
 } from '../shaders'
 import { compileShader, createProgram } from './gl-utils'
+import { tessellateRoundedRect } from './capsule-tessellator'
 import type {
   GlassElementConfig,
   ElementState,
@@ -54,6 +56,10 @@ import type {
 export class LiquidGlassRenderer {
   gl: WebGLRenderingContext
   elementProgram: WebGLProgram
+  /** Element program with the tessellation vertex shader (per-element mesh
+   *  + analytic coverage AA). Used when el.useTessellation=true. Shares the
+   *  SAME fragment shader as elementProgram — only the vertex stage differs. */
+  elementTessProgram: WebGLProgram
   shadowProgram: WebGLProgram
   wallpaperProgram: WebGLProgram
   foregroundProgram: WebGLProgram
@@ -194,6 +200,21 @@ export class LiquidGlassRenderer {
     h: number
     ready: boolean
   }>()
+  /** Tessellated mesh GPU buffer cache — keyed by "w,h,radius" (device px).
+   *  Each entry holds a VBO (position+coverage) and IBO (triangle indices)
+   *  for one unique rounded-rect geometry. Generated once, reused across
+   *  frames and across elements that share the same dimensions.
+   *  LRU-evicted at 64 entries to bound GPU memory. */
+  tessellationCache = new Map<string, {
+    vbo: WebGLBuffer
+    ibo: WebGLBuffer
+    vertexCount: number
+    indexCount: number
+    indexType: number  // gl.UNSIGNED_SHORT or gl.UNSIGNED_INT
+  }>()
+  /** Tessellation cache LRU ordering — most recently used at the end.
+   *  When the cache exceeds 64 entries, the oldest is evicted (buffers deleted). */
+  tessellationLru: string[] = []
 
   rafId: number | null = null
   animRafId: number | null = null
@@ -213,9 +234,16 @@ export class LiquidGlassRenderer {
   aPosLocSf: number
   aPosLocCc: number
   aPosLocSt: number
+  /** Tessellation element program attribute locations. */
+  aPosLocElTess: number      // aPos (vec2) in tessellation vertex shader
+  aCovLocElTess: number      // aCoverage (float) in tessellation vertex shader
 
   // Program uniform locations (cached)
   uEl: Record<string, WebGLUniformLocation | null> = {}
+  /** Tessellation element program uniform locations. Same fragment shader
+   *  as uEl, but a different WebGLProgram → separate location cache.
+   *  Includes the tessellation-specific uniform uUseTessellation. */
+  uElTess: Record<string, WebGLUniformLocation | null> = {}
   uSh: Record<string, WebGLUniformLocation | null> = {}
   uWp: Record<string, WebGLUniformLocation | null> = {}
   uFg: Record<string, WebGLUniformLocation | null> = {}
@@ -246,7 +274,17 @@ export class LiquidGlassRenderer {
     if (!gl) throw new Error('WebGL not supported')
     this.gl = gl
 
+    // Enable 32-bit index buffers (OES_element_index_uint) for tessellation
+    // meshes that exceed 65535 vertices. Most rounded rects stay well under
+    // that limit (~200 vertices), but huge radii can push past it. The
+    // extension is universally available on WebGL1 contexts.
+    gl.getExtension('OES_element_index_uint')
+
     this.elementProgram = createProgram(gl, VERTEX_SHADER, ELEMENT_FRAGMENT_SHADER)
+    // Tessellation element program: same fragment shader, tessellation vertex shader.
+    // Used for elements with useTessellation=true (capsule shapes drawn as triangle
+    // meshes with analytic coverage AA instead of per-pixel SDF).
+    this.elementTessProgram = createProgram(gl, TESSELLATION_VERTEX_SHADER, ELEMENT_FRAGMENT_SHADER)
     this.shadowProgram = createProgram(gl, VERTEX_SHADER, SHADOW_FRAGMENT_SHADER)
     this.wallpaperProgram = createProgram(gl, VERTEX_SHADER, WALLPAPER_FRAGMENT_SHADER)
     this.foregroundProgram = createProgram(gl, VERTEX_SHADER, FOREGROUND_FRAGMENT_SHADER)
@@ -288,6 +326,9 @@ export class LiquidGlassRenderer {
     this.aPosLocSf = gl.getAttribLocation(this.solidFillProgram, 'aPos')
     this.aPosLocCc = gl.getAttribLocation(this.colorControlsProgram, 'aPos')
     this.aPosLocSt = gl.getAttribLocation(this.sceneTintProgram, 'aPos')
+    // Tessellation element program attributes
+    this.aPosLocElTess = gl.getAttribLocation(this.elementTessProgram, 'aPos')
+    this.aCovLocElTess = gl.getAttribLocation(this.elementTessProgram, 'aCoverage')
 
     // Offscreen 2D canvas for the foreground texture.
     this.fgCanvas = typeof document !== 'undefined' ? document.createElement('canvas') : (null as any)
@@ -329,8 +370,13 @@ export class LiquidGlassRenderer {
       'uUseMagnifier', 'uMagnifierZoom', 'uMagnifierOffsetY',
       'uElementRotation',
       'uContinuousSdf', 'uUseContinuousSdf', 'uContinuousSdfTexSize', 'uContinuousSdfElementSize',
+      'uUseTessellation',
     ]
     for (const n of elNames) this.uEl[n] = gl.getUniformLocation(this.elementProgram, n)
+    // Tessellation element program — same fragment uniforms + uUseTessellation.
+    // The vertex shader also declares uCanvasSize, uElementOffset, uElementSize,
+    // uOriginalSize, uLayerScale, uElementRotation (shared with fragment shader).
+    for (const n of elNames) this.uElTess[n] = gl.getUniformLocation(this.elementTessProgram, n)
     const shNames = [
       'uCanvasSize', 'uElementOffset', 'uElementSize', 'uCornerRadii',
       'uShadowRadius', 'uShadowOffset', 'uShadowColor',
@@ -635,7 +681,10 @@ export class LiquidGlassRenderer {
     this.continuousSdfPool.clear()
     this.continuousSdfTexture = null
     this.continuousSdfKey = null
+    // Tessellation buffer cache
+    this.disposeTessellationCache()
     gl.deleteProgram(this.elementProgram)
+    gl.deleteProgram(this.elementTessProgram)
     gl.deleteProgram(this.shadowProgram)
     gl.deleteProgram(this.wallpaperProgram)
     gl.deleteProgram(this.foregroundProgram)
@@ -670,6 +719,7 @@ import { renderMethods } from './methods-render'
 import { glassRenderMethods } from './methods-render-glass'
 import { glassElementPassMethods } from './methods-render-glass-element-pass'
 import { glassPostPassMethods } from './methods-render-glass-post-passes'
+import { tessellationMethods } from './methods-tessellation'
 
 Object.assign(
   LiquidGlassRenderer.prototype,
@@ -684,7 +734,8 @@ Object.assign(
   renderMethods,
   glassRenderMethods,
   glassElementPassMethods,
-  glassPostPassMethods
+  glassPostPassMethods,
+  tessellationMethods
 )
 
 // Re-export all public types so callers can `import type { GlassElementConfig, ... } from './renderer'`.

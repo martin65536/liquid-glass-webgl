@@ -477,6 +477,16 @@ export interface GlassElementConfig extends GlassButtonConfig {
    *  card for now. The renderer's loadContinuousSdf() must have been called
    *  for the element's (w, h, radius) before rendering — see methods-render.ts. */
   useContinuousSdf?: boolean
+  /** When true, the element is drawn as a per-element tessellated triangle
+   *  mesh (capsule-tessellator.ts) instead of a fullscreen quad. The GPU's
+   *  hardware rasterizer does the geometric clipping — no per-pixel SDF
+   *  computation, no discard. Edge AA comes from vertex coverage interpolation
+   *  (the Skia GrAAConvexTessellator approach). This is the fast path for
+   *  capsule/rounded-rect shapes: O(triangles) instead of O(pixels × SDF).
+   *  The mesh is cached by (w, h, radius) so it's generated once per unique
+   *  geometry. Only applies to elements with simple rounded-rect shapes
+   *  (not SDF-texture glass, not magnifier). */
+  useTessellation?: boolean
 }
 
 /* Per-element interaction state — mirrors InteractiveHighlight.kt. */

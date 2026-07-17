@@ -21,16 +21,49 @@ export const glassElementPassMethods = {
     const gl = this.gl
     const { el, sx, sy, sw, sh, radii, togglePressProgress, layerScale } = state
 
-    gl.useProgram(this.elementProgram)
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
-    gl.enableVertexAttribArray(this.aPosLocEl)
-    gl.vertexAttribPointer(this.aPosLocEl, 2, gl.FLOAT, false, 0, 0)
+    // --- Tessellation path vs fullscreen-quad path ---
+    // When el.useTessellation is true AND the element is a simple rounded-rect
+    // (not SDF-texture glass, not magnifier), draw a per-element triangle mesh
+    // with analytic coverage AA. The GPU's hardware rasterizer does the clipping
+    // — no per-pixel SDF, no discard. This is the Skia GrAAConvexTessellator
+    // approach: O(triangles) instead of O(pixels × SDF).
+    const canTessellate = !!el.useTessellation && !el.isMagnifier && !(el as any).useSdfTexture
+    const useTess = canTessellate
+    // Uniform location map — same fragment shader, but different WebGLProgram
+    // → different uniform locations. Use uElTess for the tessellation program.
+    const u = useTess ? this.uElTess : this.uEl
+
+    if (useTess) {
+      gl.useProgram(this.elementTessProgram)
+      // Get or create the tessellated mesh buffers for this geometry.
+      // The mesh is generated in ORIGINAL device px (origW*dpr × origH*dpr).
+      const tessW = state.origW * this.dpr
+      const tessH = state.origH * this.dpr
+      const tessR = state.origCornerRadius * this.dpr
+      const buffers = this.getTessellationBuffers(tessW, tessH, tessR)
+      // Bind VBO: [x, y, coverage] per vertex, stride = 12 bytes (3 floats)
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffers.vbo)
+      gl.enableVertexAttribArray(this.aPosLocElTess)
+      gl.vertexAttribPointer(this.aPosLocElTess, 2, gl.FLOAT, false, 12, 0)
+      gl.enableVertexAttribArray(this.aCovLocElTess)
+      gl.vertexAttribPointer(this.aCovLocElTess, 1, gl.FLOAT, false, 12, 8)
+      // Bind IBO
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffers.ibo)
+      // Stash for the draw call at the end
+      ;(this as any)._tessIndexCount = buffers.indexCount
+      ;(this as any)._tessIndexType = buffers.indexType
+    } else {
+      gl.useProgram(this.elementProgram)
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+      gl.enableVertexAttribArray(this.aPosLocEl)
+      gl.vertexAttribPointer(this.aPosLocEl, 2, gl.FLOAT, false, 0, 0)
+    }
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
     gl.activeTexture(gl.TEXTURE0)
     // uBackdrop: the backdrop texture the glass samples (refraction + blur).
     gl.bindTexture(gl.TEXTURE_2D, curTex)
-    gl.uniform1i(this.uEl['uBackdrop'], 0)
+    gl.uniform1i(u['uBackdrop'], 0)
 
     // Bind wallpaper texture to TEXTURE1 for the toggle knob CombinedBackdrop
     // effect (faithful to LiquidToggle.kt's rememberCombinedBackdrop).
@@ -45,7 +78,7 @@ export const glassElementPassMethods = {
     if (this.wallpaperTexture) {
       gl.activeTexture(gl.TEXTURE1)
       gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture)
-      gl.uniform1i(this.uEl['uWallpaperSampler'], 1)
+      gl.uniform1i(u['uWallpaperSampler'], 1)
     }
 
     // uTabsBackdropSampler (TEXTURE2) is no longer bound — the faithful
@@ -53,12 +86,12 @@ export const glassElementPassMethods = {
     // accentColor at containerColor alpha inside the container capsule SDF),
     // without sampling a tinted scene FBO.
 
-    gl.uniform2f(this.uEl['uCanvasSize'], this.canvas.width, this.canvas.height)
-    gl.uniform2f(this.uEl['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
-    gl.uniform2f(this.uEl['uElementOffset'], sx * this.dpr, sy * this.dpr)
-    gl.uniform2f(this.uEl['uElementSize'], sw * this.dpr, sh * this.dpr)
+    gl.uniform2f(u['uCanvasSize'], this.canvas.width, this.canvas.height)
+    gl.uniform2f(u['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
+    gl.uniform2f(u['uElementOffset'], sx * this.dpr, sy * this.dpr)
+    gl.uniform2f(u['uElementSize'], sw * this.dpr, sh * this.dpr)
     gl.uniform4f(
-      this.uEl['uCornerRadii'],
+      u['uCornerRadii'],
       radii[0] * this.dpr,
       radii[1] * this.dpr,
       radii[2] * this.dpr,
@@ -68,12 +101,12 @@ export const glassElementPassMethods = {
     // original space (shape is correct, not stretched), then maps the refraction
     // offset to screen space via uLayerScale. Faithful to the original which
     // shades at original size then scales the entire layer via graphicsLayer.
-    gl.uniform2f(this.uEl['uOriginalSize'], state.origW * this.dpr, state.origH * this.dpr)
-    gl.uniform1f(this.uEl['uOriginalCornerRadius'], state.origCornerRadius * this.dpr)
-    gl.uniform2f(this.uEl['uLayerScale'], state.layerScaleX, state.layerScaleY)
+    gl.uniform2f(u['uOriginalSize'], state.origW * this.dpr, state.origH * this.dpr)
+    gl.uniform1f(u['uOriginalCornerRadius'], state.origCornerRadius * this.dpr)
+    gl.uniform2f(u['uLayerScale'], state.layerScaleX, state.layerScaleY)
     // Element rotation (graphicsLayer rotationZ) — 0 for most elements; the
     // Glass Playground square uses this for 2-finger rotation.
-    gl.uniform1f(this.uEl['uElementRotation'], el.elementRotation ?? 0)
+    gl.uniform1f(u['uElementRotation'], el.elementRotation ?? 0)
 
     // Toggle knobs: animate refraction/blur/highlight/inner-shadow with
     // pressProgress to faithfully match LiquidToggle.kt / LiquidSlider.kt:
@@ -281,37 +314,37 @@ export const glassElementPassMethods = {
       }
     }
     // Set the CombinedBackdrop uniforms (no-ops for non-toggle elements).
-    gl.uniform1f(this.uEl['uUseToggleBackdrop'], useToggleBackdrop)
-    gl.uniform1f(this.uEl['uUseSolidBackdrop'], useSolidBackdrop)
-    gl.uniform4f(this.uEl['uSolidBackdropColor'], solidR, solidG, solidB, solidA)
-    gl.uniform4f(this.uEl['uTrackColor'], trackColorR, trackColorG, trackColorB, trackColorA)
-    gl.uniform4f(this.uEl['uTrackRect'], trackCenterX, trackCenterY, trackHalfW, trackHalfH)
-    gl.uniform1f(this.uEl['uTrackCornerRadius'], trackCornerRadius)
+    gl.uniform1f(u['uUseToggleBackdrop'], useToggleBackdrop)
+    gl.uniform1f(u['uUseSolidBackdrop'], useSolidBackdrop)
+    gl.uniform4f(u['uSolidBackdropColor'], solidR, solidG, solidB, solidA)
+    gl.uniform4f(u['uTrackColor'], trackColorR, trackColorG, trackColorB, trackColorA)
+    gl.uniform4f(u['uTrackRect'], trackCenterX, trackCenterY, trackHalfW, trackHalfH)
+    gl.uniform1f(u['uTrackCornerRadius'], trackCornerRadius)
     // Indicator CombinedBackdrop uniforms.
-    gl.uniform1f(this.uEl['uIndicatorBackdrop'], useIndicatorBackdrop)
-    gl.uniform4f(this.uEl['uContainerRect'], containerRectX, containerRectY, containerHalfW, containerHalfH)
-    gl.uniform1f(this.uEl['uContainerCornerRadius'], containerCornerRadius)
-    gl.uniform4f(this.uEl['uIndicatorAccent'], indicatorAccentR, indicatorAccentG, indicatorAccentB, indicatorAccentA)
+    gl.uniform1f(u['uIndicatorBackdrop'], useIndicatorBackdrop)
+    gl.uniform4f(u['uContainerRect'], containerRectX, containerRectY, containerHalfW, containerHalfH)
+    gl.uniform1f(u['uContainerCornerRadius'], containerCornerRadius)
+    gl.uniform4f(u['uIndicatorAccent'], indicatorAccentR, indicatorAccentG, indicatorAccentB, indicatorAccentA)
     // 指示器 backdrop inset: 4dp (the 内层背景板 capsule is inset 4dp
     // from the indicator's draw area on every side).
-    gl.uniform1f(this.uEl['uInsetPx'], 4 * this.dpr)
+    gl.uniform1f(u['uInsetPx'], 4 * this.dpr)
     // 2nd-layer (inset capsule) press progress + panelOffset — the inset
     // background plate scales (1→1.2) and shifts with panelOffset, matching
     // the original's hidden Row (graphicsLayer translationX = panelOffset)
     // and tab content (LocalLiquidBottomTabScale lerp(1, 1.2, progress)).
     if (el.isBottomTabIndicator) {
       const tg = this.toggleStates.get(el.isBottomTabIndicator.groupId)
-      gl.uniform1f(this.uEl['uIndicatorPressProgress'], tg ? tg.pressProgress : 0)
-      gl.uniform1f(this.uEl['uIndicatorPanelOffset'], tg ? tg.panelOffset * this.dpr : 0)
-      gl.uniform1f(this.uEl['uDpr'], this.dpr)
+      gl.uniform1f(u['uIndicatorPressProgress'], tg ? tg.pressProgress : 0)
+      gl.uniform1f(u['uIndicatorPanelOffset'], tg ? tg.panelOffset * this.dpr : 0)
+      gl.uniform1f(u['uDpr'], this.dpr)
       // 容器 center + scale (for 内层背景板 to scale around the 容器
       // center, same as tab-content and indicator).
       const ccx = el.isBottomTabIndicator.containerCenterX ?? 0
       const ccy = el.isBottomTabIndicator.containerCenterY ?? 0
       const cw = el.isBottomTabIndicator.containerWidth ?? el.rect.w
       const cScale = tg ? 1 + (16 * DP) / cw * tg.pressProgress : 1
-      gl.uniform2f(this.uEl['uContainerCenter'], ccx * this.dpr, ccy * this.dpr)
-      gl.uniform1f(this.uEl['uContainerScale'], cScale)
+      gl.uniform2f(u['uContainerCenter'], ccx * this.dpr, ccy * this.dpr)
+      gl.uniform1f(u['uContainerScale'], cScale)
       // Bind tab content fgTextures (icon+label alpha masks) to TEXTURE3..10
       // for the blue tint. Only opaque icon/label pixels become blue.
       const ids = el.isBottomTabIndicator.tabContentIds ?? []
@@ -324,9 +357,9 @@ export const glassElementPassMethods = {
           if (tex) {
             gl.activeTexture(gl.TEXTURE3 + boundCount)
             gl.bindTexture(gl.TEXTURE_2D, tex)
-            gl.uniform1i(this.uEl[`uTabContentTex${boundCount}`], 3 + boundCount)
+            gl.uniform1i(u[`uTabContentTex${boundCount}`], 3 + boundCount)
             const r = rects[i]
-            gl.uniform4f(this.uEl[`uTabContentRects[${boundCount}]`],
+            gl.uniform4f(u[`uTabContentRects[${boundCount}]`],
               (r.x + r.w / 2) * this.dpr,
               (r.y + r.h / 2) * this.dpr,
               (r.w / 2) * this.dpr,
@@ -337,24 +370,24 @@ export const glassElementPassMethods = {
       }
       // Clear unused slots (rect = 0 so shader skips them).
       for (let i = boundCount; i < 8; i++) {
-        gl.uniform4f(this.uEl[`uTabContentRects[${i}]`], 0, 0, 0, 0)
+        gl.uniform4f(u[`uTabContentRects[${i}]`], 0, 0, 0, 0)
       }
-      gl.uniform1f(this.uEl['uTabContentCount'], boundCount)
+      gl.uniform1f(u['uTabContentCount'], boundCount)
       // Bind the glass-layer snapshot (wallpaper+glass, no tab text) to TEXTURE11.
       // The indicator samples this instead of the live scene so no white/black
       // tab text bleeds through — the blue tint is drawn via fgTexture on top.
       if (this.tabsBackdropTex) {
         gl.activeTexture(gl.TEXTURE11)
         gl.bindTexture(gl.TEXTURE_2D, this.tabsBackdropTex)
-        gl.uniform1i(this.uEl['uTabsGlassLayer'], 11)
+        gl.uniform1i(u['uTabsGlassLayer'], 11)
       }
     } else {
-      gl.uniform1f(this.uEl['uIndicatorPressProgress'], 0)
-      gl.uniform1f(this.uEl['uIndicatorPanelOffset'], 0)
-      gl.uniform1f(this.uEl['uDpr'], this.dpr)
-      gl.uniform2f(this.uEl['uContainerCenter'], 0, 0)
-      gl.uniform1f(this.uEl['uContainerScale'], 1)
-      gl.uniform1f(this.uEl['uTabContentCount'], 0)
+      gl.uniform1f(u['uIndicatorPressProgress'], 0)
+      gl.uniform1f(u['uIndicatorPanelOffset'], 0)
+      gl.uniform1f(u['uDpr'], this.dpr)
+      gl.uniform2f(u['uContainerCenter'], 0, 0)
+      gl.uniform1f(u['uContainerScale'], 1)
+      gl.uniform1f(u['uTabContentCount'], 0)
     }
     // Refraction params in ORIGINAL px (NOT scaled by layerScale).
     // Faithful to the original: the AGSL shader receives the original element
@@ -362,10 +395,10 @@ export const glassElementPassMethods = {
     // graphicsLayer scales the rendered output. The shader now maps the
     // refraction offset to screen space internally (offset_screen = offset_orig
     // * uLayerScale), so we must pass the ORIGINAL (unscaled) params here.
-    gl.uniform1f(this.uEl['uRefractionHeight'], elRefractionHeight * this.dpr)
-    gl.uniform1f(this.uEl['uRefractionAmount'], elRefractionAmount * this.dpr)
-    gl.uniform1f(this.uEl['uDepthEffect'], el.depthEffect ? 1 : 0)
-    gl.uniform1f(this.uEl['uChromaticAberration'], el.chromaticAberration ? 1 : 0)
+    gl.uniform1f(u['uRefractionHeight'], elRefractionHeight * this.dpr)
+    gl.uniform1f(u['uRefractionAmount'], elRefractionAmount * this.dpr)
+    gl.uniform1f(u['uDepthEffect'], el.depthEffect ? 1 : 0)
+    gl.uniform1f(u['uChromaticAberration'], el.chromaticAberration ? 1 : 0)
     // Blur radius: for useSeparableBlur elements with blurRadius >= 0.5,
     // the blur is applied as a separate 2-pass post-process on the element
     // pass output, so the inline shader blur is disabled (uBlurRadius=0).
@@ -374,60 +407,60 @@ export const glassElementPassMethods = {
     // (which is also ~0 anyway) to avoid losing blur entirely.
     // For non-useSeparableBlur elements, the inline 16-tap Vogel disc applies.
     const inlineBlurRadius = (el.useSeparableBlur && el.blurRadius >= 0.5) ? 0 : elBlurRadius
-    gl.uniform1f(this.uEl['uBlurRadius'], inlineBlurRadius * layerScale * this.dpr)
-    gl.uniform1f(this.uEl['uSaturation'], el.saturation)
-    gl.uniform1f(this.uEl['uBrightness'], el.brightness)
-    gl.uniform1f(this.uEl['uContrast'], el.contrast)
-    gl.uniform1f(this.uEl['uContentScaleX'], elContentScaleX)
-    gl.uniform1f(this.uEl['uContentScaleY'], elContentScaleY)
-    gl.uniform4f(this.uEl['uTintColor'], el.tintColor[0], el.tintColor[1], el.tintColor[2], el.tintColor[3])
-    gl.uniform4f(this.uEl['uSurfaceColor'], el.surfaceColor[0], el.surfaceColor[1], el.surfaceColor[2], elSurfaceAlpha)
+    gl.uniform1f(u['uBlurRadius'], inlineBlurRadius * layerScale * this.dpr)
+    gl.uniform1f(u['uSaturation'], el.saturation)
+    gl.uniform1f(u['uBrightness'], el.brightness)
+    gl.uniform1f(u['uContrast'], el.contrast)
+    gl.uniform1f(u['uContentScaleX'], elContentScaleX)
+    gl.uniform1f(u['uContentScaleY'], elContentScaleY)
+    gl.uniform4f(u['uTintColor'], el.tintColor[0], el.tintColor[1], el.tintColor[2], el.tintColor[3])
+    gl.uniform4f(u['uSurfaceColor'], el.surfaceColor[0], el.surfaceColor[1], el.surfaceColor[2], elSurfaceAlpha)
 
     if (el.highlight) {
-      gl.uniform3f(this.uEl['uHighlightColor'], el.highlight.color[0], el.highlight.color[1], el.highlight.color[2])
-      gl.uniform1f(this.uEl['uHighlightAngle'], el.highlight.angle)
-      gl.uniform1f(this.uEl['uHighlightFalloff'], el.highlight.falloff)
-      gl.uniform1f(this.uEl['uHighlightAlpha'], elHighlightAlpha)
-      gl.uniform1f(this.uEl['uHighlightMode'], el.highlight.mode)
+      gl.uniform3f(u['uHighlightColor'], el.highlight.color[0], el.highlight.color[1], el.highlight.color[2])
+      gl.uniform1f(u['uHighlightAngle'], el.highlight.angle)
+      gl.uniform1f(u['uHighlightFalloff'], el.highlight.falloff)
+      gl.uniform1f(u['uHighlightAlpha'], elHighlightAlpha)
+      gl.uniform1f(u['uHighlightMode'], el.highlight.mode)
       // HighlightModifier.kt clamps the stroke width to minDimension / 2 before
       // ceil()*2; blurRadius defaults to width / 2 unless explicitly provided.
       const elMinDimPx = Math.min(state.origW, state.origH) * this.dpr
       const elWidthPx = Math.min(el.highlight.widthDp * this.dpr, elMinDimPx * 0.5)
       const elBlurPx = (el.highlight.blurRadiusDp ?? el.highlight.widthDp / 2) * this.dpr
-      gl.uniform1f(this.uEl['uHighlightStrokeWidth'], Math.ceil(elWidthPx) * 2)
-      gl.uniform1f(this.uEl['uHighlightBlur'], elBlurPx)
+      gl.uniform1f(u['uHighlightStrokeWidth'], Math.ceil(elWidthPx) * 2)
+      gl.uniform1f(u['uHighlightBlur'], elBlurPx)
     } else {
-      gl.uniform1f(this.uEl['uHighlightAlpha'], 0)
-      gl.uniform1f(this.uEl['uHighlightMode'], 0)
-      gl.uniform1f(this.uEl['uHighlightStrokeWidth'], 0)
-      gl.uniform1f(this.uEl['uHighlightBlur'], 0)
+      gl.uniform1f(u['uHighlightAlpha'], 0)
+      gl.uniform1f(u['uHighlightMode'], 0)
+      gl.uniform1f(u['uHighlightStrokeWidth'], 0)
+      gl.uniform1f(u['uHighlightBlur'], 0)
     }
 
     if (elInnerShadowAlpha > 0.001 && elInnerShadowRadius > 0.5) {
-      gl.uniform1f(this.uEl['uInnerShadowRadius'], elInnerShadowRadius * this.dpr)
-      gl.uniform1f(this.uEl['uInnerShadowAlpha'], elInnerShadowAlpha)
+      gl.uniform1f(u['uInnerShadowRadius'], elInnerShadowRadius * this.dpr)
+      gl.uniform1f(u['uInnerShadowAlpha'], elInnerShadowAlpha)
       gl.uniform2f(
-        this.uEl['uInnerShadowOffset'],
+        u['uInnerShadowOffset'],
         elInnerShadowOffsetX * this.dpr,
         elInnerShadowOffsetY * this.dpr
       )
     } else {
-      gl.uniform1f(this.uEl['uInnerShadowRadius'], 0)
-      gl.uniform1f(this.uEl['uInnerShadowAlpha'], 0)
-      gl.uniform2f(this.uEl['uInnerShadowOffset'], 0, 0)
+      gl.uniform1f(u['uInnerShadowRadius'], 0)
+      gl.uniform1f(u['uInnerShadowAlpha'], 0)
+      gl.uniform2f(u['uInnerShadowOffset'], 0, 0)
     }
 
     // --- SDF texture glass: bind sdfTexture + set SDF uniforms ---
     if (el.isSdfTexture && this.sdfTexture) {
       gl.activeTexture(gl.TEXTURE2)
       gl.bindTexture(gl.TEXTURE_2D, this.sdfTexture)
-      gl.uniform1i(this.uEl['uSdfTexSampler'], 2)
-      gl.uniform1f(this.uEl['uUseSdfTexture'], 1.0)
-      gl.uniform2f(this.uEl['uSdfTexSize'], this.sdfTextureSize[0], this.sdfTextureSize[1])
-      gl.uniform1f(this.uEl['uSdfLightAngle'], el.isSdfTexture.lightAngle)
-      gl.uniform1f(this.uEl['uRefractionHeight'], el.isSdfTexture.refractionHeight * this.dpr)
+      gl.uniform1i(u['uSdfTexSampler'], 2)
+      gl.uniform1f(u['uUseSdfTexture'], 1.0)
+      gl.uniform2f(u['uSdfTexSize'], this.sdfTextureSize[0], this.sdfTextureSize[1])
+      gl.uniform1f(u['uSdfLightAngle'], el.isSdfTexture.lightAngle)
+      gl.uniform1f(u['uRefractionHeight'], el.isSdfTexture.refractionHeight * this.dpr)
     } else {
-      gl.uniform1f(this.uEl['uUseSdfTexture'], 0.0)
+      gl.uniform1f(u['uUseSdfTexture'], 0.0)
     }
     // --- Continuous-curvature SDF texture (capsule shape) ---
     // Bind the precomputed continuous-curvature SDF texture for elements
@@ -441,33 +474,48 @@ export const glassElementPassMethods = {
     if (el.useContinuousSdf && this.continuousSdfTexture) {
       gl.activeTexture(gl.TEXTURE2)
       gl.bindTexture(gl.TEXTURE_2D, this.continuousSdfTexture)
-      gl.uniform1i(this.uEl['uContinuousSdf'], 2)
-      gl.uniform1f(this.uEl['uUseContinuousSdf'], 1.0)
-      gl.uniform2f(this.uEl['uContinuousSdfTexSize'], this.continuousSdfTexSize[0], this.continuousSdfTexSize[1])
-      gl.uniform2f(this.uEl['uContinuousSdfElementSize'], state.origW * this.dpr, state.origH * this.dpr)
+      gl.uniform1i(u['uContinuousSdf'], 2)
+      gl.uniform1f(u['uUseContinuousSdf'], 1.0)
+      gl.uniform2f(u['uContinuousSdfTexSize'], this.continuousSdfTexSize[0], this.continuousSdfTexSize[1])
+      gl.uniform2f(u['uContinuousSdfElementSize'], state.origW * this.dpr, state.origH * this.dpr)
     } else {
-      gl.uniform1f(this.uEl['uUseContinuousSdf'], 0.0)
+      gl.uniform1f(u['uUseContinuousSdf'], 0.0)
     }
     // Global enter alpha (ControlCenter enter progress)
-    gl.uniform1f(this.uEl['uEnterAlpha'], state.enterAlpha)
+    gl.uniform1f(u['uEnterAlpha'], state.enterAlpha)
     // Corner style: 0 = circular, 1 = continuous (squircle)
-    gl.uniform1f(this.uEl['uCornerStyle'], this.cornerStyle)
+    gl.uniform1f(u['uCornerStyle'], this.cornerStyle)
     // Magnifier glass uniforms
     if (el.isMagnifier) {
-      gl.uniform1f(this.uEl['uUseMagnifier'], 1.0)
-      gl.uniform1f(this.uEl['uMagnifierZoom'], el.isMagnifier.zoom)
-      gl.uniform1f(this.uEl['uMagnifierOffsetY'], el.isMagnifier.sampleOffsetY * this.dpr)
+      gl.uniform1f(u['uUseMagnifier'], 1.0)
+      gl.uniform1f(u['uMagnifierZoom'], el.isMagnifier.zoom)
+      gl.uniform1f(u['uMagnifierOffsetY'], el.isMagnifier.sampleOffsetY * this.dpr)
     } else {
-      gl.uniform1f(this.uEl['uUseMagnifier'], 0.0)
+      gl.uniform1f(u['uUseMagnifier'], 0.0)
     }
 
     // uSkipColorControls: when useSeparableBlur is active on a backdropFbo
     // element, colorControls was already applied as a fullscreen pass BEFORE
     // the 2-pass blur (in renderDialogBackdrop + renderGlassElement's blur
     // branch), matching the original's colorControls→blur order. Skip it here.
-    gl.uniform1f(this.uEl['uSkipColorControls'], (el.backdropFbo && el.useSeparableBlur && el.blurRadius >= 0.5) ? 1.0 : 0.0)
+    gl.uniform1f(u['uSkipColorControls'], (el.backdropFbo && el.useSeparableBlur && el.blurRadius >= 0.5) ? 1.0 : 0.0)
 
-    gl.drawArrays(gl.TRIANGLES, 0, 6)
+    // --- Tessellation flag + draw call ---
+    if (useTess) {
+      // Tell the fragment shader to use vCoverage (from the tessellated mesh)
+      // for edgeAlpha instead of the analytic SDF path.
+      gl.uniform1f(u['uUseTessellation'], 1.0)
+      // drawElements: the tessellated mesh is indexed triangles.
+      const indexCount = (this as any)._tessIndexCount as number
+      const indexType = (this as any)._tessIndexType as number
+      gl.drawElements(gl.TRIANGLES, indexCount, indexType, 0)
+      // Cleanup: disable the coverage attribute to avoid interfering with
+      // other programs that only use aPos (the fullscreen quad programs).
+      gl.disableVertexAttribArray(this.aCovLocElTess)
+    } else {
+      gl.uniform1f(u['uUseTessellation'], 0.0)
+      gl.drawArrays(gl.TRIANGLES, 0, 6)
+    }
 
     // Stash the computed highlight alpha so the rim highlight pass can
     // reuse it (for toggle knobs the alpha is pressProgress-modulated).
