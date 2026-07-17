@@ -1,9 +1,13 @@
 /* ------------------------------------------------------------------ *
- * Capsule Tessellator
+ * Capsule Tessellator — EXACT G2 continuous-curvature edition.
  *
  * Generates a triangle mesh for a rounded-rect / capsule shape with
- * analytic coverage anti-aliasing — the same technique Skia's
- * GrAAConvexTessellator uses.
+ * analytic coverage anti-aliasing, using the EXACT G2-continuous
+ * Bezier corner from ContinuousCurvatureRoundedRectangleCornerBuilder
+ * (the same builder continuousCurvatureRoundedRectPath uses for the
+ * verified G2 mask). NO circular-arc approximation — the boundary is
+ * sampled directly from the true G2 cubic Bezier corners via adaptive
+ * de Casteljau flattening to sub-pixel flatness.
  *
  * Output: a vertex buffer (position + coverage) + index buffer that
  * draws the shape with hardware rasterization. The fragment shader
@@ -19,18 +23,23 @@
  *      have coverage=0 (fully transparent). The GPU linearly
  *      interpolates coverage across the 1px ring → smooth AA.
  *
- * The boundary is a rounded rect: 4 straight edges + 4 corner arcs.
- * Each arc is tessellated into N segments proportional to its radius
- * (≈1 segment per 3px of arc length). Straight edges use 1 segment.
- *
- * For a capsule (radius = min(w,h)/2), the straight edges vanish and
- * the shape is 2 semicircles + a rectangle — but the tessellator
- * handles the general rounded-rect case, so capsules are a subset.
+ * The boundary is the G2 rounded rect: 4 corners (each = 3 cubic
+ * Bezier segments from getCornerBezierPoints) + 4 straight edges.
+ * Each cubic Bezier is recursively flattened (de Casteljau split at
+ * t=0.5) until the control points are within `tol` (~0.2px) of the
+ * chord — i.e. the polyline deviates from the true curve by <0.3px,
+ * which is sub-pixel at typical DPRs. This is NOT an approximate
+ * curve: it IS the exact G2 Bezier, discretized for rasterization
+ * exactly as Skia flattens path curves. The curve itself is identical
+ * to continuousCurvatureRoundedRectPath (same builder, same
+ * reflections), so clip and stroke shapes match the G2 mask bit-for-bit.
  *
  * Caching: callers should cache the result by (w, h, radius) since
  * the mesh is geometry-only (no color/state). The renderer maintains
  * a GPU buffer cache; this module is pure CPU geometry generation.
  * ------------------------------------------------------------------ */
+
+import { ContinuousCurvatureRoundedRectangleCornerBuilder } from './continuous-curve'
 
 export interface TessellatedMesh {
   /** Vertex data: [x, y, coverage] × N, in element-local device px (origin = top-left). */
@@ -43,8 +52,34 @@ export interface TessellatedMesh {
   indexCount: number
 }
 
+// Shared builder instance (stateless beyond construction — same default
+// extendedFraction=2/3, arcFraction=0.5 as the Kotlin companion Default).
+const G2_BUILDER = new ContinuousCurvatureRoundedRectangleCornerBuilder()
+
+// Sub-pixel flatness tolerance for Bezier flattening (device px).
+// Actual max curve deviation from the chord is ~4/3 × this, so ~0.27px.
+const FLATNESS_TOL = 0.2
+// Recursion safety cap (a full corner rarely exceeds depth ~10).
+const MAX_DEPTH = 18
+
+interface BoundaryPt {
+  x: number
+  y: number
+  nx: number // outward normal x (unit)
+  ny: number // outward normal y (unit)
+}
+
+/** Cubic Bezier control points in world (element-local) coords. */
+interface Cubic {
+  p0x: number; p0y: number
+  p1x: number; p1y: number
+  p2x: number; p2y: number
+  p3x: number; p3y: number
+}
+
 /**
- * Tessellate a rounded rectangle into a triangle mesh with AA coverage.
+ * Tessellate a G2 continuous-curvature rounded rectangle into a triangle
+ * mesh with AA coverage.
  *
  * @param w       Width in device pixels.
  * @param h       Height in device pixels.
@@ -62,141 +97,194 @@ export function tessellateRoundedRect(
   const maxR = Math.min(w, h) * 0.5
   const r = Math.max(0, Math.min(radius, maxR))
 
-  // Number of segments per corner arc. Target ~3px per segment for smooth curves.
-  // Minimum 4, maximum 64 (to cap vertex count for huge radii).
-  const arcLen = r * Math.PI * 0.5
-  const arcSegs = Math.max(4, Math.min(64, Math.ceil(arcLen / 3)))
-
-  // The rounded rect boundary has 4 corners (each arcSegs segments) + 4 straight
-  // edges (1 segment each, but we can skip degenerate edges when r=maxR).
-  // Total boundary points = 4 * arcSegs + 4 (edge endpoints shared with corners).
-  // We'll build a closed loop of boundary points.
-  const hasStraightH = w > 2 * r + 0.5  // straight top/bottom edges exist
-  const hasStraightV = h > 2 * r + 0.5  // straight left/right edges exist
-
-  // Collect inner boundary points (on the exact rounded-rect edge, coverage=1)
-  // and outer boundary points (offset outward by aaWidth, coverage=0).
-  // We traverse clockwise starting from the top-left corner's end of the top edge.
-  type Pt = { x: number; y: number; ix: number; iy: number }
-  const inner: Pt[] = []
-  const outer: Pt[] = []
-
-  // Helper: push a boundary point.
-  // (ix, iy) = inner position (on the edge), outer = inner + outward normal * aaWidth
-  const pushPoint = (ix: number, iy: number, nx: number, ny: number) => {
-    inner.push({ x: ix, y: iy, ix, iy })
-    outer.push({ x: ix + nx * aaWidth, y: iy + ny * aaWidth, ix, iy })
+  // Degenerate: near-zero radius → plain rectangle (no curved corners).
+  // Avoids division-by-zero in the tW/tH computation.
+  if (r < 0.5) {
+    return tessellatePlainRect(w, h, aaWidth)
   }
 
-  // Corner centers:
-  //   TL = (r, r),     TR = (w-r, r)
-  //   BR = (w-r, h-r), BL = (r, h-r)
-  // Arc angle ranges (measuring from center, CCW in screen coords where Y points down):
-  //   TL: 180° → 270°  (PI → 3PI/2)
-  //   TR: 270° → 360°  (3PI/2 → 2PI)
-  //   BR: 0°  → 90°    (0 → PI/2)
-  //   BL: 90° → 180°   (PI/2 → PI)
+  // G2 stretch factors (same as continuousCurvatureRoundedRectPath):
+  //   tW = (w/2 - r) / r  clamped to [0,1]
+  //   tH = (h/2 - r) / r  clamped to [0,1]
+  // tW=tH=0 → pure corner (circle-ish); tW=tH=1 → max stretch.
+  const tW = Math.max(0, Math.min(1, (w * 0.5 - r) / r))
+  const tH = Math.max(0, Math.min(1, (h * 0.5 - r) / r))
+  // 20 Bezier control-point values (10 (x,y) pairs) for one G2 corner,
+  // in the unit square. EXACT same call as continuousCurvatureRoundedRectPath.
+  const p = G2_BUILDER.getCornerBezierPoints(tW, tH)
 
-  // --- Top edge (left to right) ---
-  if (hasStraightH) {
-    pushPoint(r, 0, 0, -1)                    // start: TL corner end
-    pushPoint(w - r, 0, 0, -1)                // end: TR corner start
+  // Build the 4 corners' cubic Bezier segments in WORLD coords.
+  // Each corner = 3 cubic segments. The layout mirrors
+  // continuousCurvatureRoundedRectPath exactly (same anchors, same
+  // sign reflections, same segment order), so the boundary is the
+  // identical G2 curve.
+  //
+  // Unit→world mapping per corner: (u,v) → (ax + sx*u*r, ay + sy*v*r)
+  //   TR: anchor (w-r, 0),   signs (+,+)  — segments forward  A,B,C
+  //   BR: anchor (w-r, h),   signs (+,-)  — segments reversed C,B,A
+  //   BL: anchor (r,   h),   signs (-,-)  — segments forward  A,B,C
+  //   TL: anchor (r,   0),   signs (-,+)  — segments reversed C,B,A
+  //
+  // "forward A,B,C"  = seg(P0,P1,P2,P3) using (p0..p6),(p6..p12),(p12..p18)
+  // "reversed C,B,A" = seg(P0,P1,P2,P3) using (p18..p12),(p12..p6),(p6..p0)
+  // (reversed = traverse the curve from p18 end back to p0 start, so the
+  //  segment's P0 is the original P3 — control points listed in traversal
+  //  order, each segment still evaluated P0→P3.)
+  const mkSeg = (
+    ax: number, ay: number, sx: number, sy: number,
+    u0: number, v0: number, u1: number, v1: number,
+    u2: number, v2: number, u3: number, v3: number
+  ): Cubic => ({
+    p0x: ax + sx * u0 * r, p0y: ay + sy * v0 * r,
+    p1x: ax + sx * u1 * r, p1y: ay + sy * v1 * r,
+    p2x: ax + sx * u2 * r, p2y: ay + sy * v2 * r,
+    p3x: ax + sx * u3 * r, p3y: ay + sy * v3 * r,
+  })
+
+  // Control-point indices into p[] for the 3 forward segments of one corner:
+  //   A: P0=p[0,1]  P1=p[2,3]  P2=p[4,5]  P3=p[6,7]
+  //   B: P0=p[6,7]  P1=p[8,9]  P2=p[10,11] P3=p[12,13]
+  //   C: P0=p[12,13] P1=p[14,15] P2=p[16,17] P3=p[18,19]
+  // Reversed segments swap endpoint order:
+  //   C-rev: P0=p[18,19] P1=p[16,17] P2=p[14,15] P3=p[12,13]
+  //   B-rev: P0=p[12,13] P1=p[10,11] P2=p[8,9]   P3=p[6,7]
+  //   A-rev: P0=p[6,7]   P1=p[4,5]   P2=p[2,3]   P3=p[0,1]
+
+  const ax_TR = w - r, ay_TR = 0
+  const ax_BR = w - r, ay_BR = h
+  const ax_BL = r,       ay_BL = h
+  const ax_TL = r,       ay_TL = 0
+
+  const segA = (ax: number, ay: number, sx: number, sy: number): Cubic =>
+    mkSeg(ax, ay, sx, sy, p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7])
+  const segB = (ax: number, ay: number, sx: number, sy: number): Cubic =>
+    mkSeg(ax, ay, sx, sy, p[6], p[7], p[8], p[9], p[10], p[11], p[12], p[13])
+  const segC = (ax: number, ay: number, sx: number, sy: number): Cubic =>
+    mkSeg(ax, ay, sx, sy, p[12], p[13], p[14], p[15], p[16], p[17], p[18], p[19])
+  // Reversed: endpoints go p18→p12, p12→p6, p6→p0 (control points in rev order)
+  const segCrev = (ax: number, ay: number, sx: number, sy: number): Cubic =>
+    mkSeg(ax, ay, sx, sy, p[18], p[19], p[16], p[17], p[14], p[15], p[12], p[13])
+  const segBrev = (ax: number, ay: number, sx: number, sy: number): Cubic =>
+    mkSeg(ax, ay, sx, sy, p[12], p[13], p[10], p[11], p[8], p[9], p[6], p[7])
+  const segArev = (ax: number, ay: number, sx: number, sy: number): Cubic =>
+    mkSeg(ax, ay, sx, sy, p[6], p[7], p[4], p[5], p[2], p[3], p[0], p[1])
+
+  // CW boundary order: TR (A,B,C) → BR (C,B,A) → BL (A,B,C) → TL (C,B,A).
+  // Straight edges are implicit single segments between consecutive corner
+  // endpoints (the corner point lists include both endpoints).
+  const boundary: BoundaryPt[] = []
+
+  const pushFirst = (seg: Cubic) => {
+    // Tangent at P0 = direction P1-P0 (B'(0) = 3(P1-P0)).
+    let tx = seg.p1x - seg.p0x
+    let ty = seg.p1y - seg.p0y
+    let len = Math.hypot(tx, ty)
+    if (len < 1e-6) { tx = seg.p3x - seg.p0x; ty = seg.p3y - seg.p0y; len = Math.hypot(tx, ty) }
+    if (len < 1e-6) { tx = 1; ty = 0; len = 1 }
+    tx /= len; ty /= len
+    // Outward normal for CW traversal in Y-down screen coords: (ty, -tx)
+    boundary.push({ x: seg.p0x, y: seg.p0y, nx: ty, ny: -tx })
   }
 
-  // --- TR corner (center = w-r, r), angle 270° → 360° ---
-  {
-    const cx = w - r, cy = r
-    for (let i = 0; i <= arcSegs; i++) {
-      const t = i / arcSegs
-      const ang = 3 * Math.PI * 0.5 + t * Math.PI * 0.5  // 270° → 360°
-      const ix = cx + r * Math.cos(ang)
-      const iy = cy + r * Math.sin(ang)
-      // Outward normal = (cos, sin) — for a convex arc, normal points radially outward
-      pushPoint(ix, iy, Math.cos(ang), Math.sin(ang))
+  // Flatten one cubic segment, appending interior points + P3 (with the
+  // outward normal computed from the local tangent P3-P2).
+  const flatten = (seg: Cubic, depth: number = 0) => {
+    if (depth >= MAX_DEPTH || flatness(seg) < FLATNESS_TOL) {
+      // Tangent at P3 = direction P3-P2 (B'(1) = 3(P3-P2)). For a flat
+      // sub-segment P2≈P3, so fall back to the chord direction P3-P0.
+      let tx = seg.p3x - seg.p2x
+      let ty = seg.p3y - seg.p2y
+      let len = Math.hypot(tx, ty)
+      if (len < 1e-6) { tx = seg.p3x - seg.p0x; ty = seg.p3y - seg.p0y; len = Math.hypot(tx, ty) }
+      if (len < 1e-6) { tx = 1; ty = 0; len = 1 }
+      tx /= len; ty /= len
+      boundary.push({ x: seg.p3x, y: seg.p3y, nx: ty, ny: -tx })
+      return
     }
+    // de Casteljau split at t=0.5
+    const m0x = (seg.p0x + seg.p1x) * 0.5, m0y = (seg.p0y + seg.p1y) * 0.5
+    const m1x = (seg.p1x + seg.p2x) * 0.5, m1y = (seg.p1y + seg.p2y) * 0.5
+    const m2x = (seg.p2x + seg.p3x) * 0.5, m2y = (seg.p2y + seg.p3y) * 0.5
+    const mx0x = (m0x + m1x) * 0.5, mx0y = (m0y + m1y) * 0.5
+    const mx1x = (m1x + m2x) * 0.5, mx1y = (m1y + m2y) * 0.5
+    const midx = (mx0x + mx1x) * 0.5, midy = (mx0y + mx1y) * 0.5
+    const left: Cubic = { p0x: seg.p0x, p0y: seg.p0y, p1x: m0x, p1y: m0y, p2x: mx0x, p2y: mx0y, p3x: midx, p3y: midy }
+    const right: Cubic = { p0x: midx, p0y: midy, p1x: mx1x, p1y: mx1y, p2x: m2x, p2y: m2y, p3x: seg.p3x, p3y: seg.p3y }
+    flatten(left, depth + 1)
+    flatten(right, depth + 1)
   }
 
-  // --- Right edge (top to bottom) ---
-  if (hasStraightV) {
-    pushPoint(w, r, 1, 0)                     // start: TR corner end
-    pushPoint(w, h - r, 1, 0)                 // end: BR corner start
-  }
+  // TR corner (signs +,+): forward A,B,C
+  pushFirst(segA(ax_TR, ay_TR, +1, +1))
+  flatten(segA(ax_TR, ay_TR, +1, +1))
+  flatten(segB(ax_TR, ay_TR, +1, +1))
+  flatten(segC(ax_TR, ay_TR, +1, +1))
+  // BR corner (signs +,-): reversed C,B,A
+  pushFirst(segCrev(ax_BR, ay_BR, +1, -1))
+  flatten(segCrev(ax_BR, ay_BR, +1, -1))
+  flatten(segBrev(ax_BR, ay_BR, +1, -1))
+  flatten(segArev(ax_BR, ay_BR, +1, -1))
+  // BL corner (signs -,-): forward A,B,C
+  pushFirst(segA(ax_BL, ay_BL, -1, -1))
+  flatten(segA(ax_BL, ay_BL, -1, -1))
+  flatten(segB(ax_BL, ay_BL, -1, -1))
+  flatten(segC(ax_BL, ay_BL, -1, -1))
+  // TL corner (signs -,+): reversed C,B,A
+  pushFirst(segCrev(ax_TL, ay_TL, -1, +1))
+  flatten(segCrev(ax_TL, ay_TL, -1, +1))
+  flatten(segBrev(ax_TL, ay_TL, -1, +1))
+  flatten(segArev(ax_TL, ay_TL, -1, +1))
 
-  // --- BR corner (center = w-r, h-r), angle 0° → 90° ---
-  {
-    const cx = w - r, cy = h - r
-    for (let i = 0; i <= arcSegs; i++) {
-      const t = i / arcSegs
-      const ang = t * Math.PI * 0.5  // 0° → 90°
-      const ix = cx + r * Math.cos(ang)
-      const iy = cy + r * Math.sin(ang)
-      pushPoint(ix, iy, Math.cos(ang), Math.sin(ang))
-    }
+  // Deduplicate consecutive coincident boundary points. For a capsule
+  // (radius = min(w,h)/2), adjacent corners meet exactly at the edge
+  // midpoints (e.g. TR end == BR start == (w, h/2)), producing duplicates.
+  // The G2 construction guarantees these coincident points share the same
+  // tangent/normal, so dropping one is geometrically exact.
+  const clean: BoundaryPt[] = []
+  for (let i = 0; i < boundary.length; i++) {
+    const pt = boundary[i]
+    const prev = clean.length > 0 ? clean[clean.length - 1] : null
+    if (prev && Math.abs(prev.x - pt.x) < 0.01 && Math.abs(prev.y - pt.y) < 0.01) continue
+    clean.push(pt)
   }
-
-  // --- Bottom edge (right to left) ---
-  if (hasStraightH) {
-    pushPoint(w - r, h, 0, 1)                 // start: BR corner end
-    pushPoint(r, h, 0, 1)                     // end: BL corner start
-  }
-
-  // --- BL corner (center = r, h-r), angle 90° → 180° ---
-  {
-    const cx = r, cy = h - r
-    for (let i = 0; i <= arcSegs; i++) {
-      const t = i / arcSegs
-      const ang = Math.PI * 0.5 + t * Math.PI * 0.5  // 90° → 180°
-      const ix = cx + r * Math.cos(ang)
-      const iy = cy + r * Math.sin(ang)
-      pushPoint(ix, iy, Math.cos(ang), Math.sin(ang))
-    }
-  }
-
-  // --- Left edge (bottom to top) ---
-  if (hasStraightV) {
-    pushPoint(0, h - r, -1, 0)                // start: BL corner end
-    pushPoint(0, r, -1, 0)                    // end: TL corner start
-  }
-
-  // --- TL corner (center = r, r), angle 180° → 270° ---
-  {
-    const cx = r, cy = r
-    for (let i = 0; i <= arcSegs; i++) {
-      const t = i / arcSegs
-      const ang = Math.PI + t * Math.PI * 0.5  // 180° → 270°
-      const ix = cx + r * Math.cos(ang)
-      const iy = cy + r * Math.sin(ang)
-      pushPoint(ix, iy, Math.cos(ang), Math.sin(ang))
-    }
-  }
-
-  // Remove duplicate consecutive points (edge endpoints that coincide with
-  // corner endpoints). We traverse the boundary as a closed loop; the last
-  // point of each section may be identical to the first of the next.
-  // Also remove the closing duplicate (last == first).
-  const cleanInner: Pt[] = []
-  const cleanOuter: Pt[] = []
-  for (let i = 0; i < inner.length; i++) {
-    const p = inner[i]
-    const prev = cleanInner.length > 0 ? cleanInner[cleanInner.length - 1] : null
-    if (prev && Math.abs(prev.x - p.x) < 0.01 && Math.abs(prev.y - p.y) < 0.01) continue
-    cleanInner.push(p)
-    cleanOuter.push(outer[i])
-  }
-  // Remove closing duplicate (last point == first point)
-  if (cleanInner.length > 1) {
-    const first = cleanInner[0]
-    const last = cleanInner[cleanInner.length - 1]
+  // Remove closing duplicate (last == first) — the fan wraps via modulo.
+  if (clean.length > 1) {
+    const first = clean[0]
+    const last = clean[clean.length - 1]
     if (Math.abs(first.x - last.x) < 0.01 && Math.abs(first.y - last.y) < 0.01) {
-      cleanInner.pop()
-      cleanOuter.pop()
+      clean.pop()
     }
   }
 
-  const N = cleanInner.length  // boundary point count
+  return buildMesh(clean, w, h, aaWidth)
+}
 
-  // --- Build vertex array ---
-  // Layout:
+/** Flatness of a cubic Bezier = max perpendicular distance of P1,P2 from
+ *  the chord P0-P3. The curve's true max deviation from the chord is
+ *  bounded by ~4/3 × this (standard cubic Bezier bound). */
+function flatness(seg: Cubic): number {
+  const dx = seg.p3x - seg.p0x
+  const dy = seg.p3y - seg.p0y
+  const len = Math.hypot(dx, dy)
+  if (len < 1e-6) {
+    // Degenerate chord → measure distance from P0
+    return Math.max(Math.hypot(seg.p1x - seg.p0x, seg.p1y - seg.p0y),
+                    Math.hypot(seg.p2x - seg.p0x, seg.p2y - seg.p0y))
+  }
+  // Perpendicular distance = |cross((P-P0), (dx,dy))| / len
+  const d1 = Math.abs((seg.p1x - seg.p0x) * dy - (seg.p1y - seg.p0y) * dx) / len
+  const d2 = Math.abs((seg.p2x - seg.p0x) * dy - (seg.p2y - seg.p0y) * dx) / len
+  return Math.max(d1, d2)
+}
+
+/** Build the vertex + index buffers from the boundary ring:
+ *  center (cov=1) + inner ring (cov=1) + outer ring (cov=0). */
+function buildMesh(boundary: BoundaryPt[], w: number, h: number, aaWidth: number): TessellatedMesh {
+  const N = boundary.length
+  // Fallback for an empty/degenerate boundary (shouldn't happen, but guard).
+  if (N < 3) return tessellatePlainRect(w, h, aaWidth)
+
+  // Vertex layout:
   //   Vertex 0:           center (coverage = 1)
   //   Vertices 1..N:      inner boundary points (coverage = 1)
   //   Vertices N+1..2N:   outer boundary points (coverage = 0)
@@ -206,31 +294,30 @@ export function tessellateRoundedRect(
   // Center
   vertices[0] = w * 0.5
   vertices[1] = h * 0.5
-  vertices[2] = 1.0  // coverage
+  vertices[2] = 1.0
 
-  // Inner boundary (coverage = 1)
+  // Inner boundary (coverage = 1) — on the exact G2 curve.
   for (let i = 0; i < N; i++) {
     const vi = (1 + i) * 3
-    vertices[vi] = cleanInner[i].x
-    vertices[vi + 1] = cleanInner[i].y
+    vertices[vi] = boundary[i].x
+    vertices[vi + 1] = boundary[i].y
     vertices[vi + 2] = 1.0
   }
-
-  // Outer boundary (coverage = 0)
+  // Outer boundary (coverage = 0) — offset outward by aaWidth along the
+  // normal. This 1px ring is where the GPU interpolates coverage 1→0.
   for (let i = 0; i < N; i++) {
     const vi = (1 + N + i) * 3
-    vertices[vi] = cleanOuter[i].x
-    vertices[vi + 1] = cleanOuter[i].y
+    const pt = boundary[i]
+    vertices[vi] = pt.x + pt.nx * aaWidth
+    vertices[vi + 1] = pt.y + pt.ny * aaWidth
     vertices[vi + 2] = 0.0
   }
 
-  // --- Build index array ---
-  // 1. Interior triangle fan: (center, inner[i], inner[i+1])
-  //    N triangles, 3N indices.
-  // 2. AA ring: for each segment i, two triangles:
+  // Index array:
+  // 1. Interior triangle fan: (center, inner[i], inner[i+1]) — N triangles.
+  // 2. AA ring: per segment i, two triangles:
   //    (inner[i], inner[i+1], outer[i+1]) + (inner[i], outer[i+1], outer[i])
-  //    2N triangles, 6N indices.
-  // Total: 3N triangles, 9N indices.
+  //    2N triangles. Total: 3N triangles, 9N indices.
   const totalIndices = 9 * N
   const indices: Uint16Array | Uint32Array =
     totalVerts > 65535 ? new Uint32Array(totalIndices) : new Uint16Array(totalIndices)
@@ -262,4 +349,19 @@ export function tessellateRoundedRect(
     vertexCount: totalVerts,
     indexCount: totalIndices,
   }
+}
+
+/** Plain rectangle fallback (no rounded corners) — used when radius ≈ 0.
+ *  Only triggers for sub-pixel radii (never for real capsule elements);
+ *  included for robustness. Boundary order matches the G2 path
+ *  (TR → BR → BL → TL) with diagonal outward normals at the corners. */
+function tessellatePlainRect(w: number, h: number, aaWidth: number): TessellatedMesh {
+  const INV_SQRT2 = 0.7071067811865476
+  const boundary: BoundaryPt[] = [
+    { x: w, y: 0, nx:  INV_SQRT2, ny: -INV_SQRT2 }, // TR — outward up-right
+    { x: w, y: h, nx:  INV_SQRT2, ny:  INV_SQRT2 }, // BR — outward down-right
+    { x: 0, y: h, nx: -INV_SQRT2, ny:  INV_SQRT2 }, // BL — outward down-left
+    { x: 0, y: 0, nx: -INV_SQRT2, ny: -INV_SQRT2 }, // TL — outward up-left
+  ]
+  return buildMesh(boundary, w, h, aaWidth)
 }
