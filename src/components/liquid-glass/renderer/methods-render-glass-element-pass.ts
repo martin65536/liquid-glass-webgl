@@ -389,9 +389,13 @@ export const glassElementPassMethods = {
       gl.uniform1f(this.uEl['uHighlightFalloff'], el.highlight.falloff)
       gl.uniform1f(this.uEl['uHighlightAlpha'], elHighlightAlpha)
       gl.uniform1f(this.uEl['uHighlightMode'], el.highlight.mode)
-      const elWidthPx = el.highlight.widthDp * this.dpr
+      // HighlightModifier.kt clamps the stroke width to minDimension / 2 before
+      // ceil()*2; blurRadius defaults to width / 2 unless explicitly provided.
+      const elMinDimPx = Math.min(state.origW, state.origH) * this.dpr
+      const elWidthPx = Math.min(el.highlight.widthDp * this.dpr, elMinDimPx * 0.5)
+      const elBlurPx = (el.highlight.blurRadiusDp ?? el.highlight.widthDp / 2) * this.dpr
       gl.uniform1f(this.uEl['uHighlightStrokeWidth'], Math.ceil(elWidthPx) * 2)
-      gl.uniform1f(this.uEl['uHighlightBlur'], elWidthPx * 0.5)
+      gl.uniform1f(this.uEl['uHighlightBlur'], elBlurPx)
     } else {
       gl.uniform1f(this.uEl['uHighlightAlpha'], 0)
       gl.uniform1f(this.uEl['uHighlightMode'], 0)

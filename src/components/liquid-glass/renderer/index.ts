@@ -182,10 +182,18 @@ export class LiquidGlassRenderer {
   fgCtx: CanvasRenderingContext2D
   fgTextures = new Map<string, WebGLTexture>()
   fgDirtyIds = new Set<string>()
-  /** Stroke mask texture (Canvas2D-generated, re-uploaded each frame per element). */
-  strokeMaskTex: WebGLTexture | null = null
-  strokeMaskCanvas: HTMLCanvasElement | null = null
-  strokeMaskCtx: CanvasRenderingContext2D | null = null
+  /** Canvas2D stroke-mask cache for rim highlight. Keyed by exact geometry
+   *  (element size + corner radius + stroke width + path style at current dpr).
+   *  The mask is independent of highlight angle/alpha/press progress, so it can
+   *  be reused across frames without a resolution ceiling or UV mismatch. */
+  strokeMaskCache = new Map<string, {
+    tex: WebGLTexture
+    canvas: HTMLCanvasElement
+    ctx: CanvasRenderingContext2D
+    w: number
+    h: number
+    ready: boolean
+  }>()
 
   rafId: number | null = null
   animRafId: number | null = null
@@ -287,14 +295,9 @@ export class LiquidGlassRenderer {
     if (!fgCtx) throw new Error('2D canvas not supported')
     this.fgCtx = fgCtx
 
-    // Stroke mask texture (Canvas2D-generated, for highlight)
-    this.strokeMaskTex = gl.createTexture()
-    // Always use HTMLCanvasElement (not OffscreenCanvas) — texImage2D with
-    // OffscreenCanvas has compatibility issues in some browsers.
-    this.strokeMaskCanvas = document.createElement('canvas')
-    ;(this.strokeMaskCanvas as HTMLCanvasElement).width = 64
-    ;(this.strokeMaskCanvas as HTMLCanvasElement).height = 64
-    this.strokeMaskCtx = (this.strokeMaskCanvas as HTMLCanvasElement).getContext('2d', { alpha: true })
+    // Stroke masks are created lazily in renderGlassPostPasses and cached by
+    // exact geometry. Always use HTMLCanvasElement (not OffscreenCanvas) —
+    // texImage2D with OffscreenCanvas has compatibility issues in some browsers.
 
     this.cacheUniforms()
   }
@@ -586,10 +589,8 @@ export class LiquidGlassRenderer {
     if (this.wallpaperTexture) gl.deleteTexture(this.wallpaperTexture)
     for (const tex of this.fgTextures.values()) gl.deleteTexture(tex)
     this.fgTextures.clear()
-    if (this.strokeMaskTex) gl.deleteTexture(this.strokeMaskTex)
-    this.strokeMaskTex = null
-    this.strokeMaskCanvas = null
-    this.strokeMaskCtx = null
+    for (const entry of this.strokeMaskCache.values()) gl.deleteTexture(entry.tex)
+    this.strokeMaskCache.clear()
     if (this.fboA) gl.deleteFramebuffer(this.fboA)
     if (this.fboATex) gl.deleteTexture(this.fboATex)
     if (this.fboB) gl.deleteFramebuffer(this.fboB)

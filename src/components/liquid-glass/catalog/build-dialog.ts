@@ -103,7 +103,8 @@ export function buildDialog(
       saturation: 1.5,
       brightness: palette.dialogBrightness,
       surfaceColor: palette.dialogContainer,
-      highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, color: [1, 1, 1], alpha: 1.0, widthDp: 0.5 },
+      // Highlight.Plain: style color is White.copy(alpha = 0.38f); Highlight.alpha stays 1.
+      highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, color: [1, 1, 1], alpha: 0.38, widthDp: 0.5 },
       outerShadow: null,
       depthEffect: true,
     }

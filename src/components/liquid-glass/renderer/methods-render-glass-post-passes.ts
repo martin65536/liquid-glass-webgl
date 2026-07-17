@@ -232,74 +232,124 @@ export const glassPostPassMethods = {
     //   - No SDF computation in shader (just one texture fetch)
     //   - Adaptive tessellation (more samples at high-curvature corners)
     //
-    // The mask is drawn every frame at the current dpr (no caching = no
-    // resolution ceiling). It's element-local (small texture, element size
-    // + margin), not fullscreen.
+    // The stroke mask is cached by exact geometry. Highlight angle/alpha/press
+    // progress only affect the composite uniforms, not the mask, so caching is
+    // safe and avoids both per-frame rasterization and UV mismatch between a
+    // reused backing canvas and the logical mask size.
     if (el.highlight && el.highlight.alpha > 0.001) {
       const rimAlpha = (el.isToggleKnob || el.isBottomTabIndicator) ? elHighlightAlpha : el.highlight.alpha
       const finalAlpha = rimAlpha * state.enterAlpha
       if (finalAlpha > 0.001) {
-        const widthPx = el.highlight.widthDp * this.dpr
-        const strokeWidthDevice = Math.ceil(widthPx) * 2
+        // HighlightModifier.kt: ceil(width.toPx().coerceAtMost(minDimension / 2)) * 2
+        const widthPx = Math.min(
+          el.highlight.widthDp * this.dpr,
+          Math.min(origSizeX, origSizeY) * 0.5
+        )
+        const strokeWidthDevice = Math.max(1, Math.ceil(widthPx) * 2)
+        // Highlight data class: blurRadius defaults to width / 2. Honor it in the
+        // Canvas2D mask as well (for the default 0.25dp this is sub-pixel, but it
+        // keeps non-default highlights faithful too).
+        const blurPx = Math.max(0, (el.highlight.blurRadiusDp ?? el.highlight.widthDp / 2) * this.dpr)
 
         // --- Generate stroke mask via Canvas2D (browser-native Skia) ---
         // Element-local coordinates: (0,0) = element top-left in device px.
         // Margin for stroke width + AA + blur spread.
         const strokeMargin = Math.ceil(strokeWidthDevice) + 4
-        const maskW = Math.ceil(origSizeX + 2 * strokeMargin)
-        const maskH = Math.ceil(origSizeY + 2 * strokeMargin)
-
-        // Resize the stroke canvas if needed
-        const smCanvas = this.strokeMaskCanvas as any
-        if (smCanvas.width < maskW || smCanvas.height < maskH) {
-          smCanvas.width = maskW
-          smCanvas.height = maskH
-        }
-        const smCtx = this.strokeMaskCtx!
-        // Clear the ENTIRE canvas (not just maskW×maskH) — if the canvas is
-        // larger than needed (from a previous bigger element), stale content
-        // outside maskW×maskH would be uploaded to GPU and cause ghost layers.
-        smCtx.clearRect(0, 0, smCanvas.width, smCanvas.height)
-        smCtx.save()
-        smCtx.translate(strokeMargin, strokeMargin)
-
-        // Build the path (element-local, 0..origSizeX × 0..origSizeY)
+        const maskW = Math.max(1, Math.ceil(origSizeX + 2 * strokeMargin))
+        const maskH = Math.max(1, Math.ceil(origSizeY + 2 * strokeMargin))
         const useG2 = !!el.useContinuousSdf
-        let path: Path2D
-        if (useG2) {
-          path = continuousCurvatureRoundedRectPath(smCtx, origSizeX, origSizeY, origRadius)
-        } else {
-          path = new Path2D()
-          const r = Math.min(origRadius, origSizeX / 2, origSizeY / 2)
-          path.moveTo(r, 0)
-          path.lineTo(origSizeX - r, 0)
-          path.arcTo(origSizeX, 0, origSizeX, r, r)
-          path.lineTo(origSizeX, origSizeY - r)
-          path.arcTo(origSizeX, origSizeY, origSizeX - r, origSizeY, r)
-          path.lineTo(r, origSizeY)
-          path.arcTo(0, origSizeY, 0, origSizeY - r, r)
-          path.lineTo(0, r)
-          path.arcTo(0, 0, r, 0, r)
-          path.closePath()
+        const maskKey = [
+          useG2 ? 'g2' : 'rr',
+          origSizeX.toFixed(3),
+          origSizeY.toFixed(3),
+          origRadius.toFixed(3),
+          strokeWidthDevice,
+          blurPx.toFixed(3),
+          strokeMargin,
+          maskW,
+          maskH,
+        ].join(':')
+
+        let mask = this.strokeMaskCache.get(maskKey)
+        if (!mask) {
+          const canvas = document.createElement('canvas')
+          canvas.width = maskW
+          canvas.height = maskH
+          const ctx = canvas.getContext('2d', { alpha: true })
+          if (!ctx) throw new Error('2D canvas not supported')
+          const tex = gl.createTexture()
+          if (!tex) throw new Error('WebGL texture allocation failed')
+          mask = { tex, canvas, ctx, w: maskW, h: maskH, ready: false }
+          this.strokeMaskCache.set(maskKey, mask)
+
+          // Keep the cache bounded. 32 entries is far above the catalog's
+          // simultaneous highlight geometries and avoids unbounded growth on
+          // highly dynamic pages.
+          if (this.strokeMaskCache.size > 32) {
+            const oldestKey = this.strokeMaskCache.keys().next().value as string | undefined
+            if (oldestKey && oldestKey !== maskKey) {
+              const oldest = this.strokeMaskCache.get(oldestKey)
+              if (oldest) gl.deleteTexture(oldest.tex)
+              this.strokeMaskCache.delete(oldestKey)
+            }
+          }
         }
 
-        // Stroke — browser-native Skia stroke rasterization
-        smCtx.lineWidth = strokeWidthDevice
-        smCtx.strokeStyle = 'rgba(255,255,255,1)'
-        smCtx.lineJoin = 'round'
-        smCtx.lineCap = 'round'
-        smCtx.stroke(path)
-        smCtx.restore()
+        if (!mask.ready) {
+          const smCtx = mask.ctx
+          smCtx.clearRect(0, 0, mask.w, mask.h)
+          smCtx.save()
+          smCtx.translate(strokeMargin, strokeMargin)
 
-        // Upload to GPU texture
-        gl.bindTexture(gl.TEXTURE_2D, this.strokeMaskTex!)
-        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true)
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, smCanvas)
-        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+          // Build the path (element-local, 0..origSizeX × 0..origSizeY)
+          let path: Path2D
+          if (useG2) {
+            path = continuousCurvatureRoundedRectPath(smCtx, origSizeX, origSizeY, origRadius)
+          } else {
+            path = new Path2D()
+            const r = Math.min(origRadius, origSizeX / 2, origSizeY / 2)
+            path.moveTo(r, 0)
+            path.lineTo(origSizeX - r, 0)
+            path.arcTo(origSizeX, 0, origSizeX, r, r)
+            path.lineTo(origSizeX, origSizeY - r)
+            path.arcTo(origSizeX, origSizeY, origSizeX - r, origSizeY, r)
+            path.lineTo(r, origSizeY)
+            path.arcTo(0, origSizeY, 0, origSizeY - r, r)
+            path.lineTo(0, r)
+            path.arcTo(0, 0, r, 0, r)
+            path.closePath()
+          }
+
+          // Stroke — browser-native Skia stroke rasterization.
+          // Faithful to HighlightModifier.kt: clipOutline(outline) BEFORE drawOutline,
+          // so only the INSIDE half of the centered stroke remains. Without this
+          // clip, Canvas2D keeps the outer half too and the rim highlight leaks
+          // outside the glass / looks twice as thick.
+          smCtx.clip(path)
+          smCtx.lineWidth = strokeWidthDevice
+          smCtx.strokeStyle = 'rgba(255,255,255,1)'
+          smCtx.lineJoin = 'round'
+          smCtx.lineCap = 'round'
+          // Approximate Skia BlurMaskFilter on the stroke paint. The clip above
+          // keeps the result inside the outline; the blur only softens that
+          // inside stroke band, like the original HighlightModifier layer.
+          smCtx.filter = blurPx > 0.01 ? `blur(${blurPx}px)` : 'none'
+          smCtx.stroke(path)
+          smCtx.filter = 'none'
+          smCtx.restore()
+
+          // Upload to GPU texture. Keep the same top-left UV convention as the
+          // foreground pass: with UNPACK_FLIP_Y_WEBGL=false, local y=0 samples
+          // the top row of the mask.
+          gl.bindTexture(gl.TEXTURE_2D, mask.tex)
+          gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, mask.canvas)
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+          mask.ready = true
+        }
 
         // --- Composite: stroke mask × intensity × color → scene FBO ---
         gl.enable(gl.BLEND)
@@ -317,13 +367,14 @@ export const glassPostPassMethods = {
         gl.uniform2f(this.uSm['uSize'], sw * this.dpr, sh * this.dpr)
         gl.uniform4f(this.uSm['uCornerRadii'], radii[0] * this.dpr, radii[1] * this.dpr, radii[2] * this.dpr, radii[3] * this.dpr)
         gl.activeTexture(gl.TEXTURE0)
-        gl.bindTexture(gl.TEXTURE_2D, this.strokeMaskTex!)
+        gl.bindTexture(gl.TEXTURE_2D, mask.tex)
         gl.uniform1i(this.uSm['uStrokeMask'], 0)
         // uMaskOffset = margin (the Canvas2D translate offset). The shader
         // maps screenCoord → element-local original space (un-scale, un-rotate),
-        // then UV = (localCoord + margin) / maskSize.
+        // then UV = (localCoord + margin) / maskSize. uMaskSize is the actual
+        // cached texture size, so UVs stay correct for every element size.
         gl.uniform2f(this.uSm['uMaskOffset'], strokeMargin, strokeMargin)
-        gl.uniform2f(this.uSm['uMaskSize'], maskW, maskH)
+        gl.uniform2f(this.uSm['uMaskSize'], mask.w, mask.h)
         gl.uniform4f(this.uSm['uHighlightColor'], el.highlight.color[0], el.highlight.color[1], el.highlight.color[2], 1.0)
         gl.uniform1f(this.uSm['uHighlightAngle'], el.useGravityAngle ? this.gravityAngle : el.highlight.angle)
         gl.uniform1f(this.uSm['uHighlightFalloff'], el.highlight.falloff)
