@@ -111,6 +111,8 @@ The Settings page provides DPR override, blur tap cap, blur downsample, and glob
 
 The liquid glass design, catalog layout, spring constants, G2 corner math, and effect parameterization all come from **[Kyant](https://github.com/Kyant)** — this project is a from-scratch WebGL port of [AndroidLiquidGlass](https://github.com/Kyant/AndroidLiquidGlass). Every faithful mapping is annotated in code comments with the source Kotlin file.
 
+The WebGL port and project integration were done by **[Z.ai Agent](https://z.ai)**.
+
 ## License
 
 Apache-2.0 — see [LICENSE](./LICENSE), consistent with the upstream AndroidLiquidGlass project.
