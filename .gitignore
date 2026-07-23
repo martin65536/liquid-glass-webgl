@@ -57,3 +57,11 @@ server.log
 /tools/jadx/lib/jadx-1.5.0-all.jar
 
 diag-*.png
+
+# Workspace-specific directories
+/download/
+/upload/
+/tool-results/
+
+# npm lock file (project uses bun)
+package-lock.json
