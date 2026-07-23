@@ -61,9 +61,13 @@ declare module './index' {
 }
 
 export const glassRenderMethods = {
-  /** Render a glass element (button / glass-shape) via FBO ping-pong.
-   *  Returns the swapped curFbo/curTex/otherFbo/otherTex so the caller
-   *  can continue iteration with the new "current scene". */
+  /** Render a glass element (button / glass-shape) via the 2-blit scratch
+   *  pattern: scissored blit curFbo→otherFbo (copy backdrop), draw the
+   *  element's passes on otherFbo, then scissored blit otherFbo→curFbo
+   *  (merge result back). curFbo is the FIXED accumulator (never swapped);
+   *  otherFbo is a scratch canvas, fully overwritten each element.
+   *  Returns curFbo/curTex/otherFbo/otherTex unchanged so the caller keeps
+   *  the same accumulator across iterations. */
   renderGlassElement(
     this: LiquidGlassRenderer,
     el: GlassElementConfig,
@@ -302,35 +306,32 @@ export const glassRenderMethods = {
     // ColorFilter.tint(SrcIn) on the 内层背景板 (hidden Row)'s content. No separate FBO
     // capture is needed.
 
-    // --- Step 1: Scissor-localized blit curFbo → otherFbo ---
+    // --- Step 1: Scissor-localized blit curFbo → otherFbo (scratch setup) ---
     //
-    // Previously this was a FULLSCREEN blit (copy the entire scene every
-    // element → N × fullCanvas memory bandwidth, the #1 perf bottleneck).
+    // otherFbo is a SCRATCH canvas for this element (NOT a ping-pong partner).
+    // Copy curFbo's scissor region into it so the element can render on top of
+    // the existing scene (glass-on-glass: the element samples curTex = curFbo
+    // for backdrop blur + refraction). The scissor region covers this element's
+    // bbox + margin so it encompasses every read (backdrop blur ~16dp +
+    // refraction offset ~24dp) and every write (shadow radius up to 24dp +
+    // offset, body, press glow, white overlay, foreground, rim highlight blur
+    // up to ~width/2).
     //
-    // Now it's scissor-localized: only the region this element will actually
-    // touch is copied. The scissor region must cover EVERYTHING this element
-    // reads OR writes so otherFbo stays correct for the next element's
-    // sampling:
+    // After the element is drawn (steps 2a–2f), step 3 blits otherFbo's
+    // scissor region BACK into curFbo, so curFbo (the accumulator) gets only
+    // the region this element touched. curFbo outside the scissor is never
+    // written → no stale content, no vanishing elements.
     //
-    //   WRITES: shadow (radius up to 24dp + offset), element body, press glow,
-    //           white overlay, foreground, rim highlight (blur up to ~width/2).
-    //   READS (from curTex, NOT otherFbo — but the read region must already
-    //         be correct in otherFbo because otherFbo becomes curFbo next
-    //         iteration): backdrop blur (up to ~16dp) + refraction offset
-    //         (up to refractionHeight ~24dp) + magnifier offset.
+    // This 2-blit scratch pattern replaces the old ping-pong swap. The swap
+    // was fundamentally broken under scissor localization: after a scissored
+    // curFbo→otherFbo blit, otherFbo outside the scissor held STALE content
+    // (from two frames ago), and swapping made that stale content the new
+    // "current scene" → every element outside the last one's bbox vanished.
+    // Keeping curFbo as the fixed accumulator fixes that.
     //
-    // Staleness analysis (the correctness constraint):
-    //   After this scissored blit, otherFbo outside the scissor region keeps
-    //   its PREVIOUS content (from 2 frames ago, since ping-pong swaps). That
-    //   content is stale (doesn't include elements rendered since) BUT it's
-    //   only read if a subsequent element's sample region overlaps it. As long
-    //   as the margin ≥ the max sampling reach (refraction + blur ≈ 40dp),
-    //   physically-separated elements never read each other's stale regions.
-    //   Adjacent elements (catalog list items, ~8-16dp gap) are covered by the
-    //   100px margin, which is > 2× the max sampling reach.
-    //
-    // Net win: ~50× less memory bandwidth per element blit (36万px → ~7千px
-    // for a typical 200×50 button). This is the single biggest perf fix.
+    // Cost: 2 scissored blits per element vs the old 1 FULLSCREEN blit + swap.
+    // Each scissored blit touches ~50× fewer pixels (36万px → ~7千px for a
+    // typical 200×50 button), so net ~25× faster while being strictly correct.
     const MARGIN_CSS = 100
     const scissorX = Math.max(0, Math.round((sx - MARGIN_CSS) * this.dpr))
     const scissorY = Math.max(0, Math.round((this.cssHeight - (sy + sh + MARGIN_CSS)) * this.dpr))
@@ -427,19 +428,34 @@ export const glassRenderMethods = {
     // --- Steps 2c–2f: Press glow, white overlay, foreground, rim highlight ---
     this.renderGlassPostPasses(state)
 
+    // --- Step 3: Scissor-localized blit otherFbo → curFbo (merge back) ---
+    //
+    // otherFbo now holds (copied curFbo region) + (this element's shadow +
+    // glass body + press glow + white overlay + foreground + rim highlight)
+    // within the scissor region. Copy that back into curFbo (still scissored)
+    // so curFbo — the fixed accumulator — gets ONLY the region this element
+    // touched. curFbo outside the scissor is never written, so it keeps the
+    // correct accumulated scene from all previous elements (no stale content).
+    this.bindFBO(curFbo)
+    gl.enable(gl.SCISSOR_TEST)
+    gl.scissor(scissorX, scissorY, scissorW, scissorH)
+    this.drawCopy(otherTex)
+    // drawCopy disables blend; restore it for subsequent non-glass passes
+    // and the next element's shadow pass.
+    gl.enable(gl.BLEND)
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+
     // --- Disable scissor (restore full-screen rasterization for subsequent
     // elements + the final blit to the default framebuffer) ---
     gl.disable(gl.SCISSOR_TEST)
 
-    // --- Step 3: Swap curFbo ↔ otherFbo ---
-    // otherFbo now contains: previous scene + shadow + glass body +
-    // press glow + white overlay + foreground + rim highlight. It
-    // becomes the new "current scene" for subsequent elements to sample.
+    // --- Step 4: No swap. curFbo stays the accumulator; otherFbo stays the
+    // scratch canvas (fully overwritten by the next element's step-1 blit). ---
     return {
-      curFbo: otherFbo,
-      curTex: otherTex,
-      otherFbo: curFbo,
-      otherTex: curTex,
+      curFbo,
+      curTex,
+      otherFbo,
+      otherTex,
     }
   },
 
