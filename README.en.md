@@ -1,12 +1,22 @@
 **English** | [中文](./README.md)
 
-> The WebGL port and project integration were done by **[Z.ai Agent](https://z.ai)**
-
 # Liquid Glass — WebGL Port
 
-A faithful WebGL port of [Kyant's AndroidLiquidGlass](https://github.com/Kyant/AndroidLiquidGlass), rewritten from scratch with Next.js + TypeScript + raw WebGL 1.
+Thanks to [Z.ai Agent](https://z.ai) for providing powerful development capabilities for free, and thanks to [Kyant](https://github.com/Kyant) for open-sourcing the Liquid Glass project on Android, giving me the chance to bring this exquisite visual experience to the browser.
 
-The entire liquid glass rendering pipeline — SDF capsule surface tessellation, G2 continuous-curvature rounded rectangles, refraction/lens shaders, separable Gaussian background blur, spring physics, adaptive luminance — all runs on a hand-written ping-pong FBO renderer. No CanvasKit, no three.js, no React Three Fiber — pure shaders.
+🔗 Try it now: [glass.mt512.qzz.io](https://glass.mt512.qzz.io/) (stable) | [liquid-glass-webgl.vercel.app](https://liquid-glass-webgl.vercel.app/) (blocked in China)
+
+This is a Web port developed almost entirely by [Z.ai Agent](https://z.ai). Built on Next.js + WebGL Shaders, we've brought Kyant's faithful recreation of iOS liquid glass from Android straight into the browser — transparent, refractive, with depth-of-field blur and optical layering. No Apple device needed; just open the page and touch it in real time.
+
+## ✨ Highlights
+
+- 🤖 **AI-driven development**: Almost entirely completed by Z.ai Agent; I mainly assisted with debugging and validation, iterating until it shined
+- 🎨 **Faithful recreation**: Every frosted-glass layer carries real optical refraction, replicating Kyant's signature liquid glass aesthetic
+- ⚡ **WebGL real-time rendering**: Smoothness rivaling native apps; works in any browser, any platform, instantly
+- 📱 **Zero barrier**: Seamlessly adapts to phone / tablet / desktop — experience iOS-style liquid glass without owning an Apple device
+- 🖼️ **Custom images**: Upload your own wallpaper and preview glass overlay effects in real time
+
+💡 **Tip**: If the animation feels sluggish, head to the Settings entry at the bottom of the home page and lower the DPR (device pixel ratio) for better performance.
 
 ## Catalog Contents
 
@@ -29,8 +39,6 @@ Each page is a pixel-perfect replica: layout dimensions, spring constants, color
 - **Bun** as runtime / package manager
 
 ## Quick Start
-
-Live preview: [glass.mt512.qzz.io](https://glass.mt512.qzz.io/) (stable) | [liquid-glass-webgl.vercel.app](https://liquid-glass-webgl.vercel.app/) (blocked in China)
 
 ```bash
 bun install
@@ -111,9 +119,13 @@ The renderer is tuned for ~10 glass elements on-screen at ~60fps on mobile-class
 
 The Settings page provides DPR override, blur tap cap, blur downsample, and global separable blur toggle for tuning.
 
-## Acknowledgements
+## 👨‍💻 About This Project
 
-The liquid glass design, catalog layout, spring constants, G2 corner math, and effect parameterization all come from **[Kyant](https://github.com/Kyant)** — this project is a from-scratch WebGL port of [AndroidLiquidGlass](https://github.com/Kyant/AndroidLiquidGlass). Every faithful mapping is annotated in code comments with the source Kotlin file.
+- **Web port**: [Z.ai Agent](https://z.ai) (Next.js + WebGL)
+- **Design reference**: [Kyant](https://github.com/Kyant) / [Android Liquid Glass](https://github.com/Kyant/AndroidLiquidGlass)
+- **Source code**: Web version [martin65536/liquid-glass-webgl](https://github.com/martin65536/liquid-glass-webgl) | Original [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)
+
+Want to experience liquid glass without an Apple device? Open the link and try it — Star and Issues welcome!
 
 ## License
 

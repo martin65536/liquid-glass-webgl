@@ -1,12 +1,22 @@
 [English](./README.en.md) | **中文**
 
-> WebGL 移植与项目集成由 **[Z.ai Agent](https://z.ai)** 完成
-
 # Liquid Glass — WebGL 移植版
 
-[Kyant 的 AndroidLiquidGlass](https://github.com/Kyant/AndroidLiquidGlass) 目录的忠实 WebGL 移植，从零用 Next.js + TypeScript + 原生 WebGL 1 重写。
+感谢 [Z.ai Agent](https://z.ai) 免费提供的强大开发能力，也感谢 [Kyant](https://github.com/Kyant) 开源了 Android 上的 Liquid Glass 项目，让我有机会把这个精致的视觉体验搬到浏览器里。
 
-整套液态玻璃渲染管线 —— SDF 胶囊体曲面细分、G2 连续曲率圆角矩形、折射/透镜着色器、可分离高斯背景模糊、弹簧物理、自适应亮度 —— 全部跑在手写的 ping-pong FBO 渲染器上。没有 CanvasKit、没有 three.js、没有 React Three Fiber，纯着色器。
+🔗 直接体验：[glass.mt512.qzz.io](https://glass.mt512.qzz.io/)（较稳定）｜[liquid-glass-webgl.vercel.app](https://liquid-glass-webgl.vercel.app/)（国内被墙）
+
+这是 [Z.ai Agent](https://z.ai) 几乎全程自动开发完成的 Web 移植版。基于 Next.js + WebGL Shaders，我们把 Kyant 在 Android 上还原的 iOS 液态玻璃质感完整搬到了浏览器——通透、折射、带景深模糊的光学层次，无需苹果设备，打开网页就能实时触摸。
+
+## ✨ 项目亮点
+
+- 🤖 **AI 驱动开发**：几乎全程由 Z.ai Agent 自动完成，我主要协助调试与验收，反复打磨后呈现
+- 🎨 **忠实还原**：每一层毛玻璃都带真实光学折射，复刻 Kyant 标志性的液态玻璃视觉
+- ⚡ **WebGL 实时渲染**：流畅度媲美原生，全平台浏览器即开即玩
+- 📱 **零门槛体验**：手机 / 平板 / 桌面无缝适配，没有苹果设备也能感受 iOS 风格液态玻璃
+- 🖼️ **自定义图片**：支持上传图片，实时预览玻璃叠加效果
+
+💡 **小贴士**：如果感觉画面卡顿，可到主页底部设置入口，适当降低 DPR（设备像素比）提升流畅度。
 
 ## 目录内容
 
@@ -29,8 +39,6 @@
 - **Bun** 作为运行时 / 包管理器
 
 ## 快速开始
-
-在线预览：[glass.mt512.qzz.io](https://glass.mt512.qzz.io/)（较稳定）| [liquid-glass-webgl.vercel.app](https://liquid-glass-webgl.vercel.app/)（国内被墙）
 
 ```bash
 bun install
@@ -111,9 +119,13 @@ src/components/liquid-glass/
 
 Settings 页提供 DPR 覆盖、模糊 tap cap、模糊降采样、全局可分离模糊开关供调优。
 
-## 致谢
+## 👨‍💻 关于项目
 
-液态玻璃的设计、目录布局、弹簧常数、G2 角数学、效果参数化全部来自 **[Kyant](https://github.com/Kyant)** —— 本项目是 [AndroidLiquidGlass](https://github.com/Kyant/AndroidLiquidGlass) 的从零 WebGL 移植。每一处忠实映射都在代码注释里标注了来源 Kotlin 文件。
+- **Web 移植**：[Z.ai Agent](https://z.ai)（Next.js + WebGL）
+- **设计参考**：[Kyant](https://github.com/Kyant) / [Android Liquid Glass](https://github.com/Kyant/AndroidLiquidGlass)
+- **开源地址**：Web 版 [martin65536/liquid-glass-webgl](https://github.com/martin65536/liquid-glass-webgl) ｜原版 [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)
+
+没有苹果设备也想体验液态玻璃？欢迎打开链接试玩，顺手点个 Star 提 Issue！
 
 ## 许可证
 
