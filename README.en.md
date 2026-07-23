@@ -122,10 +122,16 @@ The Settings page provides DPR override, blur tap cap, blur downsample, and glob
 ## 👨‍💻 About This Project
 
 - **Web port**: [Z.ai Agent](https://z.ai) (Next.js + WebGL)
-- **Design reference**: [Kyant](https://github.com/Kyant) / [Android Liquid Glass](https://github.com/Kyant/AndroidLiquidGlass)
+- **Design reference**: [Kyant](https://github.com/Kyant0) / [Android Liquid Glass](https://github.com/Kyant0/AndroidLiquidGlass)
 - **Source code**: Web version [martin65536/liquid-glass-webgl](https://github.com/martin65536/liquid-glass-webgl) | Original [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)
 
 Want to experience liquid glass without an Apple device? Open the link and try it — Star and Issues welcome!
+
+## ⚠️ Wall of Shame
+
+[GooseHyperGlass](https://github.com/Minecraftgoose/GooseHyperGlass) ([@Minecraftgoose](https://github.com/Minecraftgoose)) appears to be a plagiarism-style rewrite of this project: shader code structure and core algorithms are highly similar, yet the project naming and promotional copy systematically strip credit from the original author Kyant, the porter, and Z.ai Agent, misleading users into thinking it is an independent original work. Furthermore, its implementation quality is poor — forced resolution downscaling with no user control, excessive `blur` filter usage, unhandled browser default click behaviors, broken dialog layouts, severe rendering aliasing, and failure to correctly implement G2 continuous-curvature corners.
+
+For a detailed factual account, see [Kyant0/AndroidLiquidGlass #112](https://github.com/Kyant0/AndroidLiquidGlass/issues/112).
 
 ## License
 
