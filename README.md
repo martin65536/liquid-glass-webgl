@@ -2,11 +2,11 @@
 
 # Liquid Glass — WebGL 移植版
 
-感谢 [Z.ai Agent](https://z.ai) 免费提供的强大开发能力，也感谢 [Kyant](https://github.com/Kyant) 开源了 Android 上的 Liquid Glass 项目，让我有机会把这个精致的视觉体验搬到浏览器里。
+感谢 [Z.ai Agent](https://z.ai) 免费提供的强大开发能力，也感谢 [Kyant](https://github.com/Kyant0) 开源了 Android 上的 [Liquid Glass](https://github.com/Kyant0/AndroidLiquidGlass) 项目，让我有机会把这个精致的视觉体验搬到浏览器里。
 
 🔗 直接体验：[glass.mt512.qzz.io](https://glass.mt512.qzz.io/)（较稳定）｜[liquid-glass-webgl.vercel.app](https://liquid-glass-webgl.vercel.app/)（国内被墙）
 
-这是 [Z.ai Agent](https://z.ai) 几乎全程自动开发完成的 Web 移植版。基于 Next.js + WebGL Shaders，我们把 Kyant 在 Android 上还原的 iOS 液态玻璃质感完整搬到了浏览器——通透、折射、带景深模糊的光学层次，无需苹果设备，打开网页就能实时触摸。
+这是 [Z.ai Agent](https://z.ai) 几乎全程自动开发完成的 Web 移植版。基于 Next.js + WebGL Shaders，我们把 Kyant 在 Android 上还原的 iOS 液态玻璃质感完整搬到了浏览器（原项目：[AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)）——通透、折射、带景深模糊的光学层次，无需苹果设备，打开网页就能实时触摸。
 
 ## ✨ 项目亮点
 

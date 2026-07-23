@@ -2,11 +2,11 @@
 
 # Liquid Glass — WebGL Port
 
-Thanks to [Z.ai Agent](https://z.ai) for providing powerful development capabilities for free, and thanks to [Kyant](https://github.com/Kyant) for open-sourcing the Liquid Glass project on Android, giving me the chance to bring this exquisite visual experience to the browser.
+Thanks to [Z.ai Agent](https://z.ai) for providing powerful development capabilities for free, and thanks to [Kyant](https://github.com/Kyant0) for open-sourcing the [Liquid Glass](https://github.com/Kyant0/AndroidLiquidGlass) project on Android, giving me the chance to bring this exquisite visual experience to the browser.
 
 🔗 Try it now: [glass.mt512.qzz.io](https://glass.mt512.qzz.io/) (stable) | [liquid-glass-webgl.vercel.app](https://liquid-glass-webgl.vercel.app/) (blocked in China)
 
-This is a Web port developed almost entirely by [Z.ai Agent](https://z.ai). Built on Next.js + WebGL Shaders, we've brought Kyant's faithful recreation of iOS liquid glass from Android straight into the browser — transparent, refractive, with depth-of-field blur and optical layering. No Apple device needed; just open the page and touch it in real time.
+This is a Web port developed almost entirely by [Z.ai Agent](https://z.ai). Built on Next.js + WebGL Shaders, we've brought Kyant's faithful recreation of iOS liquid glass from Android straight into the browser (original project: [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)) — transparent, refractive, with depth-of-field blur and optical layering. No Apple device needed; just open the page and touch it in real time.
 
 ## ✨ Highlights
 
