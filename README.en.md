@@ -1,5 +1,7 @@
 **English** | [中文](./README.md)
 
+> The WebGL port and project integration were done by **[Z.ai Agent](https://z.ai)**
+
 # Liquid Glass — WebGL Port
 
 A faithful WebGL port of [Kyant's AndroidLiquidGlass](https://github.com/Kyant/AndroidLiquidGlass), rewritten from scratch with Next.js + TypeScript + raw WebGL 1.
@@ -27,6 +29,8 @@ Each page is a pixel-perfect replica: layout dimensions, spring constants, color
 - **Bun** as runtime / package manager
 
 ## Quick Start
+
+Live preview: [glass.mt512.qzz.io](https://glass.mt512.qzz.io/) (stable) | [liquid-glass-webgl.vercel.app](https://liquid-glass-webgl.vercel.app/) (blocked in China)
 
 ```bash
 bun install
@@ -110,8 +114,6 @@ The Settings page provides DPR override, blur tap cap, blur downsample, and glob
 ## Acknowledgements
 
 The liquid glass design, catalog layout, spring constants, G2 corner math, and effect parameterization all come from **[Kyant](https://github.com/Kyant)** — this project is a from-scratch WebGL port of [AndroidLiquidGlass](https://github.com/Kyant/AndroidLiquidGlass). Every faithful mapping is annotated in code comments with the source Kotlin file.
-
-The WebGL port and project integration were done by **[Z.ai Agent](https://z.ai)**.
 
 ## License
 
