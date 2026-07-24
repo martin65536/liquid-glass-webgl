@@ -415,8 +415,13 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
         }
         strokeMask /= wSum2;
         strokeMask *= 0.5;  // clip halves the symmetric stroke at the edge
-        // Clip to inside (outside the 内层背景板 → no highlight)
-        strokeMask = (capsuleSd > 0.0) ? 0.0 : strokeMask;
+        // Clip to inside (outside the 内层背景板 → no highlight) with AA.
+        // A hard binary clip (capsuleSd > 0 → 0.0) creates aliasing at the edge
+        // because there's no smooth transition. Use smoothstep to fade out over
+        // 1px, matching the backdrop mask's AA quality (indicatorAaRadius).
+        // This mirrors HIGHLIGHT_COMPOSITE_FRAGMENT_SHADER's clipAA approach.
+        float clipAA = 1.0 - smoothstep(0.0, indicatorAaRadius, capsuleSd);
+        strokeMask *= clipAA;
 
         // White(1.0) * intensity * strokeMask * progress, Plus blend (additive).
         // (color.copy(alpha=1) * highlightLayer.alpha=progress — the 0.5 alpha
