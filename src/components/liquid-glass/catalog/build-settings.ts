@@ -382,6 +382,8 @@ export function buildSettings(
   interactions['settings-reset'] = {
     onTap: () => {
       setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 17, blurDownsample: 1, capsuleShape: true, hideOverlayButtons: false, liveDpr: null, liveTapCap: null, showFps: false })
+      // Clear the auto-DPR perf cache so next visit re-detects
+      try { window.localStorage.removeItem('liquid-glass-perf-dpr') } catch {}
       const d = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
       const dprFrac = (d - 0.5) / Math.max(0.0001, d - 0.5)
       rendererRef?.current?.setToggleTarget('settings-dpr', dprFrac)
