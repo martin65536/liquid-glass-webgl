@@ -237,7 +237,10 @@ vec4 sampleToggleBackdrop(vec2 canvasPx, float radius) {
         float trackSd = length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0) - tr;
         // Blur the edge by uBlurRadius (approximate Gaussian edge feather).
         // Inside (trackSd < -radius) → mask=1; outside (trackSd > radius) → mask=0.
-        float mask = 1.0 - smoothstep(-radius, radius, trackSd);
+        // Use max(radius, 1.0) to guarantee at least 1px smoothstep for AA
+        // — when fully pressed, blurRadius=0, but edges must still be smooth.
+        float aaRadius = max(radius, 1.0);
+        float mask = 1.0 - smoothstep(-aaRadius, aaRadius, trackSd);
         // Composite: srcOver (track color over outer backdrop).
         float a = mask * uTrackColor.a;
         wp.rgb = mix(wp.rgb, uTrackColor.rgb, a);
