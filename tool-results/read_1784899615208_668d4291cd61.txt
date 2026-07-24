@@ -1,0 +1,577 @@
+     1→import type { LiquidGlassRenderer } from './index'
+     2→import type { GlassElementConfig, ElementState } from './types'
+     3→import { DP } from './spring'
+     4→import { easeIn } from './gl-utils'
+     5→
+     6→declare module './index' {
+     7→  interface LiquidGlassRenderer {
+     8→    render(): void
+     9→    setSdfUniforms(
+    10→      u: Record<string, WebGLUniformLocation | null>,
+    11→      aPosLoc: number,
+    12→      r: { x: number; y: number; w: number; h: number },
+    13→      cornerRadius: number
+    14→    ): void
+    15→    renderBackground(): void
+    16→    /** Render wallpaper+scrim+colorControls into dialogBackdropFbo (opaque).
+    17→     *  Cached by scrim+cc params. Used by the dialog card's 2-pass blur path. */
+    18→    renderDialogBackdrop(
+    19→      scrim: [number, number, number, number],
+    20→      brightness: number,
+    21→      contrast: number,
+    22→      saturation: number
+    23→    ): void
+    24→    renderNonGlassElement(
+    25→      el: GlassElementConfig,
+    26→      r: { x: number; y: number; w: number; h: number },
+    27→      st: ElementState | undefined,
+    28→      curFbo: WebGLFramebuffer
+    29→    ): boolean
+    30→    renderGlassElement(
+    31→      el: GlassElementConfig,
+    32→      st: ElementState | undefined,
+    33→      curFbo: WebGLFramebuffer,
+    34→      curTex: WebGLTexture,
+    35→      otherFbo: WebGLFramebuffer,
+    36→      otherTex: WebGLTexture
+    37→    ): {
+    38→      curFbo: WebGLFramebuffer
+    39→      curTex: WebGLTexture
+    40→      otherFbo: WebGLFramebuffer
+    41→      otherTex: WebGLTexture
+    42→    }
+    43→  }
+    44→}
+    45→
+    46→export const renderMethods = {
+    47→  render(this: LiquidGlassRenderer) {
+    48→    // PERFORMANCE: Skip render if nothing changed since last frame.
+    49→    // This prevents redundant full-scene re-renders when rAF fires
+    50→    // (e.g. from browser repaints) but no state actually changed.
+    51→    if (!this.needsRedraw) return
+    52→    this.needsRedraw = false
+    53→
+    54→    if (!this.wallpaperReady && !this.backgroundColor) return
+    55→    const gl = this.gl
+    56→    // Ensure FBOs exist (created lazily on first render after resize).
+    57→    this.resizeFBOs(this.canvas.width, this.canvas.height)
+    58→
+    59→    // Re-rasterize any dirty foregrounds.
+    60→    for (const cfg of this.buttonConfigs) {
+    61→      if (this.fgDirtyIds.has(cfg.id)) {
+    62→        this.rasterizeForeground(cfg)
+    63→      }
+    64→    }
+    65→
+    66→    // --- 1. Render background (wallpaper or solid color) into fboA ----
+    67→    // fboA is the "current scene" — everything rendered so far. Glass
+    68→    // elements will sample from fboA.texture to compute refraction of
+    69→    // the actual colors behind them (track color, card background, etc).
+    70→    this.renderBackground()
+    71→
+    72→    if (this.buttonConfigs.length === 0) {
+    73→      // No elements — blit fboA to the default framebuffer and done.
+    74→      this.bindFBO(null)
+    75→      this.drawCopy(this.fboATex!)
+    76→      return
+    77→    }
+    78→
+    79→    // --- Global backdrop blur (ControlCenter) ---
+    80→    // Faithful to ControlCenterContent.kt: the backdrop Image has
+    81→    //   .graphicsLayer { BlurEffect(4dp * progress) }
+    82→    // which blurs the WALLPAPER (not the dim, not the tiles). We replicate
+    83→    // by blurring fboA (wallpaper) right after renderBackground, BEFORE any
+    84→    // element composites on top. The cc-dim element (drawn next) renders a
+    85→    // crisp dim on top of the blurred wallpaper — matching the original's
+    86→    // drawWithContent { drawContent(); drawRect(dim) } where drawContent()
+    87→    // draws the blurred wallpaper and drawRect(dim) is crisp.
+    88→    //
+    89→    // sceneBlurRadius is set on the cc-dim element (CSS px). We scan for it
+    90→    // here (once per frame) and blur fboA in-place (blurTexture → blurFboB,
+    91→    // then drawCopy back to fboA).
+    92→    const sceneBlurEl = this.buttonConfigs.find((e) => (e.sceneBlurRadius ?? 0) >= 0.5)
+    93→    if (sceneBlurEl) {
+    94→      const r = sceneBlurEl.sceneBlurRadius! * this.dpr
+    95→      const blurred = this.blurTexture(this.fboATex!, r)
+    96→      // blurTexture restored the FBO binding to fboA (what renderBackground
+    97→      // bound). Rebind explicitly + copy blurred result back into fboA.
+    98→      this.bindFBO(this.fboA!)
+    99→      this.drawCopy(blurred)
+   100→    }
+   101→
+   102→    // Enable blending for the remaining passes.
+   103→    gl.enable(gl.BLEND)
+   104→    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+   105→
+   106→    // Cull + iterate. We render elements in DECLARED ORDER (no Wave 1 /
+   107→    // Wave 2 split) because the FBO ping-pong makes z-ordering faithful:
+   108→    // each element composites on top of everything declared before it.
+   109→    //
+   110→    // CULL MARGIN: 120px accounts for outer shadows (~24dp), press/toggle
+   111→    // scale (up to 1.5x), and foreground halo blur.
+   112→    //
+   113→    // CULL MARGIN UNITS: All comparisons are in VIEWPORT coords (y=0 is
+   114→    // the top of the visible canvas, y=cssHeight is the bottom). Mixing
+   115→    // viewport y with content y (which is offset by scrollY) was the
+   116→    // cause of the long-standing "elements disappear before sliding off
+   117→    // screen" bug.
+   118→    const scrollY = this.scrollY
+   119→    const CULL_MARGIN = 120
+   120→    const viewportTop = -CULL_MARGIN
+   121→    const viewportBottom = this.cssHeight + CULL_MARGIN
+   122→
+   123→    // Helper to compute the element's effective rect (with scroll offset).
+   124→    const effRect = (el: GlassElementConfig) => {
+   125→      const y = el.scroll ? el.rect.y - scrollY : el.rect.y
+   126→      return { x: el.rect.x, y, w: el.rect.w, h: el.rect.h }
+   127→    }
+   128→
+   129→    // Iterate elements in declared order. Track which FBO is "current"
+   130→    // (i.e. contains the scene built up so far). Glass elements trigger
+   131→    // a ping-pong; non-glass elements render directly to the current FBO.
+   132→    let curFbo: WebGLFramebuffer = this.fboA!
+   133→    let curTex: WebGLTexture = this.fboATex!
+   134→    let otherFbo: WebGLFramebuffer = this.fboB!
+   135→    let otherTex: WebGLTexture = this.fboBTex!
+   136→
+   137→    for (const el of this.buttonConfigs) {
+   138→      // Skip renderOnTop elements — they are rendered in a second pass
+   139→      // after all other elements (faithful to ControlCenterContent.kt's
+   140→      // drawWithContent which draws the dim AFTER drawContent).
+   141→      if (el.renderOnTop) continue
+   142→
+   143→      // Compute the element's effective y in VIEWPORT coords (after scroll).
+   144→      const y = el.scroll ? el.rect.y - scrollY : el.rect.y
+   145→      if (y + el.rect.h < viewportTop || y > viewportBottom) continue
+   146→
+   147→      const r = effRect(el)
+   148→      const st = this.buttonStates.get(el.id)
+   149→
+   150→      // --- Non-glass elements: render directly to current FBO ---
+   151→      if (this.renderNonGlassElement(el, r, st, curFbo)) continue
+   152→
+   153→      // --- Backdrop FBO: render wallpaper+scrim+colorControls into
+   154→      // dialogBackdropFbo (cached) for backdropFbo elements. ---
+   155→      if (el.backdropFbo && el.scrimColor) {
+   156→        this.renderDialogBackdrop(el.scrimColor, el.brightness, el.contrast, el.saturation)
+   157→      }
+   158→
+   159→      // --- Continuous-curvature SDF texture (capsule shape) ---
+   160→      // For elements with useContinuousSdf=true (dialog card), ensure the
+   161→      // SDF texture for the element's (w, h, radius) is generated + uploaded
+   162→      // BEFORE rendering. loadContinuousSdf() is cached — no-op if already
+   163→      // loaded for this geometry. Generation is synchronous (Canvas2D raster
+   164→      // + chamfer distance transform on a 256×256 grid) so it only happens
+   165→      // once per (w, h, radius) tuple, on the first frame after a resize.
+   166→      if (el.useContinuousSdf) {
+   167→        this.loadContinuousSdf(el.rect.w, el.rect.h, el.cornerRadius)
+   168→      }
+   169→
+   170→      // --- Glass elements (button / glass-shape): ping-pong ---
+   171→      const result = this.renderGlassElement(el, st, curFbo, curTex, otherFbo, otherTex, r)
+   172→      curFbo = result.curFbo
+   173→      curTex = result.curTex
+   174→      otherFbo = result.otherFbo
+   175→      otherTex = result.otherTex
+   176→
+   177→      // After the container glass is rendered (before tab-content), snapshot
+   178→      // the scene (wallpaper + glass, no text) into tabsBackdropFbo. The
+   179→      // indicator samples this to avoid the white/black tab text bleeding through.
+   180→      if (el.isBottomTabContainer && this.tabsBackdropFbo && this.tabsBackdropTex) {
+   181→        this.bindFBO(this.tabsBackdropFbo)
+   182→        // Clear to transparent first (avoid stale black from previous frames).
+   183→        this.gl.clearColor(0, 0, 0, 0)
+   184→        this.gl.clear(this.gl.COLOR_BUFFER_BIT)
+   185→        this.drawCopy(curTex)
+   186→        // Re-bind curFbo for continued rendering (tab-content draws on top).
+   187→        this.bindFBO(curFbo)
+   188→        // drawCopy disables blend; re-enable for subsequent tab-content rendering.
+   189→        this.gl.enable(this.gl.BLEND)
+   190→        this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA)
+   191→      }
+   192→    }
+   193→
+   194→    // --- Second pass: render renderOnTop elements ---
+   195→    // Faithful to ControlCenterContent.kt / DialogContent.kt's drawWithContent:
+   196→    //   drawContent()  ← first pass (card/tiles)
+   197→    //   drawRect(dim)  ← second pass (dim/scrim on top, like the original)
+   198→    // Also renders glass renderOnTop elements (back button / theme toggle)
+   199→    // via normal ping-pong — they composite on top of the scrim. If they
+   200→    // have sampleWallpaper=true, the refraction samples the clean wallpaper
+   201→    // (handled in renderGlassElementPass), so the scrim doesn't darken them.
+   202→    for (const el of this.buttonConfigs) {
+   203→      if (!el.renderOnTop) continue
+   204→      const y = el.scroll ? el.rect.y - scrollY : el.rect.y
+   205→      if (y + el.rect.h < viewportTop || y > viewportBottom) continue
+   206→      const r = effRect(el)
+   207→      const st = this.buttonStates.get(el.id)
+   208→
+   209→      // Non-glass renderOnTop elements (scrim/dim) render directly on curFbo.
+   210→      if (this.renderNonGlassElement(el, r, st, curFbo)) continue
+   211→
+   212→      // Glass renderOnTop elements (back button / theme toggle): normal
+   213→      // ping-pong. The blit copies curTex (which now contains the scrim) to
+   214→      // otherFbo, then the glass element renders on top. sampleWallpaper
+   215→      // (if set) only changes the refraction sample, not the blit — so the
+   216→      // scene is preserved and the button composites correctly on top.
+   217→      const result = this.renderGlassElement(el, st, curFbo, curTex, otherFbo, otherTex, r)
+   218→      curFbo = result.curFbo
+   219→      curTex = result.curTex
+   220→      otherFbo = result.otherFbo
+   221→      otherTex = result.otherTex
+   222→    }
+   223→
+   224→    // --- Final: blit curFbo → default framebuffer (visible canvas) ---
+   225→    this.bindFBO(null)
+   226→    this.drawCopy(curTex)
+   227→  },
+   228→
+   229→  /** Helper to set SDF uniforms (canvasSize + offset + size + cornerRadii)
+   230→   *  for any of the SDF-using programs. */
+   231→  setSdfUniforms(
+   232→    this: LiquidGlassRenderer,
+   233→    u: Record<string, WebGLUniformLocation | null>,
+   234→    aPosLoc: number,
+   235→    r: { x: number; y: number; w: number; h: number },
+   236→    cornerRadius: number
+   237→  ) {
+   238→    const gl = this.gl
+   239→    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+   240→    gl.enableVertexAttribArray(aPosLoc)
+   241→    gl.vertexAttribPointer(aPosLoc, 2, gl.FLOAT, false, 0, 0)
+   242→    gl.uniform2f(u['uCanvasSize'], this.canvas.width, this.canvas.height)
+   243→    gl.uniform2f(u['uOffset'], r.x * this.dpr, r.y * this.dpr)
+   244→    gl.uniform2f(u['uSize'], r.w * this.dpr, r.h * this.dpr)
+   245→    gl.uniform4f(
+   246→      u['uCornerRadii'],
+   247→      cornerRadius * this.dpr,
+   248→      cornerRadius * this.dpr,
+   249→      cornerRadius * this.dpr,
+   250→      cornerRadius * this.dpr
+   251→    )
+   252→  },
+   253→
+   254→  /** Render wallpaper or solid background color into fboA. */
+   255→  renderBackground(this: LiquidGlassRenderer) {
+   256→    const gl = this.gl
+   257→    this.bindFBO(this.fboA)
+   258→    gl.disable(gl.BLEND)
+   259→    if (this.backgroundColor) {
+   260→      const [r, g, b] = this.backgroundColor
+   261→      this.drawSolidFill(r, g, b, 1)
+   262→    } else {
+   263→      gl.useProgram(this.wallpaperProgram)
+   264→      gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+   265→      gl.enableVertexAttribArray(this.aPosLocWp)
+   266→      gl.vertexAttribPointer(this.aPosLocWp, 2, gl.FLOAT, false, 0, 0)
+   267→      gl.activeTexture(gl.TEXTURE0)
+   268→      gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture!)
+   269→      gl.uniform1i(this.uWp['uBackdrop'], 0)
+   270→      gl.uniform2f(this.uWp['uCanvasSize'], this.canvas.width, this.canvas.height)
+   271→      gl.uniform2f(this.uWp['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
+   272→      gl.drawArrays(gl.TRIANGLES, 0, 6)
+   273→    }
+   274→  },
+   275→
+   276→  /** Render wallpaper+scrim+colorControls into dialogBackdropFbo as ONE OPAQUE
+   277→   *  layer (alpha=1), replicating the original's LayerBackdrop (wallpaper+scrim)
+   278→   *  with colorControls applied — matching the original's colorControls→blur→lens
+   279→   *  effects order. The dialog card (backdropFbo + useSeparableBlur) 2-pass blurs
+   280→   *  this FBO then does lens refraction.
+   281→   *
+   282→   *  Order: wallpaper (opaque) → scrim (glBlendFuncSeparate, correct alpha) →
+   283→   *  colorControls (fullscreen pass). Cached by scrim+cc params. */
+   284→  renderDialogBackdrop(
+   285→    this: LiquidGlassRenderer,
+   286→    scrim: [number, number, number, number],
+   287→    brightness: number,
+   288→    contrast: number,
+   289→    saturation: number
+   290→  ) {
+   291→    const key = `${scrim.join(',')}|${brightness},${contrast},${saturation}`
+   292→    if (this.dialogBackdropKey === key) return  // cached
+   293→    this.dialogBackdropKey = key
+   294→    const gl = this.gl
+   295→    // Step 1: paint wallpaper (opaque) into dialogBackdropFbo.
+   296→    this.bindFBO(this.dialogBackdropFbo!)
+   297→    gl.disable(gl.BLEND)
+   298→    if (this.backgroundColor) {
+   299→      const [r, g, b] = this.backgroundColor
+   300→      this.drawSolidFill(r, g, b, 1)
+   301→    } else {
+   302→      gl.useProgram(this.wallpaperProgram)
+   303→      gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+   304→      gl.enableVertexAttribArray(this.aPosLocWp)
+   305→      gl.vertexAttribPointer(this.aPosLocWp, 2, gl.FLOAT, false, 0, 0)
+   306→      gl.activeTexture(gl.TEXTURE0)
+   307→      gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture!)
+   308→      gl.uniform1i(this.uWp['uBackdrop'], 0)
+   309→      gl.uniform2f(this.uWp['uCanvasSize'], this.canvas.width, this.canvas.height)
+   310→      gl.uniform2f(this.uWp['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
+   311→      gl.drawArrays(gl.TRIANGLES, 0, 6)
+   312→    }
+   313→    // Step 2: composite scrim via glBlendFuncSeparate (correct SrcOver alpha,
+   314→    // no src.a² squaring) so the FBO alpha stays 1.
+   315→    if (scrim[3] > 0.001) {
+   316→      gl.enable(gl.BLEND)
+   317→      gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+   318→      this.drawSolidFill(scrim[0], scrim[1], scrim[2], scrim[3])
+   319→      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+   320→    }
+   321→    // Step 3: colorControls (fullscreen pass) — applied to the opaque
+   322→    // wallpaper+scrim, BEFORE blur. Faithful to colorControls→blur→lens order.
+   323→    // Ping-pong through blurFboA to avoid reading/writing dialogBackdropFbo.
+   324→    this.bindFBO(this.blurFboA!)
+   325→    this.drawColorControls(this.dialogBackdropTex!, brightness, contrast, saturation)
+   326→    // Copy blurred-cc result back to dialogBackdropFbo so the 2-pass blur in
+   327→    // the useSeparableBlur path can blur it.
+   328→    this.bindFBO(this.dialogBackdropFbo!)
+   329→    this.drawCopy(this.blurFboATex!)
+   330→  },
+   331→
+   332→  /** Render a non-glass element (plain-rect / progressive-blur / text).
+   333→   *  Returns true if the element was handled (caller should `continue`).
+   334→   *  Returns false for glass elements (caller should run the ping-pong path). */
+   335→  renderNonGlassElement(
+   336→    this: LiquidGlassRenderer,
+   337→    el: GlassElementConfig,
+   338→    r: { x: number; y: number; w: number; h: number },
+   339→    st: ElementState | undefined,
+   340→    curFbo: WebGLFramebuffer
+   341→  ): boolean {
+   342→    const gl = this.gl
+   343→
+   344→    // Apply enterProgress translationY (ControlCenter) to the rect.
+   345→    // Uses DERIVED progress (with ProgressConverter) — faithful to
+   346→    // ControlCenterContent.kt glassLayer which reads the derivedStateOf progress.
+   347→    let r2 = r
+   348→    if (el.enterProgress != null) {
+   349→      const raw = el.enterProgress
+   350→      const derived = raw < 0
+   351→        ? (1 - Math.exp(-Math.abs(raw))) * -1
+   352→        : raw <= 1 ? raw
+   353→        : 1 + (1 - Math.exp(-(raw - 1)))
+   354→      const ty = -48 * DP * (1 - derived)
+   355→      // Overscroll row-stretch: when derived > 1, grow inter-row spacing
+   356→      // by 32dp per unit of DERIVED overshoot.
+   357→      const stretch = el.enterStretchFactor != null && derived > 1
+   358→        ? el.enterStretchFactor * (derived - 1) * 32 * DP
+   359→        : 0
+   360→      r2 = { x: r.x, y: r.y + ty + stretch, w: r.w, h: r.h }
+   361→    }
+   362→
+   363→    // --- plain-rect ---
+   364→    if (el.kind === 'plain-rect' && el.plainRect) {
+   365→      // Skip rendering fully-transparent plain-rects (e.g. invisible drag
+   366→      // catchers). They have no visual effect but would otherwise waste a
+   367→      // draw call and (with SRC_ALPHA blending) could interfere with the
+   368→      // scene. Alpha=0 → no contribution → skip.
+   369→      const baseC = el.isToggleTrack ? null : el.plainRect.color
+   370→      if (baseC && baseC[3] <= 0) return true
+   371→      this.bindFBO(curFbo)
+   372→      // Toggle tracks: lerp between offColor and onColor based on the
+   373→      // group's animated fraction. Faithful to LiquidToggle.kt's
+   374→      // `drawRect(lerp(trackColor, accentColor, fraction))`.
+   375→      let c: [number, number, number, number]
+   376→      if (el.isToggleTrack) {
+   377→        const tg = this.toggleStates.get(el.isToggleTrack.groupId)
+   378→        const f = tg ? tg.fraction : 0
+   379→        const off = el.isToggleTrack.offColor
+   380→        const on = el.isToggleTrack.onColor
+   381→        c = [
+   382→          off[0] + (on[0] - off[0]) * f,
+   383→          off[1] + (on[1] - off[1]) * f,
+   384→          off[2] + (on[2] - off[2]) * f,
+   385→          off[3] + (on[3] - off[3]) * f,
+   386→        ]
+   387→      } else {
+   388→        c = el.plainRect.color
+   389→      }
+   390→      // Slider fill: dynamically adjust width from the toggle group's animated
+   391→      // fraction so the fill tracks the knob's spring motion (no React-state
+   392→      // lag). Faithful to LiquidSlider.kt:
+   393→      //   width = constraints.maxWidth * dampedDragAnimation.progress
+   394→      // i.e. fillW = trackW * fraction (NOT knob-center-aligned — the original
+   395→      // lets the fill span the full track width, with the knob clamped at the
+   396→      // ends so it sits w/4 inside the fill at progress=0 and w/4 past the
+   397→      // fill end at progress=1).
+   398→      let fillRect = r2
+   399→      if (el.isSliderFill) {
+   400→        const sf = this.toggleStates.get(el.isSliderFill.groupId)
+   401→        const fraction = sf ? sf.fraction : 0
+   402→        const fillW = Math.max(el.isSliderFill.minW, el.isSliderFill.trackW * fraction)
+   403→        fillRect = { x: r.x, y: r.y, w: fillW, h: r.h }
+   404→      }
+   405→      gl.useProgram(this.plainRectProgram)
+   406→      this.setSdfUniforms(this.uPr, this.aPosLocPr, fillRect, el.cornerRadius)
+   407→      // glBlendFuncSeparate: correct SrcOver on the alpha channel (ONE instead
+   408→      // of SRC_ALPHA) so the scene FBO's alpha stays 1.0 when translucent
+   409→      // plain-rects (scrims, tracks, fills) composite onto it. Without this,
+   410→      // glBlendFunc's alpha-squaring (out.a = src.a² + dst.a*(1-src.a)) decays
+   411→      // the FBO alpha below 1, making glass that samples it erroneously
+   412→      // translucent. RGB is unchanged (same SRC_ALPHA, ONE_MINUS_SRC_ALPHA).
+   413→      gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+   414→      // Apply enterProgress alpha (ControlCenter fade) to plainRects.
+   415→      // Uses SAFE progress (clamped 0..1) — faithful to ControlCenterContent.kt
+   416→      // which uses safeEnterProgressAnimation.value for alpha/dim/blur.
+   417→      const enterA = el.enterProgress != null ? (() => {
+   418→        const sp = el.enterSafeProgress != null
+   419→          ? Math.max(0, Math.min(1, el.enterSafeProgress))
+   420→          : Math.max(0, Math.min(1, el.enterProgress!))
+   421→        return easeIn(sp)
+   422→      })() : 1
+   423→      gl.uniform4f(this.uPr['uColor'], c[0], c[1], c[2], c[3] * enterA)
+   424→      gl.uniform1f(this.uPr['uCornerStyle'], this.cornerStyle)
+   425→      // Continuous-curvature mask for capsule plain-rects (toggle tracks, etc.)
+   426→      if (el.useContinuousSdf && this.continuousSdfTexture) {
+   427→        gl.activeTexture(gl.TEXTURE2)
+   428→        gl.bindTexture(gl.TEXTURE_2D, this.continuousSdfTexture)
+   429→        gl.uniform1i(this.uPr['uContinuousSdf'], 2)
+   430→        gl.uniform1f(this.uPr['uUseContinuousSdf'], 1.0)
+   431→        gl.uniform2f(this.uPr['uContinuousSdfTexSize'], this.continuousSdfTexSize[0], this.continuousSdfTexSize[1])
+   432→        gl.uniform2f(this.uPr['uContinuousSdfElementSize'], r2.w * this.dpr, r2.h * this.dpr)
+   433→      } else {
+   434→        gl.uniform1f(this.uPr['uUseContinuousSdf'], 0.0)
+   435→      }
+   436→      gl.drawArrays(gl.TRIANGLES, 0, 6)
+   437→      return true
+   438→    }
+   439→
+   440→    // --- progressive-blur ---
+   441→    // Progressive-blur samples the wallpaper directly (not the scene
+   442→    // texture) — this matches the original catalog which uses
+   443→    // AlphaMask over the canvas backdrop. If we wanted it to blur the
+   444→    // scene (including plain-rects drawn before it), we'd sample
+   445→    // curTex here instead. For now, keep the original behavior.
+   446→    if (el.kind === 'progressive-blur' && el.progressiveBlur) {
+   447→      this.bindFBO(curFbo)
+   448→      gl.useProgram(this.progressiveBlurProgram)
+   449→      this.setSdfUniforms(this.uPb, this.aPosLocPb, r2, el.cornerRadius)
+   450→      // Premultiplied alpha blending — the shader outputs premultiplied rgb
+   451→      // (rgb * alpha) faithful to the original AGSL AlphaMask shader.
+   452→      // Using SRC_ALPHA would double-apply alpha (rgb*a*a) → black band at bottom.
+   453→      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+   454→      gl.activeTexture(gl.TEXTURE0)
+   455→      gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture!)
+   456→      gl.uniform1i(this.uPb['uBackdrop'], 0)
+   457→      gl.uniform2f(this.uPb['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
+   458→      gl.uniform1f(this.uPb['uBlurRadius'], el.progressiveBlur.blurRadius * this.dpr)
+   459→      const tc = el.progressiveBlur.tintColor
+   460→      gl.uniform4f(this.uPb['uTintColor'], tc[0], tc[1], tc[2], tc[3])
+   461→      gl.uniform1f(this.uPb['uTintIntensity'], el.progressiveBlur.tintIntensity)
+   462→      gl.drawArrays(gl.TRIANGLES, 0, 6)
+   463→      return true
+   464→    }
+   465→
+   466→    // --- text ---
+   467→    if (el.kind === 'text') {
+   468→      this.bindFBO(curFbo)
+   469→      // Compute the effective draw rect for bottom-tab content.
+   470→      // Faithful to LiquidBottomTabs.kt: the container is the parent of all
+   471→      // tab-content, so the container's scale applies to the WHOLE Row as a
+   472→      // unit — each tab scales around the CONTAINER's center, not its own.
+   473→      // This means tabs spread apart as the bar grows:
+   474→      //   scaledTabCenter = containerCenter + (tabCenter - containerCenter) * scale
+   475→      let drawRect = r2
+   476→      let fgScaleX = 1
+   477→      let fgScaleY = 1
+   478→      if (el.isBottomTabContent) {
+   479→        const tg = this.toggleStates.get(el.isBottomTabContent.groupId)
+   480→        if (tg) {
+   481→          // Container scale = lerp(1, 1+16dp/width, pressProgress).
+   482→          const containerW = el.isBottomTabContent.containerWidth ?? el.rect.w * 4
+   483→          const containerScale = 1 + (16 * DP) / containerW * tg.pressProgress
+   484→          fgScaleX = containerScale
+   485→          fgScaleY = containerScale
+   486→          // Scale around the CONTAINER center (not the tab's own center).
+   487→          const pivotX = el.isBottomTabContent.containerCenterX ?? (el.rect.x + el.rect.w / 2)
+   488→          const pivotY = el.isBottomTabContent.containerCenterY ?? (el.rect.y + el.rect.h / 2)
+   489→          const tabCenterX = el.rect.x + el.rect.w / 2
+   490→          const tabCenterY = el.rect.y + el.rect.h / 2
+   491→          // scaledCenter = pivot + (center - pivot) * scale + panelOffset
+   492→          const cx = pivotX + (tabCenterX - pivotX) * containerScale + tg.panelOffset
+   493→          const cy = pivotY + (tabCenterY - pivotY) * containerScale
+   494→          const sw = el.rect.w * fgScaleX
+   495→          const sh = el.rect.h * fgScaleY
+   496→          drawRect = { x: cx - sw / 2, y: cy - sh / 2, w: sw, h: sh }
+   497→        }
+   498→      }
+   499→      // Press tint overlay for interactive text items (e.g. home list
+   500→      // items). Faithful to MainContent.kt's
+   501→      //   ripple(color = if (isLightTheme) Color.Black else Color.White)
+   502→      //   RippleDefaults.pressedAlpha = 0.1f
+   503→      // When el.pressTintColor is set, use SrcOver blend with that color
+   504→      // (black in light theme, white in dark). When unset, fall back to the
+   505→      // legacy white Plus-blend overlay for backward compat.
+   506→      const pText = st?.pressProgress ?? 0
+   507→      if (el.isInteractive && pText > 0.001) {
+   508→        const pressTint = el.pressTintColor
+   509→        gl.useProgram(this.tintProgram)
+   510→        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+   511→        gl.enableVertexAttribArray(this.aPosLocTn)
+   512→        gl.vertexAttribPointer(this.aPosLocTn, 2, gl.FLOAT, false, 0, 0)
+   513→        if (pressTint) {
+   514→          // Ripple (SrcOver): color over content at pressedAlpha.
+   515→          gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+   516→        } else {
+   517→          // Legacy white Plus-blend overlay.
+   518→          gl.blendFunc(gl.SRC_ALPHA, gl.ONE)
+   519→        }
+   520→        gl.uniform2f(this.uTn['uCanvasSize'], this.canvas.width, this.canvas.height)
+   521→        gl.uniform2f(this.uTn['uOffset'], drawRect.x * this.dpr, drawRect.y * this.dpr)
+   522→        gl.uniform2f(this.uTn['uSize'], drawRect.w * this.dpr, drawRect.h * this.dpr)
+   523→        gl.uniform4f(this.uTn['uCornerRadii'], 0, 0, 0, 0)
+   524→        gl.uniform2f(this.uTn['uOriginalSize'], drawRect.w * this.dpr, drawRect.h * this.dpr)
+   525→        gl.uniform1f(this.uTn['uOriginalCornerRadius'], 0)
+   526→        gl.uniform2f(this.uTn['uLayerScale'], 1, 1)
+   527→        if (pressTint) {
+   528→          gl.uniform4f(this.uTn['uColor'], pressTint[0], pressTint[1], pressTint[2], 0.10 * pText)
+   529→        } else {
+   530→          gl.uniform4f(this.uTn['uColor'], 1, 1, 1, 0.10 * pText)
+   531→        }
+   532→        gl.drawArrays(gl.TRIANGLES, 0, 6)
+   533→        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+   534→      }
+   535→      const fgTex = this.fgTextures.get(el.id)
+   536→      if (fgTex) {
+   537→        gl.useProgram(this.foregroundProgram)
+   538→        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+   539→        gl.enableVertexAttribArray(this.aPosLocFg)
+   540→        gl.vertexAttribPointer(this.aPosLocFg, 2, gl.FLOAT, false, 0, 0)
+   541→        gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+   542→        gl.activeTexture(gl.TEXTURE0)
+   543→        gl.bindTexture(gl.TEXTURE_2D, fgTex)
+   544→        gl.uniform1i(this.uFg['uTexture'], 0)
+   545→        gl.uniform2f(this.uFg['uCanvasSize'], this.canvas.width, this.canvas.height)
+   546→        gl.uniform2f(this.uFg['uOffset'], drawRect.x * this.dpr, drawRect.y * this.dpr)
+   547→        gl.uniform2f(this.uFg['uSize'], drawRect.w * this.dpr, drawRect.h * this.dpr)
+   548→        gl.uniform4f(
+   549→          this.uFg['uCornerRadii'],
+   550→          el.cornerRadius * this.dpr,
+   551→          el.cornerRadius * this.dpr,
+   552→          el.cornerRadius * this.dpr,
+   553→          el.cornerRadius * this.dpr
+   554→        )
+   555→        // Pass the content scale so the foreground shader's SDF clip scales
+   556→        // correctly (matching the glass-element pattern). For non-tab text,
+   557→        // layerScale = 1 (origSize = scaled size).
+   558→        gl.uniform2f(this.uFg['uOriginalSize'], el.rect.w * this.dpr, el.rect.h * this.dpr)
+   559→        gl.uniform1f(this.uFg['uOriginalCornerRadius'], el.cornerRadius * this.dpr)
+   560→        gl.uniform2f(this.uFg['uLayerScale'], fgScaleX, fgScaleY)
+   561→        gl.uniform1f(this.uFg['uCornerStyle'], this.cornerStyle)
+   562→        gl.uniform1f(this.uFg['uAlpha'], el.enterProgress != null ? (() => {
+   563→          const sp = el.enterSafeProgress != null
+   564→            ? Math.max(0, Math.min(1, el.enterSafeProgress))
+   565→            : Math.max(0, Math.min(1, el.enterProgress!))
+   566→          return easeIn(sp)
+   567→        })() : 1.0)
+   568→        gl.drawArrays(gl.TRIANGLES, 0, 6)
+   569→        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+   570→      }
+   571→      return true
+   572→    }
+   573→
+   574→    return false
+   575→  },
+   576→}
+   577→
