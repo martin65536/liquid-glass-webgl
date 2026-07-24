@@ -302,7 +302,10 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     vec2 capsuleLocal = canvasPx - scaledCenter;
     vec2 cq = abs(capsuleLocal) - capsuleHalf + vec2(cr);
     float capsuleSd = length(max(cq, vec2(0.0))) + min(max(cq.x, cq.y), 0.0) - cr;
-    float mask = 1.0 - smoothstep(-radius, radius, capsuleSd);
+    // Same AA fix as toggle knob: guarantee at least 1px smoothstep even when
+    // blurRadius=0 (fully pressed indicator has no blur, but edges must be smooth).
+    float indicatorAaRadius = max(radius, 1.0);
+    float mask = 1.0 - smoothstep(-indicatorAaRadius, indicatorAaRadius, capsuleSd);
 
     // 3. Sample the GLASS LAYER FBO (wallpaper + container glass, NO tab text).
     //    This is a snapshot taken after the container glass is rendered but
