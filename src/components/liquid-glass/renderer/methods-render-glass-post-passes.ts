@@ -254,9 +254,14 @@ export const glassPostPassMethods = {
         // --- Generate stroke mask via Canvas2D (browser-native Skia) ---
         // Element-local coordinates: (0,0) = element top-left in device px.
         // Margin for stroke width + AA + blur spread.
-        const strokeMargin = Math.ceil(strokeWidthDevice) + 4
+        const strokeMargin = Math.ceil(strokeWidthDevice) + 4  // logical margin
+        // Logical mask size (1x device px) — used for shader UV mapping
         const maskW = Math.max(1, Math.ceil(origSizeX + 2 * strokeMargin))
         const maskH = Math.max(1, Math.ceil(origSizeY + 2 * strokeMargin))
+        // Supersample the canvas by 2x for sharper stroke/blur rasterization
+        const SS = 2
+        const canvasW = maskW * SS
+        const canvasH = maskH * SS
         const useG2 = !!el.useContinuousSdf
         const maskKey = [
           useG2 ? 'g2' : 'rr',
@@ -268,17 +273,20 @@ export const glassPostPassMethods = {
           strokeMargin,
           maskW,
           maskH,
+          `ss${SS}`,  // cache key includes supersample factor
         ].join(':')
 
         let mask = this.strokeMaskCache.get(maskKey)
         if (!mask) {
           const canvas = document.createElement('canvas')
-          canvas.width = maskW
-          canvas.height = maskH
+          canvas.width = canvasW  // 2x supersampled physical size
+          canvas.height = canvasH
           const ctx = canvas.getContext('2d', { alpha: true })
           if (!ctx) throw new Error('2D canvas not supported')
           const tex = gl.createTexture()
           if (!tex) throw new Error('WebGL texture allocation failed')
+          // w/h store the LOGICAL (1x) size for shader UV mapping;
+          // the physical canvas is SS times larger.
           mask = { tex, canvas, ctx, w: maskW, h: maskH, ready: false }
           this.strokeMaskCache.set(maskKey, mask)
 
@@ -297,8 +305,11 @@ export const glassPostPassMethods = {
 
         if (!mask.ready) {
           const smCtx = mask.ctx
-          smCtx.clearRect(0, 0, mask.w, mask.h)
+          smCtx.clearRect(0, 0, canvasW, canvasH)
           smCtx.save()
+          // Scale up for 2x supersampling: draw in logical (1x) coordinates
+          // while the physical canvas is 2x. This gives sharper stroke + blur.
+          smCtx.scale(SS, SS)
           smCtx.translate(strokeMargin, strokeMargin)
 
           // Build the path (element-local, 0..origSizeX × 0..origSizeY)
@@ -369,10 +380,10 @@ export const glassPostPassMethods = {
         gl.activeTexture(gl.TEXTURE0)
         gl.bindTexture(gl.TEXTURE_2D, mask.tex)
         gl.uniform1i(this.uSm['uStrokeMask'], 0)
-        // uMaskOffset = margin (the Canvas2D translate offset). The shader
-        // maps screenCoord → element-local original space (un-scale, un-rotate),
-        // then UV = (localCoord + margin) / maskSize. uMaskSize is the actual
-        // cached texture size, so UVs stay correct for every element size.
+        // uMaskOffset/uMaskSize are in LOGICAL (1x device px) space — the
+        // physical canvas is SS× larger but the shader uses 1x coords for UV:
+        //   UV = (localCoord + margin) / logicalMaskSize
+        // LINEAR filtering on the SS× texture gives supersampled quality.
         gl.uniform2f(this.uSm['uMaskOffset'], strokeMargin, strokeMargin)
         gl.uniform2f(this.uSm['uMaskSize'], mask.w, mask.h)
         gl.uniform4f(this.uSm['uHighlightColor'], el.highlight.color[0], el.highlight.color[1], el.highlight.color[2], 1.0)

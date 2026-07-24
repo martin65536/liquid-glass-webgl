@@ -364,16 +364,21 @@ export const glassElementPassMethods = {
       // The mask is cached in strokeMaskCache — it's stable across frames because
       // the inner backdrop capsule dimensions don't change (only panelOffset shifts).
       {
-        const innerW = 2 * containerHalfW  // full width in device px
-        const innerH = 2 * containerHalfH  // full height in device px
-        const innerR = containerCornerRadius  // corner radius in device px
+        const innerW = 2 * containerHalfW  // full width in device px (logical)
+        const innerH = 2 * containerHalfH  // full height in device px (logical)
+        const innerR = containerCornerRadius  // corner radius in device px (logical)
         // Highlight.Default: width=0.5dp, blurRadius=0.25dp
         const widthPx = Math.min(0.5 * this.dpr, Math.min(innerW, innerH) * 0.5)
         const strokeWidthDevice = Math.max(1, Math.ceil(widthPx) * 2)
         const blurPx = Math.max(0, 0.25 * this.dpr)
-        const strokeMargin = Math.ceil(strokeWidthDevice) + 4
+        const strokeMargin = Math.ceil(strokeWidthDevice) + 4  // logical margin
+        // Logical mask size (1x device px) — used for shader UV mapping
         const maskW = Math.max(1, Math.ceil(innerW + 2 * strokeMargin))
         const maskH = Math.max(1, Math.ceil(innerH + 2 * strokeMargin))
+        // Supersample the canvas by 2x for sharper stroke/blur rasterization
+        const SS = 2
+        const canvasW = maskW * SS
+        const canvasH = maskH * SS
         // Cache key: inner backdrop capsule geometry + stroke params
         const maskKey = [
           'inner-rr',
@@ -385,16 +390,19 @@ export const glassElementPassMethods = {
           strokeMargin,
           maskW,
           maskH,
+          `ss${SS}`,  // cache key includes supersample factor
         ].join(':')
         let mask = this.strokeMaskCache.get(maskKey)
         if (!mask) {
           const canvas = document.createElement('canvas')
-          canvas.width = maskW
-          canvas.height = maskH
+          canvas.width = canvasW  // 2x supersampled physical size
+          canvas.height = canvasH
           const ctx = canvas.getContext('2d', { alpha: true })
           if (!ctx) throw new Error('2D canvas not supported')
           const tex = gl.createTexture()
           if (!tex) throw new Error('WebGL texture allocation failed')
+          // w/h store the LOGICAL (1x) size for shader UV mapping;
+          // the physical canvas is SS times larger.
           mask = { tex, canvas, ctx, w: maskW, h: maskH, ready: false }
           this.strokeMaskCache.set(maskKey, mask)
           // Keep cache bounded (same 32-entry limit as outer highlight masks)
@@ -409,8 +417,11 @@ export const glassElementPassMethods = {
         }
         if (!mask.ready) {
           const smCtx = mask.ctx
-          smCtx.clearRect(0, 0, mask.w, mask.h)
+          smCtx.clearRect(0, 0, canvasW, canvasH)
           smCtx.save()
+          // Scale up for 2x supersampling: draw in logical (1x) coordinates
+          // while the physical canvas is 2x. This gives sharper stroke + blur.
+          smCtx.scale(SS, SS)
           smCtx.translate(strokeMargin, strokeMargin)
           // Build the 内层背景板 rounded rect path (0..innerW × 0..innerH)
           // using arcTo — the inner backdrop uses simple circular-arc corners
