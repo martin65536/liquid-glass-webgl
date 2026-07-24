@@ -518,6 +518,8 @@ export interface CatalogState {
   locale: 'zh' | 'en'
   // Settings — page transition animation (fade + slide). Default false (off).
   pageTransition: boolean
+  // Settings — show FPS counter overlay. Default false.
+  showFps: boolean
 }
 
 export const DEFAULT_CATALOG_STATE: CatalogState = {
@@ -555,6 +557,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   hideOverlayButtons: false,
   locale: 'zh',
   pageTransition: false,
+  showFps: false,
 }
 
 /* ------------------------------------------------------------------ *

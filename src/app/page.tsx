@@ -68,6 +68,7 @@ export default function Page() {
         capsuleShape: typeof parsed.capsuleShape === 'boolean' ? parsed.capsuleShape : true,
         locale: (parsed.locale === 'zh' || parsed.locale === 'en') ? parsed.locale : 'zh',
         pageTransition: typeof parsed.pageTransition === 'boolean' ? parsed.pageTransition : false,
+        showFps: typeof parsed.showFps === 'boolean' ? parsed.showFps : false,
       }
     } catch { return {} }
   }
@@ -76,6 +77,28 @@ export default function Page() {
   const [rendererReady, setRendererReady] = React.useState(false)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
   const frameRef = React.useRef<HTMLDivElement>(null)
+  // FPS counter: measures frames per second via requestAnimationFrame timestamps
+  const [fpsDisplay, setFpsDisplay] = React.useState(0)
+  const fpsFrames = React.useRef(0)
+  const fpsLastTime = React.useRef(0)
+  React.useEffect(() => {
+    if (!state.showFps || !rendererReady) return
+    fpsFrames.current = 0
+    fpsLastTime.current = performance.now()
+    const measure = () => {
+      fpsFrames.current++
+      const now = performance.now()
+      const elapsed = now - fpsLastTime.current
+      if (elapsed >= 1000) {
+        setFpsDisplay(Math.round(fpsFrames.current * 1000 / elapsed))
+        fpsFrames.current = 0
+        fpsLastTime.current = now
+      }
+      rafId = requestAnimationFrame(measure)
+    }
+    let rafId = requestAnimationFrame(measure)
+    return () => cancelAnimationFrame(rafId)
+  }, [state.showFps, rendererReady])
   // Renderer ref — populated by LiquidGlassCanvas once it creates the
   // renderer. Catalog builders use this to call renderer methods
   // (e.g. setToggleTarget, beginToggleDrag, dragToggle, endToggleDrag).
@@ -101,7 +124,8 @@ export default function Page() {
             (p.customDpr !== undefined || p.globalSeparableBlur !== undefined ||
              p.blurTapCap !== undefined || p.blurDownsample !== undefined ||
              p.capsuleShape !== undefined || p.hideOverlayButtons !== undefined ||
-             p.locale !== undefined || p.pageTransition !== undefined)) {
+             p.locale !== undefined || p.pageTransition !== undefined ||
+             p.showFps !== undefined)) {
           try {
             window.localStorage.setItem(SETTINGS_KEY, JSON.stringify({
               customDpr: next.customDpr,
@@ -112,6 +136,7 @@ export default function Page() {
               hideOverlayButtons: next.hideOverlayButtons,
               locale: next.locale,
               pageTransition: next.pageTransition,
+              showFps: next.showFps,
             }))
           } catch { /* ignore quota errors */ }
         }
@@ -531,8 +556,10 @@ export default function Page() {
               position: 'absolute',
               inset: 0,
               display: 'flex',
+              flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
+              gap: 16,
               background: isLightTheme ? '#FFFFFF' : '#050507',
               zIndex: 50,
             }}
@@ -547,6 +574,18 @@ export default function Page() {
                 animation: 'lg-spinner 0.8s linear infinite',
               }}
             />
+            <p
+              style={{
+                color: isLightTheme ? '#666' : '#999',
+                fontSize: 13,
+                lineHeight: 1.5,
+                textAlign: 'center',
+                maxWidth: 320,
+                margin: 0,
+              }}
+            >
+              小贴士：如果感觉画面卡顿，可到主页底部设置入口，适当降低 DPR（设备像素比）提升流畅度。
+            </p>
           </div>
         )}
         <LiquidGlassCanvas
@@ -565,6 +604,25 @@ export default function Page() {
           className="w-full h-full"
           onReady={() => setRendererReady(true)}
         />
+        {/* FPS overlay — positioned over the canvas when showFps is enabled */}
+        {state.showFps && rendererReady && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 8,
+              right: 8,
+              background: 'rgba(0,0,0,0.6)',
+              color: '#0f0',
+              font: 'bold 14px monospace',
+              padding: '4px 8px',
+              borderRadius: 4,
+              zIndex: 40,
+              pointerEvents: 'none',
+            }}
+          >
+            FPS: {fpsDisplay}
+          </div>
+        )}
         {/* Hidden file input for "Pick an image" — triggered by the canvas button */}
         <input
           ref={fileInputRef}

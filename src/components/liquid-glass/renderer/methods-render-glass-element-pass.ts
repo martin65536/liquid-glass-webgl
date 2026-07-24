@@ -375,8 +375,11 @@ export const glassElementPassMethods = {
         // Logical mask size (1x device px) — used for shader UV mapping
         const maskW = Math.max(1, Math.ceil(innerW + 2 * strokeMargin))
         const maskH = Math.max(1, Math.ceil(innerH + 2 * strokeMargin))
-        // Supersample the canvas by 2x for sharper stroke/blur rasterization
-        const SS = 2
+        // Supersample for sharper stroke/blur rasterization.
+        // Cap SS so total mask DPR (this.dpr × SS) ≤ device's native DPR —
+        // no point rendering pixels beyond what the screen can display.
+        const deviceDpr = window.devicePixelRatio || 1
+        const SS = Math.min(2, Math.max(1, Math.floor(deviceDpr / this.dpr)))
         const canvasW = maskW * SS
         const canvasH = maskH * SS
         // Cache key: inner backdrop capsule geometry + stroke params

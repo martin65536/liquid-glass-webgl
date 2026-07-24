@@ -327,6 +327,41 @@ export function buildSettings(
   }
   nextY += BUTTON_HEIGHT + 16
 
+  // --- Performance section: FPS counter ---
+  elements.push(
+    makeText(
+      'settings-fps-title',
+      { x: pad, y: nextY, w: W - 2 * pad, h: 20 },
+      t('settings_fps_title', locale),
+      { color: labelColor, fontSizePx: 16, fontWeight: 600, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
+    )
+  )
+  nextY += 20 + 8
+
+  const fpsOnOff = state.showFps ? t('settings_on', locale) : t('settings_off', locale)
+  const fpsLabelText = t('settings_fps', locale) + ': ' + fpsOnOff
+  const fpsBtnColor = state.showFps
+    ? ([0x00 / 255, 0x88 / 255, 0xff / 255, 1] as [number, number, number, number])
+    : ([0.5, 0.5, 0.5, 1] as [number, number, number, number])
+  const fpsTextW = measureTextWidth(fpsLabelText, TEXT_FONT_SIZE_PX)
+  const fpsBtnW = Math.ceil(fpsTextW + 2 * BUTTON_HORIZONTAL_PADDING)
+  const fpsBtn = makeButton(
+    'settings-fps-toggle',
+    { x: pad, y: nextY, w: fpsBtnW, h: BUTTON_HEIGHT },
+    {
+      label: fpsLabelText,
+      tintColor: fpsBtnColor,
+      surfaceColor: [0, 0, 0, 0],
+      labelColor: [1, 1, 1, 1],
+    },
+    true
+  )
+  elements.push(fpsBtn)
+  interactions['settings-fps-toggle'] = {
+    onTap: () => setState((prev) => ({ showFps: !prev.showFps })),
+  }
+  nextY += BUTTON_HEIGHT + 16
+
   // Reset button (orange)
   const ORANGE = [0xff / 255, 0x8d / 255, 0x28 / 255, 1] as [number, number, number, number]
   const resetLabel = t('settings_reset', locale)
@@ -346,7 +381,7 @@ export function buildSettings(
   elements.push(resetBtn)
   interactions['settings-reset'] = {
     onTap: () => {
-      setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 17, blurDownsample: 1, capsuleShape: true, hideOverlayButtons: false, liveDpr: null, liveTapCap: null })
+      setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 17, blurDownsample: 1, capsuleShape: true, hideOverlayButtons: false, liveDpr: null, liveTapCap: null, showFps: false })
       const d = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
       const dprFrac = (d - 0.5) / Math.max(0.0001, d - 0.5)
       rendererRef?.current?.setToggleTarget('settings-dpr', dprFrac)
