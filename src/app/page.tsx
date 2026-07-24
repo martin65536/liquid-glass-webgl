@@ -125,7 +125,7 @@ export default function Page() {
   //   prepIn    — instantly place new content at opposite offset + opacity 0 (no transition)
   //   fadeIn    — animate new content from offset → center + opacity 0 → 1
   const [transPhase, setTransPhase] = React.useState<'idle' | 'fadeOut' | 'prepIn' | 'fadeIn'>('idle')
-  const [transDirection, setTransDirection] = React.useState<'enter' | 'exit'>('enter')
+  const transDirRef = React.useRef<'enter' | 'exit'>('enter')
   const pendingDestRef = React.useRef<CatalogDestination | null>(null)
   const TRANSITION_MS = 200 // duration for each phase (fade out / fade in)
   const OFFSET_PX = 16 // slide distance in px
@@ -136,7 +136,7 @@ export default function Page() {
     } else {
       // Enter: old page slides LEFT out, new page slides in from RIGHT.
       pendingDestRef.current = d
-      setTransDirection('enter')
+      transDirRef.current = 'enter'
       setTransPhase('fadeOut')
     }
     if (typeof window !== 'undefined' && d !== CatalogDestination.Home) {
@@ -151,7 +151,7 @@ export default function Page() {
     } else {
       // Exit: old page slides RIGHT out, new page slides in from LEFT.
       pendingDestRef.current = target
-      setTransDirection('exit')
+      transDirRef.current = 'exit'
       setTransPhase('fadeOut')
     }
     if (typeof window !== 'undefined' && window.history.state?.dest !== undefined) {
@@ -188,15 +188,25 @@ export default function Page() {
     }
   }, [transPhase])
 
-  // Listen for browser back button → return to Home (BackHandler equivalent).
+  // Listen for browser back gesture / button → return to Home with exit animation.
   React.useEffect(() => {
     if (typeof window === 'undefined') return
     const onPopState = () => {
-      setDestination(CatalogDestination.Home)
+      // If a transition is already in progress, skip — onBack already started it
+      // and the history.back() call triggered this popstate as a side effect.
+      if (transPhase !== 'idle') return
+      if (!state.pageTransition) {
+        setDestination(CatalogDestination.Home)
+      } else {
+        // Trigger the same exit animation as onBack
+        pendingDestRef.current = CatalogDestination.Home
+        transDirRef.current = 'exit'
+        setTransPhase('fadeOut')
+      }
     }
     window.addEventListener('popstate', onPopState)
     return () => window.removeEventListener('popstate', onPopState)
-  }, [])
+  }, [state.pageTransition, transPhase])
 
   React.useEffect(() => {
     const update = () => {
@@ -481,6 +491,7 @@ export default function Page() {
       <div
         ref={frameRef}
         className="relative overflow-hidden shadow-2xl lg-frame"
+        suppressHydrationWarning
         style={{
           width: 'min(420px, 100vw)',
           opacity: (() => {
@@ -488,16 +499,17 @@ export default function Page() {
             return 1 // idle or fadeIn
           })(),
           transform: (() => {
+            const dir = transDirRef.current
             if (transPhase === 'fadeOut') {
               // Old content exits: enter→slides LEFT, exit→slides RIGHT
-              return transDirection === 'enter'
+              return dir === 'enter'
                 ? `translateX(-${OFFSET_PX}px)`
                 : `translateX(${OFFSET_PX}px)`
             }
             if (transPhase === 'prepIn') {
               // New content placed at opposite side instantly (no transition)
               // Enter→placed RIGHT offset, Exit→placed LEFT offset
-              return transDirection === 'enter'
+              return dir === 'enter'
                 ? `translateX(${OFFSET_PX}px)`
                 : `translateX(-${OFFSET_PX}px)`
             }
