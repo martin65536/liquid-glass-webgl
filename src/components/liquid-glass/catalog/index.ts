@@ -14,6 +14,7 @@ import {
   setGravityAngle,
   draggingGroups,
 } from './types'
+import { t, type Locale } from './i18n'
 import { makeButton, makeThemeToggleButton } from './helpers'
 import { buildHome } from './build-home'
 import { buildButtons } from './build-buttons'
@@ -38,6 +39,7 @@ export {
   type CatalogState,
   type CatalogResult,
   type ThemePalette,
+  type Locale,
   setGravityAngle,
   draggingGroups,
 }
@@ -68,10 +70,11 @@ export function buildCatalog(
   onPickImage?: () => void
 ): CatalogResult {
   const palette = getPalette(isLightTheme)
+  const locale: Locale = state.locale || 'zh'
   let result: CatalogResult
   switch (dest) {
     case CatalogDestination.Home:
-      result = buildHome(W, onNavigate, palette)
+      result = buildHome(W, onNavigate, palette, locale)
       break
     case CatalogDestination.Buttons:
       result = buildButtons(W, H, onBack, palette)
@@ -116,7 +119,7 @@ export function buildCatalog(
       result = buildSettings(W, H, onBack, state, setState, rendererRef, palette)
       break
     case CatalogDestination.About:
-      result = buildAbout(W, H, onBack, palette)
+      result = buildAbout(W, H, onBack, palette, locale)
       break
     default:
       result = buildHome(W, onNavigate, palette)
@@ -164,7 +167,7 @@ export function buildCatalog(
   // (button) + 8dp (text) per side = 48dp total.
   // Only on non-Home pages.
   if (onPickImage && dest !== CatalogDestination.Home) {
-    const pickLabel = 'Pick an image'
+    const pickLabel = t('pick_image', locale)
     const pickH = 56 * DP
     const pickFontPx = 16 // 16sp fixed (original: TextStyle(White, 16f.sp))
     const pickW = Math.ceil(measureTextWidth(pickLabel, pickFontPx) + 2 * (16 * DP + 8 * DP))

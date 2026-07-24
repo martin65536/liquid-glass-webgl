@@ -1,7 +1,8 @@
 import type { ElementInteraction } from '../context'
 import type { GlassElementConfig } from '../renderer'
-import { DP, measureTextWidth, type CatalogResult, type ThemePalette } from './types'
+import { DP, measureTextWidth, type CatalogResult, type CatalogState, type ThemePalette } from './types'
 import { applyVerticalCenter, makeBackButton, makeText } from './helpers'
+import { t, type Locale } from './i18n'
 
 /** Measure the wrapped height of `text` at `fontPx` within `maxW`.
  *  Uses the same greedy word-wrap as the rasterizer (gl-utils.ts wrapText). */
@@ -26,7 +27,7 @@ function measureWrappedHeight(text: string, fontPx: number, maxW: number): numbe
 /* ------------------------------------------------------------------ *
  * ABOUT — info page: author credit + project links.
  * ------------------------------------------------------------------ */
-export function buildAbout(W: number, H: number, onBack: () => void, palette: ThemePalette): CatalogResult {
+export function buildAbout(W: number, H: number, onBack: () => void, palette: ThemePalette, locale: Locale = 'zh'): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
@@ -44,7 +45,7 @@ export function buildAbout(W: number, H: number, onBack: () => void, palette: Th
     makeText(
       'about-title',
       { x: pad, y: cursorY, w: W - 2 * pad, h: 40 },
-      'About',
+      t('about_title', locale),
       { color: labelColor, fontSizePx: 24, fontWeight: 600, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
     )
   )
@@ -55,7 +56,7 @@ export function buildAbout(W: number, H: number, onBack: () => void, palette: Th
     makeText(
       'about-author',
       { x: pad, y: cursorY, w: W - 2 * pad, h: 20 },
-      'Ported by Z.ai Agent',
+      t('about_author', locale),
       { color: labelColor, fontSizePx: 16, fontWeight: 500, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
     )
   )
@@ -66,7 +67,7 @@ export function buildAbout(W: number, H: number, onBack: () => void, palette: Th
     makeText(
       'about-projects-title',
       { x: pad, y: cursorY, w: W - 2 * pad, h: 20 },
-      'Projects',
+      t('about_projects', locale),
       { color: labelColor, fontSizePx: 16, fontWeight: 600, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
     )
   )
@@ -77,7 +78,7 @@ export function buildAbout(W: number, H: number, onBack: () => void, palette: Th
     makeText(
       'about-original-label',
       { x: pad, y: cursorY, w: W - 2 * pad, h: 16 },
-      'Original (Android, Kotlin):',
+      t('about_original', locale),
       { color: labelColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
     )
   )
@@ -100,7 +101,7 @@ export function buildAbout(W: number, H: number, onBack: () => void, palette: Th
     makeText(
       'about-port-label',
       { x: pad, y: cursorY, w: W - 2 * pad, h: 16 },
-      'This web port (Next.js + WebGL):',
+      t('about_port', locale),
       { color: labelColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
     )
   )
@@ -119,7 +120,7 @@ export function buildAbout(W: number, H: number, onBack: () => void, palette: Th
   cursorY += 16 + 24
 
   // Description — measure wrapped height to avoid clipping
-  const descText = 'A faithful WebGL reproduction of Kyant\'s Android Liquid Glass catalog. Browse liquid-glass component demos in your browser — rendered with WebGL shaders, no Android required.'
+  const descText = t('about_desc', locale)
   const descFontPx = 14
   const descW = W - 2 * pad
   const descH = measureWrappedHeight(descText, descFontPx, descW)

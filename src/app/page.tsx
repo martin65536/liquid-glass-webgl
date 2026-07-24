@@ -66,6 +66,7 @@ export default function Page() {
         blurTapCap: typeof parsed.blurTapCap === 'number' ? parsed.blurTapCap : 17,
         blurDownsample: typeof parsed.blurDownsample === 'number' ? parsed.blurDownsample : 1,
         capsuleShape: typeof parsed.capsuleShape === 'boolean' ? parsed.capsuleShape : true,
+        locale: (parsed.locale === 'zh' || parsed.locale === 'en') ? parsed.locale : 'zh',
       }
     } catch { return {} }
   }
@@ -97,7 +98,8 @@ export default function Page() {
         if (typeof window !== 'undefined' &&
             (p.customDpr !== undefined || p.globalSeparableBlur !== undefined ||
              p.blurTapCap !== undefined || p.blurDownsample !== undefined ||
-             p.capsuleShape !== undefined)) {
+             p.capsuleShape !== undefined || p.hideOverlayButtons !== undefined ||
+             p.locale !== undefined)) {
           try {
             window.localStorage.setItem(SETTINGS_KEY, JSON.stringify({
               customDpr: next.customDpr,
@@ -105,6 +107,8 @@ export default function Page() {
               blurTapCap: next.blurTapCap,
               blurDownsample: next.blurDownsample,
               capsuleShape: next.capsuleShape,
+              hideOverlayButtons: next.hideOverlayButtons,
+              locale: next.locale,
             }))
           } catch { /* ignore quota errors */ }
         }

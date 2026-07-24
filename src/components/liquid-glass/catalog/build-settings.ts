@@ -18,9 +18,10 @@ import {
   makeLiquidSlider,
   makeText,
 } from './helpers'
+import { t, type Locale } from './i18n'
 
 /* ------------------------------------------------------------------ *
- * SETTINGS — DPR override slider + info.
+ * SETTINGS — DPR override slider + info, language toggle, etc.
  * ------------------------------------------------------------------ */
 export function buildSettings(
   W: number,
@@ -33,6 +34,7 @@ export function buildSettings(
 ): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
+  const locale: Locale = state.locale || 'zh'
 
   const back = makeBackButton(onBack, palette)
   elements.push(back.element)
@@ -46,7 +48,7 @@ export function buildSettings(
     makeText(
       'settings-title',
       { x: pad, y: 0, w: W - 2 * pad, h: 40 },
-      'Settings',
+      t('settings_title', locale),
       { color: labelColor, fontSizePx: 24, fontWeight: 600, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
     )
   )
@@ -80,13 +82,11 @@ export function buildSettings(
     palette.sliderTrackOff,
     palette.sliderAccent,
     rendererRef,
-    // onValueChange (dragEnd / tap): commit the real value + clear live.
     (f) => { setState({ customDpr: fracToDpr(f), liveDpr: null }) },
-    true,    // scroll
-    false,   // liveUpdate=false — real value updates on dragEnd only.
+    true,
+    false,
     initFrac,
     snapFrac,
-    // onLiveValue (every drag move): update display-only liveDpr for the label.
     (f) => { setState({ liveDpr: fracToDpr(snapFrac(f)) }) },
   )
   elements.push(...dprSlider.elements)
@@ -95,11 +95,12 @@ export function buildSettings(
   // Indicator label (below slider) — shows live value during drag, real value at rest.
   const labelY = sliderY + 24 + 12
   const displayDpr = state.liveDpr != null ? state.liveDpr : currentDpr
+  const dprLabelText = `${t('settings_dpr_label', locale)}: ${displayDpr.toFixed(2)}  (${t('settings_dpr_desc', locale)} ${deviceDpr}, ${t('settings_range', locale)} ${minDpr.toFixed(1)}–${maxDpr.toFixed(2)})`
   elements.push(
     makeText(
       'settings-dpr-label',
       { x: pad, y: labelY, w: W - 2 * pad, h: 16 },
-      `DPR: ${displayDpr.toFixed(2)}  (device ${deviceDpr}, range ${minDpr.toFixed(1)}–${maxDpr.toFixed(2)})`,
+      dprLabelText,
       { color: labelColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
     )
   )
@@ -107,29 +108,29 @@ export function buildSettings(
   // --- Separable 2-pass blur: global toggle + tap cap slider ---
   let nextY = labelY + 16 + 24
 
-  // Section title
   elements.push(
     makeText(
       'settings-blur-title',
       { x: pad, y: nextY, w: W - 2 * pad, h: 20 },
-      'Separable 2-pass blur',
+      t('settings_blur_title', locale),
       { color: labelColor, fontSizePx: 16, fontWeight: 600, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
     )
   )
   nextY += 20 + 8
 
-  // Global toggle button — orange when ON, gray when OFF
-  const toggleLabel = state.globalSeparableBlur ? 'ON' : 'OFF'
+  // Global toggle button — blue accent when ON, gray when OFF
+  const toggleOnOff = state.globalSeparableBlur ? t('settings_on', locale) : t('settings_off', locale)
   const toggleBtnColor = state.globalSeparableBlur
-    ? ([0x00 / 255, 0x88 / 255, 0xff / 255, 1] as [number, number, number, number]) // blue accent
-    : ([0.5, 0.5, 0.5, 1] as [number, number, number, number]) // gray
-  const toggleTextW = measureTextWidth('Global: ' + toggleLabel, TEXT_FONT_SIZE_PX)
+    ? ([0x00 / 255, 0x88 / 255, 0xff / 255, 1] as [number, number, number, number])
+    : ([0.5, 0.5, 0.5, 1] as [number, number, number, number])
+  const toggleLabelText = t('settings_global', locale) + ': ' + toggleOnOff
+  const toggleTextW = measureTextWidth(toggleLabelText, TEXT_FONT_SIZE_PX)
   const toggleBtnW = Math.ceil(toggleTextW + 2 * BUTTON_HORIZONTAL_PADDING)
   const toggleBtn = makeButton(
     'settings-blur-global',
     { x: pad, y: nextY, w: toggleBtnW, h: BUTTON_HEIGHT },
     {
-      label: 'Global: ' + toggleLabel,
+      label: toggleLabelText,
       tintColor: toggleBtnColor,
       surfaceColor: [0, 0, 0, 0],
       labelColor: [1, 1, 1, 1],
@@ -142,14 +143,12 @@ export function buildSettings(
   }
   nextY += BUTTON_HEIGHT + 12
 
-  // Tap cap slider (1..33, step 2) — same pattern as DPR: liveUpdate=false
-  // (real blurTapCap updates on dragEnd), onLiveValue updates liveTapCap
-  // (display-only) every move so the label shows the current value.
+  // Tap cap slider (1..33, step 2)
   const minTaps = 1
   const maxTaps = 33
   const tapRange = maxTaps - minTaps
   const tapInitFrac = (state.blurTapCap - minTaps) / tapRange
-  const tapStepCount = Math.round(tapRange / 2) // step 2
+  const tapStepCount = Math.round(tapRange / 2)
   const tapSnapFrac = (f: number) => Math.max(0, Math.min(1, Math.round(f * tapStepCount) / tapStepCount))
   const tapFracToTaps = (f: number) => minTaps + Math.round(f * tapRange)
   const tapTrackY = nextY + (24 - 6) / 2
@@ -162,54 +161,51 @@ export function buildSettings(
     palette.sliderTrackOff,
     palette.sliderAccent,
     rendererRef,
-    // onValueChange (dragEnd / tap): commit real value + clear live.
     (f) => { setState({ blurTapCap: tapFracToTaps(f), liveTapCap: null }) },
     true,
-    false, // liveUpdate=false — real value updates on dragEnd only.
+    false,
     tapInitFrac,
     tapSnapFrac,
-    // onLiveValue (every drag move): update display-only liveTapCap for the label.
     (f) => { setState({ liveTapCap: tapFracToTaps(tapSnapFrac(f)) }) },
   )
   elements.push(...tapSlider.elements)
   Object.assign(interactions, tapSlider.interactions)
   nextY += 24 + 4
   const displayTapCap = state.liveTapCap != null ? state.liveTapCap : state.blurTapCap
+  const tapCapLabelText = `${t('settings_tap_cap_label', locale)}: ${displayTapCap}  ${t('settings_tap_cap_hint', locale)}`
   elements.push(
     makeText(
       'settings-blur-taps-label',
       { x: pad, y: nextY, w: W - 2 * pad, h: 16 },
-      `Tap cap: ${displayTapCap}  (1=fast, 33=best quality)`,
+      tapCapLabelText,
       { color: labelColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
     )
   )
   nextY += 16 + 16
 
   // --- Shape section: capsule (continuous-curvature SDF) toggle ---
-  // When true, the dialog card samples a precomputed continuous-curvature
-  // SDF texture (generated from the G2-continuous Bezier path) for its
-  // shape instead of the analytic sdRoundedRect SDF.
   elements.push(
     makeText(
       'settings-shape-title',
       { x: pad, y: nextY, w: W - 2 * pad, h: 20 },
-      'Shape',
+      t('settings_shape_title', locale),
       { color: labelColor, fontSizePx: 16, fontWeight: 600, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
     )
   )
   nextY += 20 + 8
 
-  const capsuleLabel = state.capsuleShape ? 'Capsule: ON' : 'Capsule: OFF'
+  const capsuleOnOff = state.capsuleShape ? t('settings_on', locale) : t('settings_off', locale)
+  const capsuleLabelText = t('settings_capsule', locale) + ': ' + capsuleOnOff
   const capsuleBtnColor = state.capsuleShape
     ? ([0x00 / 255, 0x88 / 255, 0xff / 255, 1] as [number, number, number, number])
     : ([0.5, 0.5, 0.5, 1] as [number, number, number, number])
-  const capsuleTextW = measureTextWidth(capsuleLabel, TEXT_FONT_SIZE_PX)
+  const capsuleTextW = measureTextWidth(capsuleLabelText, TEXT_FONT_SIZE_PX)
   const capsuleBtnW = Math.ceil(capsuleTextW + 2 * BUTTON_HORIZONTAL_PADDING)
   const capsuleBtn = makeButton(
     'settings-shape-capsule',
     { x: pad, y: nextY, w: capsuleBtnW, h: BUTTON_HEIGHT },
     {
-      label: capsuleLabel,
+      label: capsuleLabelText,
       tintColor: capsuleBtnColor,
       surfaceColor: [0, 0, 0, 0],
       labelColor: [1, 1, 1, 1],
@@ -222,31 +218,29 @@ export function buildSettings(
   }
   nextY += BUTTON_HEIGHT + 16
 
-  // --- UI section: hide overlay buttons (back + theme toggle) ---
-  // When true (default), the back button and theme toggle are NOT rendered on
-  // non-Settings pages, giving a clean, chrome-less preview. Settings itself
-  // is exempt so you can always toggle this back off.
+  // --- UI section: hide overlay buttons ---
   elements.push(
     makeText(
       'settings-ui-title',
       { x: pad, y: nextY, w: W - 2 * pad, h: 20 },
-      'UI',
+      t('settings_ui_title', locale),
       { color: labelColor, fontSizePx: 16, fontWeight: 600, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
     )
   )
   nextY += 20 + 8
 
-  const overlayLabel = state.hideOverlayButtons ? 'Hide overlay buttons: ON' : 'Hide overlay buttons: OFF'
+  const overlayOnOff = state.hideOverlayButtons ? t('settings_on', locale) : t('settings_off', locale)
+  const overlayLabelText = t('settings_hide_overlay', locale) + ': ' + overlayOnOff
   const overlayBtnColor = state.hideOverlayButtons
     ? ([0x00 / 255, 0x88 / 255, 0xff / 255, 1] as [number, number, number, number])
     : ([0.5, 0.5, 0.5, 1] as [number, number, number, number])
-  const overlayTextW = measureTextWidth(overlayLabel, TEXT_FONT_SIZE_PX)
+  const overlayTextW = measureTextWidth(overlayLabelText, TEXT_FONT_SIZE_PX)
   const overlayBtnW = Math.ceil(overlayTextW + 2 * BUTTON_HORIZONTAL_PADDING)
   const overlayBtn = makeButton(
     'settings-ui-hide-overlays',
     { x: pad, y: nextY, w: overlayBtnW, h: BUTTON_HEIGHT },
     {
-      label: overlayLabel,
+      label: overlayLabelText,
       tintColor: overlayBtnColor,
       surfaceColor: [0, 0, 0, 0],
       labelColor: [1, 1, 1, 1],
@@ -259,9 +253,43 @@ export function buildSettings(
   }
   nextY += BUTTON_HEIGHT + 16
 
-  // Reset button (orange, below blur settings)
+  // --- Language section ---
+  elements.push(
+    makeText(
+      'settings-language-title',
+      { x: pad, y: nextY, w: W - 2 * pad, h: 20 },
+      t('settings_language_title', locale),
+      { color: labelColor, fontSizePx: 16, fontWeight: 600, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
+    )
+  )
+  nextY += 20 + 8
+
+  // Language toggle button — shows current language, tap to switch
+  const langDisplay = locale === 'zh' ? t('settings_language_zh', locale) : t('settings_language_en', locale)
+  const langBtnColor = [0x00 / 255, 0x88 / 255, 0xff / 255, 1] as [number, number, number, number]
+  const langLabelText = langDisplay
+  const langTextW = measureTextWidth(langLabelText, TEXT_FONT_SIZE_PX)
+  const langBtnW = Math.ceil(langTextW + 2 * BUTTON_HORIZONTAL_PADDING)
+  const langBtn = makeButton(
+    'settings-language-toggle',
+    { x: pad, y: nextY, w: langBtnW, h: BUTTON_HEIGHT },
+    {
+      label: langLabelText,
+      tintColor: langBtnColor,
+      surfaceColor: [0, 0, 0, 0],
+      labelColor: [1, 1, 1, 1],
+    },
+    true
+  )
+  elements.push(langBtn)
+  interactions['settings-language-toggle'] = {
+    onTap: () => setState((prev) => ({ locale: prev.locale === 'zh' ? 'en' : 'zh' })),
+  }
+  nextY += BUTTON_HEIGHT + 16
+
+  // Reset button (orange)
   const ORANGE = [0xff / 255, 0x8d / 255, 0x28 / 255, 1] as [number, number, number, number]
-  const resetLabel = 'Reset'
+  const resetLabel = t('settings_reset', locale)
   const resetTextW = measureTextWidth(resetLabel, TEXT_FONT_SIZE_PX)
   const resetW = Math.ceil(resetTextW + 2 * BUTTON_HORIZONTAL_PADDING)
   const resetBtn = makeButton(
@@ -279,11 +307,6 @@ export function buildSettings(
   interactions['settings-reset'] = {
     onTap: () => {
       setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 17, blurDownsample: 1, capsuleShape: true, hideOverlayButtons: false, liveDpr: null, liveTapCap: null })
-      // Directly animate both slider knobs to their reset positions so they
-      // visually spring back (the toggleTargets effect should do this, but a
-      // direct call guarantees it even if React bails out of the state update
-      // or the effect is skipped). DPR reset → device DPR (fraction≈1.0);
-      // tap cap reset → 17/32 ≈ 0.5.
       const d = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
       const dprFrac = (d - 0.5) / Math.max(0.0001, d - 0.5)
       rendererRef?.current?.setToggleTarget('settings-dpr', dprFrac)

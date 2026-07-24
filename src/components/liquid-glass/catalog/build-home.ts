@@ -6,9 +6,11 @@ import {
   SUBTITLE_FONT_SIZE_PX,
   TITLE_FONT_SIZE_PX,
   type CatalogResult,
+  type CatalogState,
   type ThemePalette,
 } from './types'
 import { makeText } from './helpers'
+import { t, type Locale } from './i18n'
 
 /* ------------------------------------------------------------------ *
  * HOME — faithful to HomeContent.kt
@@ -31,7 +33,7 @@ import { makeText } from './helpers'
  *   - A halo is added behind each text element to maintain legibility
  *     regardless of which part of the wallpaper sits behind it.
  * ------------------------------------------------------------------ */
-export function buildHome(W: number, onNavigate: (d: CatalogDestination) => void, palette: ThemePalette): CatalogResult {
+export function buildHome(W: number, onNavigate: (d: CatalogDestination) => void, palette: ThemePalette, locale: Locale = 'zh'): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
@@ -46,7 +48,7 @@ export function buildHome(W: number, onNavigate: (d: CatalogDestination) => void
     makeText(
       'home-title',
       { x: 16, y: cursorY, w: W - 32, h: 44 },
-      'Backdrop Catalog',
+      t('home_title', locale),
       {
         color: palette.homeContentColor,
         fontSizePx: TITLE_FONT_SIZE_PX,
@@ -69,11 +71,12 @@ export function buildHome(W: number, onNavigate: (d: CatalogDestination) => void
     // — matches HomeContent.kt's Subtitle composable using the palette.
     if (sIdx > 0) cursorY += 16 // verticalArrangement.spacedBy(16)
     cursorY += 24 // top padding of subtitle
+    const sectionTitle = t(section.titleKey, locale)
     elements.push(
       makeText(
-        `subtitle-${section.title}`,
+        `subtitle-${section.titleKey}`,
         { x: 16, y: cursorY, w: W - 32, h: 24 },
-        section.title,
+        sectionTitle,
         {
           color: palette.homeSubtitleColor,
           fontSizePx: SUBTITLE_FONT_SIZE_PX,
@@ -94,10 +97,11 @@ export function buildHome(W: number, onNavigate: (d: CatalogDestination) => void
     for (const item of section.items) {
       const id = `item-${item.dest}`
       const h = 48
+      const itemLabel = t(item.labelKey, locale)
       const itemEl = makeText(
         id,
         { x: 0, y: cursorY, w: W, h },
-        item.label,
+        itemLabel,
         {
           color: palette.homeContentColor,
           fontSizePx: 17,

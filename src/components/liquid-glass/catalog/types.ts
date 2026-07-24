@@ -398,40 +398,40 @@ export const FLIGHT_ICON_PATH =
   'M400 552 L147 653 q-24 10 -45.5 -4.5 T80 608 v-22 q0 -12 5.5 -23 t15.5 -18 l299 -209 v-176 q0 -33 23.5 -56.5 T480 80 q33 0 56.5 23.5 T560 160 v176 l299 209 q10 7 15.5 18 t5.5 23 v22 q0 26 -21.5 40.5 T813 653 L560 552 v144 l103 72 q8 6 12.5 14.5 T680 801 v24 q0 20 -16.5 32.5 T627 864 l-147 -44 l-147 44 q-20 6 -36.5 -6.5 T280 825 v-24 q0 -10 4.5 -18.5 T297 768 l103 -72 v-144 Z'
 
 // Catalog home-page structure — faithful to HomeContent.kt
-export const HOME_SECTIONS: { title: string; items: { dest: CatalogDestination; label: string }[] }[] = [
+export const HOME_SECTIONS: { titleKey: string; items: { dest: CatalogDestination; labelKey: string }[] }[] = [
   {
-    title: 'Liquid glass components',
+    titleKey: 'section_glass',
     items: [
-      { dest: CatalogDestination.Buttons, label: 'Buttons' },
-      { dest: CatalogDestination.Toggle, label: 'Toggle' },
-      { dest: CatalogDestination.Slider, label: 'Slider' },
-      { dest: CatalogDestination.BottomTabs, label: 'Bottom tabs' },
-      { dest: CatalogDestination.Dialog, label: 'Dialog' },
+      { dest: CatalogDestination.Buttons, labelKey: 'item_buttons' },
+      { dest: CatalogDestination.Toggle, labelKey: 'item_toggle' },
+      { dest: CatalogDestination.Slider, labelKey: 'item_slider' },
+      { dest: CatalogDestination.BottomTabs, labelKey: 'item_bottom_tabs' },
+      { dest: CatalogDestination.Dialog, labelKey: 'item_dialog' },
     ],
   },
   {
-    title: 'System UIs',
+    titleKey: 'section_system',
     items: [
-      { dest: CatalogDestination.LockScreen, label: 'Lock screen (SDF texture)' },
-      { dest: CatalogDestination.ControlCenter, label: 'Control center' },
-      { dest: CatalogDestination.Magnifier, label: 'Magnifier' },
+      { dest: CatalogDestination.LockScreen, labelKey: 'item_lock_screen' },
+      { dest: CatalogDestination.ControlCenter, labelKey: 'item_control_center' },
+      { dest: CatalogDestination.Magnifier, labelKey: 'item_magnifier' },
     ],
   },
   {
-    title: 'Experiments',
+    titleKey: 'section_experiments',
     items: [
-      { dest: CatalogDestination.GlassPlayground, label: 'Glass playground' },
-      { dest: CatalogDestination.AdaptiveLuminanceGlass, label: 'Adaptive luminance glass' },
-      { dest: CatalogDestination.ProgressiveBlur, label: 'Progressive blur' },
-      { dest: CatalogDestination.ScrollContainer, label: 'Scroll container' },
-      { dest: CatalogDestination.LazyScrollContainer, label: 'Lazy scroll container' },
+      { dest: CatalogDestination.GlassPlayground, labelKey: 'item_glass_playground' },
+      { dest: CatalogDestination.AdaptiveLuminanceGlass, labelKey: 'item_adaptive_luminance' },
+      { dest: CatalogDestination.ProgressiveBlur, labelKey: 'item_progressive_blur' },
+      { dest: CatalogDestination.ScrollContainer, labelKey: 'item_scroll_container' },
+      { dest: CatalogDestination.LazyScrollContainer, labelKey: 'item_lazy_scroll' },
     ],
   },
   {
-    title: 'System',
+    titleKey: 'section_system_nav',
     items: [
-      { dest: CatalogDestination.Settings, label: 'Settings' },
-      { dest: CatalogDestination.About, label: 'About' },
+      { dest: CatalogDestination.Settings, labelKey: 'item_settings' },
+      { dest: CatalogDestination.About, labelKey: 'item_about' },
     ],
   },
 ]
@@ -514,6 +514,8 @@ export interface CatalogState {
   // non-Home pages. Default false (buttons visible). When true, the back
   // button is still reachable via the browser back button / Esc.
   hideOverlayButtons: boolean
+  // Settings — language for UI labels ('zh' = Chinese, 'en' = English)
+  locale: 'zh' | 'en'
 }
 
 export const DEFAULT_CATALOG_STATE: CatalogState = {
@@ -549,6 +551,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   liveDpr: null,
   liveTapCap: null,
   hideOverlayButtons: false,
+  locale: 'zh',
 }
 
 /* ------------------------------------------------------------------ *
