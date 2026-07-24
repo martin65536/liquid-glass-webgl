@@ -522,6 +522,8 @@ export interface CatalogState {
   showFps: boolean
   // Performance benchmark state: null = not running, string = progress text
   perfProgress: string | null
+  // Performance result dialog: null = no dialog, object = show low-perf dialog
+  perfLowDialog: { recommendedDpr: number; halfDpr: number } | null
 }
 
 export const DEFAULT_CATALOG_STATE: CatalogState = {
@@ -561,6 +563,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   pageTransition: false,
   showFps: false,
   perfProgress: null,
+  perfLowDialog: null,
 }
 
 /* ------------------------------------------------------------------ *

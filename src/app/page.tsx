@@ -102,30 +102,25 @@ export default function Page() {
 
   // --- Performance detection: auto-set DPR on first visit / re-detect ---
   // Conservative strategy: aim for STABLE 60fps (16.67ms budget) with headroom.
-  // Benchmarks measure ACTUAL frame rate (rAF cadence), not GPU stall time.
-  //   avg ≤ 10ms  → device DPR (5ms+ headroom for 60fps)
-  //   10–14ms     → device DPR × 0.75 (still fast, minor quality reduction)
-  //   14–20ms     → device DPR × 0.5 (half-res, big perf win)
-  //   >20ms       → 0.5 (minimum readable, even half-res struggles)
-  // The result is cached in localStorage (liquid-glass-perf-dpr).
-  // Re-detect is triggered from Settings page by clearing cache + setting perfProgress.
-  // A ref guard prevents the effect from re-triggering while benchmark is in progress
-  // (perfProgress state changes would otherwise cause infinite re-runs).
+  // Runs for up to 3 seconds (at least 20 measured frames) for statistical
+  // stability, skipping 3 warmup frames and trimming top/bottom 10% outliers.
+  //   p50 ≤ 10ms  → device DPR (5ms+ headroom for 60fps)
+  //   10–14ms     → device DPR × 0.75
+  //   14–20ms     → device DPR × 0.5
+  //   >20ms       → 0.5 (minimum readable)
+  // If recommended DPR < deviceDpr/2, shows a "low perf" dialog with options.
   const PERF_KEY = 'liquid-glass-perf-dpr'
   const perfRunningRef = React.useRef(false)
   React.useEffect(() => {
     if (!rendererReady || !rendererRef.current) return
-    // Guard: benchmark already running — don't start another one
     if (perfRunningRef.current) return
 
-    // If perfProgress is non-null, we're in a re-detect flow from Settings
     if (state.perfProgress) {
       runBenchmark()
       return
     }
-    // Skip if user has already manually set a custom DPR (and no re-detect pending)
+    if (state.perfLowDialog) return  // dialog showing, don't re-trigger
     if (state.customDpr > 0) return
-    // Skip if we already have a cached perf result
     try {
       const cached = window.localStorage.getItem(PERF_KEY)
       if (cached) {
@@ -136,13 +131,11 @@ export default function Page() {
         return
       }
     } catch { /* ignore */ }
-
-    // First visit — no cached result, no manual override → run benchmark
     runBenchmark()
   }, [rendererReady, state.perfProgress])
 
   function runBenchmark() {
-    if (perfRunningRef.current) return  // double-check guard
+    if (perfRunningRef.current) return
     perfRunningRef.current = true
     const renderer = rendererRef.current!
     const deviceDpr = window.devicePixelRatio || 1
@@ -152,55 +145,98 @@ export default function Page() {
     const r = renderer.canvas.parentElement?.getBoundingClientRect()
     if (r) renderer.resize(r.width, r.height)
 
-    const BENCH_FRAMES = 5
-    setState({ perfProgress: `0/${BENCH_FRAMES}`, customDpr: 0 })
+    const WARMUP_FRAMES = 3   // skip first frames (JIT/cache warming)
+    const MIN_MEASURE_FRAMES = 20  // at least this many measured frames
+    const MAX_DURATION_MS = 3000   // cap total benchmark at 3 seconds
+    setState({ perfProgress: '准备检测…', customDpr: 0, perfLowDialog: null })
 
-    // Measure frame time via rAF cadence: mark needsRedraw, let the
-    // render loop draw, measure the wall time between consecutive frames.
-    // This reflects real-world fps (not a gl.finish() GPU stall).
-    let frameIdx = 0
     const frameTimes: number[] = []
-    let lastT = performance.now()
+    let lastT = 0
+    let totalIdx = 0
+    const benchStart = performance.now()
 
-    const step = () => {
-      if (frameIdx >= BENCH_FRAMES) {
-        // Compute result
-        const avgMs = frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length
-        let recommendedDpr: number
-        if (avgMs <= 10) {
-          recommendedDpr = deviceDpr  // comfortable 60fps headroom
-        } else if (avgMs <= 14) {
-          recommendedDpr = Math.max(0.5, Math.round(deviceDpr * 0.75 * 4) / 4)
-        } else if (avgMs <= 20) {
-          recommendedDpr = Math.max(0.5, Math.round(deviceDpr * 0.5 * 4) / 4)
-        } else {
-          recommendedDpr = 0.5  // very slow → minimum readable
+    const step = (timestamp: number) => {
+      const elapsed = timestamp - benchStart
+      const isWarmup = totalIdx < WARMUP_FRAMES
+
+      if (totalIdx > 0) {
+        const delta = timestamp - lastT
+        if (!isWarmup) {
+          frameTimes.push(delta)
         }
-        // Clamp to [0.5, deviceDpr]
-        recommendedDpr = Math.max(0.5, Math.min(deviceDpr, recommendedDpr))
-        recommendedDpr = Math.round(recommendedDpr * 4) / 4
-        // Cache and apply
-        try { window.localStorage.setItem(PERF_KEY, String(recommendedDpr)) } catch {}
-        perfRunningRef.current = false
-        setState({
-          customDpr: recommendedDpr,
-          perfProgress: null,
-        })
+      }
+      lastT = timestamp
+
+      if (!isWarmup) {
+        // Update progress display
+        const avgSoFar = frameTimes.length > 0
+          ? (frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length).toFixed(1)
+          : '—'
+        const fpsSoFar = frameTimes.length > 0
+          ? Math.round(1000 / (frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length))
+          : '—'
+        setState({ perfProgress: `${frameTimes.length}/${MIN_MEASURE_FRAMES}帧 · ${avgSoFar}ms · ${fpsSoFar}fps` })
+      } else {
+        setState({ perfProgress: `预热 ${totalIdx + 1}/${WARMUP_FRAMES}…` })
+      }
+
+      totalIdx++
+      renderer.needsRedraw = true
+
+      // Stop condition: enough frames OR time limit hit
+      const enoughFrames = frameTimes.length >= MIN_MEASURE_FRAMES
+      const timeLimit = elapsed >= MAX_DURATION_MS
+      if (enoughFrames || timeLimit) {
+        finishBenchmark(frameTimes, deviceDpr)
         return
       }
-      const now = performance.now()
-      const delta = now - lastT
-      lastT = now
-      if (frameIdx > 0) {
-        // Skip first frame delta (it's from the initial setup, not a real render)
-        frameTimes.push(delta)
-      }
-      setState({ perfProgress: `${frameIdx + 1}/${BENCH_FRAMES}  ·  ${frameTimes.length > 0 ? frameTimes[frameTimes.length - 1].toFixed(1) + 'ms' : '—'}` })
-      renderer.needsRedraw = true
-      frameIdx++
       requestAnimationFrame(step)
     }
     requestAnimationFrame(step)
+  }
+
+  function finishBenchmark(frameTimes: number[], deviceDpr: number) {
+    if (frameTimes.length < 4) {
+      // Too few frames — use fallback
+      perfRunningRef.current = false
+      const fallback = Math.max(0.5, Math.round(deviceDpr * 0.5 * 4) / 4)
+      try { window.localStorage.setItem(PERF_KEY, String(fallback)) } catch {}
+      setState({ customDpr: fallback, perfProgress: null })
+      return
+    }
+
+    // Trim outliers: remove top 10% and bottom 10% for stability
+    const sorted = [...frameTimes].sort((a, b) => a - b)
+    const trim = Math.max(1, Math.floor(sorted.length * 0.1))
+    const trimmed = sorted.slice(trim, sorted.length - trim)
+    const avgMs = trimmed.reduce((a, b) => a + b, 0) / trimmed.length
+
+    let recommendedDpr: number
+    if (avgMs <= 10) {
+      recommendedDpr = deviceDpr
+    } else if (avgMs <= 14) {
+      recommendedDpr = Math.max(0.5, Math.round(deviceDpr * 0.75 * 4) / 4)
+    } else if (avgMs <= 20) {
+      recommendedDpr = Math.max(0.5, Math.round(deviceDpr * 0.5 * 4) / 4)
+    } else {
+      recommendedDpr = 0.5
+    }
+    recommendedDpr = Math.max(0.5, Math.min(deviceDpr, Math.round(recommendedDpr * 4) / 4))
+
+    perfRunningRef.current = false
+
+    // If recommended DPR < half of device DPR, show low-perf dialog
+    const halfDpr = Math.max(0.5, Math.round(deviceDpr * 0.5 * 4) / 4)
+    if (recommendedDpr < halfDpr) {
+      setState({
+        perfProgress: null,
+        perfLowDialog: { recommendedDpr, halfDpr },
+        customDpr: 0,  // don't auto-apply yet, let user choose
+      })
+    } else {
+      try { window.localStorage.setItem(PERF_KEY, String(recommendedDpr)) } catch {}
+      setState({ customDpr: recommendedDpr, perfProgress: null })
+    }
   }
 
   // Renderer ref — populated by LiquidGlassCanvas once it creates the
@@ -742,6 +778,117 @@ export default function Page() {
             >
               {state.perfProgress}
             </p>
+          </div>
+        )}
+        {/* Low performance dialog — shown when recommended DPR < device DPR / 2 */}
+        {state.perfLowDialog && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: isLightTheme ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.5)',
+              zIndex: 60,
+            }}
+          >
+            <div
+              style={{
+                background: isLightTheme ? '#fff' : '#1a1a1a',
+                borderRadius: 16,
+                padding: 24,
+                maxWidth: 340,
+                width: '90%',
+                boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 16,
+              }}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <h3
+                  style={{
+                    color: isLightTheme ? '#333' : '#e0e0e0',
+                    fontSize: 17,
+                    fontWeight: 600,
+                    margin: 0,
+                    lineHeight: 1.4,
+                  }}
+                >
+                  设备性能有限，画质需要调整
+                </h3>
+                <p
+                  style={{
+                    color: isLightTheme ? '#666' : '#999',
+                    fontSize: 14,
+                    lineHeight: 1.6,
+                    margin: 0,
+                  }}
+                >
+                  别担心！降低画质并不意味着体验变差——液态玻璃效果在不同分辨率下都很好看，流畅度才是最重要的。你的设备依然可以完美展示所有动画和交互。
+                </p>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <button
+                  onClick={() => {
+                    const dpr = state.perfLowDialog!.halfDpr
+                    try { window.localStorage.setItem(PERF_KEY, String(dpr)) } catch {}
+                    setState({ customDpr: dpr, perfLowDialog: null })
+                  }}
+                  style={{
+                    background: isLightTheme ? '#007AFF' : '#0a84ff',
+                    color: '#fff',
+                    fontSize: 15,
+                    fontWeight: 600,
+                    padding: '10px 0',
+                    borderRadius: 10,
+                    border: 'none',
+                    cursor: 'pointer',
+                  }}
+                >
+                  设置为设备 DPR 的一半（{state.perfLowDialog.halfDpr}）
+                </button>
+                <button
+                  onClick={() => {
+                    const dpr = state.perfLowDialog!.recommendedDpr
+                    try { window.localStorage.setItem(PERF_KEY, String(dpr)) } catch {}
+                    setState({ customDpr: dpr, perfLowDialog: null })
+                  }}
+                  style={{
+                    background: 'transparent',
+                    color: isLightTheme ? '#007AFF' : '#0a84ff',
+                    fontSize: 15,
+                    fontWeight: 500,
+                    padding: '10px 0',
+                    borderRadius: 10,
+                    border: `1px solid ${isLightTheme ? '#007AFF' : '#0a84ff'}`,
+                    cursor: 'pointer',
+                  }}
+                >
+                  使用检测推荐值（{state.perfLowDialog.recommendedDpr}）
+                </button>
+                <button
+                  onClick={() => {
+                    // Re-detect: clear cache and trigger new benchmark
+                    try { window.localStorage.removeItem(PERF_KEY) } catch {}
+                    setState({ customDpr: 0, perfLowDialog: null, perfProgress: '准备检测…' })
+                  }}
+                  style={{
+                    background: 'transparent',
+                    color: isLightTheme ? '#888' : '#777',
+                    fontSize: 14,
+                    fontWeight: 400,
+                    padding: '10px 0',
+                    borderRadius: 10,
+                    border: `1px solid ${isLightTheme ? '#ddd' : '#444'}`,
+                    cursor: 'pointer',
+                  }}
+                >
+                  再检测一次
+                </button>
+              </div>
+            </div>
           </div>
         )}
         <LiquidGlassCanvas
