@@ -56,6 +56,8 @@ const translations: Record<string, { zh: string; en: string }> = {
   settings_language_title:  { zh: '语言', en: 'Language' },
   settings_language_zh:     { zh: '中文', en: 'Chinese' },
   settings_language_en:     { zh: '英文', en: 'English' },
+  settings_transition_title: { zh: '页面过渡动画', en: 'Page transitions' },
+  settings_transition:       { zh: '过渡动画', en: 'Transitions' },
   settings_reset:           { zh: '重置', en: 'Reset' },
 
   // ---- About page ----

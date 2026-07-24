@@ -287,6 +287,41 @@ export function buildSettings(
   }
   nextY += BUTTON_HEIGHT + 16
 
+  // --- Transition section: page transition animation ---
+  elements.push(
+    makeText(
+      'settings-transition-title',
+      { x: pad, y: nextY, w: W - 2 * pad, h: 20 },
+      t('settings_transition_title', locale),
+      { color: labelColor, fontSizePx: 16, fontWeight: 600, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
+    )
+  )
+  nextY += 20 + 8
+
+  const transOnOff = state.pageTransition ? t('settings_on', locale) : t('settings_off', locale)
+  const transLabelText = t('settings_transition', locale) + ': ' + transOnOff
+  const transBtnColor = state.pageTransition
+    ? ([0x00 / 255, 0x88 / 255, 0xff / 255, 1] as [number, number, number, number])
+    : ([0.5, 0.5, 0.5, 1] as [number, number, number, number])
+  const transTextW = measureTextWidth(transLabelText, TEXT_FONT_SIZE_PX)
+  const transBtnW = Math.ceil(transTextW + 2 * BUTTON_HORIZONTAL_PADDING)
+  const transBtn = makeButton(
+    'settings-transition-toggle',
+    { x: pad, y: nextY, w: transBtnW, h: BUTTON_HEIGHT },
+    {
+      label: transLabelText,
+      tintColor: transBtnColor,
+      surfaceColor: [0, 0, 0, 0],
+      labelColor: [1, 1, 1, 1],
+    },
+    true
+  )
+  elements.push(transBtn)
+  interactions['settings-transition-toggle'] = {
+    onTap: () => setState((prev) => ({ pageTransition: !prev.pageTransition })),
+  }
+  nextY += BUTTON_HEIGHT + 16
+
   // Reset button (orange)
   const ORANGE = [0xff / 255, 0x8d / 255, 0x28 / 255, 1] as [number, number, number, number]
   const resetLabel = t('settings_reset', locale)

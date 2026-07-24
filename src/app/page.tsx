@@ -67,6 +67,7 @@ export default function Page() {
         blurDownsample: typeof parsed.blurDownsample === 'number' ? parsed.blurDownsample : 1,
         capsuleShape: typeof parsed.capsuleShape === 'boolean' ? parsed.capsuleShape : true,
         locale: (parsed.locale === 'zh' || parsed.locale === 'en') ? parsed.locale : 'zh',
+        pageTransition: typeof parsed.pageTransition === 'boolean' ? parsed.pageTransition : false,
       }
     } catch { return {} }
   }
@@ -99,7 +100,7 @@ export default function Page() {
             (p.customDpr !== undefined || p.globalSeparableBlur !== undefined ||
              p.blurTapCap !== undefined || p.blurDownsample !== undefined ||
              p.capsuleShape !== undefined || p.hideOverlayButtons !== undefined ||
-             p.locale !== undefined)) {
+             p.locale !== undefined || p.pageTransition !== undefined)) {
           try {
             window.localStorage.setItem(SETTINGS_KEY, JSON.stringify({
               customDpr: next.customDpr,
@@ -109,6 +110,7 @@ export default function Page() {
               capsuleShape: next.capsuleShape,
               hideOverlayButtons: next.hideOverlayButtons,
               locale: next.locale,
+              pageTransition: next.pageTransition,
             }))
           } catch { /* ignore quota errors */ }
         }
@@ -118,21 +120,56 @@ export default function Page() {
     []
   )
 
+  // Transition animation state: 'idle' | 'fadeOut' | 'fadeIn'
+  // When pageTransition is enabled, navigating triggers fadeOut → swap dest → fadeIn.
+  const [transPhase, setTransPhase] = React.useState<'idle' | 'fadeOut' | 'fadeIn'>('idle')
+  const pendingDestRef = React.useRef<CatalogDestination | null>(null)
+  const TRANSITION_MS = 200 // duration for each phase (fade out / fade in)
+
   const onNavigate = React.useCallback((d: CatalogDestination) => {
-    setDestination(d)
-    // Push a history entry so the browser back button can return to Home,
-    // matching Android's BackHandler behavior.
+    if (!state.pageTransition) {
+      setDestination(d)
+    } else {
+      // Start fade-out → queue destination → fade-in after out completes.
+      pendingDestRef.current = d
+      setTransPhase('fadeOut')
+    }
     if (typeof window !== 'undefined' && d !== CatalogDestination.Home) {
       window.history.pushState({ dest: d }, '')
     }
-  }, [])
+  }, [state.pageTransition])
 
   const onBack = React.useCallback(() => {
-    setDestination(CatalogDestination.Home)
+    const target = CatalogDestination.Home
+    if (!state.pageTransition) {
+      setDestination(target)
+    } else {
+      pendingDestRef.current = target
+      setTransPhase('fadeOut')
+    }
     if (typeof window !== 'undefined' && window.history.state?.dest !== undefined) {
       window.history.back()
     }
-  }, [])
+  }, [state.pageTransition])
+
+  // When fadeOut completes, swap destination and start fadeIn.
+  React.useEffect(() => {
+    if (transPhase === 'fadeOut') {
+      const timer = setTimeout(() => {
+        const dest = pendingDestRef.current ?? CatalogDestination.Home
+        setDestination(dest)
+        pendingDestRef.current = null
+        setTransPhase('fadeIn')
+      }, TRANSITION_MS)
+      return () => clearTimeout(timer)
+    }
+    if (transPhase === 'fadeIn') {
+      const timer = setTimeout(() => {
+        setTransPhase('idle')
+      }, TRANSITION_MS)
+      return () => clearTimeout(timer)
+    }
+  }, [transPhase])
 
   // Listen for browser back button → return to Home (BackHandler equivalent).
   React.useEffect(() => {
@@ -429,6 +466,15 @@ export default function Page() {
         className="relative overflow-hidden shadow-2xl lg-frame"
         style={{
           width: 'min(420px, 100vw)',
+          opacity: transPhase === 'fadeOut' ? 0 : transPhase === 'fadeIn' ? 1 : 1,
+          transform: transPhase === 'fadeOut'
+            ? 'translateX(-8px)'
+            : transPhase === 'fadeIn'
+            ? 'translateX(0)'
+            : 'translateX(0)',
+          transition: state.pageTransition
+            ? `opacity ${TRANSITION_MS}ms ease, transform ${TRANSITION_MS}ms ease`
+            : 'none',
         }}
       >
         <LiquidGlassCanvas

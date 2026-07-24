@@ -516,6 +516,8 @@ export interface CatalogState {
   hideOverlayButtons: boolean
   // Settings — language for UI labels ('zh' = Chinese, 'en' = English)
   locale: 'zh' | 'en'
+  // Settings — page transition animation (fade + slide). Default false (off).
+  pageTransition: boolean
 }
 
 export const DEFAULT_CATALOG_STATE: CatalogState = {
@@ -552,6 +554,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   liveTapCap: null,
   hideOverlayButtons: false,
   locale: 'zh',
+  pageTransition: false,
 }
 
 /* ------------------------------------------------------------------ *
