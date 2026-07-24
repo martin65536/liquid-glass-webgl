@@ -145,9 +145,9 @@ export default function Page() {
     const r = renderer.canvas.parentElement?.getBoundingClientRect()
     if (r) renderer.resize(r.width, r.height)
 
-    const WARMUP_FRAMES = 3   // skip first frames (JIT/cache warming)
-    const MIN_MEASURE_FRAMES = 20  // at least this many measured frames
-    const MAX_DURATION_MS = 3000   // cap total benchmark at 3 seconds
+    const WARMUP_FRAMES = 5   // skip first frames (JIT/cache warming)
+    const MIN_MEASURE_FRAMES = 60  // at least this many measured frames (~1s at 60fps)
+    const MAX_DURATION_MS = 5000   // cap total benchmark at 5 seconds
     setState({ perfProgress: '准备检测…', customDpr: 0, perfLowDialog: null })
 
     const frameTimes: number[] = []
