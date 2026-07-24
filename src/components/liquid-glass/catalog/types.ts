@@ -520,6 +520,8 @@ export interface CatalogState {
   pageTransition: boolean
   // Settings — show FPS counter overlay. Default false.
   showFps: boolean
+  // Performance benchmark state: null = not running, string = progress text
+  perfProgress: string | null
 }
 
 export const DEFAULT_CATALOG_STATE: CatalogState = {
@@ -558,6 +560,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   locale: 'zh',
   pageTransition: false,
   showFps: false,
+  perfProgress: null,
 }
 
 /* ------------------------------------------------------------------ *

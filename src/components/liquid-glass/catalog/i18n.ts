@@ -60,6 +60,7 @@ const translations: Record<string, { zh: string; en: string }> = {
   settings_transition:       { zh: '过渡动画', en: 'Transitions' },
   settings_fps_title:        { zh: '性能', en: 'Performance' },
   settings_fps:              { zh: '显示帧率', en: 'Show FPS' },
+  settings_perf_redetect:    { zh: '重新检测性能', en: 'Re-detect performance' },
   settings_reset:           { zh: '重置', en: 'Reset' },
 
   // ---- About page ----

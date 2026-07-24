@@ -362,6 +362,36 @@ export function buildSettings(
   }
   nextY += BUTTON_HEIGHT + 16
 
+  // --- Re-detect performance button ---
+  // Only show when benchmark is NOT currently running
+  if (!state.perfProgress) {
+    const redetectLabel = t('settings_perf_redetect', locale)
+    const redetectTextW = measureTextWidth(redetectLabel, TEXT_FONT_SIZE_PX)
+    const redetectBtnW = Math.ceil(redetectTextW + 2 * BUTTON_HORIZONTAL_PADDING)
+    const redetectBtn = makeButton(
+      'settings-perf-redetect',
+      { x: pad, y: nextY, w: redetectBtnW, h: BUTTON_HEIGHT },
+      {
+        label: redetectLabel,
+        tintColor: [0x00 / 255, 0x88 / 255, 0xff / 255, 1],
+        surfaceColor: [0, 0, 0, 0],
+        labelColor: [1, 1, 1, 1],
+      },
+      true
+    )
+    elements.push(redetectBtn)
+    interactions['settings-perf-redetect'] = {
+      onTap: () => {
+        // Clear cached perf result and trigger re-benchmark
+        try { window.localStorage.removeItem('liquid-glass-perf-dpr') } catch {}
+        // Set customDpr to 0 temporarily so the benchmark effect triggers;
+        // set perfProgress to signal benchmark should start
+        setState({ customDpr: 0, perfProgress: '准备检测…' })
+      },
+    }
+    nextY += BUTTON_HEIGHT + 16
+  }
+
   // Reset button (orange)
   const ORANGE = [0xff / 255, 0x8d / 255, 0x28 / 255, 1] as [number, number, number, number]
   const resetLabel = t('settings_reset', locale)
@@ -381,7 +411,7 @@ export function buildSettings(
   elements.push(resetBtn)
   interactions['settings-reset'] = {
     onTap: () => {
-      setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 17, blurDownsample: 1, capsuleShape: true, hideOverlayButtons: false, liveDpr: null, liveTapCap: null, showFps: false })
+      setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 17, blurDownsample: 1, capsuleShape: true, hideOverlayButtons: false, liveDpr: null, liveTapCap: null, showFps: false, perfProgress: null })
       // Clear the auto-DPR perf cache so next visit re-detects
       try { window.localStorage.removeItem('liquid-glass-perf-dpr') } catch {}
       const d = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1

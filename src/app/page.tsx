@@ -75,7 +75,6 @@ export default function Page() {
   const [state, setStateRaw] = React.useState<CatalogState>({ ...DEFAULT_CATALOG_STATE, ...loadPersistedSettings() })
   const [frameSize, setFrameSize] = React.useState({ w: 420, h: 900 })
   const [rendererReady, setRendererReady] = React.useState(false)
-  const [perfRunning, setPerfRunning] = React.useState(false)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
   const frameRef = React.useRef<HTMLDivElement>(null)
   // FPS counter: measures frames per second via requestAnimationFrame timestamps
@@ -101,21 +100,26 @@ export default function Page() {
     return () => cancelAnimationFrame(rafId)
   }, [state.showFps, rendererReady])
 
-  // --- Performance detection: auto-set DPR on first visit ---
-  // On the very first visit (no perf result in localStorage), run a
-  // micro-benchmark after the renderer is ready. Render several frames
-  // and measure average frame time, then pick a DPR that balances
-  // quality vs. smoothness:
-  //   avg ≤ 16ms  → device DPR (full quality)
-  //   16–24ms     → device DPR × 0.75
-  //   24–33ms     → device DPR × 0.5
-  //   >33ms       → 0.5 (minimum for readability)
-  // The result is cached in localStorage so the benchmark only runs once.
-  // If the user later manually adjusts DPR, that overrides the auto value.
+  // --- Performance detection: auto-set DPR on first visit / re-detect ---
+  // Conservative strategy: aim for STABLE 60fps (16.67ms budget) with headroom.
+  // Benchmarks measure frame time at full device DPR; then recommend a DPR
+  // that keeps frame time well under 16.67ms even with variance spikes.
+  //   avg ≤ 10ms  → device DPR (5ms+ headroom for 60fps)
+  //   10–14ms     → device DPR × 0.75 (still fast, minor quality reduction)
+  //   14–20ms     → device DPR × 0.5 (half-res, big perf win)
+  //   >20ms       → 0.5 (minimum readable, even half-res struggles)
+  // The result is cached in localStorage (liquid-glass-perf-dpr).
+  // Re-detect is triggered from Settings page by clearing the cache + setting perfProgress.
   const PERF_KEY = 'liquid-glass-perf-dpr'
   React.useEffect(() => {
     if (!rendererReady || !rendererRef.current) return
-    // Skip if user has already manually set a custom DPR
+    // If perfProgress is non-null, we're in a re-detect flow from Settings
+    if (state.perfProgress) {
+      // Re-detect triggered — run benchmark immediately
+      runBenchmark()
+      return
+    }
+    // Skip if user has already manually set a custom DPR (and no re-detect pending)
     if (state.customDpr > 0) return
     // Skip if we already have a cached perf result
     try {
@@ -129,47 +133,61 @@ export default function Page() {
       }
     } catch { /* ignore */ }
 
-    setPerfRunning(true)
+    // First visit — no cached result, no manual override → run benchmark
+    runBenchmark()
+  }, [rendererReady, state.perfProgress])
+
+  function runBenchmark() {
     const renderer = rendererRef.current!
     const deviceDpr = window.devicePixelRatio || 1
 
-    // Benchmark: render N frames at device DPR, measure average frame time
-    const BENCH_FRAMES = 8
+    // Ensure renderer is at full device DPR for an honest benchmark
+    const origDpr = renderer.dpr
+    renderer.dpr = deviceDpr
+    const r = rendererRef.current!.canvas.parentElement?.getBoundingClientRect()
+    if (r) renderer.resize(r.width, r.height)
+
+    const BENCH_FRAMES = 10
     const frameTimes: number[] = []
+    setState({ perfProgress: `0/${BENCH_FRAMES}`, customDpr: 0 })
+
     const bench = (frameIdx: number) => {
       if (frameIdx >= BENCH_FRAMES) {
         // Compute result
         const avgMs = frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length
         let recommendedDpr: number
-        if (avgMs <= 16) {
-          recommendedDpr = deviceDpr  // smooth at full DPR → use it
-        } else if (avgMs <= 24) {
-          recommendedDpr = Math.max(0.5, Math.round(deviceDpr * 0.75 * 4) / 4)  // nearest 0.25
-        } else if (avgMs <= 33) {
+        if (avgMs <= 10) {
+          recommendedDpr = deviceDpr  // comfortable 60fps headroom
+        } else if (avgMs <= 14) {
+          recommendedDpr = Math.max(0.5, Math.round(deviceDpr * 0.75 * 4) / 4)
+        } else if (avgMs <= 20) {
           recommendedDpr = Math.max(0.5, Math.round(deviceDpr * 0.5 * 4) / 4)
         } else {
-          recommendedDpr = 0.5  // very slow → minimum readable DPR
+          recommendedDpr = 0.5  // very slow → minimum readable
         }
         // Clamp to [0.5, deviceDpr]
         recommendedDpr = Math.max(0.5, Math.min(deviceDpr, recommendedDpr))
+        // Round to nearest 0.25 for slider compatibility
+        recommendedDpr = Math.round(recommendedDpr * 4) / 4
         // Cache and apply
         try { window.localStorage.setItem(PERF_KEY, String(recommendedDpr)) } catch {}
-        setState({ customDpr: recommendedDpr })
-        setPerfRunning(false)
+        setState({
+          customDpr: recommendedDpr,
+          perfProgress: null,
+        })
         return
       }
+      setState({ perfProgress: `${frameIdx + 1}/${BENCH_FRAMES}  ·  ${frameTimes.length > 0 ? frameTimes[frameTimes.length - 1].toFixed(1) + 'ms' : ''}` })
       const t0 = performance.now()
       renderer.needsRedraw = true
       renderer.render()
-      // Force GPU flush so the measurement includes actual GPU work
-      renderer.gl.finish()
+      renderer.gl.finish()  // force GPU flush for accurate timing
       const t1 = performance.now()
       frameTimes.push(t1 - t0)
       requestAnimationFrame(() => bench(frameIdx + 1))
     }
-    // Start benchmark after a brief delay to let the first render settle
     requestAnimationFrame(() => bench(0))
-  }, [rendererReady])
+  }
 
   // Renderer ref — populated by LiquidGlassCanvas once it creates the
   // renderer. Catalog builders use this to call renderer methods
@@ -660,8 +678,8 @@ export default function Page() {
             </p>
           </div>
         )}
-        {/* Performance benchmark overlay — shown while auto-detecting best DPR */}
-        {rendererReady && perfRunning && (
+        {/* Performance benchmark overlay — shown while detecting best DPR */}
+        {rendererReady && state.perfProgress && (
           <div
             style={{
               position: 'absolute',
@@ -671,7 +689,7 @@ export default function Page() {
               alignItems: 'center',
               justifyContent: 'center',
               gap: 16,
-              background: isLightTheme ? '#FFFFFF' : '#050507',
+              background: isLightTheme ? 'rgba(255,255,255,0.95)' : 'rgba(5,5,7,0.95)',
               zIndex: 50,
             }}
           >
@@ -696,6 +714,19 @@ export default function Page() {
               }}
             >
               正在检测设备性能，自动设置最佳画质…
+            </p>
+            <p
+              style={{
+                color: isLightTheme ? '#333' : '#ccc',
+                fontSize: 14,
+                lineHeight: 1.5,
+                textAlign: 'center',
+                maxWidth: 320,
+                margin: 0,
+                fontFamily: 'monospace',
+              }}
+            >
+              {state.perfProgress}
             </p>
           </div>
         )}
