@@ -1,0 +1,798 @@
+     1→'use client'
+     2→
+     3→import * as React from 'react'
+     4→import { LiquidGlassRenderer, type GlassElementConfig } from './renderer'
+     5→import { draggingGroups } from './catalog'
+     6→
+     7→/* ------------------------------------------------------------------ *
+     8→ * LiquidGlassCanvas
+     9→ *
+    10→ * A self-contained WebGL canvas that renders a wallpaper + a list of
+    11→ * liquid-glass elements. No DOM children — the canvas owns the entire
+    12→ * visual surface (wallpaper, glass, labels, chevrons, press glow).
+    13→ *
+    14→ * Elements may be of several kinds (button / glass-shape / plain-rect /
+    15→ * progressive-blur / text). Pointer events are hit-tested against each
+    16→ * element rect:
+    17→ *   - 'button' kind → triggers InteractiveHighlight press + drag
+    18→ *   - any kind with onTap → fires the callback on pointerup if the
+    19→ *     pointer is still inside the element
+    20→ *   - any kind with onDrag → fires live during pointermove
+    21→ *   - empty space OR vertical-drag-takeover → starts a scroll drag
+    22→ *
+    23→ * Scroll behavior (matches user feedback):
+    24→ *   - During drag, scrollY follows the finger directly (no spring).
+    25→ *   - On release, the drag velocity becomes inertia, which exponentially
+    26→ *     decays. No rebound at edges — scrolling just stops at the boundary.
+    27→ *   - If the press starts on an element but the user drags mostly
+    28→ *     vertically, the gesture is converted to a scroll (so list items
+    29→ *     and buttons don't trap the scroll).
+    30→ *
+    31→ * Wheel events scroll the canvas directly (no inertia).
+    32→ * ------------------------------------------------------------------ */
+    33→
+    34→export interface LiquidGlassCanvasProps {
+    35→  wallpaperSrc: string
+    36→  elements: GlassElementConfig[]
+    37→  /** Total scrollable content height in CSS px. */
+    38→  contentHeight?: number
+    39→  /** Optional callbacks map: id → { onTap, onDragStart, onDrag, onDragEnd }. */
+    40→  interactions?: Record<string, ElementInteraction>
+    41→  /** When this number changes, the canvas resets scrollY to 0 (used for
+    42→   *  destination switches in the catalog). */
+    43→  scrollResetToken?: number
+    44→  /** If set, the renderer fills the canvas with this RGB color instead
+    45→   *  of drawing the wallpaper. Used for the Home page (black background). */
+    46→  backgroundColor?: [number, number, number] | null
+    47→  /** Map of toggle groupId → target fraction (0 or 1). The canvas syncs
+    48→   *  these to the renderer whenever the map changes (programmatic toggle). */
+    49→  toggleTargets?: Record<string, number>
+    50→  /** Map of tab groupId → { tabIndex, tabsCount }. The canvas syncs these
+    51→   *  to the renderer via setTabSelected (which uses pressedScale=78/56). */
+    52→  tabTargets?: Record<string, { tabIndex: number; tabsCount: number }>
+    53→  /** Ref that will be populated with the renderer instance once created.
+    54→   *  Allows the parent (e.g. catalog builders) to call renderer methods
+    55→   *  like setToggleTarget / beginToggleDrag / dragToggle / endToggleDrag. */
+    56→  rendererRef?: React.MutableRefObject<LiquidGlassRenderer | null>
+    57→  className?: string
+    58→  /** Device pixel ratio override (0 = use device DPR, capped at 1.5 by
+    59→   *  the renderer's resize). Applied on renderer init + when it changes. */
+    60→  dpr?: number
+    61→  /** Max 1D taps per separable blur pass (1..33). Performance knob for
+    62→   *  useSeparableBlur elements. Applied on renderer init + when it changes.
+    63→   *  Small blur radii automatically use fewer taps (computeBlur1DTapCount);
+    64→   *  this caps the MAXIMUM. */
+    65→  blurTapCap?: number
+    66→  /** Corner style: 0 = circular, 1 = continuous (squircle). */
+    67→  cornerStyle?: number
+    68→}
+    69→
+    70→export interface ElementInteraction {
+    71→  onTap?: (pos: { x: number; y: number }) => void
+    72→  /** Fires on first pointermove after press. */
+    73→  onDragStart?: (pos: { x: number; y: number }) => void
+    74→  /** Fires on each pointermove while pressed. */
+    75→  onDrag?: (pos: { x: number; y: number }, delta: { x: number; y: number }) => void
+    76→  /** Fires on pointerup. `velocity` is the release velocity in px/s
+    77→   *  (positive y = downward), computed from recent pointer samples.
+    78→   *  Faithful to Compose's `draggable.onDragStopped(velocity)`. */
+    79→  onDragEnd?: (pos: { x: number; y: number }, velocity: { x: number; y: number }) => void
+    80→  /** Fires during a multi-pointer transform gesture (pinch zoom + rotate).
+    81→   *  `gestureZoom` is the multiplicative zoom factor (1.0 = no change),
+    82→   *  `gestureRotate` is the additive rotation delta in radians,
+    83→   *  `pan` is the centroid movement delta (already rotation-aware).
+    84→   *  Faithful to Compose's detectTransformGestures. Only fires when 2+ pointers
+    85→   *  are active on the element. */
+    86→  onTransform?: (pan: { x: number; y: number }, gestureZoom: number, gestureRotate: number) => void
+    87→}
+    88→
+    89→/** Internal gesture mode — set on pointerdown, may transition during move. */
+    90→type GestureMode =
+    91→  | 'pending' // pointer down, no movement yet — could become tap, drag, or scroll
+    92→  | 'drag' // committed to an element drag (horizontal or onDrag element)
+    93→  | 'scroll' // committed to a scroll drag
+    94→  | 'transform' // 2-pointer pinch zoom + rotate (onTransform element)
+    95→  | 'none' // no active gesture
+    96→
+    97→/** Per-pointer gesture state. Stored in a Map<pointerId, GestureState> so
+    98→ *  multiple pointers can interact with different elements simultaneously
+    99→ *  (multi-touch). When 2 pointers land on the same element with onTransform,
+   100→ *  they form a transform pair (pinch zoom + rotate) — both entries have
+   101→ *  mode='transform' and point at each other via transformPartner. */
+   102→interface GestureState {
+   103→  /** Hit element id (or null for scroll/empty space). */
+   104→  pressedId: string | null
+   105→  /** Canvas-local CSS px at press. */
+   106→  startX: number
+   107→  startY: number
+   108→  /** Client-Y at press (for scroll delta computation). */
+   109→  startClientY: number
+   110→  /** ScrollY at press (for scroll delta computation). */
+   111→  startScrollY: number
+   112→  /** Whether onDragStart has fired for this gesture. */
+   113→  dragStarted: boolean
+   114→  /** Current gesture mode. */
+   115→  mode: GestureMode
+   116→  /** Whether the hit element had an onDrag handler (so we know
+   117→   *  whether to commit to drag or scroll on horizontal/vertical move). */
+   118→  hasDrag: boolean
+   119→  /** Recent (timestamp, clientX, clientY) samples for inertia + release
+   120→   *  velocity. Both axes are tracked — faithful to Compose's VelocityTracker
+   121→   *  which returns an Offset(x, y). */
+   122→  velocitySamples: { t: number; x: number; y: number }[]
+   123→  /** Current canvas-local CSS px. */
+   124→  x: number
+   125→  y: number
+   126→  /** pointerId of the other pointer in a transform pair (else null). */
+   127→  transformPartner: number | null
+   128→}
+   129→
+   130→export function LiquidGlassCanvas({
+   131→  wallpaperSrc,
+   132→  elements,
+   133→  contentHeight,
+   134→  interactions,
+   135→  scrollResetToken,
+   136→  backgroundColor = null,
+   137→  toggleTargets,
+   138→  tabTargets,
+   139→  rendererRef,
+   140→  className,
+   141→  dpr,
+   142→  blurTapCap,
+   143→  cornerStyle,
+   144→}: LiquidGlassCanvasProps) {
+   145→  const canvasRef = React.useRef<HTMLCanvasElement>(null)
+   146→  const containerRef = React.useRef<HTMLDivElement>(null)
+   147→  const rendererRefInternal = React.useRef<LiquidGlassRenderer | null>(null)
+   148→  // Keep refs to the latest state so pointer handlers can read them
+   149→  // without being re-created on every change.
+   150→  const elementsRef = React.useRef(elements)
+   151→  elementsRef.current = elements
+   152→  const interactionsRef = React.useRef(interactions)
+   153→  interactionsRef.current = interactions
+   154→  // Module-level draggingGroups from catalog.tsx — tracks which toggle
+   155→  // groups are being dragged (setToggleTarget skipped to avoid drift).
+   156→
+   157→  // --- Gesture state (per-pointer, in a Map so handlers don't need re-creation) ---
+   158→  // Each active pointer has its own GestureState. Multiple pointers can
+   159→  // interact with different elements simultaneously (multi-touch). When 2
+   160→  // pointers land on the same element with onTransform, they form a
+   161→  // transform pair (pinch zoom + rotate) — both entries' mode is 'transform'
+   162→  // and they reference each other via transformPartner.
+   163→  const gesturesRef = React.useRef<Map<number, GestureState>>(new Map())
+   164→
+   165→  // --- Multi-pointer transform tracking ---
+   166→  // Previous 2-pointer state for delta computation: { dist, angle, centroid }.
+   167→  // Only set while 2 pointers are in transform mode on the same element.
+   168→  const prevPinchRef = React.useRef<{ dist: number; angle: number; cx: number; cy: number } | null>(null)
+   169→
+   170→  // --- Init renderer + wallpaper + resize observer ---
+   171→  React.useEffect(() => {
+   172→    if (!canvasRef.current || !containerRef.current) return
+   173→    const renderer = new LiquidGlassRenderer(canvasRef.current)
+   174→    rendererRefInternal.current = renderer
+   175→    if (rendererRef) rendererRef.current = renderer
+   176→    renderer.setBackgroundColor(backgroundColor)
+   177→    renderer.loadWallpaper(wallpaperSrc).catch((e) => console.error(e))
+   178→    renderer.loadSdfTexture('/clock_sdf.webp').catch((e) => console.error(e))
+   179→
+   180→    const resize = () => {
+   181→      const r = containerRef.current?.getBoundingClientRect()
+   182→      if (!r) return
+   183→      canvasRef.current!.style.width = r.width + 'px'
+   184→      canvasRef.current!.style.height = r.height + 'px'
+   185→      renderer.resize(r.width, r.height)
+   186→    }
+   187→    // Apply the DPR override BEFORE the first resize so the renderer uses
+   188→    // the correct DPR from the start (otherwise resize caps at 1.5).
+   189→    if (dpr != null) {
+   190→      const deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+   191→      renderer.dpr = dpr > 0 ? Math.max(0.5, Math.min(deviceDpr, dpr)) : deviceDpr
+   192→    }
+   193→    // Apply blur tap cap (Settings slider) so 2-pass separable blur uses it.
+   194→    if (blurTapCap != null) renderer.blurTapCap = Math.max(1, Math.min(33, blurTapCap | 0))
+   195→    if (cornerStyle != null) renderer.cornerStyle = cornerStyle
+   196→    resize()
+   197→    const ro = new ResizeObserver(resize)
+   198→    ro.observe(containerRef.current)
+   199→
+   200→    // --- Wheel scroll (direct, no inertia) ---
+   201→    // Trackpad two-finger swipes come through as wheel events with
+   202→    // deltaY. We apply them directly to scrollY.
+   203→    const onWheel = (e: WheelEvent) => {
+   204→      e.preventDefault()
+   205→      const delta = e.deltaY !== 0 ? e.deltaY : e.deltaX
+   206→      const cur = renderer.getScrollY()
+   207→      renderer.setScrollY(cur + delta)
+   208→    }
+   209→    const canvas = canvasRef.current
+   210→    canvas.addEventListener('wheel', onWheel, { passive: false })
+   211→
+   212→    return () => {
+   213→      ro.disconnect()
+   214→      canvas.removeEventListener('wheel', onWheel)
+   215→      renderer.dispose()
+   216→      rendererRefInternal.current = null
+   217→      if (rendererRef) rendererRef.current = null
+   218→    }
+   219→  }, [wallpaperSrc])
+   220→
+   221→  // Push backgroundColor changes (e.g. destination switch Home → other).
+   222→  React.useEffect(() => {
+   223→    rendererRefInternal.current?.setBackgroundColor(backgroundColor)
+   224→  }, [backgroundColor])
+   225→
+   226→  // Apply DPR override when it changes (Settings page slider).
+   227→  React.useEffect(() => {
+   228→    const renderer = rendererRefInternal.current
+   229→    if (!renderer || dpr == null) return
+   230→    const deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+   231→    renderer.dpr = dpr > 0 ? Math.max(0.5, Math.min(deviceDpr, dpr)) : deviceDpr
+   232→    const r = containerRef.current?.getBoundingClientRect()
+   233→    if (r) renderer.resize(r.width, r.height)
+   234→  }, [dpr])
+   235→
+   236→  // Apply blur tap cap when it changes (Settings page slider).
+   237→  React.useEffect(() => {
+   238→    const renderer = rendererRefInternal.current
+   239→    if (!renderer || blurTapCap == null) return
+   240→    renderer.blurTapCap = Math.max(1, Math.min(33, blurTapCap | 0))
+   241→  }, [blurTapCap])
+   242→
+   243→  // Apply corner style when it changes (Settings page toggle).
+   244→  React.useEffect(() => {
+   245→    const renderer = rendererRefInternal.current
+   246→    if (!renderer || cornerStyle == null) return
+   247→    renderer.cornerStyle = cornerStyle
+   248→    renderer.requestRender()
+   249→  }, [cornerStyle])
+   250→
+   251→  // Push the latest element list to the renderer.
+   252→  React.useEffect(() => {
+   253→    rendererRefInternal.current?.setElements(elements)
+   254→  }, [elements])
+   255→
+   256→  // Push content height (for scroll clamping).
+   257→  React.useEffect(() => {
+   258→    if (contentHeight !== undefined) {
+   259→      rendererRefInternal.current?.setContentHeight(contentHeight)
+   260→    }
+   261→  }, [contentHeight])
+   262→
+   263→  // Reset scroll when scrollResetToken changes (destination switch).
+   264→  React.useEffect(() => {
+   265→    rendererRefInternal.current?.setScrollY(0)
+   266→  }, [scrollResetToken])
+   267→
+   268→  // Sync toggleTargets → renderer (programmatic toggle, e.g. via tap).
+   269→  React.useEffect(() => {
+   270→    if (!toggleTargets) return
+   271→    const r = rendererRefInternal.current
+   272→    if (!r) return
+   273→    for (const [groupId, target] of Object.entries(toggleTargets)) {
+   274→      // Skip groups currently being dragged — dragToggle controls their
+   275→      // fraction, setToggleTarget would conflict and cause drift.
+   276→      if (draggingGroups.has(groupId)) continue
+   277→      r.setToggleTarget(groupId, target)
+   278→    }
+   279→  }, [toggleTargets])
+   280→
+   281→  // Sync tabTargets → renderer (programmatic tab selection, e.g. via tap).
+   282→  // Uses setTabSelected which sets pressedScale=78/56 (vs toggle's 1.5).
+   283→  React.useEffect(() => {
+   284→    if (!tabTargets) return
+   285→    const r = rendererRefInternal.current
+   286→    if (!r) return
+   287→    for (const [groupId, { tabIndex, tabsCount }] of Object.entries(tabTargets)) {
+   288→      // Skip groups currently being dragged or recently released (spring
+   289→      // still animating). setTabSelected would zero velocity and fight
+   290→      // the spring, causing the indicator to jump/snapping wrong.
+   291→      if (draggingGroups.has(groupId)) continue
+   292→      r.setTabSelected(groupId, tabIndex, tabsCount)
+   293→    }
+   294→  }, [tabTargets])
+   295→
+   296→  // --- Pointer handlers ---------------------------------------------
+   297→  const localPos = (e: React.PointerEvent<HTMLCanvasElement>) => {
+   298→    const canvas = canvasRef.current!
+   299→    const rect = canvas.getBoundingClientRect()
+   300→    return { x: e.clientX - rect.left, y: e.clientY - rect.top }
+   301→  }
+   302→
+   303→  /** Compute scroll velocity (px/s) from recent samples. Returns the
+   304→   *  vertical scroll velocity (negative = finger moved down = scroll up).
+   305→   *  Takes the per-pointer sample buffer so each pointer computes its own. */
+   306→  const computeReleaseVelocity = (
+   307→    samples: { t: number; x: number; y: number }[]
+   308→  ): number => {
+   309→    if (samples.length < 2) return 0
+   310→    // Use the last ~100ms of samples for a stable estimate.
+   311→    const now = samples[samples.length - 1].t
+   312→    const cutoff = now - 100
+   313→    let oldest = samples[samples.length - 1]
+   314→    for (let i = samples.length - 1; i >= 0; i--) {
+   315→      if (samples[i].t < cutoff) break
+   316→      oldest = samples[i]
+   317→    }
+   318→    const dt = (now - oldest.t) / 1000
+   319→    if (dt < 0.001) return 0
+   320→    const dy = samples[samples.length - 1].y - oldest.y
+   321→    // Positive dy (finger moved down) → negative scroll velocity (scroll up).
+   322→    return -dy / dt
+   323→  }
+   324→
+   325→  /** Compute release velocity (px/s) on both axes from recent samples.
+   326→   *  Faithful to Compose's VelocityTracker which returns an Offset(x, y).
+   327→   *  Takes the per-pointer sample buffer so each pointer computes its own. */
+   328→  const computeReleaseVelocity2D = (
+   329→    samples: { t: number; x: number; y: number }[]
+   330→  ): { x: number; y: number } => {
+   331→    if (samples.length < 2) return { x: 0, y: 0 }
+   332→    const last = samples[samples.length - 1]
+   333→    const now = last.t
+   334→    const cutoff = now - 100
+   335→    let oldest = last
+   336→    for (let i = samples.length - 1; i >= 0; i--) {
+   337→      if (samples[i].t < cutoff) break
+   338→      oldest = samples[i]
+   339→    }
+   340→    const dt = (now - oldest.t) / 1000
+   341→    if (dt < 0.001) return { x: 0, y: 0 }
+   342→    return {
+   343→      x: (last.x - oldest.x) / dt,
+   344→      y: (last.y - oldest.y) / dt,
+   345→    }
+   346→  }
+   347→
+   348→  const handlePointerDown = React.useCallback(
+   349→    (e: React.PointerEvent<HTMLCanvasElement>) => {
+   350→      const els = elementsRef.current
+   351→      const canvas = canvasRef.current
+   352→      const renderer = rendererRefInternal.current
+   353→      if (!canvas || !renderer) return
+   354→      const { x, y } = localPos(e)
+   355→      const scrollY = renderer.getScrollY()
+   356→      const interactions = interactionsRef.current
+   357→
+   358→      // Hit-test topmost first (last in array = topmost in z-order).
+   359→      // Skip decorative elements (no interactions AND not isInteractive)
+   360→      // so they don't block hit-test on interactive elements below them.
+   361→      // E.g. the slider fill (plain-rect, no interactions) sits on top of
+   362→      // the slider track (plain-rect, has onTap/onDrag) — without this
+   363→      // skip, pressing on the colored fill would miss the track.
+   364→      let hit: GlassElementConfig | null = null
+   365→      for (let i = els.length - 1; i >= 0; i--) {
+   366→        const el = els[i]
+   367→        // Use hitRect (expanded touch target) if set, else fall back to rect.
+   368→        // This lets slider tracks (visually 6dp tall) have a ~48dp touch target.
+   369→        const hr = el.hitRect ?? el.rect
+   370→        const visibleHY = el.scroll ? hr.y - scrollY : hr.y
+   371→        // If the element has a rotation (e.g. Glass Playground square), the
+   372→        // visual shape is rotated but the hit-test rect is the un-rotated
+   373→        // AABB. To match the visual shape, un-rotate the pointer point
+   374→        // around the rect center, then test against the un-rotated rect.
+   375→        // Faithful to graphicsLayer { rotationZ } which rotates the visual
+   376→        // but not the touch target (Compose's pointerInput works in the
+   377→        // un-rotated local space).
+   378→        let testX = x, testY = y
+   379→        const elRot = (el as GlassElementConfig & { elementRotation?: number }).elementRotation
+   380→        if (elRot && Math.abs(elRot) > 0.001) {
+   381→          const cx = hr.x + hr.w * 0.5
+   382→          const cy = (el.scroll ? hr.y - scrollY : hr.y) + hr.h * 0.5
+   383→          const dx = x - cx
+   384→          const dy = y - cy
+   385→          const cos = Math.cos(-elRot)
+   386→          const sin = Math.sin(-elRot)
+   387→          testX = cx + dx * cos - dy * sin
+   388→          testY = cy + dx * sin + dy * cos
+   389→        }
+   390→        if (
+   391→          testX >= hr.x &&
+   392→          testX <= hr.x + hr.w &&
+   393→          testY >= visibleHY &&
+   394→          testY <= visibleHY + hr.h
+   395→        ) {
+   396→          const hasInteraction = !!interactions?.[el.id]
+   397→          if (!hasInteraction && !el.isInteractive) {
+   398→            // Decorative element — fall through to elements below.
+   399→            continue
+   400→          }
+   401→          hit = el
+   402→          break
+   403→        }
+   404→      }
+   405→
+   406→      // If a second pointer lands on the SAME element as an existing pointer
+   407→      // AND that element has onTransform, enter transform mode (pinch zoom +
+   408→      // rotate). Both pointers transition to 'transform' mode and reference
+   409→      // each other via transformPartner. We skip this if the existing pointer
+   410→      // is already in transform mode (a third finger on the same element just
+   411→      // starts its own pending gesture — it can't join an existing pair).
+   412→      if (hit) {
+   413→        const hitId = hit.id
+   414→        const existingEntry = Array.from(gesturesRef.current.entries()).find(
+   415→          ([, g]) => g.pressedId === hitId && g.mode !== 'transform'
+   416→        )
+   417→        if (existingEntry && interactions?.[hitId]?.onTransform) {
+   418→          const [partnerPid, partnerGs] = existingEntry
+   419→          // Cancel any pending press highlight on the shared element.
+   420→          if (hit.isInteractive && (hit.kind === 'button' || hit.kind === 'text')) {
+   421→            renderer.setPressed(hitId, false)
+   422→          }
+   423→          // Initialize prevPinch from the 2-pointer state.
+   424→          const p1 = { x: partnerGs.x, y: partnerGs.y }
+   425→          const p2 = { x, y }
+   426→          const dx = p2.x - p1.x
+   427→          const dy = p2.y - p1.y
+   428→          prevPinchRef.current = {
+   429→            dist: Math.hypot(dx, dy),
+   430→            angle: Math.atan2(dy, dx),
+   431→            cx: (p1.x + p2.x) / 2,
+   432→            cy: (p1.y + p2.y) / 2,
+   433→          }
+   434→          // Promote the existing pointer to transform mode.
+   435→          partnerGs.mode = 'transform'
+   436→          partnerGs.transformPartner = e.pointerId
+   437→          // Initialize the new pointer's gesture state directly in transform mode.
+   438→          gesturesRef.current.set(e.pointerId, {
+   439→            pressedId: hitId,
+   440→            startX: x,
+   441→            startY: y,
+   442→            startClientY: e.clientY,
+   443→            startScrollY: renderer.getScrollY(),
+   444→            dragStarted: false,
+   445→            mode: 'transform',
+   446→            hasDrag: !!interactions?.[hitId]?.onDrag,
+   447→            velocitySamples: [{ t: performance.now(), x: e.clientX, y: e.clientY }],
+   448→            x,
+   449→            y,
+   450→            transformPartner: partnerPid,
+   451→          })
+   452→          try {
+   453→            canvas.setPointerCapture(e.pointerId)
+   454→          } catch {
+   455→            // ignore
+   456→          }
+   457→          return
+   458→        }
+   459→      }
+   460→
+   461→      // Otherwise: this pointer starts its own independent gesture. Multiple
+   462→      // pointers can be down simultaneously, each with its own GestureState —
+   463→      // e.g. drag a slider with one finger while pressing a button with
+   464→      // another, or scroll the canvas while dragging a toggle.
+   465→      const hasDrag = !!(hit && interactions?.[hit.id]?.onDrag)
+   466→      gesturesRef.current.set(e.pointerId, {
+   467→        pressedId: hit ? hit.id : null,
+   468→        startX: x,
+   469→        startY: y,
+   470→        startClientY: e.clientY,
+   471→        startScrollY: renderer.getScrollY(),
+   472→        dragStarted: false,
+   473→        mode: 'pending',
+   474→        hasDrag,
+   475→        velocitySamples: [{ t: performance.now(), x: e.clientX, y: e.clientY }],
+   476→        x,
+   477→        y,
+   478→        transformPartner: null,
+   479→      })
+   480→
+   481→      // For 'button' kind with isInteractive, trigger press highlight
+   482→      // immediately. If the gesture later becomes a scroll, we'll cancel.
+   483→      // Also support 'text' kind with isInteractive — used by the home page
+   484→      // list items, which get a subtle white tint on press.
+   485→      // Also support 'glass-shape' with isInteractive + onTap + NO onDrag
+   486→      // (e.g. dialog Cancel/Okay buttons) — they get the InteractiveHighlight
+   487→      // press glow. Elements WITH onDrag (toggle/slider knobs, CC tiles) are
+   488→      // NOT included here — they don't use the button press highlight.
+   489→      if (hit && hit.isInteractive) {
+   490→        const hasDrag0 = !!interactions?.[hit.id]?.onDrag
+   491→        if (hit.kind === 'button' || hit.kind === 'text' || (hit.kind === 'glass-shape' && !hasDrag0 && !!interactions?.[hit.id]?.onTap)) {
+   492→          renderer.setPressed(hit.id, true, { x, y })
+   493→        }
+   494→      }
+   495→
+   496→      try {
+   497→        canvas.setPointerCapture(e.pointerId)
+   498→      } catch {
+   499→        // ignore
+   500→      }
+   501→    },
+   502→    []
+   503→  )
+   504→
+   505→  const handlePointerMove = React.useCallback(
+   506→    (e: React.PointerEvent<HTMLCanvasElement>) => {
+   507→      const renderer = rendererRefInternal.current
+   508→      const canvas = canvasRef.current
+   509→      if (!canvas || !renderer) return
+   510→      const { x, y } = localPos(e)
+   511→
+   512→      // Look up this pointer's gesture state. If there's no entry, the
+   513→      // pointer isn't part of any gesture (shouldn't happen — every
+   514→      // pointerdown creates an entry — but be defensive).
+   515→      const gs = gesturesRef.current.get(e.pointerId)
+   516→      if (!gs) return
+   517→
+   518→      // Update current position (used by transform delta computation and
+   519→      // by the partner pointer if it's in transform mode).
+   520→      gs.x = x
+   521→      gs.y = y
+   522→
+   523→      // --- Transform mode (2-pointer pinch zoom + rotate) ---
+   524→      // Both pointers in a transform pair handle the move independently;
+   525→      // each fires onTransform with the deltas computed from the current
+   526→      // 2-pointer geometry vs the previous snapshot. This matches Compose's
+   527→      // detectTransformGestures which recomputes on every pointer move.
+   528→      if (gs.mode === 'transform') {
+   529→        const partnerPid = gs.transformPartner
+   530→        if (partnerPid == null) return
+   531→        const partner = gesturesRef.current.get(partnerPid)
+   532→        if (!partner) return
+   533→        const id = gs.pressedId
+   534→        if (!id) return
+   535→        const dx = partner.x - gs.x
+   536→        const dy = partner.y - gs.y
+   537→        const dist = Math.hypot(dx, dy)
+   538→        const angle = Math.atan2(dy, dx)
+   539→        const cx = (gs.x + partner.x) / 2
+   540→        const cy = (gs.y + partner.y) / 2
+   541→        const prev = prevPinchRef.current
+   542→        if (prev && prev.dist > 0.001) {
+   543→          const gestureZoom = dist / prev.dist
+   544→          let gestureRotate = angle - prev.angle
+   545→          // Wrap to [-PI, PI].
+   546→          if (gestureRotate > Math.PI) gestureRotate -= 2 * Math.PI
+   547→          if (gestureRotate < -Math.PI) gestureRotate += 2 * Math.PI
+   548→          const pan = { x: cx - prev.cx, y: cy - prev.cy }
+   549→          interactionsRef.current?.[id]?.onTransform?.(pan, gestureZoom, gestureRotate)
+   550→        }
+   551→        prevPinchRef.current = { dist, angle, cx, cy }
+   552→        return
+   553→      }
+   554→
+   555→      // Track velocity samples for inertia (always, while pressed).
+   556→      gs.velocitySamples.push({ t: performance.now(), x: e.clientX, y: e.clientY })
+   557→      // Cap the buffer at ~20 samples.
+   558→      if (gs.velocitySamples.length > 20) {
+   559→        gs.velocitySamples.shift()
+   560→      }
+   561→
+   562→      const dx = x - gs.startX
+   563→      const dy = y - gs.startY
+   564→      const absDx = Math.abs(dx)
+   565→      const absDy = Math.abs(dy)
+   566→
+   567→      // --- Pending → commit to drag or scroll ---
+   568→      if (gs.mode === 'pending') {
+   569→        // Small wiggle threshold — keep press highlight alive for tiny
+   570→        // movements (finger jitter on tap). Press highlight position
+   571→        // follows the finger during this phase.
+   572→        const MOVE_THRESHOLD = 4
+   573→
+   574→        // While pending, update press highlight position so the glow
+   575→        // tracks the finger even before we commit to drag or scroll.
+   576→        const id0 = gs.pressedId
+   577→        if (id0) {
+   578→          const els0 = elementsRef.current
+   579→          const el0 = els0.find((b) => b.id === id0)
+   580→          if (el0?.kind === 'button' && el0.isInteractive) {
+   581→            renderer.setDragPosition(id0, { x, y })
+   582→          }
+   583→        }
+   584→
+   585→        if (absDx < MOVE_THRESHOLD && absDy < MOVE_THRESHOLD) return
+   586→
+   587→        // Decide gesture ownership:
+   588→        //   - Buttons (interactive 'button' kind): KEEP the press — do not
+   589→        //     scroll-takeover. The press highlight follows the finger
+   590→        //     everywhere, matching the original InteractiveHighlight
+   591→        //     behavior (press only releases on pointerup). This is the
+   592→        //     "和之前一样" the user asked for.
+   593→        //   - Elements with onDrag (e.g. lock-screen glass, slider knobs):
+   594→        //     the drag owns the gesture — commit immediately on any
+   595→        //     directional movement. This prevents the scroll-takeover from
+   596→        //     hijacking the lock-screen glass drag (which previously made
+   597→        //     the page feel frozen because the glass never moved).
+   598→        //   - Text list items (interactive 'text' kind, no onDrag): allow
+   599→        //     vertical-dominant scroll-takeover so the home page scrolls.
+   600→        //   - Empty / non-interactive: scroll.
+   601→        const id = gs.pressedId
+   602→        const els = elementsRef.current
+   603→        const hitEl = id ? els.find((b) => b.id === id) : null
+   604→        const isButton = hitEl?.kind === 'button' && hitEl?.isInteractive
+   605→        const hasDrag = !!hitEl && !!interactionsRef.current?.[id!]?.onDrag
+   606→        // glass-shape with onTap + isInteractive + NO onDrag = button-like
+   607→        // (e.g. dialog Cancel/Okay). Treat like a button: keep press, no
+   608→        // scroll-takeover. Elements WITH onDrag (toggle knobs, slider knobs,
+   609→        // CC tiles, lock-screen glass) are handled by the hasDrag branch.
+   610→        const isShapeButton = !hasDrag && hitEl?.kind === 'glass-shape' && hitEl?.isInteractive && !!interactionsRef.current?.[id!]?.onTap
+   611→
+   612→        if (hasDrag) {
+   613→          // Element owns the gesture — commit to drag immediately.
+   614→          gs.mode = 'drag'
+   615→          gs.dragStarted = true
+   616→          interactionsRef.current?.[id!]?.onDragStart?.({ x, y })
+   617→          // Fall through to the committed 'drag' branch below.
+   618→        } else if (isButton || isShapeButton) {
+   619→          // Button keeps its press — press highlight follows the finger.
+   620→          // Update drag position so the glow tracks even large movements.
+   621→          renderer.setDragPosition(id!, { x, y })
+   622→          // Fall through: mode stays 'pending' so the press never commits
+   623→          // to a scroll. On pointerup it will be treated as a tap.
+   624→        } else {
+   625→          // Text items / empty space → allow scroll-takeover.
+   626→          const SCROLL_TAKEOVER_THRESHOLD = 14
+   627→          const verticalDominant =
+   628→            absDy > absDx + 2 && absDy >= SCROLL_TAKEOVER_THRESHOLD
+   629→
+   630→          if (verticalDominant) {
+   631→            // SCROLL LOCK: only one pointer drives scroll at a time. If
+   632→            // another pointer is already scrolling, this pointer stays in
+   633→            // 'pending' (no scroll takeover) — prevents two fingers from
+   634→            // fighting over scroll.
+   635→            const otherScrolling = Array.from(gesturesRef.current.entries()).some(
+   636→              ([pid, g]) => pid !== e.pointerId && g.mode === 'scroll'
+   637→            )
+   638→            if (otherScrolling) {
+   639→              return
+   640→            }
+   641→            // Convert to scroll. Cancel any pending text press.
+   642→            if (id) {
+   643→              const el = els.find((b) => b.id === id)
+   644→              if (el?.isInteractive && el.kind === 'text') {
+   645→                renderer.setPressed(id, false)
+   646→              }
+   647→            }
+   648→            gs.mode = 'scroll'
+   649→            const scrollDelta = e.clientY - gs.startClientY
+   650→            renderer.setScrollY(gs.startScrollY - scrollDelta)
+   651→            return
+   652→          }
+   653→        }
+   654→      }
+   655→
+   656→      // --- Committed modes ---
+   657→      if (gs.mode === 'scroll') {
+   658→        const scrollDelta = e.clientY - gs.startClientY
+   659→        renderer.setScrollY(gs.startScrollY - scrollDelta)
+   660→        return
+   661→      }
+   662→
+   663→      if (gs.mode === 'drag') {
+   664→        const id = gs.pressedId
+   665→        if (!id) return
+   666→        const els = elementsRef.current
+   667→        const el = els.find((b) => b.id === id)
+   668→        if (!el) return
+   669→
+   670→        // For 'button' kind, forward to renderer for InteractiveHighlight.
+   671→        if (el.kind === 'button' && el.isInteractive) {
+   672→          renderer.setDragPosition(id, { x, y })
+   673→        }
+   674→
+   675→        // Fire onDrag.
+   676→        interactionsRef.current?.[id]?.onDrag?.({ x, y }, { x: dx, y: dy })
+   677→      }
+   678→    },
+   679→    []
+   680→  )
+   681→
+   682→  const handlePointerUp = React.useCallback(
+   683→    (e: React.PointerEvent<HTMLCanvasElement>) => {
+   684→      const renderer = rendererRefInternal.current
+   685→      const canvas = canvasRef.current
+   686→      const gs = gesturesRef.current.get(e.pointerId)
+   687→
+   688→      // No gesture for this pointer — just release capture if any.
+   689→      if (!gs) {
+   690→        if (canvas && canvas.hasPointerCapture(e.pointerId)) {
+   691→          try { canvas.releasePointerCapture(e.pointerId) } catch { /* ignore */ }
+   692→        }
+   693→        return
+   694→      }
+   695→
+   696→      const mode = gs.mode
+   697→      const id = gs.pressedId
+   698→
+   699→      // --- Transform mode exit ---
+   700→      // When one of the 2 transform pointers lifts, the remaining pointer
+   701→      // switches to drag mode (faithful to Compose: a pinch that loses a
+   702→      // finger becomes a pan). The shared element id is preserved.
+   703→      if (mode === 'transform') {
+   704→        const partnerPid = gs.transformPartner
+   705→        // Remove this pointer's gesture state.
+   706→        gesturesRef.current.delete(e.pointerId)
+   707→        prevPinchRef.current = null
+   708→        if (partnerPid != null) {
+   709→          const partner = gesturesRef.current.get(partnerPid)
+   710→          if (partner) {
+   711→            partner.transformPartner = null
+   712→            partner.mode = 'drag'
+   713→            partner.dragStarted = true
+   714→            // Re-anchor the drag at the partner's current position so the
+   715→            // delta computation is continuous from here.
+   716→            partner.startX = partner.x
+   717→            partner.startY = partner.y
+   718→            if (partner.pressedId) {
+   719→              interactionsRef.current?.[partner.pressedId]?.onDragStart?.({ x: partner.x, y: partner.y })
+   720→            }
+   721→          }
+   722→        }
+   723→        if (canvas && canvas.hasPointerCapture(e.pointerId)) {
+   724→          try { canvas.releasePointerCapture(e.pointerId) } catch { /* ignore */ }
+   725→        }
+   726→        return
+   727→      }
+   728→
+   729→      // --- Non-transform: release press, fire tap/dragEnd, scroll inertia ---
+   730→      if (renderer) {
+   731→        // Release button/text/shape-button press.
+   732→        if (id) {
+   733→          const els = elementsRef.current
+   734→          const el = els.find((b) => b.id === id)
+   735→          if (el?.isInteractive) {
+   736→            const hasDrag1 = !!interactionsRef.current?.[id]?.onDrag
+   737→            if (el.kind === 'button' || el.kind === 'text' || (el.kind === 'glass-shape' && !hasDrag1 && !!interactionsRef.current?.[id]?.onTap)) {
+   738→              renderer.setPressed(id, false)
+   739→            }
+   740→          }
+   741→        }
+   742→
+   743→        // Apply scroll inertia on release.
+   744→        if (mode === 'scroll') {
+   745→          const v = computeReleaseVelocity(gs.velocitySamples)
+   746→          if (Math.abs(v) > 50) {
+   747→            renderer.setScrollVelocity(v)
+   748→          }
+   749→        }
+   750→
+   751→        // Fire onDragEnd / onTap.
+   752→        if (id) {
+   753→          const { x, y } = localPos(e)
+   754→          if (gs.dragStarted) {
+   755→            // Compute release velocity (px/s, positive y = downward) from
+   756→            // recent pointer samples on BOTH axes — faithful to Compose's
+   757→            // VelocityTracker which returns an Offset(x, y). Previously vx
+   758→            // was always 0 (only y was tracked), which was wrong for any
+   759→            // horizontal-drag consumer.
+   760→            const { x: vx, y: vy } = computeReleaseVelocity2D(gs.velocitySamples)
+   761→            interactionsRef.current?.[id]?.onDragEnd?.({ x, y }, { x: vx, y: vy })
+   762→          } else if (mode === 'pending' || mode === 'drag') {
+   763→            // Treat as a tap (no scroll takeover happened and no drag started).
+   764→            interactionsRef.current?.[id]?.onTap?.({ x, y })
+   765→          }
+   766→        }
+   767→      }
+   768→
+   769→      // Remove this pointer's gesture state.
+   770→      gesturesRef.current.delete(e.pointerId)
+   771→      if (canvas && canvas.hasPointerCapture(e.pointerId)) {
+   772→        try { canvas.releasePointerCapture(e.pointerId) } catch { /* ignore */ }
+   773→      }
+   774→    },
+   775→    []
+   776→  )
+   777→
+   778→  return (
+   779→    <div ref={containerRef} className={className} style={{ position: 'relative' }}>
+   780→      <canvas
+   781→        ref={canvasRef}
+   782→        onPointerDown={handlePointerDown}
+   783→        onPointerMove={handlePointerMove}
+   784→        onPointerUp={handlePointerUp}
+   785→        onPointerLeave={handlePointerUp}
+   786→        onPointerCancel={handlePointerUp}
+   787→        style={{
+   788→          display: 'block',
+   789→          width: '100%',
+   790→          height: '100%',
+   791→          cursor: 'pointer',
+   792→          touchAction: 'none',
+   793→        }}
+   794→      />
+   795→    </div>
+   796→  )
+   797→}
+   798→
