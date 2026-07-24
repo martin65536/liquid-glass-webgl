@@ -120,18 +120,23 @@ export default function Page() {
     []
   )
 
-  // Transition animation state: 'idle' | 'fadeOut' | 'fadeIn'
-  // When pageTransition is enabled, navigating triggers fadeOut → swap dest → fadeIn.
-  const [transPhase, setTransPhase] = React.useState<'idle' | 'fadeOut' | 'fadeIn'>('idle')
+  // Transition animation uses 3 phases for directional slide:
+  //   fadeOut   — old content slides out + fades to 0
+  //   prepIn    — instantly place new content at opposite offset + opacity 0 (no transition)
+  //   fadeIn    — animate new content from offset → center + opacity 0 → 1
+  const [transPhase, setTransPhase] = React.useState<'idle' | 'fadeOut' | 'prepIn' | 'fadeIn'>('idle')
+  const [transDirection, setTransDirection] = React.useState<'enter' | 'exit'>('enter')
   const pendingDestRef = React.useRef<CatalogDestination | null>(null)
   const TRANSITION_MS = 200 // duration for each phase (fade out / fade in)
+  const OFFSET_PX = 16 // slide distance in px
 
   const onNavigate = React.useCallback((d: CatalogDestination) => {
     if (!state.pageTransition) {
       setDestination(d)
     } else {
-      // Start fade-out → queue destination → fade-in after out completes.
+      // Enter: old page slides LEFT out, new page slides in from RIGHT.
       pendingDestRef.current = d
+      setTransDirection('enter')
       setTransPhase('fadeOut')
     }
     if (typeof window !== 'undefined' && d !== CatalogDestination.Home) {
@@ -144,7 +149,9 @@ export default function Page() {
     if (!state.pageTransition) {
       setDestination(target)
     } else {
+      // Exit: old page slides RIGHT out, new page slides in from LEFT.
       pendingDestRef.current = target
+      setTransDirection('exit')
       setTransPhase('fadeOut')
     }
     if (typeof window !== 'undefined' && window.history.state?.dest !== undefined) {
@@ -152,16 +159,26 @@ export default function Page() {
     }
   }, [state.pageTransition])
 
-  // When fadeOut completes, swap destination and start fadeIn.
+  // Phase progression: fadeOut → prepIn → fadeIn → idle
   React.useEffect(() => {
     if (transPhase === 'fadeOut') {
       const timer = setTimeout(() => {
         const dest = pendingDestRef.current ?? CatalogDestination.Home
         setDestination(dest)
         pendingDestRef.current = null
-        setTransPhase('fadeIn')
+        // prepIn: place new content at opposite offset with no transition
+        setTransPhase('prepIn')
       }, TRANSITION_MS)
       return () => clearTimeout(timer)
+    }
+    if (transPhase === 'prepIn') {
+      // After React renders the offset position (1 frame), start animated fadeIn
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setTransPhase('fadeIn')
+        })
+      })
+      return
     }
     if (transPhase === 'fadeIn') {
       const timer = setTimeout(() => {
@@ -466,15 +483,32 @@ export default function Page() {
         className="relative overflow-hidden shadow-2xl lg-frame"
         style={{
           width: 'min(420px, 100vw)',
-          opacity: transPhase === 'fadeOut' ? 0 : transPhase === 'fadeIn' ? 1 : 1,
-          transform: transPhase === 'fadeOut'
-            ? 'translateX(-8px)'
-            : transPhase === 'fadeIn'
-            ? 'translateX(0)'
-            : 'translateX(0)',
-          transition: state.pageTransition
-            ? `opacity ${TRANSITION_MS}ms ease, transform ${TRANSITION_MS}ms ease`
-            : 'none',
+          opacity: (() => {
+            if (transPhase === 'fadeOut' || transPhase === 'prepIn') return 0
+            return 1 // idle or fadeIn
+          })(),
+          transform: (() => {
+            if (transPhase === 'fadeOut') {
+              // Old content exits: enter→slides LEFT, exit→slides RIGHT
+              return transDirection === 'enter'
+                ? `translateX(-${OFFSET_PX}px)`
+                : `translateX(${OFFSET_PX}px)`
+            }
+            if (transPhase === 'prepIn') {
+              // New content placed at opposite side instantly (no transition)
+              // Enter→placed RIGHT offset, Exit→placed LEFT offset
+              return transDirection === 'enter'
+                ? `translateX(${OFFSET_PX}px)`
+                : `translateX(-${OFFSET_PX}px)`
+            }
+            // idle / fadeIn → centered
+            return 'translateX(0)'
+          })(),
+          transition: (() => {
+            if (!state.pageTransition) return 'none'
+            if (transPhase === 'prepIn') return 'none' // instant placement, no animation
+            return `opacity ${TRANSITION_MS}ms ease, transform ${TRANSITION_MS}ms ease`
+          })(),
         }}
       >
         <LiquidGlassCanvas

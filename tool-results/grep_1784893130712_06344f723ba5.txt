@@ -1,0 +1,252 @@
+/home/z/my-project/src/components/ui/pagination.tsx:53:      aria-current={isActive ? "page" : undefined}
+/home/z/my-project/src/components/ui/pagination.tsx:74:      aria-label="Go to previous page"
+/home/z/my-project/src/components/ui/pagination.tsx:91:      aria-label="Go to next page"
+/home/z/my-project/src/components/ui/pagination.tsx:114:      <span className="sr-only">More pages</span>
+/home/z/my-project/src/components/ui/breadcrumb.tsx:52:function BreadcrumbPage({ className, ...props }: React.ComponentProps<"span">) {
+/home/z/my-project/src/components/ui/breadcrumb.tsx:55:      data-slot="breadcrumb-page"
+/home/z/my-project/src/components/ui/breadcrumb.tsx:58:      aria-current="page"
+/home/z/my-project/src/components/ui/breadcrumb.tsx:106:  BreadcrumbPage,
+/home/z/my-project/src/components/ui/chart.tsx:58:          "[&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-polar-grid_[stroke='#ccc']]:stroke-border [&_.recharts-radial-bar-background-sector]:fill-muted [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-reference-line_[stroke='#ccc']]:stroke-border flex aspect-video justify-center text-xs [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-hidden [&_.recharts-sector]:outline-hidden [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-surface]:outline-hidden",
+/home/z/my-project/src/components/liquid-glass/renderer/methods-fbo.ts:54:    // tabsBackdrop FBO (indicator's hidden tinted layer) — same size as scene.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-fbo.ts:83:    // Dialog backdrop FBO (wallpaper+scrim+cc opaque layer for 2-pass blur).
+/home/z/my-project/src/components/liquid-glass/renderer/methods-fbo.ts:120:   *  (e.g. black for the Home page). The caller must have already bound
+/home/z/my-project/src/components/liquid-glass/shaders/shadow.ts:13:uniform vec2  uElementSize;     // SCALED size (includes graphicsLayer scale)
+/home/z/my-project/src/components/liquid-glass/shaders/shadow.ts:18:// --- ORIGINAL-SPACE SDF (faithful to graphicsLayer { scaleX, scaleY }) ---
+/home/z/my-project/src/components/liquid-glass/shaders/shadow.ts:20:// space (shape is a correct capsule, not stretched), then the graphicsLayer
+/home/z/my-project/src/components/liquid-glass/shaders/shadow.ts:21:// scales the entire shadow layer by (scaleX, scaleY). The shadow offset is
+/home/z/my-project/src/components/liquid-glass/shaders/shadow.ts:22:// in ORIGINAL px; we multiply by uLayerScale to map it to screen space for
+/home/z/my-project/src/components/liquid-glass/shaders/shadow.ts:23:// the SDF evaluation (offset_screen = offset_orig * layerScale). The shadow
+/home/z/my-project/src/components/liquid-glass/shaders/shadow.ts:25:// computed in original space — the graphicsLayer then stretches the blurred
+/home/z/my-project/src/components/liquid-glass/shaders/shadow.ts:27:// resolution, then graphicsLayer scales the blurred pixels).
+/home/z/my-project/src/components/liquid-glass/shaders/shadow.ts:30:uniform vec2  uLayerScale;          // (scaleX, scaleY) from graphicsLayer
+/home/z/my-project/src/components/liquid-glass/shaders/shadow.ts:31:uniform float uElementRotation;     // rotation in radians (graphicsLayer rotationZ)
+/home/z/my-project/src/components/liquid-glass/shaders/shadow.ts:45:    vec2 layerScale = max(uLayerScale, vec2(1e-4));
+/home/z/my-project/src/components/liquid-glass/shaders/shadow.ts:46:    vec2 centeredOrig = centeredScreen / layerScale;
+/home/z/my-project/src/components/liquid-glass/shaders/shadow.ts:57:    // graphicsLayer scales the whole layer — so the offset effectively
+/home/z/my-project/src/components/liquid-glass/shaders/shadow.ts:58:    // becomes offset_orig * layerScale in screen space. We map it back to
+/home/z/my-project/src/components/liquid-glass/shaders/shadow.ts:59:    // original space for the SDF: offset_orig = offset_screen / layerScale,
+/home/z/my-project/src/components/liquid-glass/shaders/scene-bg.ts:62: * the Home page). Replaces the wallpaper pass in that case.
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:42:// --- ORIGINAL-SPACE SDF clip (faithful to graphicsLayer { scaleX, scaleY }) ---
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:43:// The press glow (InteractiveHighlight) is drawn INSIDE the graphicsLayer, so
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:44:// it is clipped to the ORIGINAL capsule shape, then scaled with the layer.
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:50:uniform vec2  uLayerScale;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:59:    // --- Capsule clip in ORIGINAL space (faithful to graphicsLayer clip) ---
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:62:    vec2 layerScale = max(uLayerScale, vec2(1e-4));
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:63:    vec2 centeredOrig = centeredScreen / layerScale;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:89: * included) in a graphicsLayer with clip=true and the capsule shape.
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:101:// --- ORIGINAL-SPACE SDF clip (faithful to graphicsLayer { scaleX, scaleY }) ---
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:102:// The white overlay (onDrawSurface drawRect) is drawn INSIDE the graphicsLayer,
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:103:// so it is clipped to the ORIGINAL capsule shape, then scaled with the layer.
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:108:uniform vec2  uLayerScale;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:117:    vec2 layerScale = max(uLayerScale, vec2(1e-4));
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:118:    vec2 centeredOrig = centeredScreen / layerScale;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:135: * the layer's blendMode (Plus for Default, SrcOver for Ambient).
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:152:uniform vec2  uSize;            // element size in canvas px — SCALED (includes graphicsLayer scale)
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:161:// --- ORIGINAL-SPACE SDF (faithful to graphicsLayer { scaleX, scaleY }) ---
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:164:// correct capsule shape that is then scaled by graphicsLayer. Without this,
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:169:uniform vec2  uLayerScale;          // (scaleX, scaleY) from graphicsLayer
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:170:uniform float uElementRotation;     // rotation in radians (graphicsLayer rotationZ)
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:181:    vec2 layerScale = max(uLayerScale, vec2(1e-4));
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:182:    vec2 centeredOrig = centeredScreen / layerScale;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:278: * Faithful to HighlightModifier.kt's GraphicsLayer record:
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:304:uniform vec2  uLayerScale;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:315:    vec2 layerScale = max(uLayerScale, vec2(1e-4));
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:316:    vec2 centeredOrig = centeredScreen / layerScale;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:389:uniform vec2  uLayerScale;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:410:    vec2 layerScale = max(uLayerScale, vec2(1e-4));
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:411:    vec2 centeredOrig = centeredScreen / layerScale;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:417:    // but Skia applies clip at the canvas level AFTER the BlurMaskFilter
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:494:uniform vec2  uLayerScale;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:507:    vec2 layerScale = max(uLayerScale, vec2(1e-4));
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:508:    vec2 centeredOrig = centeredScreen / layerScale;
+/home/z/my-project/src/components/liquid-glass/shaders/element-uniforms.ts:13:uniform vec2  uElementSize;       // element size in px (SCALED — includes graphicsLayer scaleX/scaleY)
+/home/z/my-project/src/components/liquid-glass/shaders/element-uniforms.ts:15:uniform float uRefractionHeight;  // px (ORIGINAL space — NOT scaled by layerScale, faithful to AGSL)
+/home/z/my-project/src/components/liquid-glass/shaders/element-uniforms.ts:17:// --- Layer transform (faithful to graphicsLayer { scaleX, scaleY }) ---
+/home/z/my-project/src/components/liquid-glass/shaders/element-uniforms.ts:19:// scales the entire rendered layer by (scaleX, scaleY) via graphicsLayer. To
+/home/z/my-project/src/components/liquid-glass/shaders/element-uniforms.ts:21:// ORIGINAL space (by dividing the screen-space centered coord by uLayerScale),
+/home/z/my-project/src/components/liquid-glass/shaders/element-uniforms.ts:24:uniform vec2  uOriginalSize;        // element size in px (ORIGINAL, unscaled by graphicsLayer)
+/home/z/my-project/src/components/liquid-glass/shaders/element-uniforms.ts:26:uniform vec2  uLayerScale;          // (scaleX, scaleY) from graphicsLayer — maps original→screen
+/home/z/my-project/src/components/liquid-glass/shaders/element-uniforms.ts:27:uniform float uElementRotation;    // rotation in radians (graphicsLayer rotationZ) — 0 = none
+/home/z/my-project/src/components/liquid-glass/shaders/element-uniforms.ts:56://   1. Outer backdrop (LayerBackdrop wallpaper OR CanvasBackdrop solid color)
+/home/z/my-project/src/components/liquid-glass/shaders/element-uniforms.ts:64://   - t1 (on wallpaper): backdrop = LayerBackdrop → sample wallpaper texture
+/home/z/my-project/src/components/liquid-glass/shaders/element-uniforms.ts:83:uniform float uIndicatorPressProgress; // 0..1 press progress (for 2nd-layer scale)
+/home/z/my-project/src/components/liquid-glass/shaders/element-uniforms.ts:84:uniform float uIndicatorPanelOffset; // panel offset in device px (2nd-layer x translation)
+/home/z/my-project/src/components/liquid-glass/shaders/element-uniforms.ts:87:uniform float uContainerScale;       // container layerBlock scale (1 + 16dp/width * pressProgress)
+/home/z/my-project/src/components/liquid-glass/shaders/element-uniforms.ts:100:uniform sampler2D uTabsGlassLayer;   // scene snapshot BEFORE tab-content (wallpaper+glass only, no text)
+/home/z/my-project/src/components/liquid-glass/shaders/element-uniforms.ts:121:// original where LayerBackdrop captures the wallpaper Image (alpha=1).
+/home/z/my-project/src/components/liquid-glass/shaders/element-uniforms.ts:127:// so the LayerBackdrop captures wallpaper+scrim as one opaque layer.
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:197:   * Faithful to Compose graphicsLayer { rotationZ }. Used by Glass
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:271:     * When unset, samples the wallpaper texture (LayerBackdrop case).
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:305:   * Faithful to LiquidBottomTabs.kt container layerBlock:
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:312:   * Faithful to LiquidBottomTab.kt graphicsLayer:
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:324:    /** Container width (for computing the layerBlock scale). */
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:329:   * Faithful to LiquidBottomTabs.kt indicator layerBlock:
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:348:     *  - backdrop (outer) = LayerBackdrop (wallpaper)
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:356:     *  sample for the second backdrop layer. */
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:363:    /** Container width (for computing the layerBlock scale). */
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:438:   *  refraction. Used by the back button / theme toggle on pages with a
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:447:   *  (via BackdropDemoScaffold's drawWithContent modifier), so the LayerBackdrop
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:448:   *  captures wallpaper+scrim as one opaque layer. [r,g,b,a] 0..1; a=0 = no scrim. */
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:452:   *  layer, instead of the scene FBO. Faithful to the original's LayerBackdrop
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:460:   *    .graphicsLayer { BlurEffect(4dp * progress) }
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:461:   *  The graphicsLayer wraps the wallpaper painter, so only the WALLPAPER is
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:498:  // Toggle / Slider / Tabbar state — managed by the React layer and
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:524: * drives the squash-and-stretch in the layerBlock:
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:546:  // Drives the squash-and-stretch in the layerBlock. Tracked via a simple
+/home/z/my-project/src/components/liquid-glass/shaders/scene-fg.ts:19:// --- ORIGINAL-SPACE SDF clip (faithful to graphicsLayer { scaleX, scaleY }) ---
+/home/z/my-project/src/components/liquid-glass/shaders/scene-fg.ts:20:// The original wraps everything (text included) in a graphicsLayer clipped to
+/home/z/my-project/src/components/liquid-glass/shaders/scene-fg.ts:21:// the capsule shape, THEN scales the layer. So the clip shape is the ORIGINAL
+/home/z/my-project/src/components/liquid-glass/shaders/scene-fg.ts:28:uniform vec2  uLayerScale;          // (scaleX, scaleY) from graphicsLayer
+/home/z/my-project/src/components/liquid-glass/shaders/scene-fg.ts:43:    // --- Capsule clip in ORIGINAL space (faithful to graphicsLayer clip) ---
+/home/z/my-project/src/components/liquid-glass/shaders/scene-fg.ts:49:    vec2 layerScale = max(uLayerScale, vec2(1e-4));
+/home/z/my-project/src/components/liquid-glass/shaders/scene-fg.ts:50:    vec2 centeredOrig = centeredScreen / layerScale;
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:16:  sw: number // screen width (CSS px) — SCALED (includes graphicsLayer scaleX)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:17:  sh: number // screen height (CSS px) — SCALED (includes graphicsLayer scaleY)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:24:  // Layer transform scale factors (from the layerBlock). Used to scale
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:26:  // layer — faithful to the original which applies graphicsLayer AFTER
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:27:  // the shader, causing the entire rendered layer to scale as a unit.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:28:  layerScaleX: number
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:29:  layerScaleY: number
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:30:  layerScale: number // min(scaleX, scaleY) — for isotropic params
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:33:  // to graphicsLayer post-scaling). See element.ts.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:37:  // Element rotation in radians (graphicsLayer rotationZ). 0 for most.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:87:    // Faithful to LiquidButton.kt layerBlock — ALWAYS runs when isInteractive,
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:89:    // The original Compose layerBlock is applied unconditionally; we must
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:100:    // Control-center enter progress (faithful to ControlCenterContent.kt glassLayer)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:153:    // The knob's layerBlock applies:
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:172:        // Velocity-driven squash-and-stretch (faithful to LiquidToggle.kt / LiquidSlider.kt layerBlock).
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:188:    // --- Bottom tabs container transform (faithful to LiquidBottomTabs.kt container layerBlock) ---
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:206:    //   - Container's layerBlock: scale = lerp(1, 1+16dp/containerWidth, pressProgress)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:208:    //   - Each tab's own graphicsLayer: scale = lerp(1, 1.2, pressProgress)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:232:    // --- Bottom tabs indicator transform (faithful to LiquidBottomTabs.kt indicator layerBlock) ---
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:241:    // the container's layerBlock (scale around center) applies to ALL children
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:242:    // including the indicator. The indicator's own graphicsLayer (translationX,
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:246:    // In our single-pass renderer, we can't nest graphicsLayer. Instead, we
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:275:        // NOTE: the indicator does NOT get the container's layerBlock scale.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:278:        // of the container. The container's layerBlock (1 + 16dp/width)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:300:    // tinted layer inline (wallpaper + accentColor at containerColor alpha
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:350:      layerScaleX: scaleX,
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:351:      layerScaleY: scaleY,
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:352:      layerScale: Math.min(scaleX, scaleY),
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:355:      // offset to screen space via uLayerScale — faithful to the original
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:356:      // which shades at original size then scales via graphicsLayer.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:379:      const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:381:      // (wallpaper+scrim+colorControls opaque layer) instead of the scene FBO.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:447:    // in original space (faithful to graphicsLayer { scaleX, scaleY } post-
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:452:    gl.uniform2f(this.uSh['uLayerScale'], state.layerScaleX, state.layerScaleY)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:455:    // Shadow radius + offset in ORIGINAL px (NOT scaled by layerScale).
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:457:    // then graphicsLayer scales the entire shadow layer — so the blur sigma
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:459:    // layer. The shader's original-space SDF already models this, so we pass
+/home/z/my-project/src/components/liquid-glass/shaders/element-utils.ts:120:// LayerBackdrop. The scrim is applied INSIDE sampleBackdrop so EVERY sampling
+/home/z/my-project/src/components/liquid-glass/shaders/element-utils.ts:169://      - LayerBackdrop (wallpaper) for t1 → sample uWallpaperSampler
+/home/z/my-project/src/components/liquid-glass/shaders/element-utils.ts:192:        // LayerBackdrop case (t1): sample wallpaper texture unscaled.
+/home/z/my-project/src/components/liquid-glass/shaders/element-utils.ts:201:        // LayerBackdrop case (t1) with blur: 9-tap poisson disc on wallpaper.
+/home/z/my-project/src/components/liquid-glass/shaders/element-utils.ts:259://   - backdrop (outer) = LayerBackdrop = wallpaper (sampled via coverUv)
+/home/z/my-project/src/components/liquid-glass/shaders/element-utils.ts:269:    // 1. Sample wallpaper (outer LayerBackdrop) via coverUv (cover-fit).
+/home/z/my-project/src/components/liquid-glass/shaders/element-utils.ts:292:    //    Faithful to LiquidBottomTabs.kt: the hidden Row has NO layerBlock,
+/home/z/my-project/src/components/liquid-glass/shaders/element-utils.ts:304:    // 3. Sample the GLASS LAYER FBO (wallpaper + container glass, NO tab text).
+/home/z/my-project/src/components/liquid-glass/shaders/element-utils.ts:309:    vec4 scene = texture2D(uTabsGlassLayer, sceneUv2);
+/home/z/my-project/src/components/liquid-glass/shaders/element-utils.ts:311:    // 4. Draw blue 标签内容 (tab content: icons/labels) on top of the glass layer.
+/home/z/my-project/src/components/liquid-glass/shaders/element-utils.ts:314:    //    layer's natural color. No white edges (hard replace, no mix).
+/home/z/my-project/src/components/liquid-glass/shaders/element-utils.ts:318:    //    container, not a child, so the container layerBlock doesn't apply).
+/home/z/my-project/src/components/liquid-glass/shaders/element-utils.ts:416:        // (color.copy(alpha=1) * highlightLayer.alpha=progress — the 0.5 alpha
+/home/z/my-project/src/components/liquid-glass/shaders/element-utils.ts:418:        // color.copy(alpha=1f) and the layer alpha is highlight.alpha=progress.)
+/home/z/my-project/src/components/liquid-glass/shaders/element.ts:56:    // --- ORIGINAL-SPACE SDF (faithful to graphicsLayer { scaleX, scaleY }) ---
+/home/z/my-project/src/components/liquid-glass/shaders/element.ts:58:    // THEN scales the entire rendered layer by (scaleX, scaleY). To replicate
+/home/z/my-project/src/components/liquid-glass/shaders/element.ts:61:    //   2. Divide by uLayerScale to map back to ORIGINAL space
+/home/z/my-project/src/components/liquid-glass/shaders/element.ts:64:    //      (offset_screen = offset_orig * uLayerScale)
+/home/z/my-project/src/components/liquid-glass/shaders/element.ts:71:    vec2 layerScale = max(uLayerScale, vec2(1e-4));
+/home/z/my-project/src/components/liquid-glass/shaders/element.ts:72:    vec2 centeredOrig = centeredScreen / layerScale;
+/home/z/my-project/src/components/liquid-glass/shaders/element.ts:73:    // Apply element rotation (graphicsLayer rotationZ). Un-rotate the sample
+/home/z/my-project/src/components/liquid-glass/shaders/element.ts:75:    // by +rotation. The layer is rotated AFTER shading, so we shade in local
+/home/z/my-project/src/components/liquid-glass/shaders/element.ts:94:        // LockScreenContent.kt's drawPlainBackdrop which uses the LayerBackdrop
+/home/z/my-project/src/components/liquid-glass/shaders/element.ts:101:        vec2 refractedOffsetScreen = refractedOffsetOrig * layerScale;
+/home/z/my-project/src/components/liquid-glass/shaders/element.ts:178:    // original px (NOT scaled by layerScale — the original AGSL shader receives
+/home/z/my-project/src/components/liquid-glass/shaders/element.ts:179:    // the original size and the graphicsLayer scales the OUTPUT, not the params).
+/home/z/my-project/src/components/liquid-glass/shaders/element.ts:200:        //   offset_screen = offset_orig * layerScale  (screen px, for sampling)
+/home/z/my-project/src/components/liquid-glass/shaders/element.ts:201:        // Faithful to: AGSL computes offset in original space, then graphicsLayer
+/home/z/my-project/src/components/liquid-glass/shaders/element.ts:204:        // position center + p*layerScale. The backdrop sample position in screen
+/home/z/my-project/src/components/liquid-glass/shaders/element.ts:205:        // space is therefore center + (p + offset_orig)*layerScale
+/home/z/my-project/src/components/liquid-glass/shaders/element.ts:206:        // = screenCoord + offset_orig * layerScale.
+/home/z/my-project/src/components/liquid-glass/shaders/element.ts:209:        // then scale by layerScale. Without the rotation, refraction points
+/home/z/my-project/src/components/liquid-glass/shaders/element.ts:211:        vec2 refractedOffsetScreen = rotateBy(refractedOffsetOrig, rot) * layerScale;
+/home/z/my-project/src/components/liquid-glass/shaders/element.ts:227:            vec2 dispersedOffsetScreen = rotateBy(dispersedOffsetOrig, rot) * layerScale;
+/home/z/my-project/src/components/liquid-glass/shaders/element.ts:316:    // graphics layer. Doing it inline here would dim the highlight via the
+/home/z/my-project/src/components/liquid-glass/shaders/element.ts:317:    // element's edge AA, which is wrong — the highlight layer is composited
+/home/z/my-project/src/components/liquid-glass/shaders/element.ts:326:    //   4. Blur the whole layer by radius
+/home/z/my-project/src/components/liquid-glass/renderer/methods-toggle.ts:36: * The React layer calls these methods to drive toggle interactions:
+/home/z/my-project/src/components/liquid-glass/renderer/methods-toggle.ts:53:   *  the group first via the page.tsx toggleTargets sync). */
+/home/z/my-project/src/components/liquid-glass/renderer/methods-toggle.ts:94:      // setToggleTarget created the group first via page.tsx toggleTargets.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-toggle.ts:107:   * Used for tap-to-toggle: the React layer flips `toggleOn`, then calls
+/home/z/my-project/src/components/liquid-glass/renderer/methods-toggle.ts:198:   * React layer can sync its state.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-toggle.ts:232:   * Returns the continuous target fraction (0..1) so the React layer can sync
+/home/z/my-project/src/components/liquid-glass/context.tsx:45:   *  of drawing the wallpaper. Used for the Home page (black background). */
+/home/z/my-project/src/components/liquid-glass/context.tsx:154:  // Module-level draggingGroups from catalog.tsx — tracks which toggle
+/home/z/my-project/src/components/liquid-glass/context.tsx:226:  // Apply DPR override when it changes (Settings page slider).
+/home/z/my-project/src/components/liquid-glass/context.tsx:236:  // Apply blur tap cap when it changes (Settings page slider).
+/home/z/my-project/src/components/liquid-glass/context.tsx:243:  // Apply corner style when it changes (Settings page toggle).
+/home/z/my-project/src/components/liquid-glass/context.tsx:375:        // Faithful to graphicsLayer { rotationZ } which rotates the visual
+/home/z/my-project/src/components/liquid-glass/context.tsx:483:      // Also support 'text' kind with isInteractive — used by the home page
+/home/z/my-project/src/components/liquid-glass/context.tsx:597:        //     the page feel frozen because the glass never moved).
+/home/z/my-project/src/components/liquid-glass/context.tsx:599:        //     vertical-dominant scroll-takeover so the home page scrolls.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-animation.ts:170:            // (spring(0.5, 300)). This is the SECOND level of smoothing —
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:22:    const { el, sx, sy, sw, sh, radii, togglePressProgress, layerScale } = state
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:52:    // sampleIndicatorBackdrop computes the tinted layer inline (wallpaper +
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:67:    // ORIGINAL geometry + layer scale — the shader computes SDF/refraction in
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:69:    // offset to screen space via uLayerScale. Faithful to the original which
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:70:    // shades at original size then scales the entire layer via graphicsLayer.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:73:    gl.uniform2f(this.uEl['uLayerScale'], state.layerScaleX, state.layerScaleY)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:74:    // Element rotation (graphicsLayer rotationZ) — 0 for most elements; the
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:171:      //   - For t1 (on wallpaper): outer = LayerBackdrop (wallpaper) → sample uWallpaperSampler
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:263:      //   - backdrop (outer) = LayerBackdrop (wallpaper)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:298:    // 2nd-layer (inset capsule) press progress + panelOffset — the inset
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:300:    // the original's hidden Row (graphicsLayer translationX = panelOffset)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:343:      // Bind the glass-layer snapshot (wallpaper+glass, no tab text) to TEXTURE11.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:349:        gl.uniform1i(this.uEl['uTabsGlassLayer'], 11)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:359:    // Refraction params in ORIGINAL px (NOT scaled by layerScale).
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:362:    // graphicsLayer scales the rendered output. The shader now maps the
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:364:    // * uLayerScale), so we must pass the ORIGINAL (unscaled) params here.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:377:    gl.uniform1f(this.uEl['uBlurRadius'], inlineBlurRadius * layerScale * this.dpr)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-wallpaper.ts:128:    // Don't override dpr if it was set externally (e.g. Settings page).
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:106:  // --- tabsBackdrop FBO (indicator's hidden tinted layer) ---
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:113:  // layer (composited over wallpaper).
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:140:  // Holds wallpaper+scrim+colorControls as one opaque layer for the dialog
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:318:      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale',
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:326:      'uTabContentCount', 'uTabsGlassLayer',
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:337:      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation',
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:344:      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uCornerStyle',
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:348:      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation', 'uCornerStyle']
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:351:      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation', 'uCornerStyle']
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:358:      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation',
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:366:      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation',
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:376:      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation', 'uCornerStyle',
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:385:      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation',
+/home/z/my-project/src/components/liquid-glass/renderer/methods-elements.ts:36:      // state updates on the LockScreen page made the icon redraw
+/home/z/my-project/src/components/liquid-glass/renderer/methods-elements.ts:51:      // Button-level icon (used by the circular back button).
+/home/z/my-project/src/components/liquid-glass/renderer/methods-elements.ts:62:      // the bug that caused home-page text not to flip color on theme switch:
+/home/z/my-project/src/components/liquid-glass/renderer/methods-elements.ts:110:        // interactiveValue is initialized to 0; the React layer should
+/home/z/my-project/src/components/liquid-glass/catalog/build-settings.ts:290:  // --- Transition section: page transition animation ---
+/home/z/my-project/src/components/liquid-glass/catalog/build-settings.ts:301:  const transOnOff = state.pageTransition ? t('settings_on', locale) : t('settings_off', locale)
+/home/z/my-project/src/components/liquid-glass/catalog/build-settings.ts:303:  const transBtnColor = state.pageTransition
+/home/z/my-project/src/components/liquid-glass/catalog/build-settings.ts:321:    onTap: () => setState((prev) => ({ pageTransition: !prev.pageTransition })),
+/home/z/my-project/src/components/liquid-glass/catalog/types.ts:42:// vector → angle). Passed in as a prop from page.tsx (React state) so
+/home/z/my-project/src/components/liquid-glass/catalog/types.ts:400:// Catalog home-page structure — faithful to HomeContent.kt
+/home/z/my-project/src/components/liquid-glass/catalog/types.ts:446:  /** Live state hooks — the page calls these to push interactive state
+/home/z/my-project/src/components/liquid-glass/catalog/types.ts:492:  // page.tsx (1px sample at glass center, throttled).
+/home/z/my-project/src/components/liquid-glass/catalog/types.ts:514:  // non-Home pages. Default false (buttons visible). When true, the back
+/home/z/my-project/src/components/liquid-glass/catalog/types.ts:519:  // Settings — page transition animation (fade + slide). Default false (off).
+/home/z/my-project/src/components/liquid-glass/catalog/types.ts:520:  pageTransition: boolean
+/home/z/my-project/src/components/liquid-glass/catalog/types.ts:557:  pageTransition: false,
+/home/z/my-project/src/components/liquid-glass/catalog/i18n.ts:18:  // ---- Home page ----
+/home/z/my-project/src/components/liquid-glass/catalog/i18n.ts:41:  // ---- Settings page ----
+/home/z/my-project/src/components/liquid-glass/catalog/i18n.ts:59:  settings_transition_title: { zh: '页面过渡动画', en: 'Page transitions' },
+/home/z/my-project/src/components/liquid-glass/catalog/i18n.ts:63:  // ---- About page ----
+/home/z/my-project/src/components/liquid-glass/catalog/i18n.ts:77:  // ---- Other pages (minimal, most are visual demos) ----
+/home/z/my-project/src/components/liquid-glass/catalog/i18n.ts:78:  page_buttons:             { zh: '按钮', en: 'Buttons' },
+/home/z/my-project/src/components/liquid-glass/catalog/i18n.ts:79:  page_toggle:              { zh: '开关', en: 'Toggle' },
+/home/z/my-project/src/components/liquid-glass/catalog/i18n.ts:80:  page_slider:              { zh: '滑块', en: 'Slider' },
+/home/z/my-project/src/components/liquid-glass/catalog/i18n.ts:81:  page_bottom_tabs:         { zh: '底部标签栏', en: 'Bottom Tabs' },
+/home/z/my-project/src/components/liquid-glass/catalog/i18n.ts:82:  page_dialog:              { zh: '对话框', en: 'Dialog' },
+/home/z/my-project/src/components/liquid-glass/catalog/i18n.ts:83:  page_lock_screen:         { zh: '锁屏', en: 'Lock screen' },
+
+[Showing results with pagination = limit: 250]
