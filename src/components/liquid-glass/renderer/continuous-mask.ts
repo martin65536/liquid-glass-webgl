@@ -28,7 +28,11 @@ export function generateContinuousCurvatureMask(
   radius: number,
   dpr: number = 1
 ): { tex: Uint8Array; texSize: number } {
-  const texSize = Math.min(1024, Math.max(256, Math.round(Math.max(w, h) * dpr * 2)))
+  // texSize: match element device-pixel size (no extra *2 oversampling — LINEAR
+  // filtering in the shader provides smooth SDF interpolation, and Canvas2D
+  // coverage AA at 1:1 device-pixel ratio is already sufficient). Cap at 512
+  // to keep the chamfer distance transform fast (~3M ops vs ~12M at 1024).
+  const texSize = Math.min(512, Math.max(128, Math.round(Math.max(w, h) * dpr)))
   const key = `${w},${h},${radius},${texSize}`
   const cached = maskCache.get(key)
   if (cached) return { tex: cached.tex, texSize }
