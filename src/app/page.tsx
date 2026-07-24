@@ -102,20 +102,24 @@ export default function Page() {
 
   // --- Performance detection: auto-set DPR on first visit / re-detect ---
   // Conservative strategy: aim for STABLE 60fps (16.67ms budget) with headroom.
-  // Benchmarks measure frame time at full device DPR; then recommend a DPR
-  // that keeps frame time well under 16.67ms even with variance spikes.
+  // Benchmarks measure ACTUAL frame rate (rAF cadence), not GPU stall time.
   //   avg ≤ 10ms  → device DPR (5ms+ headroom for 60fps)
   //   10–14ms     → device DPR × 0.75 (still fast, minor quality reduction)
   //   14–20ms     → device DPR × 0.5 (half-res, big perf win)
   //   >20ms       → 0.5 (minimum readable, even half-res struggles)
   // The result is cached in localStorage (liquid-glass-perf-dpr).
-  // Re-detect is triggered from Settings page by clearing the cache + setting perfProgress.
+  // Re-detect is triggered from Settings page by clearing cache + setting perfProgress.
+  // A ref guard prevents the effect from re-triggering while benchmark is in progress
+  // (perfProgress state changes would otherwise cause infinite re-runs).
   const PERF_KEY = 'liquid-glass-perf-dpr'
+  const perfRunningRef = React.useRef(false)
   React.useEffect(() => {
     if (!rendererReady || !rendererRef.current) return
+    // Guard: benchmark already running — don't start another one
+    if (perfRunningRef.current) return
+
     // If perfProgress is non-null, we're in a re-detect flow from Settings
     if (state.perfProgress) {
-      // Re-detect triggered — run benchmark immediately
       runBenchmark()
       return
     }
@@ -138,20 +142,27 @@ export default function Page() {
   }, [rendererReady, state.perfProgress])
 
   function runBenchmark() {
+    if (perfRunningRef.current) return  // double-check guard
+    perfRunningRef.current = true
     const renderer = rendererRef.current!
     const deviceDpr = window.devicePixelRatio || 1
 
     // Ensure renderer is at full device DPR for an honest benchmark
-    const origDpr = renderer.dpr
     renderer.dpr = deviceDpr
-    const r = rendererRef.current!.canvas.parentElement?.getBoundingClientRect()
+    const r = renderer.canvas.parentElement?.getBoundingClientRect()
     if (r) renderer.resize(r.width, r.height)
 
-    const BENCH_FRAMES = 10
-    const frameTimes: number[] = []
+    const BENCH_FRAMES = 5
     setState({ perfProgress: `0/${BENCH_FRAMES}`, customDpr: 0 })
 
-    const bench = (frameIdx: number) => {
+    // Measure frame time via rAF cadence: mark needsRedraw, let the
+    // render loop draw, measure the wall time between consecutive frames.
+    // This reflects real-world fps (not a gl.finish() GPU stall).
+    let frameIdx = 0
+    const frameTimes: number[] = []
+    let lastT = performance.now()
+
+    const step = () => {
       if (frameIdx >= BENCH_FRAMES) {
         // Compute result
         const avgMs = frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length
@@ -167,26 +178,29 @@ export default function Page() {
         }
         // Clamp to [0.5, deviceDpr]
         recommendedDpr = Math.max(0.5, Math.min(deviceDpr, recommendedDpr))
-        // Round to nearest 0.25 for slider compatibility
         recommendedDpr = Math.round(recommendedDpr * 4) / 4
         // Cache and apply
         try { window.localStorage.setItem(PERF_KEY, String(recommendedDpr)) } catch {}
+        perfRunningRef.current = false
         setState({
           customDpr: recommendedDpr,
           perfProgress: null,
         })
         return
       }
-      setState({ perfProgress: `${frameIdx + 1}/${BENCH_FRAMES}  ·  ${frameTimes.length > 0 ? frameTimes[frameTimes.length - 1].toFixed(1) + 'ms' : ''}` })
-      const t0 = performance.now()
+      const now = performance.now()
+      const delta = now - lastT
+      lastT = now
+      if (frameIdx > 0) {
+        // Skip first frame delta (it's from the initial setup, not a real render)
+        frameTimes.push(delta)
+      }
+      setState({ perfProgress: `${frameIdx + 1}/${BENCH_FRAMES}  ·  ${frameTimes.length > 0 ? frameTimes[frameTimes.length - 1].toFixed(1) + 'ms' : '—'}` })
       renderer.needsRedraw = true
-      renderer.render()
-      renderer.gl.finish()  // force GPU flush for accurate timing
-      const t1 = performance.now()
-      frameTimes.push(t1 - t0)
-      requestAnimationFrame(() => bench(frameIdx + 1))
+      frameIdx++
+      requestAnimationFrame(step)
     }
-    requestAnimationFrame(() => bench(0))
+    requestAnimationFrame(step)
   }
 
   // Renderer ref — populated by LiquidGlassCanvas once it creates the
