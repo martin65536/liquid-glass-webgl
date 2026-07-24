@@ -129,4 +129,12 @@ uniform float uSampleWallpaper;     // 0 or 1
 // here in the shader to replicate that composited backdrop. uScrimColor.a=0
 // means no scrim. Applied as SrcOver: backdrop.rgb = scrim.rgb*scrim.a + backdrop.rgb*(1-scrim.a).
 uniform vec4 uScrimColor;           // rgba 0..1; a=0 = no scrim
+// --- 内层背景板 rim highlight stroke mask (Canvas2D, same approach as outer rim) ---
+// When uIndicatorBackdrop=1, the inner backdrop plate's rim highlight is sampled
+// from this pre-rasterized Canvas2D stroke mask instead of computed analytically.
+// The mask is drawn for the 内层背景板 capsule shape (uContainerRect dimensions)
+// with clip(stroke) + BlurMaskFilter, giving browser-native Skia AA.
+uniform sampler2D uInnerStrokeMask;   // Canvas2D stroke mask texture for inner backdrop highlight
+uniform vec2  uInnerStrokeMaskOffset; // margin (strokeMargin) in device px — UV offset
+uniform vec2  uInnerStrokeMaskSize;   // (maskW, maskH) in device px — total mask texture size
 `

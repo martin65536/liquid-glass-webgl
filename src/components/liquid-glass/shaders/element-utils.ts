@@ -375,9 +375,18 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     //    post-passes) — both use Highlight.Default. The only difference is the
     //    SDF: here it's the 内层背景板 capsule (inset 4dp), there it's the
     //    指示器's own capsule. The shader math is identical.
+    //
+    //    The stroke mask is now sampled from a pre-rasterized Canvas2D texture
+    //    (uInnerStrokeMask) instead of computed analytically (65-tap Gaussian
+    //    convolution of a hard-edge stroke band). This gives browser-native Skia
+    //    hardware coverage AA — identical quality to the outer indicator rim
+    //    highlight. The Canvas2D pipeline does ctx.clip(path) → ctx.stroke(path)
+    //    → ctx.filter=blur, which naturally removes the outer half and provides
+    //    sub-pixel AA. No per-pixel SDF loops, no smoothstep clipAA needed.
     float highlightAlpha = uIndicatorPressProgress;
     if (highlightAlpha > 0.001) {
         // SDF gradient + Default highlight intensity (angle=45°, falloff=1).
+        // This part is identical to the AGSL DefaultHighlightShaderString.
         float indRadius = max(cr, 0.0);
         float indHalfMin = min(capsuleHalf.x, capsuleHalf.y);
         float gradRadius = min(indRadius * 1.5, indHalfMin);
@@ -386,48 +395,27 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
         float d = dot(grad, normal);
         float intensity = pow(abs(d), 1.0);
 
-        // Stroke mask — faithful to HighlightModifier.kt + BlurMaskFilter:
-        //   paint.style = Stroke
-        //   paint.strokeWidth = ceil(0.5dp * dpr) * 2  (device px)
-        //   paint.blur(0.25dp * dpr)  → BlurMaskFilter(NORMAL, sigma=0.25*dpr)
-        //   canvas.clipOutline → clip to INSIDE (capsuleSd <= 0)
-        // In Skia/Android, BlurMaskFilter's radius param IS the Gaussian sigma.
-        // capsuleSd is in device px (uContainerRect is dpr-scaled), so sigma
-        // and strokeHalf must also be in device px.
-        // Implementation: hard-edge stroke band convolved with Gaussian kernel
-        // via adaptive SDF sampling (same approach as highlight.ts). Fixed 1px
-        // tap spacing — tap count scales with sigma (2*ceil(3σ)+1, max 64).
-        float strokeHalf = ceil(0.5 * uDpr) * 2.0 * 0.5;  // = ceil(0.5*dpr)
-        float sigma2 = max(0.25 * uDpr, 0.1);  // blurRadius = 0.25dp, sigma = blurRadius*dpr
-        float tapSpacing2 = 1.0; // fixed 1px — tap count scales with sigma
-        float threeSigma2 = sigma2 * 3.0;
-        float strokeMask = 0.0;
-        float wSum2 = 0.0;
-        for (int j = -32; j <= 32; j++) {
-            float offset = float(j) * tapSpacing2;
-            if (abs(offset) <= threeSigma2) {
-                float sampleSd = capsuleSd - offset;
-                float hard = (abs(sampleSd) < strokeHalf) ? 1.0 : 0.0;
-                float w = exp(-0.5 * (offset * offset) / (sigma2 * sigma2));
-                strokeMask += hard * w;
-                wSum2 += w;
-            }
+        // Sample the pre-rasterized Canvas2D stroke mask texture.
+        // UV mapping: capsuleLocal (centered, -halfW..+halfW) → element-local
+        // (0..2*halfW) by adding capsuleHalf → add margin offset → divide
+        // by maskSize. This is the same convention as the outer indicator
+        // stroke mask (STROKE_MASK_COMPOSITE_FRAGMENT_SHADER).
+        vec2 innerLocal = capsuleLocal + capsuleHalf;
+        vec2 innerMaskUv = (innerLocal + uInnerStrokeMaskOffset) / uInnerStrokeMaskSize;
+        // Bounds check — discard samples outside the mask texture.
+        float innerMask = 0.0;
+        if (innerMaskUv.x >= 0.0 && innerMaskUv.x <= 1.0 &&
+            innerMaskUv.y >= 0.0 && innerMaskUv.y <= 1.0) {
+            innerMask = texture2D(uInnerStrokeMask, innerMaskUv).a;
         }
-        strokeMask /= wSum2;
-        strokeMask *= 0.5;  // clip halves the symmetric stroke at the edge
-        // Clip to inside (outside the 内层背景板 → no highlight) with AA.
-        // A hard binary clip (capsuleSd > 0 → 0.0) creates aliasing at the edge
-        // because there's no smooth transition. Use smoothstep to fade out over
-        // 1px, matching the backdrop mask's AA quality (indicatorAaRadius).
-        // This mirrors HIGHLIGHT_COMPOSITE_FRAGMENT_SHADER's clipAA approach.
-        float clipAA = 1.0 - smoothstep(0.0, indicatorAaRadius, capsuleSd);
-        strokeMask *= clipAA;
 
-        // White(1.0) * intensity * strokeMask * progress, Plus blend (additive).
+        // White(1.0) * intensity * innerMask * progress, Plus blend (additive).
         // (color.copy(alpha=1) * highlightLayer.alpha=progress — the 0.5 alpha
         // in HighlightStyle.Default.color is NOT used; the AGSL shader uses
         // color.copy(alpha=1f) and the layer alpha is highlight.alpha=progress.)
-        resultRgb += vec3(1.0) * intensity * strokeMask * highlightAlpha;
+        // No *= 0.5 or clipAA needed — the Canvas2D clip(path) before stroke
+        // already removes the outer half, and Skia hardware coverage provides AA.
+        resultRgb += vec3(1.0) * intensity * innerMask * highlightAlpha;
     }
 
     return vec4(resultRgb, 1.0);

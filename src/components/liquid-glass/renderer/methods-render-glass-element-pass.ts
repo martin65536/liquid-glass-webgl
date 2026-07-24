@@ -348,6 +348,116 @@ export const glassElementPassMethods = {
         gl.bindTexture(gl.TEXTURE_2D, this.tabsBackdropTex)
         gl.uniform1i(this.uEl['uTabsGlassLayer'], 11)
       }
+      // --- Generate inner backdrop plate rim highlight stroke mask ---
+      // The 内层背景板 has its own Highlight.Default.copy(alpha=progress), which
+      // uses the SAME HighlightModifier.kt approach as the outer indicator rim:
+      // stroke(width=0.5dp) + BlurMaskFilter(sigma=0.25dp) + clip to inside.
+      // Instead of the old 65-tap analytical SDF loop (which had AA artifacts),
+      // we now use a Canvas2D stroke mask (browser-native Skia AA) and sample
+      // it in the element shader via uInnerStrokeMask. This gives identical AA
+      // quality to the outer rim highlight (Step 2f in post-passes).
+      //
+      // The inner backdrop capsule shape is defined by:
+      //   size = 2 * containerHalfW × 2 * containerHalfH (device px)
+      //   corner radius = containerCornerRadius (device px)
+      // These are the same values passed to uContainerRect/uContainerCornerRadius.
+      // The mask is cached in strokeMaskCache — it's stable across frames because
+      // the inner backdrop capsule dimensions don't change (only panelOffset shifts).
+      {
+        const innerW = 2 * containerHalfW  // full width in device px
+        const innerH = 2 * containerHalfH  // full height in device px
+        const innerR = containerCornerRadius  // corner radius in device px
+        // Highlight.Default: width=0.5dp, blurRadius=0.25dp
+        const widthPx = Math.min(0.5 * this.dpr, Math.min(innerW, innerH) * 0.5)
+        const strokeWidthDevice = Math.max(1, Math.ceil(widthPx) * 2)
+        const blurPx = Math.max(0, 0.25 * this.dpr)
+        const strokeMargin = Math.ceil(strokeWidthDevice) + 4
+        const maskW = Math.max(1, Math.ceil(innerW + 2 * strokeMargin))
+        const maskH = Math.max(1, Math.ceil(innerH + 2 * strokeMargin))
+        // Cache key: inner backdrop capsule geometry + stroke params
+        const maskKey = [
+          'inner-rr',
+          innerW.toFixed(3),
+          innerH.toFixed(3),
+          innerR.toFixed(3),
+          strokeWidthDevice,
+          blurPx.toFixed(3),
+          strokeMargin,
+          maskW,
+          maskH,
+        ].join(':')
+        let mask = this.strokeMaskCache.get(maskKey)
+        if (!mask) {
+          const canvas = document.createElement('canvas')
+          canvas.width = maskW
+          canvas.height = maskH
+          const ctx = canvas.getContext('2d', { alpha: true })
+          if (!ctx) throw new Error('2D canvas not supported')
+          const tex = gl.createTexture()
+          if (!tex) throw new Error('WebGL texture allocation failed')
+          mask = { tex, canvas, ctx, w: maskW, h: maskH, ready: false }
+          this.strokeMaskCache.set(maskKey, mask)
+          // Keep cache bounded (same 32-entry limit as outer highlight masks)
+          if (this.strokeMaskCache.size > 32) {
+            const oldestKey = this.strokeMaskCache.keys().next().value as string | undefined
+            if (oldestKey && oldestKey !== maskKey) {
+              const oldest = this.strokeMaskCache.get(oldestKey)
+              if (oldest) gl.deleteTexture(oldest.tex)
+              this.strokeMaskCache.delete(oldestKey)
+            }
+          }
+        }
+        if (!mask.ready) {
+          const smCtx = mask.ctx
+          smCtx.clearRect(0, 0, mask.w, mask.h)
+          smCtx.save()
+          smCtx.translate(strokeMargin, strokeMargin)
+          // Build the 内层背景板 rounded rect path (0..innerW × 0..innerH)
+          // using arcTo — the inner backdrop uses simple circular-arc corners
+          // (not G2 continuous curvature).
+          const r = Math.min(innerR, innerW / 2, innerH / 2)
+          const path = new Path2D()
+          path.moveTo(r, 0)
+          path.lineTo(innerW - r, 0)
+          path.arcTo(innerW, 0, innerW, r, r)
+          path.lineTo(innerW, innerH - r)
+          path.arcTo(innerW, innerH, innerW - r, innerH, r)
+          path.lineTo(r, innerH)
+          path.arcTo(0, innerH, 0, innerH - r, r)
+          path.lineTo(0, r)
+          path.arcTo(0, 0, r, 0, r)
+          path.closePath()
+          // Clip to inside → stroke → blur — faithful to HighlightModifier.kt:
+          //   canvas.clipOutline(outline)  → ctx.clip(path)
+          //   paint.style = Stroke         → ctx.stroke(path)
+          //   paint.blur(sigma)            → ctx.filter = blur(Npx)
+          // Only the INSIDE half remains after clip, giving sub-pixel AA.
+          smCtx.clip(path)
+          smCtx.lineWidth = strokeWidthDevice
+          smCtx.strokeStyle = 'rgba(255,255,255,1)'
+          smCtx.lineJoin = 'round'
+          smCtx.lineCap = 'round'
+          smCtx.filter = blurPx > 0.01 ? `blur(${blurPx}px)` : 'none'
+          smCtx.stroke(path)
+          smCtx.filter = 'none'
+          smCtx.restore()
+          // Upload to GPU texture (top-left UV convention, LINEAR filtering)
+          gl.bindTexture(gl.TEXTURE_2D, mask.tex)
+          gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, mask.canvas)
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+          mask.ready = true
+        }
+        // Bind mask to TEXTURE12 and set uniforms
+        gl.activeTexture(gl.TEXTURE12)
+        gl.bindTexture(gl.TEXTURE_2D, mask.tex)
+        gl.uniform1i(this.uEl['uInnerStrokeMask'], 12)
+        gl.uniform2f(this.uEl['uInnerStrokeMaskOffset'], strokeMargin, strokeMargin)
+        gl.uniform2f(this.uEl['uInnerStrokeMaskSize'], mask.w, mask.h)
+      }
     } else {
       gl.uniform1f(this.uEl['uIndicatorPressProgress'], 0)
       gl.uniform1f(this.uEl['uIndicatorPanelOffset'], 0)
@@ -355,6 +465,12 @@ export const glassElementPassMethods = {
       gl.uniform2f(this.uEl['uContainerCenter'], 0, 0)
       gl.uniform1f(this.uEl['uContainerScale'], 1)
       gl.uniform1f(this.uEl['uTabContentCount'], 0)
+      // No inner stroke mask for non-indicator elements — set zero defaults
+      // so the shader's texture2D(uInnerStrokeMask, ...) always returns 0
+      // for non-indicator draws (uIndicatorBackdrop=0 prevents sampling anyway,
+      // but setting safe defaults avoids stale texture unit issues).
+      gl.uniform2f(this.uEl['uInnerStrokeMaskOffset'], 1, 1)
+      gl.uniform2f(this.uEl['uInnerStrokeMaskSize'], 1, 1)
     }
     // Refraction params in ORIGINAL px (NOT scaled by layerScale).
     // Faithful to the original: the AGSL shader receives the original element
