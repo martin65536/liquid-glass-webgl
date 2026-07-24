@@ -89,6 +89,11 @@ export class LiquidGlassRenderer {
   cssHeight = 0
   wheelTarget: HTMLElement | null = null
   backgroundColor: [number, number, number] | null = null
+  // --- Benchmark mode ---
+  benchMode = false
+  benchScaleX = 1
+  benchScaleY = 1
+  benchStatsText = ''
   /** PERFORMANCE: Dirty flag — set by any state change that requires a redraw.
    *  render() checks this and early-exits if false, avoiding redundant
    *  full-scene re-render when requestAnimationFrame fires but nothing changed. */
@@ -671,6 +676,7 @@ import { renderMethods } from './methods-render'
 import { glassRenderMethods } from './methods-render-glass'
 import { glassElementPassMethods } from './methods-render-glass-element-pass'
 import { glassPostPassMethods } from './methods-render-glass-post-passes'
+import { benchmarkMethods } from './methods-render-benchmark'
 
 Object.assign(
   LiquidGlassRenderer.prototype,
@@ -685,7 +691,8 @@ Object.assign(
   renderMethods,
   glassRenderMethods,
   glassElementPassMethods,
-  glassPostPassMethods
+  glassPostPassMethods,
+  benchmarkMethods
 )
 
 // Re-export all public types so callers can `import type { GlassElementConfig, ... } from './renderer'`.

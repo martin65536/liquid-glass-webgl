@@ -100,26 +100,22 @@ export default function Page() {
     return () => cancelAnimationFrame(rafId)
   }, [state.showFps, rendererReady])
 
-  // --- Performance detection: auto-set DPR on first visit / re-detect ---
-  // Conservative strategy: aim for STABLE 60fps (16.67ms budget) with headroom.
-  // Runs for up to 3 seconds (at least 20 measured frames) for statistical
-  // stability, skipping 3 warmup frames and trimming top/bottom 10% outliers.
-  //   p50 ≤ 10ms  → device DPR (5ms+ headroom for 60fps)
-  //   10–14ms     → device DPR × 0.75
-  //   14–20ms     → device DPR × 0.5
-  //   >20ms       → 0.5 (minimum readable)
-  // If recommended DPR < deviceDpr/2, shows a "low perf" dialog with options.
+  // --- Performance detection: binary-search for optimal DPR ---
+  // Runs entirely inside the WebGL canvas (benchMode). Each iteration tests
+  // a candidate DPR for ~2 seconds, rendering a glass rect with nonlinear
+  // X/Y scale animation. Binary search between [0.5, deviceDpr] converges
+  // in ~5 iterations (~10 seconds total). Target: stable 60fps (avg ≤ 14ms).
   const PERF_KEY = 'liquid-glass-perf-dpr'
   const perfRunningRef = React.useRef(false)
   React.useEffect(() => {
     if (!rendererReady || !rendererRef.current) return
     if (perfRunningRef.current) return
-
-    if (state.perfProgress) {
+    if (state.perfProgress && !perfRunningRef.current) {
+      // Re-detect triggered from Settings
       runBenchmark()
       return
     }
-    if (state.perfLowDialog) return  // dialog showing, don't re-trigger
+    if (state.perfLowDialog) return
     if (state.customDpr > 0) return
     try {
       const cached = window.localStorage.getItem(PERF_KEY)
@@ -130,7 +126,7 @@ export default function Page() {
         }
         return
       }
-    } catch { /* ignore */ }
+    } catch {}
     runBenchmark()
   }, [rendererReady, state.perfProgress])
 
@@ -140,103 +136,132 @@ export default function Page() {
     const renderer = rendererRef.current!
     const deviceDpr = window.devicePixelRatio || 1
 
-    // Ensure renderer is at full device DPR for an honest benchmark
-    renderer.dpr = deviceDpr
-    const r = renderer.canvas.parentElement?.getBoundingClientRect()
-    if (r) renderer.resize(r.width, r.height)
+    // Binary search for optimal DPR
+    // Each iteration measures at a candidate DPR for ~2 seconds
+    let lo = 0.5
+    let hi = deviceDpr
+    let bestDpr = lo  // start conservatively
+    let iteration = 0
+    const MAX_ITERATIONS = 5
+    const MEASURE_SECONDS = 2  // per iteration
+    const TARGET_AVG_MS = 14   // stable 60fps with headroom
 
-    const WARMUP_FRAMES = 5   // skip first frames (JIT/cache warming)
-    const MIN_MEASURE_FRAMES = 60  // at least this many measured frames (~1s at 60fps)
-    const MAX_DURATION_MS = 5000   // cap total benchmark at 5 seconds
-    setState({ perfProgress: '准备检测…', customDpr: 0, perfLowDialog: null })
+    renderer.benchMode = true
 
-    const frameTimes: number[] = []
-    let lastT = 0
-    let totalIdx = 0
-    const benchStart = performance.now()
+    function runIteration(candidateDpr: number) {
+      iteration++
+      candidateDpr = Math.round(candidateDpr * 4) / 4  // snap to 0.25
+      candidateDpr = Math.max(0.5, Math.min(deviceDpr, candidateDpr))
+      renderer.dpr = candidateDpr
+      const r = renderer.canvas.parentElement?.getBoundingClientRect()
+      if (r) renderer.resize(r.width, r.height)
 
-    const step = (timestamp: number) => {
-      const elapsed = timestamp - benchStart
-      const isWarmup = totalIdx < WARMUP_FRAMES
+      const WARMUP = 5
+      const frameTimes: number[] = []
+      let frameIdx = 0
+      let lastT = 0
+      const startT = performance.now()
+      let animTime = 0
 
-      if (totalIdx > 0) {
-        const delta = timestamp - lastT
-        if (!isWarmup) {
-          frameTimes.push(delta)
+      const step = (timestamp: number) => {
+        const dt = lastT > 0 ? (timestamp - lastT) : 16.67
+        lastT = timestamp
+        animTime += dt / 1000  // seconds
+
+        // Nonlinear X/Y scale animation: complex sine product pattern
+        const scaleX = 1 + 0.3 * Math.sin(animTime * 2.3) * Math.sin(animTime * 0.7)
+        const scaleY = 1 + 0.3 * Math.sin(animTime * 1.8) * Math.cos(animTime * 1.1)
+        renderer.benchScaleX = scaleX
+        renderer.benchScaleY = scaleY
+
+        // Collect frame deltas after warmup (ignore extreme spikes)
+        if (frameIdx > WARMUP && dt > 0 && dt < 200) {
+          frameTimes.push(dt)
         }
-      }
-      lastT = timestamp
 
-      if (!isWarmup) {
-        // Update progress display
-        const avgSoFar = frameTimes.length > 0
+        // Update stats display
+        const avgMs = frameTimes.length > 0
           ? (frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length).toFixed(1)
           : '—'
-        const fpsSoFar = frameTimes.length > 0
+        const fps = frameTimes.length > 0
           ? Math.round(1000 / (frameTimes.reduce((a, b) => a + b, 0) / frameTimes.length))
           : '—'
-        setState({ perfProgress: `${frameTimes.length}/${MIN_MEASURE_FRAMES}帧 · ${avgSoFar}ms · ${fpsSoFar}fps` })
-      } else {
-        setState({ perfProgress: `预热 ${totalIdx + 1}/${WARMUP_FRAMES}…` })
-      }
+        renderer.benchStatsText = `性能检测 第${iteration}/${MAX_ITERATIONS}轮\nDPR: ${candidateDpr} · 均帧: ${avgMs}ms · FPS: ${fps}`
 
-      totalIdx++
-      renderer.needsRedraw = true
+        renderer.needsRedraw = true
+        frameIdx++
 
-      // Stop condition: enough frames OR time limit hit
-      const enoughFrames = frameTimes.length >= MIN_MEASURE_FRAMES
-      const timeLimit = elapsed >= MAX_DURATION_MS
-      if (enoughFrames || timeLimit) {
-        finishBenchmark(frameTimes, deviceDpr)
-        return
+        // Check if done with this iteration
+        const elapsed = timestamp - startT
+        const enoughFrames = frameTimes.length >= 60
+        const timeUp = elapsed >= MEASURE_SECONDS * 1000
+        if ((enoughFrames || timeUp) && frameIdx > WARMUP + 5) {
+          finishIteration(frameTimes, candidateDpr)
+          return
+        }
+        requestAnimationFrame(step)
       }
       requestAnimationFrame(step)
     }
-    requestAnimationFrame(step)
-  }
 
-  function finishBenchmark(frameTimes: number[], deviceDpr: number) {
-    if (frameTimes.length < 4) {
-      // Too few frames — use fallback
+    function finishIteration(frameTimes: number[], candidateDpr: number) {
+      if (frameTimes.length < 5) {
+        // Not enough data — use fallback
+        bestDpr = Math.max(0.5, Math.round(deviceDpr * 0.5 * 4) / 4)
+        concludeBenchmark(bestDpr, deviceDpr)
+        return
+      }
+
+      // Trim outliers (top/bottom 10%)
+      const sorted = [...frameTimes].sort((a, b) => a - b)
+      const trim = Math.max(1, Math.floor(sorted.length * 0.1))
+      const trimmed = sorted.slice(trim, sorted.length - trim)
+      const avgMs = trimmed.reduce((a, b) => a + b, 0) / trimmed.length
+
+      if (avgMs <= TARGET_AVG_MS) {
+        // This DPR runs well enough — try higher
+        bestDpr = candidateDpr
+        lo = candidateDpr
+      } else {
+        // Too slow — try lower
+        hi = candidateDpr
+        if (candidateDpr <= bestDpr) {
+          bestDpr = Math.max(0.5, Math.round(candidateDpr * 0.75 * 4) / 4)
+        }
+      }
+
+      if (iteration >= MAX_ITERATIONS || hi - lo <= 0.25) {
+        // Converged
+        bestDpr = Math.max(0.5, Math.min(deviceDpr, Math.round(lo * 4) / 4))
+        concludeBenchmark(bestDpr, deviceDpr)
+      } else {
+        // Next iteration: binary search midpoint
+        const nextDpr = (lo + hi) / 2
+        runIteration(nextDpr)
+      }
+    }
+
+    function concludeBenchmark(recommendedDpr: number, deviceDpr: number) {
+      renderer.benchMode = false
+      renderer.benchStatsText = ''
       perfRunningRef.current = false
-      const fallback = Math.max(0.5, Math.round(deviceDpr * 0.5 * 4) / 4)
-      try { window.localStorage.setItem(PERF_KEY, String(fallback)) } catch {}
-      setState({ customDpr: fallback, perfProgress: null })
-      return
+
+      const halfDpr = Math.max(0.5, Math.round(deviceDpr * 0.5 * 4) / 4)
+      if (recommendedDpr < halfDpr) {
+        // Low performance — show dialog (in canvas via state)
+        setState({
+          customDpr: 0,
+          perfProgress: null,
+          perfLowDialog: { recommendedDpr, halfDpr },
+        })
+      } else {
+        try { window.localStorage.setItem(PERF_KEY, String(recommendedDpr)) } catch {}
+        setState({ customDpr: recommendedDpr, perfProgress: null, perfLowDialog: null })
+      }
     }
 
-    // Trim outliers: remove top 10% and bottom 10% for stability
-    const sorted = [...frameTimes].sort((a, b) => a - b)
-    const trim = Math.max(1, Math.floor(sorted.length * 0.1))
-    const trimmed = sorted.slice(trim, sorted.length - trim)
-    const avgMs = trimmed.reduce((a, b) => a + b, 0) / trimmed.length
-
-    let recommendedDpr: number
-    if (avgMs <= 10) {
-      recommendedDpr = deviceDpr
-    } else if (avgMs <= 14) {
-      recommendedDpr = Math.max(0.5, Math.round(deviceDpr * 0.75 * 4) / 4)
-    } else if (avgMs <= 20) {
-      recommendedDpr = Math.max(0.5, Math.round(deviceDpr * 0.5 * 4) / 4)
-    } else {
-      recommendedDpr = 0.5
-    }
-    recommendedDpr = Math.max(0.5, Math.min(deviceDpr, Math.round(recommendedDpr * 4) / 4))
-
-    perfRunningRef.current = false
-
-    // If recommended DPR < half of device DPR, show low-perf dialog
-    const halfDpr = Math.max(0.5, Math.round(deviceDpr * 0.5 * 4) / 4)
-    if (recommendedDpr < halfDpr) {
-      setState({
-        perfProgress: null,
-        perfLowDialog: { recommendedDpr, halfDpr },
-        customDpr: 0,  // don't auto-apply yet, let user choose
-      })
-    } else {
-      try { window.localStorage.setItem(PERF_KEY, String(recommendedDpr)) } catch {}
-      setState({ customDpr: recommendedDpr, perfProgress: null })
-    }
+    // Start with midpoint
+    runIteration((lo + hi) / 2)
   }
 
   // Renderer ref — populated by LiquidGlassCanvas once it creates the
@@ -728,58 +753,6 @@ export default function Page() {
             </p>
           </div>
         )}
-        {/* Performance benchmark overlay — shown while detecting best DPR */}
-        {rendererReady && state.perfProgress && (
-          <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 16,
-              background: isLightTheme ? 'rgba(255,255,255,0.95)' : 'rgba(5,5,7,0.95)',
-              zIndex: 50,
-            }}
-          >
-            <div
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: '50%',
-                border: `3px solid ${isLightTheme ? '#e0e0e0' : '#333'}`,
-                borderTopColor: isLightTheme ? '#333' : '#aaa',
-                animation: 'lg-spinner 0.8s linear infinite',
-              }}
-            />
-            <p
-              style={{
-                color: isLightTheme ? '#666' : '#999',
-                fontSize: 13,
-                lineHeight: 1.5,
-                textAlign: 'center',
-                maxWidth: 320,
-                margin: 0,
-              }}
-            >
-              正在检测设备性能，自动设置最佳画质…
-            </p>
-            <p
-              style={{
-                color: isLightTheme ? '#333' : '#ccc',
-                fontSize: 14,
-                lineHeight: 1.5,
-                textAlign: 'center',
-                maxWidth: 320,
-                margin: 0,
-                fontFamily: 'monospace',
-              }}
-            >
-              {state.perfProgress}
-            </p>
-          </div>
-        )}
         {/* Low performance dialog — shown when recommended DPR < device DPR / 2 */}
         {state.perfLowDialog && (
           <div
@@ -870,9 +843,17 @@ export default function Page() {
                 </button>
                 <button
                   onClick={() => {
-                    // Re-detect: clear cache and trigger new benchmark
+                    // Re-detect: clear cache and trigger new benchmark via canvas
                     try { window.localStorage.removeItem(PERF_KEY) } catch {}
-                    setState({ customDpr: 0, perfLowDialog: null, perfProgress: '准备检测…' })
+                    setState({ customDpr: 0, perfLowDialog: null })
+                    // The benchmark will be triggered by the perfRunningRef effect
+                    // after the state update clears perfLowDialog
+                    requestAnimationFrame(() => {
+                      if (rendererRef.current) {
+                        perfRunningRef.current = false  // reset guard so re-detect can start
+                        runBenchmark()
+                      }
+                    })
                   }}
                   style={{
                     background: 'transparent',

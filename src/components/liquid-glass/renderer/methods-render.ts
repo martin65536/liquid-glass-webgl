@@ -51,6 +51,12 @@ export const renderMethods = {
     if (!this.needsRedraw) return
     this.needsRedraw = false
 
+    // --- Benchmark mode: render benchmark scene instead of catalog ---
+    if (this.benchMode) {
+      this.renderBenchmarkScene()
+      return
+    }
+
     if (!this.wallpaperReady && !this.backgroundColor) return
     const gl = this.gl
     // Ensure FBOs exist (created lazily on first render after resize).
