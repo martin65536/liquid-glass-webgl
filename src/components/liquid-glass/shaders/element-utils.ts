@@ -237,10 +237,9 @@ vec4 sampleToggleBackdrop(vec2 canvasPx, float radius) {
         float trackSd = length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0) - tr;
         // Blur the edge by uBlurRadius (approximate Gaussian edge feather).
         // Inside (trackSd < -radius) → mask=1; outside (trackSd > radius) → mask=0.
-        // Use max(radius, 2.0) to guarantee minimum edge feather for AA
+        // Use max(radius, 1.0) to guarantee at least 1px smoothstep for AA
         // — when fully pressed, blurRadius=0, but edges must still be smooth.
-        // 2px ensures sufficient transition width even under refraction offset.
-        float aaRadius = max(radius, 2.0);
+        float aaRadius = max(radius, 1.0);
         float mask = 1.0 - smoothstep(-aaRadius, aaRadius, trackSd);
         // Composite: srcOver (track color over outer backdrop).
         float a = mask * uTrackColor.a;
@@ -303,10 +302,9 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     vec2 capsuleLocal = canvasPx - scaledCenter;
     vec2 cq = abs(capsuleLocal) - capsuleHalf + vec2(cr);
     float capsuleSd = length(max(cq, vec2(0.0))) + min(max(cq.x, cq.y), 0.0) - cr;
-    // Same AA fix as toggle knob: guarantee minimum edge feather for AA
-    // — when fully pressed, blurRadius=0, but edges must still be smooth.
-    // 2px ensures sufficient transition width even under refraction offset.
-    float indicatorAaRadius = max(radius, 2.0);
+    // Same AA fix as toggle knob: guarantee at least 1px smoothstep even when
+    // blurRadius=0 (fully pressed indicator has no blur, but edges must be smooth).
+    float indicatorAaRadius = max(radius, 1.0);
     float mask = 1.0 - smoothstep(-indicatorAaRadius, indicatorAaRadius, capsuleSd);
 
     // 3. Sample the GLASS LAYER FBO (wallpaper + container glass, NO tab text).
