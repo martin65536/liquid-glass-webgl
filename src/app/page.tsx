@@ -73,6 +73,7 @@ export default function Page() {
   }
   const [state, setStateRaw] = React.useState<CatalogState>({ ...DEFAULT_CATALOG_STATE, ...loadPersistedSettings() })
   const [frameSize, setFrameSize] = React.useState({ w: 420, h: 900 })
+  const [rendererReady, setRendererReady] = React.useState(false)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
   const frameRef = React.useRef<HTMLDivElement>(null)
   // Renderer ref — populated by LiquidGlassCanvas once it creates the
@@ -523,6 +524,31 @@ export default function Page() {
           })(),
         }}
       >
+        {/* Loading overlay — fades out once the WebGL renderer is ready */}
+        {!rendererReady && (
+          <div
+            style={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: isLightTheme ? '#FFFFFF' : '#050507',
+              zIndex: 50,
+            }}
+          >
+            <div
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: '50%',
+                border: `3px solid ${isLightTheme ? '#e0e0e0' : '#333'}`,
+                borderTopColor: isLightTheme ? '#333' : '#aaa',
+                animation: 'lg-spinner 0.8s linear infinite',
+              }}
+            />
+          </div>
+        )}
         <LiquidGlassCanvas
           wallpaperSrc="/wallpaper/wallpaper_light.webp"
           elements={catalog.elements}
@@ -537,6 +563,7 @@ export default function Page() {
           blurTapCap={state.blurTapCap}
           blurDownsample={state.blurDownsample}
           className="w-full h-full"
+          onReady={() => setRendererReady(true)}
         />
         {/* Hidden file input for "Pick an image" — triggered by the canvas button */}
         <input

@@ -156,6 +156,11 @@
   animation: lg-fade-up 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* Loading spinner — shown until WebGL renderer is ready */
+@keyframes lg-spinner {
+  to { transform: rotate(360deg); }
+}
+
 /* Phone frame — full-bleed on small screens, rounded card on >=480px */
 .lg-frame {
   border-radius: 0;

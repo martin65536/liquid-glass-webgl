@@ -36,6 +36,8 @@ export interface LiquidGlassCanvasProps {
   elements: GlassElementConfig[]
   /** Total scrollable content height in CSS px. */
   contentHeight?: number
+  /** Called once after the renderer finishes its first frame (after wallpaper + SDF texture loads). */
+  onReady?: () => void
   /** Optional callbacks map: id → { onTap, onDragStart, onDrag, onDragEnd }. */
   interactions?: Record<string, ElementInteraction>
   /** When this number changes, the canvas resets scrollY to 0 (used for
@@ -131,6 +133,7 @@ export function LiquidGlassCanvas({
   wallpaperSrc,
   elements,
   contentHeight,
+  onReady,
   interactions,
   scrollResetToken,
   backgroundColor = null,
@@ -174,7 +177,14 @@ export function LiquidGlassCanvas({
     rendererRefInternal.current = renderer
     if (rendererRef) rendererRef.current = renderer
     renderer.setBackgroundColor(backgroundColor)
-    renderer.loadWallpaper(wallpaperSrc).catch((e) => console.error(e))
+    renderer.loadWallpaper(wallpaperSrc).then(() => {
+      // Fire onReady after wallpaper loads + one frame renders
+      requestAnimationFrame(() => { onReady?.() })
+    }).catch((e) => {
+      console.error(e)
+      // Still fire onReady even on wallpaper failure so the loader goes away
+      requestAnimationFrame(() => { onReady?.() })
+    })
     renderer.loadSdfTexture('/clock_sdf.webp').catch((e) => console.error(e))
 
     const resize = () => {

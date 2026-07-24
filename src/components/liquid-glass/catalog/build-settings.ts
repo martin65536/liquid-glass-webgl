@@ -42,12 +42,14 @@ export function buildSettings(
 
   const labelColor = palette.backIconColor
   const pad = 32 * DP
+  // Top padding: avoid overlap with fixed back/theme buttons (56dp height + 16dp margin)
+  const topPad = 72 * DP
 
   // Title
   elements.push(
     makeText(
       'settings-title',
-      { x: pad, y: 0, w: W - 2 * pad, h: 40 },
+      { x: pad, y: topPad, w: W - 2 * pad, h: 40 },
       t('settings_title', locale),
       { color: labelColor, fontSizePx: 24, fontWeight: 600, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
     )
@@ -68,7 +70,7 @@ export function buildSettings(
   const snapFrac = (f: number) => Math.max(0, Math.min(1, Math.round(f * stepCount) / stepCount))
   const fracToDpr = (f: number) => minDpr + f * dprRange
 
-  const sliderY = 60
+  const sliderY = topPad + 40 + 8 // title height + gap
   const trackX = pad
   const trackW = W - 2 * pad
   const trackY = sliderY + (24 - 6) / 2
@@ -104,6 +106,9 @@ export function buildSettings(
       { color: labelColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
     )
   )
+
+  // Bottom padding: avoid overlap with fixed pick-image button (56dp height + 16dp margin)
+  const bottomPad = 72 * DP
 
   // --- Separable 2-pass blur: global toggle + tap cap slider ---
   let nextY = labelY + 16 + 24
@@ -349,7 +354,8 @@ export function buildSettings(
     },
   }
 
-  const contentHeight = nextY + BUTTON_HEIGHT + 20
-  const finalHeight = applyVerticalCenter(elements, 0, contentHeight, H)
+  const contentHeight = nextY + BUTTON_HEIGHT + bottomPad
+  // Use topPad as contentTop so applyVerticalCenter centers within the usable area
+  const finalHeight = applyVerticalCenter(elements, topPad, contentHeight, H)
   return { elements, interactions, contentHeight: finalHeight }
 }
