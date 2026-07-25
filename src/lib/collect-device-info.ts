@@ -271,15 +271,32 @@ export async function collectDeviceInfo(
   }
 }
 
+/** Convert camelCase keys to snake_case for Supabase column names */
+function camelToSnake(str: string): string {
+  return str.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)
+}
+
+/** Recursively transform an object's keys from camelCase to snake_case */
+function toSnakeCase<T extends Record<string, any>>(obj: T): Record<string, any> {
+  const result: Record<string, any> = {}
+  for (const [key, value] of Object.entries(obj)) {
+    result[camelToSnake(key)] = value
+  }
+  return result
+}
+
 /**
  * Send collected device info directly to Supabase from the client.
+ * Payload keys are converted from camelCase to snake_case to match
+ * Supabase column naming convention.
  */
 export async function sendDeviceInfo(payload: DeviceInfoPayload): Promise<{ success: boolean; data?: any; error?: string }> {
   try {
     const { supabase } = await import('@/lib/supabase')
+    const snakePayload = toSnakeCase(payload)
     const { data, error } = await supabase
       .from('device_info')
-      .insert([payload])
+      .insert([snakePayload])
       .select()
       .single()
 
