@@ -217,13 +217,13 @@ export default function Page() {
     if (perfPhaseRef.current === 'done') {
       perfPhaseRef.current = 'idle'
       perfIterationRef.current = 0
-      perfLoRef.current = deviceDpr / 2
+      perfLoRef.current = 0.5
       perfHiRef.current = deviceDpr
     }
 
     if (perfIterationRef.current === 0) {
-      // Initialize binary search — minimum is half the device DPR
-      perfLoRef.current = deviceDpr / 2
+      // Initialize binary search — search full range from 0.5 to deviceDpr
+      perfLoRef.current = 0.5
       perfHiRef.current = deviceDpr
     }
 
@@ -231,7 +231,7 @@ export default function Page() {
     const MAX_ITERATIONS = 5
     const iteration = perfIterationRef.current + 1
     const candidateDpr = Math.round(((perfLoRef.current + perfHiRef.current) / 2) * 4) / 4
-    const clampedDpr = Math.max(deviceDpr / 2, Math.min(deviceDpr, candidateDpr))
+    const clampedDpr = Math.max(0.5, Math.min(deviceDpr, candidateDpr))
 
     perfIterationRef.current = iteration
     perfPhaseRef.current = 'measuring'
