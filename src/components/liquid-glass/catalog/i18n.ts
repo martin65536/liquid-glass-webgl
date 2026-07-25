@@ -96,6 +96,7 @@ const translations: Record<string, { zh: string; en: string }> = {
   page_about:               { zh: '关于', en: 'About' },
   page_perf_benchmark:      { zh: '性能检测', en: 'Performance Benchmark' },
   perf_detecting:           { zh: '正在检测...', en: 'Detecting...' },
+  perf_stop:                { zh: '停止', en: 'Stop' },
   perf_round_info:          { zh: '第{n}/{max}轮 · DPR {dpr}', en: 'Round {n}/{max} · DPR {dpr}' },
   perf_result_good:         { zh: '性能良好！推荐 DPR：{dpr}', en: 'Performance OK! Recommended DPR: {dpr}' },
   perf_result_low:          { zh: '性能有限，推荐 DPR：{dpr}', en: 'Limited performance, recommended DPR: {dpr}' },

@@ -61,7 +61,7 @@ export function buildPerfBenchmark(
   const labelColor = palette.backIconColor
 
   // --- Determine benchmark state before building glasses ---
-  const isRunning = state.perfProgress === 'running'
+  const isRunning = state.perfProgress === 'running' || state.perfProgress === 'stop-requested'
   const isDone = state.perfDone
 
   // --- 16 glasses in 4×4 grid ---
@@ -176,7 +176,7 @@ export function buildPerfBenchmark(
   // The fill width uses perfProgressFracAnimated (smoothly animated in page.tsx)
   // to replace the CSS transition that the DOM overlay used.
   const progFrac = state.perfProgressFracAnimated ?? 0
-  const PROG_BAR_Y = H - 148 * DP
+  const PROG_BAR_Y = H - 120 * DP
   const PROG_BAR_H = 4 * DP
   const PROG_MARGIN = 8 * DP
   const PROG_BAR_W = W - 2 * PROG_MARGIN
@@ -236,15 +236,19 @@ export function buildPerfBenchmark(
     })
   }
 
-  // "重新检测" button — ALWAYS visible
-  // When running: "正在检测..." (disabled)
+  // Main button — ALWAYS visible
+  // When running: "停止" (red, interactive — stops benchmark early)
   // When done: "重新检测" (restart)
   // When idle: "性能检测" (start)
   const btnLabel = isRunning
-    ? t('perf_detecting', locale)
+    ? t('perf_stop', locale)
     : isDone
       ? t('perf_retest', locale)
       : t('item_perf_benchmark', locale)
+  // Red tint when running (stop button), orange tint otherwise
+  const btnTintColor: [number, number, number, number] = isRunning
+    ? [0xe8 / 255, 0x44 / 255, 0x3a / 255, 1]  // red-ish for stop
+    : [0xff / 255, 0x8d / 255, 0x28 / 255, 1]  // orange for detect/re-test
 
   const btnW = 140 * DP
   const btnH = 44 * DP
@@ -260,7 +264,7 @@ export function buildPerfBenchmark(
     },
     ...GLASS_PARAMS,
     cornerRadius: btnH / 2,
-    tintColor: [0xff / 255, 0x8d / 255, 0x28 / 255, 1],
+    tintColor: btnTintColor,
     surfaceColor: [0, 0, 0, 0],
     highlight: { ...DEFAULT_HIGHLIGHT },
     outerShadow: { ...DEFAULT_SHADOW },
@@ -273,8 +277,15 @@ export function buildPerfBenchmark(
   elements.push(perfBtn)
   interactions['perf-btn'] = {
     onTap: () => {
-      if (isRunning) return
-      setState({ perfProgress: 'running', perfDone: false, perfResultDpr: 0, perfStatusText: '', perfGlassAngle: 0, perfProgressFrac: 0, perfProgressFracAnimated: 0, perfDeformMul: 1, perfExitProgress: 0, perfRoundTrigger: 1 })
+      if (isRunning) {
+        // Stop button — finalize with the best DPR found so far (perfLo)
+        // The perfLo ref is managed by page.tsx and holds the best confirmed DPR.
+        // We signal early stop by setting perfProgress to null and perfDone to true.
+        // page.tsx's stopBenchmark effect will pick this up and finalize.
+        setState({ perfProgress: 'stop-requested' })
+      } else {
+        setState({ perfProgress: 'running', perfDone: false, perfResultDpr: 0, perfStatusText: '', perfGlassAngle: 0, perfProgressFrac: 0, perfProgressFracAnimated: 0, perfDeformMul: 1, perfExitProgress: 0, perfRoundTrigger: 1 })
+      }
     },
   }
 

@@ -165,6 +165,14 @@ export default function Page() {
   const perfLoRef = React.useRef(0.5)
   const perfHiRef = React.useRef(0)
   const perfIterationRef = React.useRef(0)
+  // Ref to track latest perfProgressFrac so the rAF animation loop can read
+  // it without stale closure issues.
+  const perfProgressFracRef = React.useRef(0)
+
+  // Keep ref in sync with React state so rAF loops can read the latest value
+  React.useEffect(() => {
+    perfProgressFracRef.current = state.perfProgressFrac ?? 0
+  }, [state.perfProgressFrac])
 
   // Navigate to PerfBenchmark when perfProgress='running'
   React.useEffect(() => {
@@ -209,13 +217,13 @@ export default function Page() {
     if (perfPhaseRef.current === 'done') {
       perfPhaseRef.current = 'idle'
       perfIterationRef.current = 0
-      perfLoRef.current = 0.5
+      perfLoRef.current = deviceDpr / 2
       perfHiRef.current = deviceDpr
     }
 
     if (perfIterationRef.current === 0) {
-      // Initialize binary search
-      perfLoRef.current = 0.5
+      // Initialize binary search — minimum is half the device DPR
+      perfLoRef.current = deviceDpr / 2
       perfHiRef.current = deviceDpr
     }
 
@@ -223,7 +231,7 @@ export default function Page() {
     const MAX_ITERATIONS = 5
     const iteration = perfIterationRef.current + 1
     const candidateDpr = Math.round(((perfLoRef.current + perfHiRef.current) / 2) * 4) / 4
-    const clampedDpr = Math.max(0.5, Math.min(deviceDpr, candidateDpr))
+    const clampedDpr = Math.max(deviceDpr / 2, Math.min(deviceDpr, candidateDpr))
 
     perfIterationRef.current = iteration
     perfPhaseRef.current = 'measuring'
@@ -281,7 +289,7 @@ export default function Page() {
 
     if (iteration >= maxIterations || perfHiRef.current - perfLoRef.current <= 0.25) {
       // Converged — use the highest DPR that worked (lo)
-      const bestDpr = Math.max(0.5, Math.min(deviceDpr, Math.round(perfLoRef.current * 4) / 4))
+      const bestDpr = Math.max(deviceDpr / 2, Math.min(deviceDpr, Math.round(perfLoRef.current * 4) / 4))
       perfPhaseRef.current = 'done'
       const isGood = bestDpr >= deviceDpr * 0.5
       const statusText = isGood
@@ -310,6 +318,28 @@ export default function Page() {
     }
   }
 
+  // Handle stop-requested — user tapped the "停止" button.
+  // Finalize with the best DPR found so far (perfLoRef) and transition to done.
+  React.useEffect(() => {
+    if (state.perfProgress !== 'stop-requested') return
+    const deviceDpr = window.devicePixelRatio || 1
+    const bestDpr = Math.max(deviceDpr / 2, Math.min(deviceDpr, Math.round(perfLoRef.current * 4) / 4))
+    perfPhaseRef.current = 'done'
+    const isGood = bestDpr >= deviceDpr * 0.5
+    const statusText = isGood
+      ? `检测完成！推荐 DPR：${bestDpr} · 设备可流畅运行液态玻璃`
+      : `检测完成 · 推荐 DPR：${bestDpr} · 性能有限，已自动降低画质`
+    try { window.localStorage.setItem(PERF_KEY, String(bestDpr)) } catch {}
+    setState({
+      customDpr: bestDpr,
+      perfDone: true,
+      perfResultDpr: bestDpr,
+      perfStatusText: statusText,
+      perfProgress: null,
+      perfProgressFrac: 1,
+    })
+  }, [state.perfProgress])
+
   // Glass deformation animation — 16 glasses deform simultaneously.
   // perfGlassAngle is stored in state; each glass in the 4×4 grid computes
   // its own W/H from (angle + phaseOffset). Rotation speed: 1 circle/sec.
@@ -317,7 +347,7 @@ export default function Page() {
   // (replacing the CSS transition that the DOM overlay used).
   React.useEffect(() => {
     if (destination !== CatalogDestination.PerfBenchmark) return
-    if (state.perfProgress !== 'running') return
+    if (state.perfProgress !== 'running' && state.perfProgress !== 'stop-requested') return
     if (!rendererReady) return
 
     const ORBIT_SPEED = 2 * Math.PI // radians per second — 1 full circle per second
@@ -332,8 +362,8 @@ export default function Page() {
       const dt = Math.min(0.05, (timestamp - lastT) / 1000)
       lastT = timestamp
       angle += ORBIT_SPEED * dt
-      // Smoothly animate progress toward current target
-      const target = state.perfProgressFrac ?? 0
+      // Smoothly animate progress toward current target (use ref for latest value)
+      const target = perfProgressFracRef.current
       progAnimated += (target - progAnimated) * Math.min(1, PROG_LERP_SPEED * dt)
       setState({ perfGlassAngle: angle, perfProgressFracAnimated: progAnimated })
       raf = requestAnimationFrame(tick)
@@ -385,8 +415,8 @@ export default function Page() {
         exitProg = 1 - (1 - t) * (1 - t) // ease-out
       }
 
-      // Smoothly animate progress to 1.0 (target = perfProgressFrac which is 1 after done)
-      const progTarget = state.perfProgressFrac ?? 1
+      // Smoothly animate progress to 1.0 (use ref for latest value)
+      const progTarget = perfProgressFracRef.current
       progAnimated += (progTarget - progAnimated) * Math.min(1, PROG_LERP_SPEED * dt)
 
       setState({ perfGlassAngle: angle, perfDeformMul: mul, perfExitProgress: exitProg, perfProgressFracAnimated: progAnimated })
