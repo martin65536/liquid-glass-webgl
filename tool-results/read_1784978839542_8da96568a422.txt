@@ -1,0 +1,1006 @@
+     1→'use client'
+     2→
+     3→import * as React from 'react'
+     4→import { LiquidGlassCanvas } from '@/components/liquid-glass/context'
+     5→import {
+     6→  buildCatalog,
+     7→  CatalogDestination,
+     8→  DEFAULT_CATALOG_STATE,
+     9→  type CatalogState,
+    10→} from '@/components/liquid-glass/catalog'
+    11→
+    12→import type { LiquidGlassRenderer } from '@/components/liquid-glass/renderer'
+    13→import { collectDeviceInfo, sendDeviceInfo } from '@/lib/collect-device-info'
+    14→
+    15→/* ------------------------------------------------------------------ *
+    16→ * Faithful WebGL reproduction of Kyant's AndroidLiquidGlass catalog.
+    17→ *
+    18→ * Structure mirrors MainContent.kt:
+    19→ *   - destination state (starts at Home)
+    20→ *   - when destination == Home → HomeContent (navigation list)
+    21→ *   - when destination != Home → corresponding *Content page
+    22→ *   - BackHandler (back button on each non-Home page) → return to Home
+    23→ *
+    24→ * Dark mode: matches `isSystemInDarkTheme()` from MainContent.kt.
+    25→ *   - Initialized from `prefers-color-scheme: dark` media query.
+    26→ *   - Listens to system theme changes.
+    27→ *   - A canvas-rendered sun/moon toggle in the top-right corner (mirrored
+    28→ *     from the back button) lets the user override the system preference.
+    29→ * ------------------------------------------------------------------ */
+    30→
+    31→type Theme = 'light' | 'dark'
+    32→
+    33→function useSystemTheme(): Theme {
+    34→  const [theme, setTheme] = React.useState<Theme>('light')
+    35→  React.useEffect(() => {
+    36→    if (typeof window === 'undefined' || !window.matchMedia) return
+    37→    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    38→    const update = () => setTheme(mq.matches ? 'dark' : 'light')
+    39→    update()
+    40→    mq.addEventListener('change', update)
+    41→    return () => mq.removeEventListener('change', update)
+    42→  }, [])
+    43→  return theme
+    44→}
+    45→
+    46→export default function Page() {
+    47→  // Theme: starts from system preference; user can override via the toggle.
+    48→  const systemTheme = useSystemTheme()
+    49→  const [userOverride, setUserOverride] = React.useState<Theme | null>(null)
+    50→  const theme: Theme = userOverride ?? systemTheme
+    51→  const isLightTheme = theme === 'light'
+    52→
+    53→  const [destination, setDestination] = React.useState<CatalogDestination>(CatalogDestination.Home)
+    54→  // Load persisted Settings fields from localStorage (customDpr,
+    55→  // globalSeparableBlur, blurTapCap, blurDownsample). These are the
+    56→  // user's preferences and should survive page reloads.
+    57→  const SETTINGS_KEY = 'liquid-glass-settings'
+    58→  const loadPersistedSettings = (): Partial<CatalogState> => {
+    59→    if (typeof window === 'undefined') return {}
+    60→    try {
+    61→      const raw = window.localStorage.getItem(SETTINGS_KEY)
+    62→      if (!raw) return {}
+    63→      const parsed = JSON.parse(raw)
+    64→      return {
+    65→        customDpr: typeof parsed.customDpr === 'number' ? parsed.customDpr : 0,
+    66→        globalSeparableBlur: typeof parsed.globalSeparableBlur === 'boolean' ? parsed.globalSeparableBlur : true,
+    67→        blurTapCap: typeof parsed.blurTapCap === 'number' ? parsed.blurTapCap : 17,
+    68→        blurDownsample: typeof parsed.blurDownsample === 'number' ? parsed.blurDownsample : 1,
+    69→        capsuleShape: typeof parsed.capsuleShape === 'boolean' ? parsed.capsuleShape : true,
+    70→        locale: (parsed.locale === 'zh' || parsed.locale === 'en') ? parsed.locale : 'zh',
+    71→        pageTransition: typeof parsed.pageTransition === 'boolean' ? parsed.pageTransition : true,
+    72→        showFps: typeof parsed.showFps === 'boolean' ? parsed.showFps : false,
+    73→      }
+    74→    } catch { return {} }
+    75→  }
+    76→  const [state, setStateRaw] = React.useState<CatalogState>({ ...DEFAULT_CATALOG_STATE, ...loadPersistedSettings() })
+    77→  const [frameSize, setFrameSize] = React.useState({ w: 420, h: 900 })
+    78→  const [rendererReady, setRendererReady] = React.useState(false)
+    79→  const fileInputRef = React.useRef<HTMLInputElement>(null)
+    80→  const frameRef = React.useRef<HTMLDivElement>(null)
+    81→  // FPS counter: measures frames per second via requestAnimationFrame timestamps
+    82→  const [fpsDisplay, setFpsDisplay] = React.useState(0)
+    83→  const fpsFrames = React.useRef(0)
+    84→  const fpsLastTime = React.useRef(0)
+    85→  // Random cycling tip fact for the loading overlay.
+    86→  // Initialize deterministically (TIP_FACTS[0]) to avoid hydration mismatch
+    87→  // between SSR and client — then randomize immediately on client mount.
+    88→  const TIP_FACTS = [
+    89→    '原版是 Kotlin 写的 Android 应用',
+    90→    'Web 版用 Next.js + WebGL 复刻',
+    91→    '液态玻璃效果靠折射+模糊+色散',
+    92→    '圆角用 SDF 着色器计算',
+    93→    '开关拖动有弹簧动画',
+    94→    '控制中心有回弹过冲',
+    95→    '放大镜 1.5x 缩放采样',
+    96→    '可分离模糊双通道加速',
+    97→    'DPR 自动检测二分搜索',
+    98→    '全部渲染在 GPU 完成',
+    99→  ]
+   100→  const [tipFact, setTipFact] = React.useState(TIP_FACTS[0])
+   101→  React.useEffect(() => {
+   102→    // Randomize immediately on client (avoid hydration mismatch)
+   103→    setTipFact(TIP_FACTS[Math.floor(Math.random() * TIP_FACTS.length)])
+   104→    const timer = setInterval(() => {
+   105→      setTipFact(TIP_FACTS[Math.floor(Math.random() * TIP_FACTS.length)])
+   106→    }, 3000)
+   107→    return () => clearInterval(timer)
+   108→  }, [])
+   109→  // FPS counter: always active on PerfBenchmark page or when showFps is on
+   110→  const perfRunning = destination === CatalogDestination.PerfBenchmark && state.perfProgress === 'running'
+   111→  React.useEffect(() => {
+   112→    if ((!state.showFps && !perfRunning) || !rendererReady) return
+   113→    fpsFrames.current = 0
+   114→    fpsLastTime.current = performance.now()
+   115→    const measure = () => {
+   116→      fpsFrames.current++
+   117→      const now = performance.now()
+   118→      const elapsed = now - fpsLastTime.current
+   119→      if (elapsed >= 1000) {
+   120→        setFpsDisplay(Math.round(fpsFrames.current * 1000 / elapsed))
+   121→        fpsFrames.current = 0
+   122→        fpsLastTime.current = now
+   123→      }
+   124→      rafId = requestAnimationFrame(measure)
+   125→    }
+   126→    let rafId = requestAnimationFrame(measure)
+   127→    return () => cancelAnimationFrame(rafId)
+   128→  }, [state.showFps, perfRunning, rendererReady])
+   129→
+   130→  // --- Device info collection: record hardware/canvas/DPR info to Supabase ---
+   131→  // Submit device info AFTER each performance measurement completes, not before.
+   132→  // This ensures the device info is sent only when a benchmark round finishes,
+   133→  // and is re-sent each time the user clicks "重新检测".
+   134→  React.useEffect(() => {
+   135→    if (!rendererReady) return
+   136→    if (!state.perfDone) return
+   137→    if (state.perfResultDpr <= 0) return // not yet converged
+   138→    const canvasEl = document.querySelector('canvas') as HTMLCanvasElement | null
+   139→    collectDeviceInfo(canvasEl, !isLightTheme).then((info) => {
+   140→      sendDeviceInfo(info).then((result) => {
+   141→        if (result.success) {
+   142→          console.log('[DeviceInfo] Recorded to Supabase ✓ (DPR:', state.perfResultDpr, ')')
+   143→        } else {
+   144→          console.warn('[DeviceInfo] Failed:', result.error)
+   145→        }
+   146→      })
+   147→    })
+   148→  }, [rendererReady, state.perfDone, state.perfResultDpr])
+   149→
+   150→  // --- Performance benchmark: FPS-based DPR detection ---
+   151→  // Binary search for the highest DPR that sustains ≥55fps.
+   152→  // Each iteration tests a candidate DPR for 2 seconds.
+   153→  // Progression is automatic — perfRoundTrigger increments each round
+   154→  // so the React effect re-fires even though perfProgress stays 'running'.
+   155→  //
+   156→  // Glass deformation during testing: 16 glasses in 4×4 grid.
+   157→  // Each glass oscillates W/H via perfGlassAngle + per-glass phase offset.
+   158→  // Width = baseW + amp*cos(angle+phase), Height = baseH + amp*sin(angle+phase).
+   159→  // Center stays fixed because both edges move symmetrically.
+   160→  // Rotation speed: 1 full circle per second (2π rad/s).
+   161→  //
+   162→  // When done, an "退出" button appears to return to Home.
+   163→  const PERF_KEY = 'liquid-glass-perf-dpr'
+   164→  const perfPhaseRef = React.useRef<'idle' | 'measuring' | 'done'>('idle')
+   165→  const perfLoRef = React.useRef(0.5)
+   166→  const perfHiRef = React.useRef(0)
+   167→  const perfIterationRef = React.useRef(0)
+   168→  // Ref to track latest perfProgressFrac so the rAF animation loop can read
+   169→  // it without stale closure issues.
+   170→  const perfProgressFracRef = React.useRef(0)
+   171→
+   172→  // Keep ref in sync with React state so rAF loops can read the latest value
+   173→  React.useEffect(() => {
+   174→    perfProgressFracRef.current = state.perfProgressFrac ?? 0
+   175→  }, [state.perfProgressFrac])
+   176→
+   177→  // Navigate to PerfBenchmark when perfProgress='running'
+   178→  React.useEffect(() => {
+   179→    if (state.perfProgress === 'running' && destination !== CatalogDestination.PerfBenchmark) {
+   180→      setDestination(CatalogDestination.PerfBenchmark)
+   181→    }
+   182→  }, [state.perfProgress, destination])
+   183→
+   184→  // Auto-detect on first visit (before any custom DPR set)
+   185→  React.useEffect(() => {
+   186→    if (typeof window === 'undefined') return
+   187→    if (!rendererReady) return
+   188→    if (state.customDpr > 0) return
+   189→    try {
+   190→      const cached = window.localStorage.getItem(PERF_KEY)
+   191→      if (cached) {
+   192→        const autoDpr = parseFloat(cached)
+   193→        if (autoDpr > 0) {
+   194→          setState({ customDpr: autoDpr })
+   195→          return
+   196→        }
+   197→      }
+   198→    } catch {}
+   199→    // No cached result — navigate to PerfBenchmark and auto-start
+   200→    setDestination(CatalogDestination.PerfBenchmark)
+   201→    setState({ perfProgress: 'running', perfDone: false, perfResultDpr: 0, perfStatusText: '', customDpr: 0, perfGlassAngle: 0, perfProgressFrac: 0, perfProgressFracAnimated: 0, perfDeformMul: 1, perfExitProgress: 0, perfRoundTrigger: 1 })
+   202→  }, [rendererReady, state.customDpr])
+   203→
+   204→  // Run benchmark iteration when perfProgress='running' and the trigger changes.
+   205→  // perfRoundTrigger increments each round so the effect re-fires.
+   206→  // Standard binary search from midpoint of [deviceDpr/2, deviceDpr].
+   207→  // The minimum floor is deviceDpr/2; the result is clamped to never go below that.
+   208→  // Convergence: only stops when max iterations reached or range < 0.125
+   209→  // (tight enough to always reach deviceDpr if the device can handle it).
+   210→  React.useEffect(() => {
+   211→    if (destination !== CatalogDestination.PerfBenchmark) return
+   212→    if (!rendererReady) return
+   213→    if (state.perfProgress !== 'running') return
+   214→    if (perfPhaseRef.current === 'measuring') return
+   215→
+   216→    const deviceDpr = window.devicePixelRatio || 1
+   217→
+   218→    // Re-test triggered by tapping "重新检测"
+   219→    if (perfPhaseRef.current === 'done') {
+   220→      perfPhaseRef.current = 'idle'
+   221→      perfIterationRef.current = 0
+   222→      perfLoRef.current = deviceDpr / 2
+   223→      perfHiRef.current = deviceDpr
+   224→    }
+   225→
+   226→    if (perfIterationRef.current === 0) {
+   227→      // Initialize binary search — range [deviceDpr/2, deviceDpr]
+   228→      perfLoRef.current = deviceDpr / 2
+   229→      perfHiRef.current = deviceDpr
+   230→    }
+   231→
+   232→    const MAX_ITERATIONS = 7
+   233→    const iteration = perfIterationRef.current + 1
+   234→    const candidateDpr = Math.round(((perfLoRef.current + perfHiRef.current) / 2) * 4) / 4
+   235→    const clampedDpr = Math.max(deviceDpr / 2, Math.min(deviceDpr, candidateDpr))
+   236→
+   237→    perfIterationRef.current = iteration
+   238→    perfPhaseRef.current = 'measuring'
+   239→
+   240→    // Set the candidate DPR via React state → renderer will resize
+   241→    setState({
+   242→      customDpr: clampedDpr,
+   243→      perfStatusText: `第${iteration}/${MAX_ITERATIONS}轮 · DPR: ${clampedDpr} · 正在检测性能...`,
+   244→      perfProgressFrac: (iteration - 1) / MAX_ITERATIONS, // start of this iteration
+   245→    })
+   246→
+   247→    // Measure FPS for 2 seconds using rAF timestamps
+   248→    const MEASURE_MS = 2000
+   249→    let frames = 0
+   250→    let lastT = 0
+   251→    let startT = 0
+   252→    let rafId = 0
+   253→
+   254→    const measureFrame = (timestamp: number) => {
+   255→      if (!startT) {
+   256→        startT = timestamp
+   257→        lastT = timestamp
+   258→      }
+   259→      const dt = timestamp - lastT
+   260→      lastT = timestamp
+   261→      // Only count frames that aren't extreme spikes (warmup or tab switch)
+   262→      if (dt > 0 && dt < 200) {
+   263→        frames++
+   264→      }
+   265→      const elapsed = timestamp - startT
+   266→      // Update progress continuously within this iteration (10^-3 precision)
+   267→      const subFrac = Math.min(1, elapsed / MEASURE_MS)
+   268→      const totalFrac = (iteration - 1) / MAX_ITERATIONS + subFrac / MAX_ITERATIONS
+   269→      perfProgressFracRef.current = totalFrac
+   270→      setState({ perfProgressFrac: totalFrac })
+   271→
+   272→      if (elapsed >= MEASURE_MS) {
+   273→        // Measurement complete — calculate FPS
+   274→        const fps = frames > 5 ? Math.round(frames * 1000 / elapsed) : 0
+   275→        finishIteration(fps, clampedDpr, deviceDpr, iteration, MAX_ITERATIONS)
+   276→        return
+   277→      }
+   278→      rafId = requestAnimationFrame(measureFrame)
+   279→    }
+   280→    rafId = requestAnimationFrame(measureFrame)
+   281→
+   282→    // Cleanup: cancel the measurement rAF if the effect re-fires before
+   283→    // the 2-second window completes (e.g. navigating away, re-test).
+   284→    return () => cancelAnimationFrame(rafId)
+   285→  }, [destination, state.perfProgress, state.perfRoundTrigger, rendererReady])
+   286→
+   287→  function finishIteration(fps: number, candidateDpr: number, deviceDpr: number, iteration: number, maxIterations: number) {
+   288→    const MIN_FPS = 55
+   289→    if (fps >= MIN_FPS) {
+   290→      // This DPR works — set lo to it (we know it's viable)
+   291→      perfLoRef.current = candidateDpr
+   292→    } else {
+   293→      // Too slow — set hi to it (search lower)
+   294→      perfHiRef.current = candidateDpr
+   295→    }
+   296→
+   297→    // Convergence: range too tight to differentiate, or max iterations reached.
+   298→    // Use a tight threshold (< 0.125) so we don't stop early and miss deviceDpr.
+   299→    if (iteration >= maxIterations || (perfHiRef.current - perfLoRef.current) < 0.125) {
+   300→      // Converged — use the highest DPR that worked (lo)
+   301→      const bestDpr = Math.max(deviceDpr / 2, Math.min(deviceDpr, Math.round(perfLoRef.current * 4) / 4))
+   302→      perfPhaseRef.current = 'done'
+   303→      const isGood = bestDpr >= deviceDpr * 0.5
+   304→      const statusText = isGood
+   305→        ? `检测完成！推荐 DPR：${bestDpr} · 设备可流畅运行液态玻璃`
+   306→        : `检测完成 · 推荐 DPR：${bestDpr} · 性能有限，已自动降低画质`
+   307→      try { window.localStorage.setItem(PERF_KEY, String(bestDpr)) } catch {}
+   308→      setState({
+   309→        customDpr: bestDpr,
+   310→        perfDone: true,
+   311→        perfResultDpr: bestDpr,
+   312→        perfStatusText: statusText,
+   313→        perfProgress: null,
+   314→        // Don't reset perfGlassAngle — settle animation will handle it
+   315→        // perfDeformMul stays at 1 — settle animation will decay it to 0
+   316→        // perfExitProgress stays at 0 — settle animation will animate it to 1
+   317→        perfProgressFrac: 1,
+   318→      })
+   319→    } else {
+   320→      // More iterations needed — increment trigger to re-fire the effect
+   321→      perfPhaseRef.current = 'idle'
+   322→      setState((prev) => ({
+   323→        perfProgress: 'running',
+   324→        perfRoundTrigger: prev.perfRoundTrigger + 1,
+   325→        perfStatusText: `第${iteration}/${maxIterations}轮 · DPR: ${candidateDpr} · FPS: ${fps}fps`,
+   326→      }))
+   327→    }
+   328→  }
+   329→
+   330→  // Handle stop-requested — user tapped the "停止" button.
+   331→  // Finalize with the best DPR found so far (perfLoRef) and transition to done.
+   332→  React.useEffect(() => {
+   333→    if (state.perfProgress !== 'stop-requested') return
+   334→    const deviceDpr = window.devicePixelRatio || 1
+   335→    const bestDpr = Math.max(deviceDpr / 2, Math.min(deviceDpr, Math.round(perfLoRef.current * 4) / 4))
+   336→    perfPhaseRef.current = 'done'
+   337→    const isGood = bestDpr >= deviceDpr * 0.5
+   338→    const statusText = isGood
+   339→      ? `检测完成！推荐 DPR：${bestDpr} · 设备可流畅运行液态玻璃`
+   340→      : `检测完成 · 推荐 DPR：${bestDpr} · 性能有限，已自动降低画质`
+   341→    try { window.localStorage.setItem(PERF_KEY, String(bestDpr)) } catch {}
+   342→    setState({
+   343→      customDpr: bestDpr,
+   344→      perfDone: true,
+   345→      perfResultDpr: bestDpr,
+   346→      perfStatusText: statusText,
+   347→      perfProgress: null,
+   348→      perfProgressFrac: 1,
+   349→    })
+   350→  }, [state.perfProgress])
+   351→
+   352→  // Glass deformation animation — 16 glasses deform simultaneously.
+   353→  // perfGlassAngle is stored in state; each glass in the 4×4 grid computes
+   354→  // its own W/H from (angle + phaseOffset). Rotation speed: 1 circle/sec.
+   355→  // Also smoothly animates perfProgressFracAnimated toward perfProgressFrac
+   356→  // (replacing the CSS transition that the DOM overlay used).
+   357→  React.useEffect(() => {
+   358→    if (destination !== CatalogDestination.PerfBenchmark) return
+   359→    if (state.perfProgress !== 'running' && state.perfProgress !== 'stop-requested') return
+   360→    if (!rendererReady) return
+   361→
+   362→    const ORBIT_SPEED = 2 * Math.PI // radians per second — 1 full circle per second
+   363→    const PROG_LERP_SPEED = 4 // progress bar lerp speed (fraction per second, mimics ~600ms CSS ease-out)
+   364→    let angle = state.perfGlassAngle || 0
+   365→    let progAnimated = state.perfProgressFracAnimated ?? 0
+   366→    let lastT = 0
+   367→    let raf = 0
+   368→
+   369→    const tick = (timestamp: number) => {
+   370→      if (!lastT) lastT = timestamp
+   371→      const dt = Math.min(0.05, (timestamp - lastT) / 1000)
+   372→      lastT = timestamp
+   373→      angle += ORBIT_SPEED * dt
+   374→      // Smoothly animate progress toward current target (use ref for latest value)
+   375→      const target = perfProgressFracRef.current
+   376→      progAnimated += (target - progAnimated) * Math.min(1, PROG_LERP_SPEED * dt)
+   377→      setState({ perfGlassAngle: angle, perfProgressFracAnimated: progAnimated })
+   378→      raf = requestAnimationFrame(tick)
+   379→    }
+   380→    raf = requestAnimationFrame(tick)
+   381→    return () => cancelAnimationFrame(raf)
+   382→  }, [destination, state.perfProgress, rendererReady])
+   383→
+   384→  // Settle animation — after benchmark ends, smoothly transition glasses
+   385→  // from deformed to square (perfDeformMul decays 1→0) and animate the
+   386→  // exit button sliding in (perfExitProgress 0→1 with ease-out).
+   387→  // Also animates perfProgressFracAnimated to 1.0.
+   388→  React.useEffect(() => {
+   389→    if (destination !== CatalogDestination.PerfBenchmark) return
+   390→    if (!rendererReady) return
+   391→    if (!state.perfDone) return
+   392→    // Already settled — no need to animate
+   393→    if (state.perfDeformMul <= 0.01 && state.perfExitProgress >= 0.99 && (state.perfProgressFracAnimated ?? 0) >= 0.99) return
+   394→
+   395→    const ORBIT_SPEED = 2 * Math.PI // keep rotation going during settle
+   396→    const PROG_LERP_SPEED = 4 // progress bar lerp speed
+   397→    let angle = state.perfGlassAngle || 0
+   398→    let progAnimated = state.perfProgressFracAnimated ?? 0
+   399→    let elapsed = 0
+   400→    let lastT = 0
+   401→    let raf = 0
+   402→    // Exponential decay rate for deformMul: mul = e^(-3*t), reaches ~0.05 by 1s
+   403→    const DECAY_RATE = 3
+   404→    // Exit button: starts appearing after 0.3s, fully visible by 0.8s
+   405→    const EXIT_DELAY = 0.3
+   406→    const EXIT_DURATION = 0.5
+   407→
+   408→    const tick = (timestamp: number) => {
+   409→      if (!lastT) lastT = timestamp
+   410→      const dt = Math.min(0.05, (timestamp - lastT) / 1000)
+   411→      lastT = timestamp
+   412→      elapsed += dt
+   413→
+   414→      // Continue rotation (so glasses don't freeze at a weird angle)
+   415→      angle += ORBIT_SPEED * dt
+   416→
+   417→      // Exponential decay: deformMul goes from 1 → ~0 over ~1 second
+   418→      const mul = Math.exp(-DECAY_RATE * elapsed)
+   419→
+   420→      // Exit button: ease-out quadratic after delay
+   421→      let exitProg = 0
+   422→      if (elapsed > EXIT_DELAY) {
+   423→        const t = Math.min(1, (elapsed - EXIT_DELAY) / EXIT_DURATION)
+   424→        exitProg = 1 - (1 - t) * (1 - t) // ease-out
+   425→      }
+   426→
+   427→      // Smoothly animate progress to 1.0 (use ref for latest value)
+   428→      const progTarget = perfProgressFracRef.current
+   429→      progAnimated += (progTarget - progAnimated) * Math.min(1, PROG_LERP_SPEED * dt)
+   430→
+   431→      setState({ perfGlassAngle: angle, perfDeformMul: mul, perfExitProgress: exitProg, perfProgressFracAnimated: progAnimated })
+   432→
+   433→      if (mul <= 0.01 && exitProg >= 0.99 && progAnimated >= 0.99) {
+   434→        // Settle complete — glass angle irrelevant at mul=0
+   435→        setState({ perfDeformMul: 0, perfExitProgress: 1, perfProgressFracAnimated: 1 })
+   436→        return
+   437→      }
+   438→      raf = requestAnimationFrame(tick)
+   439→    }
+   440→    raf = requestAnimationFrame(tick)
+   441→    return () => cancelAnimationFrame(raf)
+   442→  }, [destination, state.perfDone, rendererReady])
+   443→
+   444→  // Renderer ref — populated by LiquidGlassCanvas once it creates the
+   445→  // renderer. Catalog builders use this to call renderer methods
+   446→  // (e.g. setToggleTarget, beginToggleDrag, dragToggle, endToggleDrag).
+   447→  const rendererRef = React.useRef<LiquidGlassRenderer | null>(null)
+   448→  // Current wallpaper URL — updated when user picks an image. The AL
+   449→  // luminance sampler reads from this to stay in sync with the displayed
+   450→  // wallpaper (not just the default /wallpaper/wallpaper_light.webp).
+   451→  const wallpaperUrlRef = React.useRef('/wallpaper/wallpaper_light.webp')
+   452→
+   453→  // setState supports both a partial patch and a functional updater.
+   454→  // The functional form is critical for drag callbacks (slider, magnifier,
+   455→  // lock screen, toggle) so they always read the latest state — avoiding
+   456→  // stale closures when multiple pointermove events fire between React renders.
+   457→  // Also persists Settings fields (customDpr, globalSeparableBlur, blurTapCap,
+   458→  // blurDownsample) to localStorage so they survive page reloads.
+   459→  const setState = React.useCallback(
+   460→    (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => {
+   461→      setStateRaw((prev) => {
+   462→        const p = typeof patch === 'function' ? patch(prev) : patch
+   463→        const next = { ...prev, ...p }
+   464→        // Persist Settings fields to localStorage (skip live* display values).
+   465→        if (typeof window !== 'undefined' &&
+   466→            (p.customDpr !== undefined || p.globalSeparableBlur !== undefined ||
+   467→             p.blurTapCap !== undefined || p.blurDownsample !== undefined ||
+   468→             p.capsuleShape !== undefined || p.hideOverlayButtons !== undefined ||
+   469→             p.locale !== undefined || p.pageTransition !== undefined ||
+   470→             p.showFps !== undefined)) {
+   471→          try {
+   472→            window.localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+   473→              customDpr: next.customDpr,
+   474→              globalSeparableBlur: next.globalSeparableBlur,
+   475→              blurTapCap: next.blurTapCap,
+   476→              blurDownsample: next.blurDownsample,
+   477→              capsuleShape: next.capsuleShape,
+   478→              hideOverlayButtons: next.hideOverlayButtons,
+   479→              locale: next.locale,
+   480→              pageTransition: next.pageTransition,
+   481→              showFps: next.showFps,
+   482→            }))
+   483→          } catch { /* ignore quota errors */ }
+   484→        }
+   485→        return next
+   486→      })
+   487→    },
+   488→    []
+   489→  )
+   490→
+   491→  // Transition animation uses 3 phases for directional slide:
+   492→  //   fadeOut   — old content slides out + fades to 0
+   493→  //   prepIn    — instantly place new content at opposite offset + opacity 0 (no transition)
+   494→  //   fadeIn    — animate new content from offset → center + opacity 0 → 1
+   495→  const [transPhase, setTransPhase] = React.useState<'idle' | 'fadeOut' | 'prepIn' | 'fadeIn'>('idle')
+   496→  const transDirRef = React.useRef<'enter' | 'exit'>('enter')
+   497→  const pendingDestRef = React.useRef<CatalogDestination | null>(null)
+   498→  const TRANSITION_MS = 200 // duration for each phase (fade out / fade in)
+   499→  const OFFSET_PX = 16 // slide distance in px
+   500→
+   501→  const onNavigate = React.useCallback((d: CatalogDestination) => {
+   502→    if (!state.pageTransition) {
+   503→      setDestination(d)
+   504→    } else {
+   505→      // Enter: old page slides LEFT out, new page slides in from RIGHT.
+   506→      pendingDestRef.current = d
+   507→      transDirRef.current = 'enter'
+   508→      setTransPhase('fadeOut')
+   509→    }
+   510→    if (typeof window !== 'undefined' && d !== CatalogDestination.Home) {
+   511→      window.history.pushState({ dest: d }, '')
+   512→    }
+   513→  }, [state.pageTransition])
+   514→
+   515→  const onBack = React.useCallback(() => {
+   516→    const target = CatalogDestination.Home
+   517→    if (!state.pageTransition) {
+   518→      setDestination(target)
+   519→    } else {
+   520→      // Exit: old page slides RIGHT out, new page slides in from LEFT.
+   521→      pendingDestRef.current = target
+   522→      transDirRef.current = 'exit'
+   523→      setTransPhase('fadeOut')
+   524→    }
+   525→    if (typeof window !== 'undefined' && window.history.state?.dest !== undefined) {
+   526→      window.history.back()
+   527→    }
+   528→  }, [state.pageTransition])
+   529→
+   530→  // Phase progression: fadeOut → prepIn → fadeIn → idle
+   531→  React.useEffect(() => {
+   532→    if (transPhase === 'fadeOut') {
+   533→      const timer = setTimeout(() => {
+   534→        const dest = pendingDestRef.current ?? CatalogDestination.Home
+   535→        setDestination(dest)
+   536→        pendingDestRef.current = null
+   537→        // prepIn: place new content at opposite offset with no transition
+   538→        setTransPhase('prepIn')
+   539→      }, TRANSITION_MS)
+   540→      return () => clearTimeout(timer)
+   541→    }
+   542→    if (transPhase === 'prepIn') {
+   543→      // After React renders the offset position (1 frame), start animated fadeIn
+   544→      requestAnimationFrame(() => {
+   545→        requestAnimationFrame(() => {
+   546→          setTransPhase('fadeIn')
+   547→        })
+   548→      })
+   549→      return
+   550→    }
+   551→    if (transPhase === 'fadeIn') {
+   552→      const timer = setTimeout(() => {
+   553→        setTransPhase('idle')
+   554→      }, TRANSITION_MS)
+   555→      return () => clearTimeout(timer)
+   556→    }
+   557→  }, [transPhase])
+   558→
+   559→  // Listen for browser back gesture / button → return to Home with exit animation.
+   560→  React.useEffect(() => {
+   561→    if (typeof window === 'undefined') return
+   562→    const onPopState = () => {
+   563→      // If a transition is already in progress, skip — onBack already started it
+   564→      // and the history.back() call triggered this popstate as a side effect.
+   565→      if (transPhase !== 'idle') return
+   566→      if (!state.pageTransition) {
+   567→        setDestination(CatalogDestination.Home)
+   568→      } else {
+   569→        // Trigger the same exit animation as onBack
+   570→        pendingDestRef.current = CatalogDestination.Home
+   571→        transDirRef.current = 'exit'
+   572→        setTransPhase('fadeOut')
+   573→      }
+   574→    }
+   575→    window.addEventListener('popstate', onPopState)
+   576→    return () => window.removeEventListener('popstate', onPopState)
+   577→  }, [state.pageTransition, transPhase])
+   578→
+   579→  React.useEffect(() => {
+   580→    const update = () => {
+   581→      // Use window.innerHeight for the frame height — it accounts for the
+   582→      // mobile browser's address bar / bottom bar (100vh does not).
+   583→      const maxH = typeof window !== 'undefined' ? window.innerHeight : 900
+   584→      const h = Math.min(900, maxH)
+   585→      const outer = frameRef.current?.parentElement
+   586→      if (outer) outer.style.height = h + 'px'
+   587→      if (frameRef.current) frameRef.current.style.height = h + 'px'
+   588→      const r = frameRef.current?.getBoundingClientRect()
+   589→      if (r) setFrameSize({ w: r.width, h: r.height })
+   590→    }
+   591→    update()
+   592→    const ro = new ResizeObserver(update)
+   593→    if (frameRef.current) ro.observe(frameRef.current)
+   594→    // Also update on resize / orientation change (mobile address bar show/hide)
+   595→    window.addEventListener('resize', update)
+   596→    window.addEventListener('orientationchange', update)
+   597→    return () => {
+   598→      ro.disconnect()
+   599→      window.removeEventListener('resize', update)
+   600→      window.removeEventListener('orientationchange', update)
+   601→    }
+   602→  }, [])
+   603→
+   604→  const W = frameSize.w
+   605→  const H = frameSize.h
+   606→
+   607→  const toggleTheme = React.useCallback(() => {
+   608→    setUserOverride((prev) => (prev === 'light' ? 'dark' : 'light'))
+   609→  }, [])
+   610→
+   611→  // Device motion → gravity angle for glass highlight direction.
+   612→  // Faithful to UISensor.kt:
+   613→  //   gravityAngle = gravityAngle * (1-alpha) + atan2(y, x) * 180/PI * alpha
+   614→  // with alpha = 0.5, updated on every sensor event (~60Hz).
+   615→  //
+   616→  // CRITICAL: we push the angle DIRECTLY to the renderer via
+   617→  // rendererRef.current.setGravityAngle() — NOT via React state. This avoids
+   618→  // rebuilding the catalog (which would lose drag state and cause jank).
+   619→  // CC tiles opt in via el.useGravityAngle=true; the rim highlight pass reads
+   620→  // renderer.gravityAngle live each frame.
+   621→  //
+   622→  // SOURCE: DeviceMotionEvent.accelerationIncludingGravity is the exact Web
+   623→  // equivalent of Android's Sensor.TYPE_ACCELEROMETER — both report the
+   624→  // device's acceleration INCLUDING gravity in device-space axes:
+   625→  //   x: right is positive  (Android values[0] / Web acceleration.x)
+   626→  //   y: top is positive    (Android values[1] / Web acceleration.y)
+   627→  // atan2(y, x) therefore has the SAME semantics on both platforms.
+   628→  // (DeviceOrientationEvent's beta/gamma are EULER ANGLES, not acceleration
+   629→  // vectors — atan2(beta, gamma) does NOT match the original.)
+   630→  //
+   631→  // EMA smoothing + shortest-path angle interpolation handles the atan2
+   632→  // discontinuity at ±180° (rotating through 180° doesn't jump to -180°).
+   633→  // Default 45° (matches UISensor.kt's initial value).
+   634→  React.useEffect(() => {
+   635→    if (typeof window === 'undefined' || !('DeviceMotionEvent' in window)) return
+   636→    let smoothed = 45
+   637→    const alpha = 0.5
+   638→    const handler = (e: DeviceMotionEvent) => {
+   639→      const acc = e.accelerationIncludingGravity
+   640→      if (!acc || acc.x == null || acc.y == null) return
+   641→      const x = acc.x
+   642→      const y = acc.y
+   643→      let target = Math.atan2(y, x) * 180 / Math.PI
+   644→      // Shortest-path interpolation: wrap the delta to [-180, 180] so
+   645→      // rotating through ±180° doesn't cause a 358° jump.
+   646→      let delta = target - smoothed
+   647→      while (delta > 180) delta -= 360
+   648→      while (delta < -180) delta += 360
+   649→      smoothed += delta * alpha
+   650→      // Wrap smoothed to [-180, 180] to keep the value bounded.
+   651→      while (smoothed > 180) smoothed -= 360
+   652→      while (smoothed < -180) smoothed += 360
+   653→      const rad = smoothed * Math.PI / 180
+   654→      rendererRef.current?.setGravityAngle(rad)
+   655→    }
+   656→    window.addEventListener('devicemotion', handler)
+   657→    return () => window.removeEventListener('devicemotion', handler)
+   658→  }, [rendererRef])
+   659→
+   660→  // Build the catalog for the current destination.
+   661→  // gravityAngle is NOT a dependency — it's pushed live to the renderer via
+   662→  // setGravityAngle (see the deviceorientation effect above), so the catalog
+   663→  // is NOT rebuilt when the device tilts. CC tiles use el.useGravityAngle=true
+   664→  // to read renderer.gravityAngle each frame in the rim highlight pass.
+   665→  const catalog = React.useMemo(
+   666→    () => buildCatalog(destination, W, H, state, setState, onNavigate, onBack, rendererRef, isLightTheme, toggleTheme, () => fileInputRef.current?.click()),
+   667→    [destination, W, H, state, setState, onNavigate, onBack, isLightTheme, toggleTheme]
+   668→  )
+   669→
+   670→  // Home page background: faithful to the original Android app.
+   671→  // HomeContent.kt does NOT wrap content in BackdropDemoScaffold, so the
+   672→  // Home + Settings + About use a solid background (the Activity's
+   673→  // windowBackground) instead of the wallpaper image:
+   674→  //   - Light theme: themes.xml → @android:color/white  → #FFFFFF
+   675→  //   - Dark  theme: values-night/themes.xml → @android:color/black → #000000
+   676→  // Other destinations (Toggle/Slider/...) DO wrap in BackdropDemoScaffold
+   677→  // and thus show the wallpaper image — pass `null` to use the wallpaper.
+   678→  const useSolidBg =
+   679→    destination === CatalogDestination.Home ||
+   680→    destination === CatalogDestination.Settings ||
+   681→    destination === CatalogDestination.About
+   682→  const backgroundColor: [number, number, number] | null = useSolidBg
+   683→    ? isLightTheme
+   684→      ? [1, 1, 1]    // #FFFFFF
+   685→      : [0, 0, 0]    // #000000
+   686→    : null
+   687→
+   688→  // Push toggle/slider targets to the renderer whenever the underlying
+   689→  // state changes (or when entering the corresponding destination).
+   690→  //   - Toggle destination: both toggles share `state.toggleOn`.
+   691→  //   - Slider destination: both sliders share `state.sliderValue`.
+   692→  // The renderer animates the fraction toward this target with a
+   693→  // critically damped spring (faithful to DampedDragAnimation.kt).
+   694→  const toggleTargets = React.useMemo<Record<string, number>>(() => {
+   695→    const targets: Record<string, number> = {}
+   696→    if (destination === CatalogDestination.Toggle) {
+   697→      const target = state.toggleOn ? 1 : 0
+   698→      targets.toggle1 = target
+   699→      targets.toggle2 = target
+   700→    }
+   701→    if (destination === CatalogDestination.Slider) {
+   702→      const target = state.sliderValue / 100
+   703→      targets.slider1 = target
+   704→      targets.slider2 = target
+   705→    }
+   706→    if (destination === CatalogDestination.GlassPlayground) {
+   707→      targets['gp-slider-0'] = state.cornerRadiusFrac
+   708→      targets['gp-slider-1'] = state.blurRadiusDp / 32
+   709→      targets['gp-slider-2'] = state.refractionHeightFrac
+   710→      targets['gp-slider-3'] = state.refractionAmountFrac
+   711→      targets['gp-slider-4'] = state.chromaticAberration
+   712→    }
+   713→    if (destination === CatalogDestination.Settings) {
+   714→      const deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+   715→      const minDpr = 0.5
+   716→      const maxDpr = deviceDpr
+   717→      const dprRange = Math.max(0.0001, maxDpr - minDpr)
+   718→      const currentDpr = state.customDpr > 0 ? Math.max(minDpr, Math.min(maxDpr, state.customDpr)) : deviceDpr
+   719→      targets['settings-dpr'] = Math.max(0, Math.min(1, (currentDpr - minDpr) / dprRange))
+   720→      // Tap cap slider: fraction = (blurTapCap - 1) / 32 (range 1..33)
+   721→      targets['settings-blur-taps'] = Math.max(0, Math.min(1, (state.blurTapCap - 1) / 32))
+   722→    }
+   723→    return targets
+   724→  }, [destination, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration, state.customDpr, state.blurTapCap])
+   725→
+   726→  // Tab targets use a separate prop because they need setTabSelected
+   727→  // (which sets pressedScale=78/56, not toggle's 1.5).
+   728→  const tabTargets = React.useMemo<Record<string, { tabIndex: number; tabsCount: number }>>(() => {
+   729→    const targets: Record<string, { tabIndex: number; tabsCount: number }> = {}
+   730→    if (destination === CatalogDestination.BottomTabs) {
+   731→      targets.tabs3 = { tabIndex: state.selectedTab, tabsCount: 3 }
+   732→      targets.tabs4 = { tabIndex: state.selectedTab2, tabsCount: 4 }
+   733→    }
+   734→    return targets
+   735→  }, [destination, state.selectedTab, state.selectedTab2])
+   736→
+   737→  // AdaptiveLuminanceGlass: compute the average luminance of the WALLPAPER
+   738→  // behind the glass region and animate state.adaptiveLuminance toward it.
+   739→  //
+   740→  // Faithful to AdaptiveLuminanceGlassContent.kt:
+   741→  //   LaunchedEffect loop: layer.toImageBitmap → scale(5,5) → readPixels →
+   742→  //   averageLuminance → luminanceAnimation.animateTo(target, tween(1000))
+   743→  //
+   744→  // The original reads the glass's rendered output (the backdrop WITH effects
+   745→  // applied). WebGL `preserveDrawingBuffer: false` means the canvas is cleared
+   746→  // after compositing, so gl.readPixels on the canvas returns 0 (the bug that
+   747→  // caused luminance to always be 0). Reading from a scene FBO is fragile
+   748→  // (ping-pong state). Instead, we sample the WALLPAPER on the CPU via a
+   749→  // hidden 2D canvas — this is the backdrop luminance (stable, no feedback
+   750→  // divergence) and matches the original's intent of "how bright is the
+   751→  // region behind the glass".
+   752→  //
+   753→  // algOffsetRef mirrors state.algOffsetX/Y so the rAF loop reads the current
+   754→  // offset WITHOUT the effect re-running on every drag frame.
+   755→  const algOffsetRef = React.useRef({ x: 0, y: 0 })
+   756→  const algWpCanvasRef = React.useRef<HTMLCanvasElement | null>(null)
+   757→  const algWpReadyRef = React.useRef(false)
+   758→  React.useEffect(() => {
+   759→    algOffsetRef.current.x = state.algOffsetX
+   760→    algOffsetRef.current.y = state.algOffsetY
+   761→  }, [state.algOffsetX, state.algOffsetY])
+   762→  // Load the wallpaper into a hidden 2D canvas for CPU-side luminance sampling.
+   763→  React.useEffect(() => {
+   764→    if (destination !== CatalogDestination.AdaptiveLuminanceGlass) return
+   765→    const img = new Image()
+   766→    img.crossOrigin = 'anonymous'
+   767→    img.onload = () => {
+   768→      const c = document.createElement('canvas')
+   769→      c.width = img.naturalWidth
+   770→      c.height = img.naturalHeight
+   771→      const ctx = c.getContext('2d', { alpha: false })
+   772→      if (!ctx) return
+   773→      ctx.drawImage(img, 0, 0)
+   774→      algWpCanvasRef.current = c
+   775→      algWpReadyRef.current = true
+   776→    }
+   777→    img.src = wallpaperUrlRef.current
+   778→  }, [destination])
+   779→  React.useEffect(() => {
+   780→    if (destination !== CatalogDestination.AdaptiveLuminanceGlass) return
+   781→    let raf = 0
+   782→    let lastSample = 0
+   783→    let animLum = state.adaptiveLuminance
+   784→    let target = state.adaptiveLuminance
+   785→    const tick = (t: number) => {
+   786→      raf = requestAnimationFrame(tick)
+   787→      // Sample every ~200ms.
+   788→      if (t - lastSample >= 200) {
+   789→        lastSample = t
+   790→        const c = algWpCanvasRef.current
+   791→        if (algWpReadyRef.current && c) {
+   792→          const ctx = c.getContext('2d', { alpha: false })
+   793→          if (ctx) {
+   794→            const size = 160
+   795→            // Glass center in CSS px (after applyVerticalCenter).
+   796→            const cx = (W - size) / 2 + algOffsetRef.current.x + size / 2
+   797→            const cy = (H - size) / 2 + algOffsetRef.current.y + size / 2
+   798→            // Map CSS px → wallpaper canvas px using cover-fit (same as the
+   799→            // wallpaper shader's coverUv). The wallpaper is drawn cover-fit
+   800→            // into the W×H canvas.
+   801→            const wpW = c.width
+   802→            const wpH = c.height
+   803→            const scale = Math.max(W / wpW, H / wpH)
+   804→            const dispW = wpW * scale
+   805→            const dispH = wpH * scale
+   806→            const offX = (W - dispW) / 2
+   807→            const offY = (H - dispH) / 2
+   808→            // Glass region in wallpaper canvas px (5×5 grid, 24dp inset).
+   809→            const inset = 24
+   810→            const span = size - inset * 2
+   811→            let sum = 0
+   812→            let count = 0
+   813→            try {
+   814→              for (let gy = 0; gy < 5; gy++) {
+   815→                for (let gx = 0; gx < 5; gx++) {
+   816→                  const cssX = cx - span / 2 + (span * gx) / 4
+   817→                  const cssY = cy - span / 2 + (span * gy) / 4
+   818→                  const wpX = Math.round((cssX - offX) / scale)
+   819→                  const wpY = Math.round((cssY - offY) / scale)
+   820→                  if (wpX >= 0 && wpX < wpW && wpY >= 0 && wpY < wpH) {
+   821→                    const d = ctx.getImageData(wpX, wpY, 1, 1).data
+   822→                    sum += (0.2126 * d[0] + 0.7152 * d[1] + 0.0722 * d[2]) / 255
+   823→                    count++
+   824→                  }
+   825→                }
+   826→              }
+   827→            } catch {
+   828→              // getImageData can fail if the canvas is tainted; ignore.
+   829→            }
+   830→            if (count > 0) target = sum / count
+   831→          }
+   832→        }
+   833→      }
+   834→      // Ease animLum toward target each frame (~tween(1000) ≈ 6%/frame).
+   835→      const diff = target - animLum
+   836→      if (Math.abs(diff) > 0.001) {
+   837→        animLum += diff * 0.06
+   838→        setState((prev) => {
+   839→          if (Math.abs(prev.adaptiveLuminance - animLum) < 0.01) return {}
+   840→          return { adaptiveLuminance: animLum }
+   841→        })
+   842→      }
+   843→    }
+   844→    raf = requestAnimationFrame(tick)
+   845→    return () => cancelAnimationFrame(raf)
+   846→  }, [destination, W, H, setState])
+   847→
+   848→  return (
+   849→    <div
+   850→      className="w-full flex items-center justify-center"
+   851→      style={{
+   852→        // Outer page background follows the Android windowBackground
+   853→        // (white in light theme, black in dark theme) — themes.xml.
+   854→        background: isLightTheme ? '#FFFFFF' : '#000000',
+   855→        height: '100vh',
+   856→        overflow: 'hidden',
+   857→      }}
+   858→    >
+   859→      <div
+   860→        ref={frameRef}
+   861→        className="relative overflow-hidden shadow-2xl lg-frame"
+   862→        suppressHydrationWarning
+   863→        style={{
+   864→          width: 'min(420px, 100vw)',
+   865→          opacity: (() => {
+   866→            if (transPhase === 'fadeOut' || transPhase === 'prepIn') return 0
+   867→            return 1 // idle or fadeIn
+   868→          })(),
+   869→          transform: (() => {
+   870→            const dir = transDirRef.current
+   871→            if (transPhase === 'fadeOut') {
+   872→              // Old content exits: enter→slides LEFT, exit→slides RIGHT
+   873→              return dir === 'enter'
+   874→                ? `translateX(-${OFFSET_PX}px)`
+   875→                : `translateX(${OFFSET_PX}px)`
+   876→            }
+   877→            if (transPhase === 'prepIn') {
+   878→              // New content placed at opposite side instantly (no transition)
+   879→              // Enter→placed RIGHT offset, Exit→placed LEFT offset
+   880→              return dir === 'enter'
+   881→                ? `translateX(${OFFSET_PX}px)`
+   882→                : `translateX(-${OFFSET_PX}px)`
+   883→            }
+   884→            // idle / fadeIn → centered
+   885→            return 'translateX(0)'
+   886→          })(),
+   887→          transition: (() => {
+   888→            if (!state.pageTransition) return 'none'
+   889→            if (transPhase === 'prepIn') return 'none' // instant placement, no animation
+   890→            return `opacity ${TRANSITION_MS}ms ease, transform ${TRANSITION_MS}ms ease`
+   891→          })(),
+   892→        }}
+   893→      >
+   894→        {/* Loading overlay — fades out once the WebGL renderer is ready */}
+   895→        {!rendererReady && (
+   896→          <div
+   897→            style={{
+   898→              position: 'absolute',
+   899→              inset: 0,
+   900→              display: 'flex',
+   901→              flexDirection: 'column',
+   902→              alignItems: 'center',
+   903→              justifyContent: 'center',
+   904→              gap: 16,
+   905→              background: isLightTheme ? '#FFFFFF' : '#050507',
+   906→              zIndex: 50,
+   907→            }}
+   908→          >
+   909→            <div
+   910→              style={{
+   911→                width: 36,
+   912→                height: 36,
+   913→                borderRadius: '50%',
+   914→                border: `3px solid ${isLightTheme ? '#e0e0e0' : '#333'}`,
+   915→                borderTopColor: isLightTheme ? '#333' : '#aaa',
+   916→                animation: 'lg-spinner 0.8s linear infinite',
+   917→              }}
+   918→            />
+   919→            <p
+   920→              style={{
+   921→                color: isLightTheme ? '#666' : '#999',
+   922→                fontSize: 13,
+   923→                lineHeight: 1.5,
+   924→                textAlign: 'center',
+   925→                maxWidth: 320,
+   926→                margin: 0,
+   927→              }}
+   928→            >
+   929→              💡 {tipFact}
+   930→            </p>
+   931→          </div>
+   932→        )}
+   933→        {/* Low performance dialog is now rendered inside the Canvas via
+   934→            wallpaper background like all other catalog pages. */}
+   935→        <LiquidGlassCanvas
+   936→          wallpaperSrc="/wallpaper/wallpaper_light.webp"
+   937→          elements={catalog.elements}
+   938→          contentHeight={catalog.contentHeight}
+   939→          interactions={catalog.interactions}
+   940→          scrollResetToken={destination}
+   941→          backgroundColor={backgroundColor}
+   942→          toggleTargets={toggleTargets}
+   943→          tabTargets={tabTargets}
+   944→          rendererRef={rendererRef}
+   945→          dpr={state.customDpr}
+   946→          blurTapCap={state.blurTapCap}
+   947→          className="w-full h-full"
+   948→          onReady={() => setRendererReady(true)}
+   949→        />
+   950→        {/* FPS overlay — always shown on PerfBenchmark during test, or when showFps is enabled */}
+   951→        {(state.showFps || perfRunning) && rendererReady && (
+   952→          <div
+   953→            style={{
+   954→              position: 'absolute',
+   955→              top: 8,
+   956→              right: 8,
+   957→              background: 'rgba(0,0,0,0.6)',
+   958→              color: '#0f0',
+   959→              font: 'bold 14px monospace',
+   960→              padding: '4px 8px',
+   961→              borderRadius: 4,
+   962→              zIndex: 40,
+   963→              pointerEvents: 'none',
+   964→            }}
+   965→          >
+   966→            FPS: {fpsDisplay}
+   967→          </div>
+   968→        )}
+   969→        {/* Progress bar is now rendered in the canvas (plain-rect elements) */}
+   970→        {/* Hidden file input for "Pick an image" — triggered by the canvas button */}
+   971→        <input
+   972→          ref={fileInputRef}
+   973→          type="file"
+   974→          accept="image/*"
+   975→          style={{ display: 'none' }}
+   976→          onChange={(e) => {
+   977→            const file = e.target.files?.[0]
+   978→            if (file) {
+   979→              const url = URL.createObjectURL(file)
+   980→              wallpaperUrlRef.current = url
+   981→              rendererRef.current?.loadWallpaper(url).catch(() => {})
+   982→              // Reload the AL wallpaper canvas so luminance sampling uses
+   983→              // the user-selected image (not the default wallpaper).
+   984→              algWpReadyRef.current = false
+   985→              const img = new Image()
+   986→              img.crossOrigin = 'anonymous'
+   987→              img.onload = () => {
+   988→                const c = document.createElement('canvas')
+   989→                c.width = img.naturalWidth
+   990→                c.height = img.naturalHeight
+   991→                const ctx = c.getContext('2d', { alpha: false })
+   992→                if (!ctx) return
+   993→                ctx.drawImage(img, 0, 0)
+   994→                algWpCanvasRef.current = c
+   995→                algWpReadyRef.current = true
+   996→              }
+   997→              img.src = url
+   998→            }
+   999→            e.target.value = ''
+  1000→          }}
+  1001→        />
+  1002→      </div>
+  1003→    </div>
+  1004→  )
+  1005→}
+  1006→

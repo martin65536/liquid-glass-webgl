@@ -224,23 +224,35 @@ export default function Page() {
     }
 
     if (perfIterationRef.current === 0) {
-      // Initialize binary search — range [deviceDpr/2, deviceDpr]
+      // Initialize search — range [deviceDpr/2, deviceDpr]
+      // Iteration 1 tests hi (deviceDpr), iteration 2 tests lo (deviceDpr/2),
+      // then binary-search the exact midpoint without rounding.
       perfLoRef.current = deviceDpr / 2
       perfHiRef.current = deviceDpr
     }
 
     const MAX_ITERATIONS = 7
     const iteration = perfIterationRef.current + 1
-    const candidateDpr = Math.round(((perfLoRef.current + perfHiRef.current) / 2) * 4) / 4
-    const clampedDpr = Math.max(deviceDpr / 2, Math.min(deviceDpr, candidateDpr))
+
+    // Strategy: test extremes first (iteration 1 = hi, iteration 2 = lo),
+    // then binary-search the midpoint without rounding.
+    // Only round the final bestDpr to 0.25 steps.
+    let candidateDpr: number
+    if (iteration === 1) {
+      candidateDpr = perfHiRef.current // test max (deviceDpr) first
+    } else if (iteration === 2) {
+      candidateDpr = perfLoRef.current // test min (deviceDpr/2) second
+    } else {
+      candidateDpr = (perfLoRef.current + perfHiRef.current) / 2 // exact midpoint, no rounding
+    }
 
     perfIterationRef.current = iteration
     perfPhaseRef.current = 'measuring'
 
     // Set the candidate DPR via React state → renderer will resize
     setState({
-      customDpr: clampedDpr,
-      perfStatusText: `第${iteration}/${MAX_ITERATIONS}轮 · DPR: ${clampedDpr} · 正在检测性能...`,
+      customDpr: candidateDpr,
+      perfStatusText: `第${iteration}/${MAX_ITERATIONS}轮 · DPR: ${candidateDpr.toFixed(2)} · 正在检测性能...`,
       perfProgressFrac: (iteration - 1) / MAX_ITERATIONS, // start of this iteration
     })
 
@@ -272,7 +284,7 @@ export default function Page() {
       if (elapsed >= MEASURE_MS) {
         // Measurement complete — calculate FPS
         const fps = frames > 5 ? Math.round(frames * 1000 / elapsed) : 0
-        finishIteration(fps, clampedDpr, deviceDpr, iteration, MAX_ITERATIONS)
+        finishIteration(fps, candidateDpr, deviceDpr, iteration, MAX_ITERATIONS)
         return
       }
       rafId = requestAnimationFrame(measureFrame)
@@ -295,9 +307,9 @@ export default function Page() {
     }
 
     // Convergence: range too tight to differentiate, or max iterations reached.
-    // Use a tight threshold (< 0.125) so we don't stop early and miss deviceDpr.
-    if (iteration >= maxIterations || (perfHiRef.current - perfLoRef.current) < 0.125) {
-      // Converged — use the highest DPR that worked (lo)
+    // With no rounding during search, the range always shrinks — no stalling.
+    if (iteration >= maxIterations || (perfHiRef.current - perfLoRef.current) <= 0.1) {
+      // Converged — use the highest DPR that worked (lo), round to 0.25 steps
       const bestDpr = Math.max(deviceDpr / 2, Math.min(deviceDpr, Math.round(perfLoRef.current * 4) / 4))
       perfPhaseRef.current = 'done'
       const isGood = bestDpr >= deviceDpr * 0.5
@@ -322,7 +334,7 @@ export default function Page() {
       setState((prev) => ({
         perfProgress: 'running',
         perfRoundTrigger: prev.perfRoundTrigger + 1,
-        perfStatusText: `第${iteration}/${maxIterations}轮 · DPR: ${candidateDpr} · FPS: ${fps}fps`,
+        perfStatusText: `第${iteration}/${maxIterations}轮 · DPR: ${candidateDpr.toFixed(2)} · FPS: ${fps}fps`,
       }))
     }
   }
