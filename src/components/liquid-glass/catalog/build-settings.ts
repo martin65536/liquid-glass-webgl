@@ -61,7 +61,7 @@ export function buildSettings(
   // fires every drag move → updates state.liveDpr (display-only) so the
   // label text shows the current finger position in real time.
   const deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
-  const minDpr = 1
+  const minDpr = 0.5
   const maxDpr = deviceDpr
   const dprRange = Math.max(0.0001, maxDpr - minDpr)
   const currentDpr = state.customDpr > 0 ? Math.max(minDpr, Math.min(maxDpr, state.customDpr)) : deviceDpr

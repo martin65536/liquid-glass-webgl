@@ -162,7 +162,7 @@ export default function Page() {
   // When done, an "退出" button appears to return to Home.
   const PERF_KEY = 'liquid-glass-perf-dpr'
   const perfPhaseRef = React.useRef<'idle' | 'measuring' | 'done'>('idle')
-  const perfLoRef = React.useRef(1)
+  const perfLoRef = React.useRef(0.5)
   const perfHiRef = React.useRef(0)
   const perfIterationRef = React.useRef(0)
   // Ref to track latest perfProgressFrac so the rAF animation loop can read
@@ -219,15 +219,15 @@ export default function Page() {
     if (perfPhaseRef.current === 'done') {
       perfPhaseRef.current = 'idle'
       perfIterationRef.current = 0
-      perfLoRef.current = 1
+      perfLoRef.current = 0.5
       perfHiRef.current = deviceDpr
     }
 
     if (perfIterationRef.current === 0) {
-      // Initialize search — range [1, deviceDpr] (slider range, 0.25 steps)
-      // Iteration 1 tests hi (deviceDpr), iteration 2 tests lo (1),
+      // Initialize search — range [0.5, deviceDpr] (slider range, 0.25 steps)
+      // Iteration 1 tests hi (deviceDpr), iteration 2 tests lo (0.5),
       // then binary-search midpoint rounded to 0.25 steps.
-      perfLoRef.current = 1
+      perfLoRef.current = 0.5
       perfHiRef.current = deviceDpr
     }
 
@@ -240,7 +240,7 @@ export default function Page() {
     if (iteration === 1) {
       candidateDpr = perfHiRef.current // test max (deviceDpr) first
     } else if (iteration === 2) {
-      candidateDpr = perfLoRef.current // test min (1) second
+      candidateDpr = perfLoRef.current // test min (0.5) second
     } else {
       candidateDpr = Math.round(((perfLoRef.current + perfHiRef.current) / 2) * 4) / 4 // 0.25 steps
     }
@@ -297,7 +297,7 @@ export default function Page() {
 
   function finishIteration(fps: number, candidateDpr: number, deviceDpr: number, iteration: number, maxIterations: number) {
     const MIN_FPS = 55
-    const MIN_DPR = 1 // slider minimum
+    const MIN_DPR = 0.5 // slider minimum
     if (fps >= MIN_FPS) {
       // This DPR works — set lo to it (we know it's viable)
       perfLoRef.current = candidateDpr
@@ -306,8 +306,8 @@ export default function Page() {
       perfHiRef.current = candidateDpr
     }
 
-    // Special case: iteration 2 tested the minimum (1) and it failed.
-    // Performance is truly bad — force bestDpr = 1 and finish immediately.
+    // Special case: iteration 2 tested the minimum (0.5) and it failed.
+    // Performance is truly bad — force bestDpr = 0.5 and finish immediately.
     if (iteration === 2 && candidateDpr === MIN_DPR && fps < MIN_FPS) {
       perfPhaseRef.current = 'done'
       const statusText = `检测完成 · 推荐 DPR：${MIN_DPR} · 性能有限，已自动降低画质`
@@ -363,7 +363,7 @@ export default function Page() {
   React.useEffect(() => {
     if (state.perfProgress !== 'stop-requested') return
     const deviceDpr = window.devicePixelRatio || 1
-    const MIN_DPR = 1
+    const MIN_DPR = 0.5
     const bestDpr = Math.max(MIN_DPR, Math.min(deviceDpr, perfLoRef.current))
     perfPhaseRef.current = 'done'
     const isGood = bestDpr >= deviceDpr * 0.75
