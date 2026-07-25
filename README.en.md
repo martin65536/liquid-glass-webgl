@@ -133,6 +133,30 @@ Want to experience liquid glass without an Apple device? Open the link and try i
 
 For a detailed factual account, see [Kyant0/AndroidLiquidGlass #112](https://github.com/Kyant0/AndroidLiquidGlass/issues/112).
 
+### 🔴 Ultimatum: Public Apology and Remediation Within 72 Hours, or Full Exposure
+
+After being exposed for plagiarism, the GooseHyperGlass project maintainer did not respond in good faith. Instead:
+
+- **Faked a rename, then reverted it** — briefly renamed the project to evade accusations, then restored the original name, attempting to sweep the matter under the rug;
+- **Deleted all response posts** — every response and defense posted in the original Issue has been wiped, erasing the conversation trail;
+- **Closed the GitHub Issue tracker** — disabled the project's Issue functionality entirely, blocking any further public scrutiny.
+
+These actions constitute malicious deception and information manipulation against the open-source community, going far beyond mere "inspiration."
+
+**We now issue an ultimatum requiring the GooseHyperGlass project maintainer to complete the following three remediation actions within 72 hours:**
+
+1. **Permanent rename** — the project name must be permanently changed to one that is not confusingly similar to "Liquid Glass," and must not be reverted again;
+2. **Publish a public apology letter and retain it for at least 15 days** — post an apology in the project README acknowledging the plagiarism, restoring credit to the original author Kyant, the porter, and Z.ai Agent; the apology must remain visible in the README for at least 15 days;
+3. **Reopen the GitHub Issue tracker** — immediately re-enable the project's Issue functionality, allowing community members to freely raise questions and discuss concerns.
+
+**If all three remediation actions are not completed within 72 hours, the following measures will be taken:**
+
+- Every user who has liked, commented on, or shared GooseHyperGlass will be individually notified with the full story;
+- A comprehensive incident recount will be published across multiple platforms, including timelines, evidence screenshots, and technical comparison analysis;
+- All accusations in this README will be permanently retained, and no form of withdrawal request will be accepted.
+
+**The deadline is counted from the date this section first appears in the README.**
+
 ## License
 
 Apache-2.0 — see [LICENSE](./LICENSE), consistent with the upstream AndroidLiquidGlass project.
