@@ -240,7 +240,7 @@ export default function Page() {
     setState({
       customDpr: clampedDpr,
       perfStatusText: `第${iteration}/${MAX_ITERATIONS}轮 · DPR: ${clampedDpr} · 正在检测性能...`,
-      perfProgressFrac: iteration / MAX_ITERATIONS,
+      perfProgressFrac: (iteration - 1) / MAX_ITERATIONS, // start of this iteration
     })
 
     // Measure FPS for 2 seconds using rAF timestamps
@@ -262,6 +262,13 @@ export default function Page() {
         frames++
       }
       const elapsed = timestamp - startT
+      // Update progress continuously within this iteration (10^-3 precision)
+      // Progress = completed iterations + fraction of current iteration
+      const subFrac = Math.min(1, elapsed / MEASURE_MS)
+      const totalFrac = (iteration - 1) / MAX_ITERATIONS + subFrac / MAX_ITERATIONS
+      perfProgressFracRef.current = totalFrac
+      setState({ perfProgressFrac: totalFrac })
+
       if (elapsed >= MEASURE_MS) {
         // Measurement complete — calculate FPS
         const fps = frames > 5 ? Math.round(frames * 1000 / elapsed) : 0
