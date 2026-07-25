@@ -203,8 +203,9 @@ export default function Page() {
 
   // Run benchmark iteration when perfProgress='running' and the trigger changes.
   // perfRoundTrigger increments each round so the effect re-fires.
-  // IMPORTANT: the measurement rAF loop does NOT depend on React renders.
-  // It runs continuously via rAF for 2 seconds, counting frame timestamps.
+  // Strategy: test deviceDpr first. If it works, done! If not, binary search
+  // downward from deviceDpr to find the highest DPR that sustains ≥55fps.
+  // This ensures we always test the maximum value.
   React.useEffect(() => {
     if (destination !== CatalogDestination.PerfBenchmark) return
     if (!rendererReady) return
@@ -217,21 +218,24 @@ export default function Page() {
     if (perfPhaseRef.current === 'done') {
       perfPhaseRef.current = 'idle'
       perfIterationRef.current = 0
-      perfLoRef.current = 0.5
+      perfLoRef.current = deviceDpr / 2
       perfHiRef.current = deviceDpr
     }
 
-    if (perfIterationRef.current === 0) {
-      // Initialize binary search — search full range from 0.5 to deviceDpr
-      perfLoRef.current = 0.5
-      perfHiRef.current = deviceDpr
-    }
-
-    // Calculate next candidate DPR (binary search midpoint)
-    const MAX_ITERATIONS = 5
+    const MAX_ITERATIONS = 6
     const iteration = perfIterationRef.current + 1
-    const candidateDpr = Math.round(((perfLoRef.current + perfHiRef.current) / 2) * 4) / 4
-    const clampedDpr = Math.max(0.5, Math.min(deviceDpr, candidateDpr))
+
+    // First iteration: always test deviceDpr (the max value)
+    // Subsequent iterations: binary search between lo and hi
+    let candidateDpr: number
+    if (iteration === 1) {
+      candidateDpr = deviceDpr
+      perfLoRef.current = deviceDpr / 2  // minimum floor
+      perfHiRef.current = deviceDpr       // starting point
+    } else {
+      candidateDpr = Math.round(((perfLoRef.current + perfHiRef.current) / 2) * 4) / 4
+    }
+    const clampedDpr = Math.max(deviceDpr / 2, Math.min(deviceDpr, candidateDpr))
 
     perfIterationRef.current = iteration
     perfPhaseRef.current = 'measuring'
@@ -263,7 +267,6 @@ export default function Page() {
       }
       const elapsed = timestamp - startT
       // Update progress continuously within this iteration (10^-3 precision)
-      // Progress = completed iterations + fraction of current iteration
       const subFrac = Math.min(1, elapsed / MEASURE_MS)
       const totalFrac = (iteration - 1) / MAX_ITERATIONS + subFrac / MAX_ITERATIONS
       perfProgressFracRef.current = totalFrac
@@ -287,14 +290,15 @@ export default function Page() {
   function finishIteration(fps: number, candidateDpr: number, deviceDpr: number, iteration: number, maxIterations: number) {
     const MIN_FPS = 55
     if (fps >= MIN_FPS) {
-      // This DPR works — try higher
+      // This DPR works — set lo to it (we know it's viable)
       perfLoRef.current = candidateDpr
     } else {
-      // Too slow — try lower
+      // Too slow — set hi to it (search lower)
       perfHiRef.current = candidateDpr
     }
 
-    if (iteration >= maxIterations || perfHiRef.current - perfLoRef.current <= 0.25) {
+    // Convergence: lo == hi (range collapsed) or max iterations reached
+    if (iteration >= maxIterations || Math.abs(perfHiRef.current - perfLoRef.current) < 0.01) {
       // Converged — use the highest DPR that worked (lo)
       const bestDpr = Math.max(deviceDpr / 2, Math.min(deviceDpr, Math.round(perfLoRef.current * 4) / 4))
       perfPhaseRef.current = 'done'
