@@ -1,0 +1,687 @@
+     1→import * as React from 'react'
+     2→import type { ElementInteraction } from '../context'
+     3→import type { GlassElementConfig, GlassHighlight, LiquidGlassRenderer } from '../renderer'
+     4→import {
+     5→  DEFAULT_HIGHLIGHT,
+     6→  DEFAULT_SHADOW,
+     7→  DP,
+     8→  GLASS_PARAMS,
+     9→  SLIDER_HIT_H,
+    10→  SLIDER_KNOB_H,
+    11→  SLIDER_KNOB_W,
+    12→  SLIDER_TRACK_H,
+    13→  TEXT_FONT_SIZE_PX,
+    14→  draggingGroups,
+    15→  type ThemePalette,
+    16→} from './types'
+    17→
+    18→/* ------------------------------------------------------------------ *
+    19→ * Shared LiquidSlider factory — used by both the Slider page and the
+    20→ * Glass Playground. Creates track + fill + knob + interactions.
+    21→ * ------------------------------------------------------------------ */
+    22→// Unified per-group drag state (survives re-renders during liveUpdate /
+    23→// gravityAngle changes). Used by ALL drag-based controls.
+    24→const dragStates = new Map<string, { fraction: number; x: number; didDrag: boolean }>()
+    25→
+    26→/* ------------------------------------------------------------------ *
+    27→ * makeDragInteractions — the ONE shared drag-interaction factory.
+    28→ *
+    29→ * Used by: sliders (continuous + stepped), toggles, bottom tabs.
+    30→ * All share the same gesture pattern:
+    31→ *   onDragStart → read current visual fraction → beginDrag
+    32→ *   onDrag → relative drag (knob follows finger delta with spring lag)
+    33→ *   onDragEnd → endDrag → snap → setTarget
+    34→ *   onTap → jump to tapped fraction → snap → setTarget
+    35→ *
+    36→ * The control-specific behavior is injected via the `opts` object:
+    37→ *   - getFraction: read current visual fraction (getToggleFraction / getTabFraction)
+    38→ *   - beginDrag: start the drag (beginToggleDrag / beginTabDrag)
+    39→ *   - drag: update during drag (dragToggle / dragTab)
+    40→ *   - endDrag: release + return final fraction (endSliderDrag / endToggleDrag / endTabDrag)
+    41→ *   - setTarget: programmatic target set (setToggleTarget / setTabSelected)
+    42→ *   - snap: snap function (fraction → snapped fraction), or null = no snap
+    43→ *   - liveUpdate: push fraction to onValueChange during drag
+    44→ *   - onTapJump: if false, tap does nothing (e.g. toggle = toggle on tap, not jump)
+    45→ * ------------------------------------------------------------------ */
+    46→interface DragInteractionsOpts {
+    47→  groupId: string
+    48→  trackX: number
+    49→  dragW: number
+    50→  rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> | null
+    51→  onValueChange: (fraction: number) => void
+    52→  /** Optional lightweight callback fired on every drag move (regardless of
+    53→   *  liveUpdate). Use this to update a display-only label WITHOUT triggering
+    54→   *  a catalog rebuild (e.g. settings slider labels). onValueChange is still
+    55→   *  fired on dragEnd (or every move if liveUpdate=true) for the real state. */
+    56→  onLiveValue?: (fraction: number) => void
+    57→  // Control-specific renderer calls:
+    58→  getFraction: (r: LiquidGlassRenderer, groupId: string) => number
+    59→  beginDrag: (r: LiquidGlassRenderer, groupId: string, fraction: number, count?: number) => void
+    60→  drag: (r: LiquidGlassRenderer, groupId: string, startFraction: number, currentX: number, startX: number, dragW: number, count?: number) => void
+    61→  endDrag: (r: LiquidGlassRenderer, groupId: string, count?: number) => number
+    62→  setTarget: (r: LiquidGlassRenderer, groupId: string, fraction: number, count?: number) => void
+    63→  count?: number // tabsCount for tabs (passed to begin/drag/end/setTarget)
+    64→  snap?: (f: number) => number // snap function (null/undefined = no snap)
+    65→  liveUpdate?: boolean
+    66→  onTapJump?: boolean // default true; false = tap does nothing (toggle uses its own onTap)
+    67→  didDragThreshold?: number // px of movement before didDrag=true (default 3)
+    68→}
+    69→
+    70→export function makeDragInteractions(opts: DragInteractionsOpts): ElementInteraction {
+    71→  const {
+    72→    groupId, trackX, dragW, rendererRef, onValueChange, onLiveValue,
+    73→    getFraction, beginDrag, drag, endDrag, setTarget,
+    74→    count, snap, liveUpdate = false, onTapJump = true, didDragThreshold = 3,
+    75→  } = opts
+    76→
+    77→  if (!dragStates.has(groupId)) dragStates.set(groupId, { fraction: 0, x: 0, didDrag: false })
+    78→  const ds = dragStates.get(groupId)!
+    79→
+    80→  const fracFromPos = (px: number) => Math.max(0, Math.min(1, (px - trackX) / dragW))
+    81→  const applySnap = (f: number) => (snap ? snap(f) : f)
+    82→
+    83→  return {
+    84→    onTap: (pos) => {
+    85→      if (!onTapJump) return
+    86→      const f = applySnap(fracFromPos(pos.x))
+    87→      const r = rendererRef?.current
+    88→      if (r) setTarget(r, groupId, f, count)
+    89→      onValueChange(f)
+    90→    },
+    91→    onDragStart: (pos) => {
+    92→      const r = rendererRef?.current
+    93→      if (!r) return
+    94→      draggingGroups.add(groupId)
+    95→      ds.fraction = getFraction(r, groupId)
+    96→      ds.x = pos.x
+    97→      ds.didDrag = false
+    98→      beginDrag(r, groupId, ds.fraction, count)
+    99→    },
+   100→    onDrag: (pos) => {
+   101→      const r = rendererRef?.current
+   102→      if (!r) return
+   103→      if (Math.abs(pos.x - ds.x) > didDragThreshold) ds.didDrag = true
+   104→      drag(r, groupId, ds.fraction, pos.x, ds.x, dragW, count)
+   105→      const f = getFraction(r, groupId)
+   106→      if (onLiveValue) onLiveValue(f)
+   107→      if (liveUpdate) {
+   108→        onValueChange(f)
+   109→      }
+   110→    },
+   111→    onDragEnd: () => {
+   112→      const r = rendererRef?.current
+   113→      if (!r) return
+   114→      const rawF = endDrag(r, groupId, count)
+   115→      // Keep draggingGroups flag set DURING onValueChange (which triggers
+   116→      // setState → tabTargets/toggleTargets effect). The effect checks
+   117→      // draggingGroups and skips setTabSelected/setToggleTarget, preventing
+   118→      // it from zeroing velocity and fighting the spring. Delete AFTER
+   119→      // onValueChange so the next render's effect can sync.
+   120→      const snappedF = applySnap(rawF)
+   121→      // Only call setTarget if the endDrag didn't already snap.
+   122→      // For toggle/slider: endToggleDrag/endSliderDrag DON'T snap (they
+   123→      // return the raw fraction), so setTarget is needed.
+   124→      // For tabs: endTabDrag DOES snap (sets targetFraction to rounded
+   125→      // index), so setTarget would be redundant and would zero velocity
+   126→      // (fighting the spring). Skip setTarget for tabs (count != undefined
+   127→      // && endDrag already snapped).
+   128→      if (snap && count == null) setTarget(r, groupId, snappedF, count)
+   129→      onValueChange(snappedF)
+   130→      draggingGroups.delete(groupId)
+   131→    },
+   132→  }
+   133→}
+   134→
+   135→/* ------------------------------------------------------------------ *
+   136→ * Renderer method bindings — pre-wired adapters for each control type.
+   137→ * These eliminate the boilerplate of passing lambdas every time.
+   138→ * ------------------------------------------------------------------ */
+   139→
+   140→// Slider/Settings: getToggleFraction, beginToggleDrag, dragToggle,
+   141→// endSliderDrag, setToggleTarget.
+   142→export const sliderDragBindings = {
+   143→  getFraction: (r: LiquidGlassRenderer, id: string) => r.getToggleFraction(id),
+   144→  beginDrag: (r: LiquidGlassRenderer, id: string, f: number) => r.beginToggleDrag(id, f),
+   145→  drag: (r: LiquidGlassRenderer, id: string, sf: number, cx: number, sx: number, dw: number) =>
+   146→    r.dragToggle(id, sf, cx, sx, dw),
+   147→  endDrag: (r: LiquidGlassRenderer, id: string) => r.endSliderDrag(id),
+   148→  setTarget: (r: LiquidGlassRenderer, id: string, f: number) => r.setToggleTarget(id, f),
+   149→}
+   150→
+   151→// Toggle: getToggleTarget (not fraction!), beginToggleDrag, dragToggle,
+   152→// endToggleDrag, setToggleTarget. Tap = toggle (no jump).
+   153→export const toggleDragBindings = {
+   154→  getFraction: (r: LiquidGlassRenderer, id: string) => r.getToggleTarget(id),
+   155→  beginDrag: (r: LiquidGlassRenderer, id: string, f: number) => r.beginToggleDrag(id, f),
+   156→  drag: (r: LiquidGlassRenderer, id: string, sf: number, cx: number, sx: number, dw: number) =>
+   157→    r.dragToggle(id, sf, cx, sx, dw),
+   158→  endDrag: (r: LiquidGlassRenderer, id: string) => r.endToggleDrag(id),
+   159→  setTarget: (r: LiquidGlassRenderer, id: string, f: number) => r.setToggleTarget(id, f),
+   160→}
+   161→
+   162→// Bottom tabs: fraction (0..1) ↔ index (0..count-1) conversion at the
+   163→// binding layer. The renderer works in INDEX space (0..count-1), but
+   164→// makeDragInteractions works in FRACTION space (0..1). The bindings
+   165→// convert: getFraction divides by (count-1), setTarget/beginDrag/drag
+   166→// multiply by (count-1).
+   167→export const tabDragBindings = {
+   168→  getFraction: (r: LiquidGlassRenderer, id: string, count?: number) => {
+   169→    const c = count ?? 3
+   170→    // Use TARGET (not animated) fraction — faithful to the original which
+   171→    // uses `targetValue` in onDrag, not the animated value. Starting a drag
+   172→    // from the animated value (mid-spring) causes drift because the spring's
+   173→    // residual motion adds to the finger delta.
+   174→    return r.getTabTarget(id) / Math.max(1, c - 1)
+   175→  },
+   176→  beginDrag: (r: LiquidGlassRenderer, id: string, f: number, count?: number) => {
+   177→    const c = count ?? 3
+   178→    r.beginTabDrag(id, f * (c - 1), c)
+   179→  },
+   180→  drag: (r: LiquidGlassRenderer, id: string, sf: number, cx: number, sx: number, dw: number, count?: number) => {
+   181→    const c = count ?? 3
+   182→    r.dragTab(id, sf * (c - 1), cx, sx, dw, c)
+   183→  },
+   184→  endDrag: (r: LiquidGlassRenderer, id: string, count?: number) => {
+   185→    const c = count ?? 3
+   186→    // endTabDrag returns an INDEX (0..c-1). Convert to fraction (0..1).
+   187→    return r.endTabDrag(id, c) / Math.max(1, c - 1)
+   188→  },
+   189→  setTarget: (r: LiquidGlassRenderer, id: string, f: number, count?: number) => {
+   190→    const c = count ?? 3
+   191→    r.setTabSelected(id, Math.max(0, Math.min(c - 1, Math.round(f * (c - 1)))), c)
+   192→  },
+   193→}
+   194→
+   195→export function makeLiquidSlider(
+   196→  idPrefix: string,
+   197→  trackX: number,
+   198→  trackY: number,
+   199→  trackW: number,
+   200→  groupId: string,
+   201→  trackColor: [number, number, number, number],
+   202→  accentColor: [number, number, number],
+   203→  rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> | null,
+   204→  onValueChange: (fraction: number) => void,
+   205→  scroll = true,
+   206→  liveUpdate = false,
+   207→  initFraction = 0,
+   208→  snap?: (f: number) => number,
+   209→  onLiveValue?: (fraction: number) => void,
+   210→): { elements: GlassElementConfig[]; interactions: Record<string, ElementInteraction> } {
+   211→  const elements: GlassElementConfig[] = []
+   212→  const interactions: Record<string, ElementInteraction> = {}
+   213→  const dragW = trackW - SLIDER_KNOB_W / 2
+   214→  const knobBaseX = trackX - SLIDER_KNOB_W / 4
+   215→  const knobY = trackY + (SLIDER_TRACK_H - SLIDER_KNOB_H) / 2
+   216→  // Knob rect.x is ALWAYS at fraction=0 (knobBaseX). The renderer's
+   217→  // isToggleKnob.dragWidth drives the x offset via spring animation.
+   218→  // Setting rect.x to initFraction would cause 2x displacement
+   219→  // (rect.x + spring offset = initFraction*dragW + fraction*dragW).
+   220→  const knobX = knobBaseX
+   221→
+   222→  // Track
+   223→  const trackEl = makePlainRect(`${idPrefix}-track`, { x: trackX, y: trackY, w: trackW, h: SLIDER_TRACK_H }, trackColor, SLIDER_TRACK_H / 2)
+   224→  trackEl.hitRect = { x: trackX, y: trackY + (SLIDER_TRACK_H - SLIDER_HIT_H) / 2, w: trackW, h: SLIDER_HIT_H }
+   225→  trackEl.scroll = scroll
+   226→  elements.push(trackEl)
+   227→
+   228→  // Fill — width driven by renderer via isSliderFill
+   229→  const fillW = Math.max(SLIDER_TRACK_H, initFraction * trackW)
+   230→  const fillEl = makePlainRect(`${idPrefix}-fill`, { x: trackX, y: trackY, w: fillW, h: SLIDER_TRACK_H }, [...accentColor, 1], SLIDER_TRACK_H / 2)
+   231→  fillEl.isSliderFill = { groupId, trackX, trackW, knobW: SLIDER_KNOB_W, minW: 0 }
+   232→  fillEl.scroll = scroll
+   233→  elements.push(fillEl)
+   234→
+   235→  // Knob — frosted white at rest, glass when pressed (no highlight)
+   236→  const knobEl = makeGlassShape(
+   237→    `${idPrefix}-knob`,
+   238→    { x: knobX, y: knobY, w: SLIDER_KNOB_W, h: SLIDER_KNOB_H },
+   239→    {
+   240→      cornerRadius: SLIDER_KNOB_H / 2,
+   241→      refractionHeight: 10 * DP,
+   242→      refractionAmount: -14 * DP,
+   243→      blurRadius: 8 * DP,
+   244→      saturation: 1.0,
+   245→      surfaceColor: [0, 0, 0, 0],
+   246→      highlight: null,
+   247→      outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: (4 / 6) * DP, color: [0, 0, 0] },
+   248→      innerShadow: { radius: 4 * DP, alpha: 0.15, offsetX: 0, offsetY: 4 * DP },
+   249→      chromaticAberration: true,
+   250→    },
+   251→    scroll
+   252→  )
+   253→  knobEl.isToggleKnob = { groupId, dragWidth: dragW, velocityDivisor: 10 }
+   254→  knobEl.hitRect = { x: knobX, y: knobY + (SLIDER_KNOB_H - SLIDER_HIT_H) / 2, w: SLIDER_KNOB_W, h: SLIDER_HIT_H }
+   255→  elements.push(knobEl)
+   256→
+   257→  // Interactions — unified drag pattern via makeDragInteractions.
+   258→  const interact = makeDragInteractions({
+   259→    groupId, trackX, dragW, rendererRef, onValueChange, onLiveValue,
+   260→    ...sliderDragBindings,
+   261→    snap,
+   262→    liveUpdate,
+   263→  })
+   264→  interactions[`${idPrefix}-track`] = interact
+   265→  interactions[`${idPrefix}-knob`] = interact
+   266→
+   267→  return { elements, interactions }
+   268→}
+   269→
+   270→/* ------------------------------------------------------------------ *
+   271→ * Element factory helpers (shared across all destinations).
+   272→ * ------------------------------------------------------------------ */
+   273→export function makeButton(
+   274→  id: string,
+   275→  rect: { x: number; y: number; w: number; h: number },
+   276→  spec: {
+   277→    label: string
+   278→    tintColor: [number, number, number, number]
+   279→    surfaceColor: [number, number, number, number]
+   280→    labelColor: [number, number, number, number]
+   281→    /** Optional fixed font size in CSS px (default: auto-scale from height). */
+   282→    labelFontSizePx?: number
+   283→  },
+   284→  scroll = true
+   285→): GlassElementConfig {
+   286→  return {
+   287→    id,
+   288→    kind: 'button',
+   289→    rect,
+   290→    ...GLASS_PARAMS,
+   291→    cornerRadius: rect.h / 2,
+   292→    tintColor: spec.tintColor,
+   293→    surfaceColor: spec.surfaceColor,
+   294→    highlight: { ...DEFAULT_HIGHLIGHT },
+   295→    outerShadow: { ...DEFAULT_SHADOW },
+   296→    label: spec.label,
+   297→    labelColor: spec.labelColor,
+   298→    labelFontSizePx: spec.labelFontSizePx,
+   299→    showChevron: false,
+   300→    isInteractive: true,
+   301→    scroll,
+   302→  }
+   303→}
+   304→
+   305→export function makeText(
+   306→  id: string,
+   307→  rect: { x: number; y: number; w: number; h: number },
+   308→  text: string,
+   309→  opts: {
+   310→    color?: [number, number, number, number]
+   311→    fontSizePx?: number
+   312→    fontWeight?: number
+   313→    align?: 'left' | 'center' | 'right'
+   314→    wrap?: boolean
+   315→    paddingPx?: number
+   316→    valign?: 'top' | 'center' | 'bottom'
+   317→    maxLines?: number
+   318→    halo?: 'auto' | 'light' | 'dark' | 'none'
+   319→    icon?: { path: string; size: number; color: [number, number, number, number]; viewport?: number; layoutSize?: number }
+   320→    /** Press tint color for interactive text items (ripple color).
+   321→     *  Faithful to MainContent.kt: black in light theme, white in dark. */
+   322→    pressTintColor?: [number, number, number, number]
+   323→  } = {},
+   324→  scroll = true
+   325→): GlassElementConfig {
+   326→  return {
+   327→    id,
+   328→    kind: 'text',
+   329→    rect,
+   330→    cornerRadius: 0,
+   331→    refractionHeight: 0,
+   332→    refractionAmount: 0,
+   333→    depthEffect: false,
+   334→    chromaticAberration: false,
+   335→    blurRadius: 0,
+   336→    saturation: 1,
+   337→    brightness: 0,
+   338→    contrast: 1,
+   339→    tintColor: [0, 0, 0, 0],
+   340→    surfaceColor: [0, 0, 0, 0],
+   341→    highlight: null,
+   342→    outerShadow: null,
+   343→    label: '',
+   344→    labelColor: [0, 0, 0, 1],
+   345→    showChevron: false,
+   346→    isInteractive: false,
+   347→    pressTintColor: opts.pressTintColor,
+   348→    scroll,
+   349→    text: {
+   350→      content: text,
+   351→      color: opts.color ?? [0, 0, 0, 1],
+   352→      fontSizePx: opts.fontSizePx ?? TEXT_FONT_SIZE_PX,
+   353→      fontWeight: opts.fontWeight ?? 400,
+   354→      align: opts.align ?? 'left',
+   355→      wrap: opts.wrap ?? false,
+   356→      paddingPx: opts.paddingPx ?? 16,
+   357→      valign: opts.valign,
+   358→      maxLines: opts.maxLines,
+   359→      halo: opts.halo ?? 'auto',
+   360→      icon: opts.icon,
+   361→    },
+   362→  }
+   363→}
+   364→
+   365→export function makePlainRect(
+   366→  id: string,
+   367→  rect: { x: number; y: number; w: number; h: number },
+   368→  color: [number, number, number, number],
+   369→  cornerRadius = 0,
+   370→  scroll = true
+   371→): GlassElementConfig {
+   372→  return {
+   373→    id,
+   374→    kind: 'plain-rect',
+   375→    rect,
+   376→    cornerRadius,
+   377→    refractionHeight: 0,
+   378→    refractionAmount: 0,
+   379→    depthEffect: false,
+   380→    chromaticAberration: false,
+   381→    blurRadius: 0,
+   382→    saturation: 1,
+   383→    brightness: 0,
+   384→    contrast: 1,
+   385→    tintColor: [0, 0, 0, 0],
+   386→    surfaceColor: [0, 0, 0, 0],
+   387→    highlight: null,
+   388→    outerShadow: null,
+   389→    label: '',
+   390→    labelColor: [0, 0, 0, 1],
+   391→    showChevron: false,
+   392→    isInteractive: false,
+   393→    scroll,
+   394→    plainRect: { color },
+   395→  }
+   396→}
+   397→
+   398→/**
+   399→ * Tab drag interactions — faithful to LiquidBottomTabs.kt's
+   400→ * dampedDragAnimation gesture handling.
+   401→ *
+   402→ * The original uses DampedDragAnimation with:
+   403→ *   valueRange = 0..(tabsCount-1)
+   404→ *   pressedScale = 78/56
+   405→ *   onDrag → updateValue(targetValue + dragAmount.x / tabWidth)
+   406→ *   onDragStopped → snap to nearest tab, animateToValue
+   407→ *
+   408→ * We reuse the renderer's toggle-group state (which supports custom
+   409→ * pressedScale via ensureToggleState) through the tab-specific API:
+   410→ *   beginTabDrag / dragTab / endTabDrag.
+   411→ */
+   412→export function makeTabDragInteractions(
+   413→  groupId: string,
+   414→  tabWidth: number,
+   415→  tabsCount: number,
+   416→  onSelect: (i: number) => void,
+   417→  rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> | null
+   418→): ElementInteraction {
+   419→  // Module-level drag state (survives catalog rebuilds).
+   420→  if (!dragStates.has(groupId)) dragStates.set(groupId, { fraction: 0, x: 0, didDrag: false })
+   421→  const ds = dragStates.get(groupId)!
+   422→
+   423→  return {
+   424→    onTap: () => {
+   425→      // Tab taps handled by tab-text interactions, not here.
+   426→    },
+   427→    onDragStart: (pos) => {
+   428→      const r = rendererRef?.current
+   429→      if (!r) return
+   430→      draggingGroups.add(groupId)
+   431→      // Use TARGET index (not animated) — faithful to original's targetValue.
+   432→      ds.fraction = r.getTabTarget(groupId)
+   433→      ds.x = pos.x
+   434→      ds.didDrag = false
+   435→      r.beginTabDrag(groupId, ds.fraction, tabsCount)
+   436→    },
+   437→    onDrag: (pos) => {
+   438→      const r = rendererRef?.current
+   439→      if (!r) return
+   440→      if (Math.abs(pos.x - ds.x) > 3) ds.didDrag = true
+   441→      // Relative drag: indicator follows finger delta from drag start.
+   442→      // startTabIndex + (currentX - startX) / tabWidth, clamped to [0, count-1].
+   443→      r.dragTab(groupId, ds.fraction, pos.x, ds.x, tabWidth, tabsCount)
+   444→    },
+   445→    onDragEnd: () => {
+   446→      const r = rendererRef?.current
+   447→      if (!r) return
+   448→      // endTabDrag snaps to nearest integer, sets targetFraction, returns index.
+   449→      const finalIndex = r.endTabDrag(groupId, tabsCount)
+   450→      // Call onSelect AFTER endTabDrag (so targetFraction is already set).
+   451→      // Keep draggingGroups set during onSelect to prevent tabTargets effect
+   452→      // from calling setTabSelected (which would zero velocity).
+   453→      if (ds.didDrag) {
+   454→        onSelect(finalIndex)
+   455→      }
+   456→      draggingGroups.delete(groupId)
+   457→    },
+   458→  }
+   459→}
+   460→
+   461→export function makeGlassShape(
+   462→  id: string,
+   463→  rect: { x: number; y: number; w: number; h: number },
+   464→  opts: {
+   465→    cornerRadius?: number
+   466→    refractionHeight?: number
+   467→    refractionAmount?: number
+   468→    blurRadius?: number
+   469→    saturation?: number
+   470→    brightness?: number
+   471→    contrast?: number
+   472→    surfaceColor?: [number, number, number, number]
+   473→    highlight?: GlassHighlight | null
+   474→    outerShadow?: typeof DEFAULT_SHADOW | null
+   475→    innerShadow?: { radius: number; alpha: number; offsetX: number; offsetY: number } | null
+   476→    depthEffect?: boolean
+   477→    chromaticAberration?: boolean
+   478→  } = {},
+   479→  scroll = true
+   480→): GlassElementConfig {
+   481→  return {
+   482→    id,
+   483→    kind: 'glass-shape',
+   484→    rect,
+   485→    cornerRadius: opts.cornerRadius ?? rect.h / 2,
+   486→    refractionHeight: opts.refractionHeight ?? 12 * DP,
+   487→    refractionAmount: opts.refractionAmount ?? -24 * DP,
+   488→    depthEffect: opts.depthEffect ?? false,
+   489→    chromaticAberration: opts.chromaticAberration ?? false,
+   490→    blurRadius: opts.blurRadius ?? 2 * DP,
+   491→    saturation: opts.saturation ?? 1.5,
+   492→    brightness: opts.brightness ?? 0,
+   493→    contrast: opts.contrast ?? 1,
+   494→    tintColor: [0, 0, 0, 0],
+   495→    surfaceColor: opts.surfaceColor ?? [0, 0, 0, 0],
+   496→    highlight: opts.highlight !== undefined ? opts.highlight : { ...DEFAULT_HIGHLIGHT },
+   497→    outerShadow: opts.outerShadow !== undefined ? opts.outerShadow : null,
+   498→    label: '',
+   499→    labelColor: [0, 0, 0, 1],
+   500→    showChevron: false,
+   501→    isInteractive: false,
+   502→    scroll,
+   503→    innerShadow: opts.innerShadow ?? null,
+   504→  }
+   505→}
+   506→
+   507→/* ------------------------------------------------------------------ *
+   508→ * Back button — rendered at top-left of every non-Home destination.
+   509→ * Matches the Android BackHandler behavior (hardware back → Home).
+   510→ * Circular glass button with a Material Design arrow_back icon,
+   511→ * matching the original catalog's navigation icon button.
+   512→ * ------------------------------------------------------------------ */
+   513→
+   514→// Material Design arrow_back icon path (24×24 viewport).
+   515→const ARROW_BACK_ICON_PATH =
+   516→  'M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z'
+   517→
+   518→// Sun and moon icon paths (24×24 viewport) for the theme toggle button.
+   519→// Sun is shown in dark mode (click → switch to light).
+   520→// Moon is shown in light mode (click → switch to dark).
+   521→const SUN_ICON_PATH =
+   522→  'M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0-5a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0V3a1 1 0 0 1 1-1zm0 17a1 1 0 0 1 1 1v2a1 1 0 1 1-2 0v-2a1 1 0 0 1 1-1zM4.22 4.22a1 1 0 0 1 1.41 0l1.42 1.42a1 1 0 1 1-1.42 1.41L4.22 5.63a1 1 0 0 1 0-1.41zm12.73 12.73a1 1 0 0 1 1.41 0l1.42 1.42a1 1 0 1 1-1.42 1.41l-1.41-1.42a1 1 0 0 1 0-1.41zM2 12a1 1 0 0 1 1-1h2a1 1 0 1 1 0 2H3a1 1 0 0 1-1-1zm17 0a1 1 0 0 1 1-1h2a1 1 0 1 1 0 2h-2a1 1 0 0 1-1-1zM4.22 19.78a1 1 0 0 1 0-1.41l1.42-1.42a1 1 0 1 1 1.41 1.42l-1.41 1.41a1 1 0 0 1-1.42 0zM16.95 7.05a1 1 0 0 1 0-1.41l1.42-1.42a1 1 0 1 1 1.41 1.42l-1.41 1.41a1 1 0 0 1-1.42 0z'
+   523→const MOON_ICON_PATH =
+   524→  'M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'
+   525→
+   526→export function makeBackButton(
+   527→  onBack: () => void,
+   528→  palette: ThemePalette,
+   529→  scroll = false
+   530→): { element: GlassElementConfig; interaction: ElementInteraction } {
+   531→  // Circular button: 56dp diameter, centered arrow_back icon (32dp).
+   532→  // Per user request: "玻璃退出按钮不要有边缘高光" — no edge highlight
+   533→  // on the glass back button. We pass `highlight: null` so the rim
+   534→  // highlight pass is skipped entirely.
+   535→  // Per user request: "把退出按钮改大一点" — increased from 40dp to 56dp.
+   536→  // Arrow color flips with theme (black on light, white on dark) to
+   537→  // match the original catalog's `contentColor` behavior.
+   538→  const size = 56 * DP
+   539→  const iconSize = 32 * DP
+   540→  const element: GlassElementConfig = {
+   541→    id: '__back__',
+   542→    kind: 'button',
+   543→    rect: { x: 16, y: 16, w: size, h: size },
+   544→    ...GLASS_PARAMS,
+   545→    cornerRadius: size / 2, // circular
+   546→    tintColor: [0, 0, 0, 0],
+   547→    surfaceColor: palette.buttonSurface,
+   548→    highlight: null, // no edge highlight on the back button
+   549→    outerShadow: { ...DEFAULT_SHADOW, radius: 12 * DP, alpha: 0.08 },
+   550→    label: '', // no text label — icon replaces it
+   551→    labelColor: palette.backIconColor,
+   552→    showChevron: false,
+   553→    isInteractive: true,
+   554→    scroll,
+   555→    icon: {
+   556→      path: ARROW_BACK_ICON_PATH,
+   557→      size: iconSize,
+   558→      color: palette.backIconColor,
+   559→    },
+   560→  }
+   561→  return {
+   562→    element,
+   563→    interaction: { onTap: () => onBack() },
+   564→  }
+   565→}
+   566→
+   567→/* ------------------------------------------------------------------ *
+   568→ * Theme toggle button — rendered at top-right, mirrored from the back
+   569→ * button at top-left. Per user request: "把这个按钮也弄成canvas里面的，
+   570→ * 和退出按钮等大对称" — make this button also inside the canvas, same size
+   571→ * as the exit button, symmetric position.
+   572→ *
+   573→ * Same 56dp circular glass body as the back button, with a sun icon (in
+   574→ * dark mode, click → light) or moon icon (in light mode, click → dark).
+   575→ * The icon color flips with theme to match the back button's behavior.
+   576→ * ------------------------------------------------------------------ */
+   577→export function makeThemeToggleButton(
+   578→  onToggleTheme: () => void,
+   579→  palette: ThemePalette,
+   580→  isLightTheme: boolean,
+   581→  canvasW: number,
+   582→  scroll = false
+   583→): { element: GlassElementConfig; interaction: ElementInteraction } {
+   584→  const size = 56 * DP
+   585→  const iconSize = 32 * DP
+   586→  // Mirrored position: back button is at (16, 16); theme button is at
+   587→  // (W - 16 - size, 16) so the two buttons are symmetric across the
+   588→  // horizontal centerline.
+   589→  const element: GlassElementConfig = {
+   590→    id: '__theme__',
+   591→    kind: 'button',
+   592→    rect: { x: canvasW - 16 - size, y: 16, w: size, h: size },
+   593→    ...GLASS_PARAMS,
+   594→    cornerRadius: size / 2, // circular
+   595→    tintColor: [0, 0, 0, 0],
+   596→    surfaceColor: palette.buttonSurface,
+   597→    highlight: null, // no edge highlight (matches back button)
+   598→    outerShadow: { ...DEFAULT_SHADOW, radius: 12 * DP, alpha: 0.08 },
+   599→    label: '',
+   600→    labelColor: palette.backIconColor,
+   601→    showChevron: false,
+   602→    isInteractive: true,
+   603→    scroll,
+   604→    icon: {
+   605→      // Sun in dark mode (click → light); moon in light mode (click → dark).
+   606→      path: isLightTheme ? MOON_ICON_PATH : SUN_ICON_PATH,
+   607→      size: iconSize,
+   608→      color: palette.backIconColor,
+   609→    },
+   610→  }
+   611→  return {
+   612→    element,
+   613→    interaction: { onTap: () => onToggleTheme() },
+   614→  }
+   615→}
+   616→
+   617→/* ------------------------------------------------------------------ *
+   618→ * applyVerticalCenter — offsets all element y positions (except the
+   619→ * back button, which stays top-left) so the content is vertically
+   620→ * centered within the viewport. Mirrors BackdropDemoScaffold's
+   621→ * `Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center)`.
+   622→ *
+   623→ * Returns the new contentHeight (= H if centering applied, since the
+   624→ * content now spans the full viewport visually).
+   625→ * ------------------------------------------------------------------ */
+   626→export function applyVerticalCenter(
+   627→  elements: GlassElementConfig[],
+   628→  contentTop: number,
+   629→  contentHeight: number,
+   630→  H: number
+   631→): number {
+   632→  const contentSize = contentHeight - contentTop
+   633→  if (contentSize >= H) return contentHeight
+   634→  const yOffset = Math.max(0, (H - contentSize) / 2 - contentTop)
+   635→  if (yOffset <= 0) return contentHeight
+   636→  for (const el of elements) {
+   637→    // Back button, theme button, and full-screen overlays (scroll=false) stay
+   638→    // at their fixed positions (not shifted by vertical centering).
+   639→    if (el.id === '__back__' || el.id === '__theme__') continue
+   640→    if (el.scroll === false && el.id !== '__pickimage__') continue
+   641→    el.rect = { ...el.rect, y: el.rect.y + yOffset }
+   642→    // Shift hitRect too (if set) so expanded touch targets follow the element.
+   643→    if (el.hitRect) {
+   644→      el.hitRect = { ...el.hitRect, y: el.hitRect.y + yOffset }
+   645→    }
+   646→    // Faithful fix: toggle knobs store the TRACK's original screen
+   647→    // position separately in `isToggleKnob.trackOriginalY` (used by the
+   648→    // renderer to compute the scaled track rect inside the knob's
+   649→    // CombinedBackdrop). Since the track element's rect.y was just
+   650→    // shifted by yOffset, we must shift trackOriginalY by the same
+   651→    // amount — otherwise the scaled track rect would be at the wrong Y
+   652→    // (off by yOffset * (1 - trackScaleY)), causing "no track visible
+   653→    // inside the knob" after vertical centering.
+   654→    if (el.isToggleKnob && el.isToggleKnob.trackOriginalY != null) {
+   655→      el.isToggleKnob.trackOriginalY += yOffset
+   656→    }
+   657→    // Bottom tab indicator stores the CONTAINER rect separately for its
+   658→    // CombinedBackdrop (the inset capsule SDF covers the container area).
+   659→    // Shift it by the same yOffset so the SDF stays aligned.
+   660→    if (el.isBottomTabIndicator && el.isBottomTabIndicator.containerRect) {
+   661→      el.isBottomTabIndicator.containerRect = {
+   662→        ...el.isBottomTabIndicator.containerRect,
+   663→        y: el.isBottomTabIndicator.containerRect.y + yOffset,
+   664→      }
+   665→    }
+   666→    // Bottom tab content stores the CONTAINER center (scale origin) separately.
+   667→    // Shift it by the same yOffset so the scale pivot stays aligned with the
+   668→    // actual container position after vertical centering.
+   669→    if (el.isBottomTabContent && el.isBottomTabContent.containerCenterY != null) {
+   670→      el.isBottomTabContent.containerCenterY += yOffset
+   671→    }
+   672→    // Bottom tab indicator also scales around the container center — shift
+   673→    // its pivot too.
+   674→    if (el.isBottomTabIndicator && el.isBottomTabIndicator.containerCenterY != null) {
+   675→      el.isBottomTabIndicator.containerCenterY += yOffset
+   676→    }
+   677→    // Shift tab content rects (for blue tint mask) by yOffset too.
+   678→    if (el.isBottomTabIndicator && el.isBottomTabIndicator.tabContentRects) {
+   679→      el.isBottomTabIndicator.tabContentRects = el.isBottomTabIndicator.tabContentRects.map(r => ({
+   680→        ...r, y: r.y + yOffset,
+   681→      }))
+   682→    }
+   683→  }
+   684→  return contentHeight + yOffset
+   685→}
+   686→
+   687→

@@ -24,7 +24,7 @@ import { t, type Locale } from './i18n'
  *
  * Layout (bottom section, stacked from top to bottom):
  *   - Status text (y = H - 170dp)
- *   - Progress bar  (y = H - 148dp, HTML overlay with CSS transition)
+ *   - Progress bar  (y = H - 148dp, rendered in canvas as plain-rect)
  *   - Exit button    (y = H - 110dp, only when done)
  *   - Detect button  (y = H - 60dp, always visible)
  *
@@ -170,8 +170,71 @@ export function buildPerfBenchmark(
     )
   }
 
-  // Progress bar is now rendered as an HTML overlay with CSS transition
-  // for smooth animation (not in the canvas). See page.tsx.
+  // --- Progress bar (canvas-rendered plain-rect) ---
+  // Track (background): thin rounded rect spanning almost full width.
+  // Fill (foreground): blue rounded rect, width proportional to progress.
+  // The fill width uses perfProgressFracAnimated (smoothly animated in page.tsx)
+  // to replace the CSS transition that the DOM overlay used.
+  const progFrac = state.perfProgressFracAnimated ?? 0
+  const PROG_BAR_Y = H - 148 * DP
+  const PROG_BAR_H = 4 * DP
+  const PROG_MARGIN = 8 * DP
+  const PROG_BAR_W = W - 2 * PROG_MARGIN
+  const PROG_FILL_W = Math.max(0, PROG_BAR_W * progFrac)
+  const PROG_CORNER_RADIUS = PROG_BAR_H / 2
+
+  // Track background (theme-dependent semi-transparent)
+  // homeTextHalo: 'dark' = light theme (light bg, dark text), 'light' = dark theme
+  const isDarkTheme = palette.homeTextHalo === 'light'
+  const trackColor: [number, number, number, number] = isDarkTheme
+    ? [1, 1, 1, 0.12]   // rgba(255,255,255,0.12) on dark bg
+    : [0, 0, 0, 0.12]   // rgba(0,0,0,0.12) on light bg
+  elements.push({
+    id: 'perf-progress-track',
+    kind: 'plain-rect',
+    rect: { x: PROG_MARGIN, y: PROG_BAR_Y, w: PROG_BAR_W, h: PROG_BAR_H },
+    cornerRadius: PROG_CORNER_RADIUS,
+    refractionHeight: 0,
+    refractionAmount: 0,
+    depthEffect: false,
+    chromaticAberration: false,
+    blurRadius: 0,
+    saturation: 1,
+    brightness: 1,
+    contrast: 1,
+    tintColor: [0, 0, 0, 0],
+    surfaceColor: [0, 0, 0, 0],
+    highlight: { mode: 0, color: [1, 1, 1], angle: 0, falloff: 0, alpha: 0, widthDp: 0 },
+    outerShadow: null,
+    plainRect: { color: trackColor },
+    isInteractive: false,
+    scroll: false,
+  })
+
+  // Fill foreground (blue, #0088ff → r=0, g=136/255, b=255/255)
+  if (PROG_FILL_W > 0.5) {
+    elements.push({
+      id: 'perf-progress-fill',
+      kind: 'plain-rect',
+      rect: { x: PROG_MARGIN, y: PROG_BAR_Y, w: PROG_FILL_W, h: PROG_BAR_H },
+      cornerRadius: PROG_CORNER_RADIUS,
+      refractionHeight: 0,
+      refractionAmount: 0,
+      depthEffect: false,
+      chromaticAberration: false,
+      blurRadius: 0,
+      saturation: 1,
+      brightness: 1,
+      contrast: 1,
+      tintColor: [0, 0, 0, 0],
+      surfaceColor: [0, 0, 0, 0],
+      highlight: { mode: 0, color: [1, 1, 1], angle: 0, falloff: 0, alpha: 0, widthDp: 0 },
+      outerShadow: null,
+      plainRect: { color: [0, 136 / 255, 1, 1] },
+      isInteractive: false,
+      scroll: false,
+    })
+  }
 
   // "重新检测" button — ALWAYS visible
   // When running: "正在检测..." (disabled)
@@ -211,7 +274,7 @@ export function buildPerfBenchmark(
   interactions['perf-btn'] = {
     onTap: () => {
       if (isRunning) return
-      setState({ perfProgress: 'running', perfDone: false, perfResultDpr: 0, perfStatusText: '', perfGlassAngle: 0, perfProgressFrac: 0, perfDeformMul: 1, perfExitProgress: 0, perfRoundTrigger: 1 })
+      setState({ perfProgress: 'running', perfDone: false, perfResultDpr: 0, perfStatusText: '', perfGlassAngle: 0, perfProgressFrac: 0, perfProgressFracAnimated: 0, perfDeformMul: 1, perfExitProgress: 0, perfRoundTrigger: 1 })
     },
   }
 

@@ -388,7 +388,7 @@ export function buildSettings(
       // Clear cached perf result and trigger re-benchmark
       try { window.localStorage.removeItem('liquid-glass-perf-dpr') } catch {}
       // Navigate to PerfBenchmark page to re-run detection
-      setState({ customDpr: 0, perfProgress: 'running', perfDone: false, perfResultDpr: 0, perfStatusText: '', perfGlassAngle: 0, perfProgressFrac: 0, perfDeformMul: 1, perfExitProgress: 0, perfRoundTrigger: 1 })
+      setState({ customDpr: 0, perfProgress: 'running', perfDone: false, perfResultDpr: 0, perfStatusText: '', perfGlassAngle: 0, perfProgressFrac: 0, perfProgressFracAnimated: 0, perfDeformMul: 1, perfExitProgress: 0, perfRoundTrigger: 1 })
     },
   }
   nextY += BUTTON_HEIGHT + 16

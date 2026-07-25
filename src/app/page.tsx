@@ -190,7 +190,7 @@ export default function Page() {
     } catch {}
     // No cached result — navigate to PerfBenchmark and auto-start
     setDestination(CatalogDestination.PerfBenchmark)
-    setState({ perfProgress: 'running', perfDone: false, perfResultDpr: 0, perfStatusText: '', customDpr: 0, perfGlassAngle: 0, perfProgressFrac: 0, perfDeformMul: 1, perfExitProgress: 0, perfRoundTrigger: 1 })
+    setState({ perfProgress: 'running', perfDone: false, perfResultDpr: 0, perfStatusText: '', customDpr: 0, perfGlassAngle: 0, perfProgressFrac: 0, perfProgressFracAnimated: 0, perfDeformMul: 1, perfExitProgress: 0, perfRoundTrigger: 1 })
   }, [rendererReady, state.customDpr])
 
   // Run benchmark iteration when perfProgress='running' and the trigger changes.
@@ -313,22 +313,29 @@ export default function Page() {
   // Glass deformation animation — 16 glasses deform simultaneously.
   // perfGlassAngle is stored in state; each glass in the 4×4 grid computes
   // its own W/H from (angle + phaseOffset). Rotation speed: 1 circle/sec.
+  // Also smoothly animates perfProgressFracAnimated toward perfProgressFrac
+  // (replacing the CSS transition that the DOM overlay used).
   React.useEffect(() => {
     if (destination !== CatalogDestination.PerfBenchmark) return
     if (state.perfProgress !== 'running') return
     if (!rendererReady) return
 
     const ORBIT_SPEED = 2 * Math.PI // radians per second — 1 full circle per second
+    const PROG_LERP_SPEED = 4 // progress bar lerp speed (fraction per second, mimics ~600ms CSS ease-out)
     let angle = state.perfGlassAngle || 0
+    let progAnimated = state.perfProgressFracAnimated ?? 0
     let lastT = 0
     let raf = 0
 
     const tick = (timestamp: number) => {
       if (!lastT) lastT = timestamp
-      const dt = (timestamp - lastT) / 1000
+      const dt = Math.min(0.05, (timestamp - lastT) / 1000)
       lastT = timestamp
       angle += ORBIT_SPEED * dt
-      setState({ perfGlassAngle: angle })
+      // Smoothly animate progress toward current target
+      const target = state.perfProgressFrac ?? 0
+      progAnimated += (target - progAnimated) * Math.min(1, PROG_LERP_SPEED * dt)
+      setState({ perfGlassAngle: angle, perfProgressFracAnimated: progAnimated })
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
@@ -338,15 +345,18 @@ export default function Page() {
   // Settle animation — after benchmark ends, smoothly transition glasses
   // from deformed to square (perfDeformMul decays 1→0) and animate the
   // exit button sliding in (perfExitProgress 0→1 with ease-out).
+  // Also animates perfProgressFracAnimated to 1.0.
   React.useEffect(() => {
     if (destination !== CatalogDestination.PerfBenchmark) return
     if (!rendererReady) return
     if (!state.perfDone) return
     // Already settled — no need to animate
-    if (state.perfDeformMul <= 0.01 && state.perfExitProgress >= 0.99) return
+    if (state.perfDeformMul <= 0.01 && state.perfExitProgress >= 0.99 && (state.perfProgressFracAnimated ?? 0) >= 0.99) return
 
     const ORBIT_SPEED = 2 * Math.PI // keep rotation going during settle
+    const PROG_LERP_SPEED = 4 // progress bar lerp speed
     let angle = state.perfGlassAngle || 0
+    let progAnimated = state.perfProgressFracAnimated ?? 0
     let elapsed = 0
     let lastT = 0
     let raf = 0
@@ -375,11 +385,15 @@ export default function Page() {
         exitProg = 1 - (1 - t) * (1 - t) // ease-out
       }
 
-      setState({ perfGlassAngle: angle, perfDeformMul: mul, perfExitProgress: exitProg })
+      // Smoothly animate progress to 1.0 (target = perfProgressFrac which is 1 after done)
+      const progTarget = state.perfProgressFrac ?? 1
+      progAnimated += (progTarget - progAnimated) * Math.min(1, PROG_LERP_SPEED * dt)
 
-      if (mul <= 0.01 && exitProg >= 0.99) {
+      setState({ perfGlassAngle: angle, perfDeformMul: mul, perfExitProgress: exitProg, perfProgressFracAnimated: progAnimated })
+
+      if (mul <= 0.01 && exitProg >= 0.99 && progAnimated >= 0.99) {
         // Settle complete — glass angle irrelevant at mul=0
-        setState({ perfDeformMul: 0, perfExitProgress: 1 })
+        setState({ perfDeformMul: 0, perfExitProgress: 1, perfProgressFracAnimated: 1 })
         return
       }
       raf = requestAnimationFrame(tick)
@@ -913,33 +927,7 @@ export default function Page() {
             FPS: {fpsDisplay}
           </div>
         )}
-        {/* Progress bar overlay — shown on PerfBenchmark page while test runs or after completion */}
-        {destination === CatalogDestination.PerfBenchmark && rendererReady && (
-          <div
-            style={{
-              position: 'absolute',
-              bottom: 130,
-              left: 8,
-              right: 8,
-              height: 4,
-              borderRadius: 2,
-              background: isLightTheme ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)',
-              zIndex: 40,
-              pointerEvents: 'none',
-              overflow: 'hidden',
-            }}
-          >
-            <div
-              style={{
-                width: `${(state.perfProgressFrac || 0) * 100}%`,
-                height: '100%',
-                borderRadius: 2,
-                background: '#0088ff',
-                transition: 'width 600ms ease-out',
-              }}
-            />
-          </div>
-        )}
+        {/* Progress bar is now rendered in the canvas (plain-rect elements) */}
         {/* Hidden file input for "Pick an image" — triggered by the canvas button */}
         <input
           ref={fileInputRef}

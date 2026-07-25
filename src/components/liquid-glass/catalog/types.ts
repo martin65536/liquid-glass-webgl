@@ -542,6 +542,9 @@ export interface CatalogState {
   // Performance benchmark: progress fraction (0..1) for the progress bar.
   // iteration/maxIterations when running, 1 when done.
   perfProgressFrac: number
+  // Performance benchmark: animated progress fraction (smoothly lerps toward
+  // perfProgressFrac, replacing CSS transition for the canvas progress bar).
+  perfProgressFracAnimated: number
   // Performance benchmark: deformation multiplier (0..1). 1 = full deformation
   // during testing, smoothly decays to 0 after done (settle animation).
   // When 0, all glasses are perfectly square.
@@ -594,6 +597,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   perfGlassAngle: 0,
   perfRoundTrigger: 0,
   perfProgressFrac: 0,
+  perfProgressFracAnimated: 0,
   perfDeformMul: 0,
   perfExitProgress: 0,
 }
