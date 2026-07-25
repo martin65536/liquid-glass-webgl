@@ -44,6 +44,13 @@ function useSystemTheme(): Theme {
 }
 
 export default function Page() {
+  // HeadlessChrome detection: redirect bots/crawlers to a static preview image
+  React.useEffect(() => {
+    if (typeof window !== 'undefined' && /HeadlessChrome/i.test(navigator.userAgent)) {
+      window.location.replace('https://glass.mt512.qzz.io/liquid-glass-preview.png')
+    }
+  }, [])
+
   // Theme: starts from system preference; user can override via the toggle.
   const systemTheme = useSystemTheme()
   const [userOverride, setUserOverride] = React.useState<Theme | null>(null)
