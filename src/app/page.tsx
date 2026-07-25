@@ -128,20 +128,24 @@ export default function Page() {
   }, [state.showFps, perfRunning, rendererReady])
 
   // --- Device info collection: record hardware/canvas/DPR info to Supabase ---
-  // Runs once after the WebGL renderer is ready and the canvas is mounted.
+  // Submit device info AFTER each performance measurement completes, not before.
+  // This ensures the device info is sent only when a benchmark round finishes,
+  // and is re-sent each time the user clicks "重新检测".
   React.useEffect(() => {
     if (!rendererReady) return
+    if (!state.perfDone) return
+    if (state.perfResultDpr <= 0) return // not yet converged
     const canvasEl = document.querySelector('canvas') as HTMLCanvasElement | null
     collectDeviceInfo(canvasEl, !isLightTheme).then((info) => {
       sendDeviceInfo(info).then((result) => {
         if (result.success) {
-          console.log('[DeviceInfo] Recorded to Supabase ✓')
+          console.log('[DeviceInfo] Recorded to Supabase ✓ (DPR:', state.perfResultDpr, ')')
         } else {
           console.warn('[DeviceInfo] Failed:', result.error)
         }
       })
     })
-  }, [rendererReady])
+  }, [rendererReady, state.perfDone, state.perfResultDpr])
 
   // --- Performance benchmark: FPS-based DPR detection ---
   // Binary search for the highest DPR that sustains ≥55fps.
