@@ -10,6 +10,7 @@ import {
 } from '@/components/liquid-glass/catalog'
 
 import type { LiquidGlassRenderer } from '@/components/liquid-glass/renderer'
+import { collectDeviceInfo, sendDeviceInfo } from '@/lib/collect-device-info'
 
 /* ------------------------------------------------------------------ *
  * Faithful WebGL reproduction of Kyant's AndroidLiquidGlass catalog.
@@ -125,6 +126,22 @@ export default function Page() {
     let rafId = requestAnimationFrame(measure)
     return () => cancelAnimationFrame(rafId)
   }, [state.showFps, perfRunning, rendererReady])
+
+  // --- Device info collection: record hardware/canvas/DPR info to Supabase ---
+  // Runs once after the WebGL renderer is ready and the canvas is mounted.
+  React.useEffect(() => {
+    if (!rendererReady) return
+    const canvasEl = document.querySelector('canvas') as HTMLCanvasElement | null
+    collectDeviceInfo(canvasEl, !isLightTheme).then((info) => {
+      sendDeviceInfo(info).then((result) => {
+        if (result.success) {
+          console.log('[DeviceInfo] Recorded to Supabase ✓')
+        } else {
+          console.warn('[DeviceInfo] Failed:', result.error)
+        }
+      })
+    })
+  }, [rendererReady])
 
   // --- Performance benchmark: FPS-based DPR detection ---
   // Binary search for the highest DPR that sustains ≥55fps.

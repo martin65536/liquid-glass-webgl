@@ -26,3 +26,23 @@ Stage Summary:
 - Git remote set to liquid-glass-webgl repo with upstream tracking
 - No new npm dependencies needed (both projects had identical deps)
 - Lint clean, no runtime errors, canvas-based WebGL rendering works
+---
+Task ID: 2
+Agent: Main Agent
+Task: Add device info collection and Supabase recording to the liquid-glass project
+
+Work Log:
+- Read blog post https://www.cnblogs.com/mygctong/p/19035994 about collecting hardware info in Chrome
+- Installed @supabase/supabase-js package
+- Added SUPABASE_URL and SUPABASE_ANON_KEY to .env
+- Created src/lib/supabase.ts (Supabase client initialization)
+- Created src/lib/collect-device-info.ts (comprehensive device info collection utility)
+- Created src/app/api/device-info/route.ts (POST API to insert into Supabase)
+- Added device info collection useEffect to src/app/page.tsx (fires after WebGL renderer ready)
+- Verified lint passes cleanly
+- Verified via Agent Browser: page loads, collection runs, Supabase returns "table not found" (expected - table needs to be created)
+
+Stage Summary:
+- Device info collection covers: UA, CPU cores, device memory, GPU (WebGL), screen/display, canvas CSS/buffer/DPR, viewport, language, timezone, connection info, canvas fingerprint, page context
+- Supabase table 'device_info' needs to be created in the user's Supabase dashboard
+- RLS needs to be configured (explained below)
