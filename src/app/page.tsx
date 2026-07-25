@@ -203,9 +203,10 @@ export default function Page() {
 
   // Run benchmark iteration when perfProgress='running' and the trigger changes.
   // perfRoundTrigger increments each round so the effect re-fires.
-  // Strategy: test deviceDpr first. If it works, done! If not, binary search
-  // downward from deviceDpr to find the highest DPR that sustains ≥55fps.
-  // This ensures we always test the maximum value.
+  // Standard binary search from midpoint of [deviceDpr/2, deviceDpr].
+  // The minimum floor is deviceDpr/2; the result is clamped to never go below that.
+  // Convergence: only stops when max iterations reached or range < 0.125
+  // (tight enough to always reach deviceDpr if the device can handle it).
   React.useEffect(() => {
     if (destination !== CatalogDestination.PerfBenchmark) return
     if (!rendererReady) return
@@ -222,19 +223,15 @@ export default function Page() {
       perfHiRef.current = deviceDpr
     }
 
-    const MAX_ITERATIONS = 6
-    const iteration = perfIterationRef.current + 1
-
-    // First iteration: always test deviceDpr (the max value)
-    // Subsequent iterations: binary search between lo and hi
-    let candidateDpr: number
-    if (iteration === 1) {
-      candidateDpr = deviceDpr
-      perfLoRef.current = deviceDpr / 2  // minimum floor
-      perfHiRef.current = deviceDpr       // starting point
-    } else {
-      candidateDpr = Math.round(((perfLoRef.current + perfHiRef.current) / 2) * 4) / 4
+    if (perfIterationRef.current === 0) {
+      // Initialize binary search — range [deviceDpr/2, deviceDpr]
+      perfLoRef.current = deviceDpr / 2
+      perfHiRef.current = deviceDpr
     }
+
+    const MAX_ITERATIONS = 7
+    const iteration = perfIterationRef.current + 1
+    const candidateDpr = Math.round(((perfLoRef.current + perfHiRef.current) / 2) * 4) / 4
     const clampedDpr = Math.max(deviceDpr / 2, Math.min(deviceDpr, candidateDpr))
 
     perfIterationRef.current = iteration
@@ -297,8 +294,9 @@ export default function Page() {
       perfHiRef.current = candidateDpr
     }
 
-    // Convergence: lo == hi (range collapsed) or max iterations reached
-    if (iteration >= maxIterations || Math.abs(perfHiRef.current - perfLoRef.current) < 0.01) {
+    // Convergence: range too tight to differentiate, or max iterations reached.
+    // Use a tight threshold (< 0.125) so we don't stop early and miss deviceDpr.
+    if (iteration >= maxIterations || (perfHiRef.current - perfLoRef.current) < 0.125) {
       // Converged — use the highest DPR that worked (lo)
       const bestDpr = Math.max(deviceDpr / 2, Math.min(deviceDpr, Math.round(perfLoRef.current * 4) / 4))
       perfPhaseRef.current = 'done'
