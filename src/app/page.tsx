@@ -298,6 +298,7 @@ export default function Page() {
 
   function finishIteration(fps: number, candidateDpr: number, deviceDpr: number, iteration: number, maxIterations: number) {
     const MIN_FPS = 55
+    const MIN_DPR = deviceDpr / 2
     if (fps >= MIN_FPS) {
       // This DPR works — set lo to it (we know it's viable)
       perfLoRef.current = candidateDpr
@@ -306,13 +307,31 @@ export default function Page() {
       perfHiRef.current = candidateDpr
     }
 
+    // Special case: iteration 2 tested the minimum (deviceDpr/2) and it failed.
+    // Performance is truly bad — force bestDpr = deviceDpr/2 and finish immediately.
+    if (iteration === 2 && candidateDpr === MIN_DPR && fps < MIN_FPS) {
+      perfPhaseRef.current = 'done'
+      const statusText = `检测完成 · 推荐 DPR：${MIN_DPR} · 性能有限，已自动降低画质`
+      try { window.localStorage.setItem(PERF_KEY, String(MIN_DPR)) } catch {}
+      setState({
+        customDpr: MIN_DPR,
+        perfDone: true,
+        perfResultDpr: MIN_DPR,
+        perfStatusText: statusText,
+        perfProgress: null,
+        perfProgressFrac: 1,
+      })
+      return
+    }
+
     // Convergence: range too tight to differentiate, or max iterations reached.
     // With no rounding during search, the range always shrinks — no stalling.
     if (iteration >= maxIterations || (perfHiRef.current - perfLoRef.current) <= 0.1) {
       // Converged — use the highest DPR that worked (lo), round to 0.25 steps
-      const bestDpr = Math.max(deviceDpr / 2, Math.min(deviceDpr, Math.round(perfLoRef.current * 4) / 4))
+      const bestDpr = Math.max(MIN_DPR, Math.min(deviceDpr, Math.round(perfLoRef.current * 4) / 4))
       perfPhaseRef.current = 'done'
-      const isGood = bestDpr >= deviceDpr * 0.5
+      // isGood: recommended DPR is at least 75% of deviceDpr (close to full quality)
+      const isGood = bestDpr >= deviceDpr * 0.75
       const statusText = isGood
         ? `检测完成！推荐 DPR：${bestDpr} · 设备可流畅运行液态玻璃`
         : `检测完成 · 推荐 DPR：${bestDpr} · 性能有限，已自动降低画质`
@@ -344,9 +363,10 @@ export default function Page() {
   React.useEffect(() => {
     if (state.perfProgress !== 'stop-requested') return
     const deviceDpr = window.devicePixelRatio || 1
-    const bestDpr = Math.max(deviceDpr / 2, Math.min(deviceDpr, Math.round(perfLoRef.current * 4) / 4))
+    const MIN_DPR = deviceDpr / 2
+    const bestDpr = Math.max(MIN_DPR, Math.min(deviceDpr, Math.round(perfLoRef.current * 4) / 4))
     perfPhaseRef.current = 'done'
-    const isGood = bestDpr >= deviceDpr * 0.5
+    const isGood = bestDpr >= deviceDpr * 0.75
     const statusText = isGood
       ? `检测完成！推荐 DPR：${bestDpr} · 设备可流畅运行液态玻璃`
       : `检测完成 · 推荐 DPR：${bestDpr} · 性能有限，已自动降低画质`
