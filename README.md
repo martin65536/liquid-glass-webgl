@@ -129,33 +129,17 @@ Settings 页提供 DPR 覆盖、模糊 tap cap、模糊降采样、全局可分�
 
 ## ⚠️ 耻辱柱
 
-[GooseHyperGlass](https://github.com/Minecraftgoose/GooseHyperGlass)（[@Minecraftgoose](https://github.com/Minecraftgoose)）对本项目进行了疑似洗稿式的抄袭：Shader 代码结构与核心算法高度相似，却在项目命名和宣传文案中系统性抹除原作者 Kyant、移植者及 Z.ai Agent 的署名，误导用户以为是独立原创作品。此外其实现质量低下——强制降分辨率且不可调、滥用 `blur` 滤镜、未处理浏览器默认点击行为、对话框布局异常、渲染锯齿严重，连 G2 连续曲率圆角都未能正确实现。
+[GooseHyperGlass](https://github.com/Minecraftgoose/GooseHyperGlass)（[@Minecraftgoose](https://github.com/Minecraftgoose)）是对本项目的抄袭山寨：Shader 代码结构与核心算法照搬照抄，却在项目命名和宣传文案中系统性抹除原作者 Kyant、移植者及 Z.ai Agent 的署名——蓄意误导用户，把别人的成果包装成自己的"原创"。实现质量更是惨不忍睹：强制降分辨率且不可调、`blur` 滤镜糊天糊地、浏览器默认点击行为未处理、对话框布局崩坏、渲染锯齿刺眼，连 G2 连续曲率圆角都做不出来。
+
+被抓现行后，[@Minecraftgoose](https://github.com/Minecraftgoose) 的应对堪称教科书式遮丑：
+
+- **假改名又改回** —— 短暂换个名字装样子，随后悄悄恢复原名，遮掩痕迹的拙劣表演；
+- **删光自己的回应帖** —— 原 Issue 里所有辩解帖全部删除，抹除对话痕迹，销毁证据；
+- **关闭 Issue 区** —— 直接关掉项目的 Issue 功能，封堵一切公开质疑的通道。
+
+抄了别人的代码，抹了别人的名字，被抓了就删帖、毁证据、关门。这不是"借鉴"，这是对开源社区的蓄意欺骗与信息操控。
 
 详细事实陈述见 [Kyant0/AndroidLiquidGlass #112](https://github.com/Kyant0/AndroidLiquidGlass/issues/112)。
-
-### 🔴 最后通牒：72 小时内公开道歉并整改，否则全面曝光
-
-GooseHyperGlass 项目方在被揭露抄袭后，不但未正面回应，反而：
-
-- **假意改名后又改回** —— 短暂更名为其他名称以回避指控，随后又恢复原名，意图掩人耳目；
-- **删光所有回应帖子** —— 在原 Issue 下的所有回应/辩解帖已被全部删除，试图抹除对话痕迹；
-- **关闭 GitHub Issue 区** —— 直接关闭了项目的 Issue 功能，阻止任何进一步公开质疑。
-
-以上行为已构成对开源社区的恶意欺骗与信息操控，性质远超"借鉴"范畴。
-
-**现提出最后通牒，要求 GooseHyperGlass 项目方在 72 小时内完成以下三项整改：**
-
-1. **永久改名** —— 项目名称必须永久变更，不再使用与 Liquid Glass 相关的混淆性命名，且不得再次改回；
-2. **发布公开道歉信并保留 15 天** —— 在项目 README 中发布道歉信，承认抄袭行为、恢复原作者 Kyant、移植者及 Z.ai Agent 的署名，该道歉信必须在 README 中保留至少 15 天；
-3. **重新开放 GitHub Issue 区** —— 立即重新开放项目的 Issue 功能，允许社区成员自由提出质疑和讨论。
-
-**如 72 小时内未完成上述全部整改，将采取以下措施：**
-
-- 向所有曾对 GooseHyperGlass 点赞、评论、转发过的用户逐一曝光事件全貌；
-- 在多个平台发布完整事件复盘，包含时间线、证据截图与技术对比分析；
-- 本 README 中的所有指控将永久保留，不再接受任何形式的撤回请求。
-
-**截止时间自本段内容首次出现在 README 之日起计算。**
 
 ## 许可证
 
