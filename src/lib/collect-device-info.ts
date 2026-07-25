@@ -272,17 +272,21 @@ export async function collectDeviceInfo(
 }
 
 /**
- * Send collected device info to the backend API.
+ * Send collected device info directly to Supabase from the client.
  */
 export async function sendDeviceInfo(payload: DeviceInfoPayload): Promise<{ success: boolean; data?: any; error?: string }> {
   try {
-    const res = await fetch('/api/device-info', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-    const json = await res.json()
-    return json
+    const { supabase } = await import('@/lib/supabase')
+    const { data, error } = await supabase
+      .from('device_info')
+      .insert([payload])
+      .select()
+      .single()
+
+    if (error) {
+      return { success: false, error: error.message }
+    }
+    return { success: true, data }
   } catch (err) {
     return { success: false, error: String(err) }
   }
