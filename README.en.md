@@ -129,17 +129,35 @@ Want to experience liquid glass without an Apple device? Open the link and try i
 
 ## ⚠️ Wall of Shame
 
-[GooseHyperGlass](https://github.com/Minecraftgoose/GooseHyperGlass) ([@Minecraftgoose](https://github.com/Minecraftgoose)) is a plagiarized knockoff of this project: shader code structure and core algorithms are ripped wholesale, yet the project name and promotional copy systematically erase all credit to the original author Kyant, the porter, and Z.ai Agent — deliberately misleading users into believing it is independent original work. The implementation is abysmal: forced resolution downscaling with no user control, excessive `blur` filter slathered everywhere, unhandled browser default click behaviors, broken dialog layouts, jagged rendering aliasing, and a fundamental inability to correctly implement G2 continuous-curvature corners.
+[GooseHyperGlass](https://github.com/Minecraftgoose/GooseHyperGlass) ([@Minecraftgoose](https://github.com/Minecraftgoose)) — a project that passes off someone else's hard work as its own original creation.
 
-After being caught, [@Minecraftgoose](https://github.com/Minecraftgoose) responded with textbook cover-up tactics:
+### Plagiarism Facts
 
-- **Faked a rename, then reverted** — briefly changed the project name for appearances, then quietly restored the original — a transparent cover-up;
-- **Deleted all own response posts** — wiped every defense and excuse they had posted in the original Issue, destroying the conversation trail;
-- **Disabled the Issue tracker** — shut down the project's Issue functionality entirely, sealing off all channels for public scrutiny.
+The shader code structure, core rendering algorithms, and element layout logic of [GooseHyperGlass](https://github.com/Minecraftgoose/GooseHyperGlass) overlap with this project and the upstream [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass) to a degree far beyond any reasonable claim of "inspiration." Yet the project name and promotional copy **systematically and completely strip** all credit to the original author Kyant, the Web porter, and Z.ai Agent — not an oversight, not a missing attribution, but a **deliberate erasure**. Taking someone else's complete technical solution, deleting every trace of the original authors' names, and then proclaiming it as your own work is naked plagiarism — the most despicable possible betrayal of open-source principles.
 
-Copied someone else's code, erased someone else's name, then — when caught — deleted posts, destroyed evidence, and closed the doors. This is not "inspiration." This is deliberate deception and information manipulation against the open-source community.
+### Knockoff Quality
 
-For a detailed factual account, see [Kyant0/AndroidLiquidGlass #112](https://github.com/Kyant0/AndroidLiquidGlass/issues/112).
+They couldn't even copy it right. GooseHyperGlass's implementation is an unmitigated disaster:
+
+- Forced resolution downscaling with no user control — the entire scene rendered into a blurry mush;
+- CSS `blur` filter abuse on an epic scale — no understanding of where separable Gaussian blur is appropriate, where Vogel-disc sampling should be used; just slap `blur` on everything, making the whole interface look like it's viewed through frosted bathroom glass;
+- Browser default click behaviors left unhandled — buttons trigger text selection, drag, and context menus on tap. The interaction "experience" is straight out of a 2005 GeoCities page;
+- Dialog layouts catastrophically broken — dimensions and proportions completely wrong. Pixel-perfect faithful reproduction? They haven't even found the door, let alone walked through it;
+- Severe rendering aliasing, no G2 continuous-curvature corners — the single most defining visual feature of this project, and they couldn't even get the edges right. Proof they never understood the principles; they just blindly copied lines of code without comprehension.
+
+### Cover-Up Tactics
+
+After being exposed in [Kyant0/AndroidLiquidGlass #112](https://github.com/Kyant0/AndroidLiquidGlass/issues/112), [@Minecraftgoose](https://github.com/Minecraftgoose)'s response was not an apology, not remediation — it was an **all-out cover-up**:
+
+1. **Faked a rename, then reverted it** — briefly changed the project name to create the illusion of "remediation," then quietly restored the original. Rename and revert — what is that? That's not fixing anything; it's the clumsy performance of someone who knows they're guilty, hoping a fresh alias makes the heat go away;
+2. **Deleted all own response posts** — every defense and excuse they posted in the original Issue was wiped clean. Why delete them? Because those posts were themselves iron-clad evidence — either admissions of plagiarism, demonstrations of technical ignorance, or lies riddled with holes. Deleting them isn't reflection; it's destroying evidence — the first reflex of a thief caught red-handed: hide the proof;
+3. **Disabled the Issue tracker** — shut down the project's Issue functionality entirely, blocking every channel for public scrutiny. In a legitimate open-source project, the Issue tracker is the community's forum for discussion, bug reports, and feature requests. GooseHyperGlass closed it out of fear — fear of more questions, fear of more evidence surfacing, fear that the lies can't hold up anymore.
+
+### Conclusion
+
+Copied someone else's code, erased someone else's name, produced a result ten times worse than the original, then — when caught — deleted posts to destroy evidence, shut down Issues to silence critics, and faked a rename before reverting it. A full-chain plagiarism operation from code theft to credit erasure to narrative manipulation, with zero remorse at any stage. This is not "reference," not "inspiration," not "drawing ideas" — this is **systematic plagiarism and fraud from code to attribution to narrative control**, a flagrant trampling of the foundational ethics of the open-source community.
+
+For detailed factual accounts, see [Kyant0/AndroidLiquidGlass #112](https://github.com/Kyant0/AndroidLiquidGlass/issues/112) and [#114](https://github.com/Kyant0/AndroidLiquidGlass/issues/114).
 
 ## License
 

@@ -129,17 +129,35 @@ Settings 页提供 DPR 覆盖、模糊 tap cap、模糊降采样、全局可分�
 
 ## ⚠️ 耻辱柱
 
-[GooseHyperGlass](https://github.com/Minecraftgoose/GooseHyperGlass)（[@Minecraftgoose](https://github.com/Minecraftgoose)）是对本项目的抄袭山寨：Shader 代码结构与核心算法照搬照抄，却在项目命名和宣传文案中系统性抹除原作者 Kyant、移植者及 Z.ai Agent 的署名——蓄意误导用户，把别人的成果包装成自己的"原创"。实现质量更是惨不忍睹：强制降分辨率且不可调、`blur` 滤镜糊天糊地、浏览器默认点击行为未处理、对话框布局崩坏、渲染锯齿刺眼，连 G2 连续曲率圆角都做不出来。
+[GooseHyperGlass](https://github.com/Minecraftgoose/GooseHyperGlass)（[@Minecraftgoose](https://github.com/Minecraftgoose)）——一个把别人心血当自己原创的抄袭项目。
 
-被抓现行后，[@Minecraftgoose](https://github.com/Minecraftgoose) 的应对堪称教科书式遮丑：
+### 抄袭事实
 
-- **假改名又改回** —— 短暂换个名字装样子，随后悄悄恢复原名，遮掩痕迹的拙劣表演；
-- **删光自己的回应帖** —— 原 Issue 里所有辩解帖全部删除，抹除对话痕迹，销毁证据；
-- **关闭 Issue 区** —— 直接关掉项目的 Issue 功能，封堵一切公开质疑的通道。
+[GooseHyperGlass](https://github.com/Minecraftgoose/GooseHyperGlass) 的 Shader 代码结构、核心渲染算法、元素布局逻辑与本项目及上游 [AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass) 高度重合，相似程度远超任何合理"借鉴"的界限。然而其项目命名和宣传文案却**系统性地、彻底地抹除**了原作者 Kyant、Web 移植者及 Z.ai Agent 的全部署名——不是忘了写，是**故意不写**。把别人的完整技术方案搬过来，删掉所有原作者的名字，然后对外宣称是自己的作品，这是赤裸裸的抄袭，是对开源精神最卑劣的践踏。
 
-抄了别人的代码，抹了别人的名字，被抓了就删帖、毁证据、关门。这不是"借鉴"，这是对开源社区的蓄意欺骗与信息操控。
+### 山寨质量
 
-详细事实陈述见 [Kyant0/AndroidLiquidGlass #112](https://github.com/Kyant0/AndroidLiquidGlass/issues/112)。
+抄都抄不明白。GooseHyperGlass 的实现堪称一场灾难：
+
+- 强制降低分辨率渲染，用户无法调整，画面糊成一团；
+- CSS `blur` 滤镜滥用成灾——哪里该用可分离高斯模糊、哪里该用 Vogel-disc 采样，一概不懂，统统糊一层 `blur`，结果整个界面像隔着毛玻璃看世界；
+- 浏览器默认点击行为未处理，按钮点一下触发选中、拖拽、右键菜单，交互体验堪比 2005 年的网页；
+- 对话框布局严重崩坏，尺寸比例完全不对，像素级忠实复刻？连门都没摸到；
+- 渲染锯齿刺眼，没有 G2 连续曲率圆角——这个项目最核心的视觉特征，抄过来连边都没抄上，说明根本没理解原理，只是对着别人的代码照抄照搬。
+
+### 遮丑行径
+
+被 [Kyant0/AndroidLiquidGlass #112](https://github.com/Kyant0/AndroidLiquidGlass/issues/112) 抓了现行之后，[@Minecraftgoose](https://github.com/Minecraftgoose) 的反应不是道歉、不是整改，而是**全力遮丑**：
+
+1. **假改名又改回** —— 先把项目短暂改名以制造"已整改"的假象，不久后悄悄恢复原名。改了又改回去，这是什么？这不是整改，是做贼心虚的拙劣表演，以为换个马甲就能金蝉脱壳；
+2. **删光自己的回应帖** —— 原 Issue 下所有辩解帖被全部删除。为什么要删？因为这些帖子本身就是铁证——要么承认了抄袭，要么暴露了对技术的无知，要么满嘴谎言漏洞百出。删帖不是反思，是销毁证据，是做贼被抓后第一反应：把证据藏起来；
+3. **关闭 Issue 区** —— 直接关掉项目的 Issue 功能，封堵一切公开质疑的入口。正常的开源项目 Issue 区是社区讨论、Bug 报告、功能建议的窗口；GooseHyperGlass 关掉它，是因为害怕——怕别人再来提问，怕更多抄袭证据被扒出来，怕谎言再也编不下去。
+
+### 定性
+
+抄了别人的代码，抹了别人的名字，做出来的东西比原版烂十倍，被抓了就删帖销毁证据、关掉 Issue 堵嘴、假改名又改回——一条龙做贼，全程毫无悔意。这不是"参考"，不是"借鉴"，不是"受了启发"，这是一场**从代码到署名到舆论操控的系统性抄袭与欺诈**，是对开源社区基本伦理的公然践踏。
+
+详细事实陈述见 [Kyant0/AndroidLiquidGlass #112](https://github.com/Kyant0/AndroidLiquidGlass/issues/112) 与 [#114](https://github.com/Kyant0/AndroidLiquidGlass/issues/114)。
 
 ## 许可证
 
