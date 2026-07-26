@@ -340,37 +340,26 @@ void main() {
         vec2 offsetCentered = centeredOrigRot - uInnerShadowOffset;
         float offsetSd = sdShape(offsetCentered, origHalfSize, origRadius);
         // Ring = inside original (sd < 0) AND outside offset shape (offsetSd > 0).
-        // The original InnerShadowModifier fills the ring area (between original
-        // and offset shapes) with shadow color at full alpha, then applies
-        // Gaussian blur(radius) to soften the edges.
         //
-        // The resulting shadow profile is NOT a simple Gaussian from the edge.
-        // It's the convolution of:
-        //   - A rectangular ring of width ≈ offset_distance ≈ radius
-        //   - A Gaussian kernel with sigma = radius/3 (BlurMaskFilter)
+        // The original InnerShadowModifier:
+        //   1. Fill ring area (between original and offset shapes) with shadow color
+        //   2. Gaussian blur(radius) softens both edges by ~3σ ≈ radius pixels
         //
-        // This convolution extends the shadow about 2*radius inward from the
-        // original edge:
-        //   - 0 to ~radius: ring plateau (shadow ≈ peak)
-        //   - radius to 2*radius: Gaussian falloff beyond the offset edge
+        // Result: a convolution of a solid ring (width ≈ offset_distance ≈ radius)
+        // with a Gaussian kernel (sigma = radius/3). The shadow profile has:
+        //   - Smooth ramp at inner edge (0 → 1 over ~radius px)
+        //   - PLATEAU in the ring middle (shadow ≈ peak)
+        //   - Smooth ramp at offset edge (1 → 0 over ~radius px)
         //
-        // Using sigma = radius/3 for our falloff only captured the blur spread
-        // (1*radius), completely missing the ring plateau contribution. This
-        // caused the shadow to be too narrow and sharp — "散得不够开" and
-        // "向内收的范围不够".
+        // Total inward extent ≈ ring_width + 3σ ≈ 2*radius — much wider than
+        // a pure Gaussian from the edge (which only reaches 1*radius).
         //
-        // Fix: use sigma = radius for the Gaussian falloff, which approximates
-        // the combined ring+blur convolution profile. The shadow now extends
-        // about 2*radius inward, matching the original's visual spread.
-        float sigma = max(uInnerShadowRadius, 1.0);
-        // Distance from inner edge of the original shape (positive = deeper inside)
-        float innerDist = max(-sd, 0.0);
-        // Gaussian falloff — sigma = radius approximates ring+blur convolution
-        float falloff = exp(-innerDist * innerDist / (2.0 * sigma * sigma));
-        // Offset shape mask: the original's blur softens the offset edge by
-        // ~3*blurSigma ≈ radius pixels. Use a proportional smooth transition.
-        float mask = smoothstep(-sigma, sigma * 0.5, offsetSd);
-        float ring = falloff * mask;
+        // The smoothstep ring approach naturally captures this plateau + edge
+        // softening. aaW = radius (≈ 3σ) gives transitions matching the Gaussian
+        // blur spread, and the ring middle stays at ~1.0 (the plateau).
+        float aaW = max(2.0, uInnerShadowRadius);
+        float ring = smoothstep(0.0, aaW, offsetSd) *
+                     (1.0 - smoothstep(-aaW, 0.0, sd));
         // SrcOver blend: mix current color with shadow color by ring * alpha.
         color = mix(color, uInnerShadowColor, ring * uInnerShadowAlpha);
     }
@@ -380,15 +369,13 @@ void main() {
     // with offset (0, -radius) → bright band at the bottom edge, paired with
     // the black inner shadow's dark band at the top edge. This makes
     // toggle/slider knobs look 3D/立体.
-    // Uses the same ring+blur convolution approximation as inner shadow 1.
+    // Same smoothstep ring approach with plateau + edge softening.
     if (uInnerShadow2Alpha > 0.001 && uInnerShadow2Radius > 0.5) {
         vec2 offsetCentered2 = centeredOrigRot - uInnerShadow2Offset;
         float offsetSd2 = sdShape(offsetCentered2, origHalfSize, origRadius);
-        float sigma2 = max(uInnerShadow2Radius, 1.0);
-        float innerDist2 = max(-sd, 0.0);
-        float falloff2 = exp(-innerDist2 * innerDist2 / (2.0 * sigma2 * sigma2));
-        float mask2 = smoothstep(-sigma2, sigma2 * 0.5, offsetSd2);
-        float ring2 = falloff2 * mask2;
+        float aaW2 = max(2.0, uInnerShadow2Radius);
+        float ring2 = smoothstep(0.0, aaW2, offsetSd2) *
+                      (1.0 - smoothstep(-aaW2, 0.0, sd));
         color = mix(color, uInnerShadow2Color, ring2 * uInnerShadow2Alpha);
     }
 
