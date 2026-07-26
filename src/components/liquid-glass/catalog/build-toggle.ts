@@ -35,8 +35,7 @@ import { applyVerticalCenter, makeBackButton, makeDragInteractions, makeGlassSha
  *   innerShadow = InnerShadow(radius = 4dp * progress, alpha = progress)
  *     → default color = Black.copy(alpha = 0.15f), default offset = (0, radius) = (0, 4dp * progress)
  *     → effective alpha = 0.15 * progress
- *   innerShadow2 (white) = offset (0, -radius) → bright band at bottom edge
- *     → color = White.copy(alpha = 0.15f), 3D bevel: dark top + bright bottom
+
  *   layerBlock = { scaleX = dampedDragAnimation.scaleX; scaleY = dampedDragAnimation.scaleY;
  *                  velocity squash/stretch }
  *     → scale 1.0 at rest, 1.5 pressed, with velocity-driven squash
@@ -143,16 +142,7 @@ export function buildToggle(
     offsetY: 4 * DP, // default offset = radius; renderer modulates by progress
     color: [0, 0, 0] as [number, number, number], // Black
   }
-  // White inner shadow (innerShadow2): bright band at the BOTTOM edge,
-  // offset UPWARD (0, -radius) → 3D bevel effect: dark top + bright bottom.
-  // Alpha matches the black shadow (0.15 * progress) for symmetry.
-  const KNOB_INNER_SHADOW2 = {
-    radius: 4 * DP,
-    alpha: 0.15, // same alpha as black shadow; renderer multiplies by progress
-    offsetX: 0,
-    offsetY: -4 * DP, // upward offset = -radius; renderer modulates by progress
-    color: [1, 1, 1] as [number, number, number], // White
-  }
+
 
   // NOTE: No page title — original ToggleContent.kt has no title.
   // Content is vertically centered via applyVerticalCenter at the end
@@ -197,7 +187,6 @@ export function buildToggle(
       highlight: KNOB_HIGHLIGHT,
       outerShadow: KNOB_OUTER_SHADOW,
       innerShadow: KNOB_INNER_SHADOW,
-      innerShadow2: KNOB_INNER_SHADOW2,
       chromaticAberration: true, // lens(chromaticAberration = true)
     }
   )
@@ -286,7 +275,6 @@ export function buildToggle(
       highlight: KNOB_HIGHLIGHT,
       outerShadow: KNOB_OUTER_SHADOW,
       innerShadow: KNOB_INNER_SHADOW,
-      innerShadow2: KNOB_INNER_SHADOW2,
       chromaticAberration: true,
     }
   )
