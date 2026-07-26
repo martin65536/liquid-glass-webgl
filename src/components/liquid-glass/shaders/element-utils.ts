@@ -302,10 +302,17 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     vec2 capsuleLocal = canvasPx - scaledCenter;
     vec2 cq = abs(capsuleLocal) - capsuleHalf + vec2(cr);
     float capsuleSd = length(max(cq, vec2(0.0))) + min(max(cq.x, cq.y), 0.0) - cr;
-    // Same AA fix as toggle knob: guarantee at least 1px smoothstep even when
-    // blurRadius=0 (fully pressed indicator has no blur, but edges must be smooth).
-    float indicatorAaRadius = max(radius, 1.0);
-    float mask = 1.0 - smoothstep(-indicatorAaRadius, indicatorAaRadius, capsuleSd);
+    // Mask: always 1.0 inside the indicator — the indicator's own edgeAA
+    // (smoothstep on sd) handles the outer boundary. No separate smoothstep
+    // mask transition at the containerRect boundary, because the containerRect
+    // capsule and the indicator capsule share the same vertical edge (both
+    // 56dp tall, 28dp cornerRadius). A separate smoothstep here would create
+    // a SECOND transition line that reveals raw wallpaper at the indicator's
+    // edge, causing jagged aliasing. With mask=1.0, the indicator always shows
+    // the glass scene (container glass + vibrancy) inside its own shape, and
+    // the edgeAlpha smoothly fades to transparent — matching what's actually
+    // behind the indicator (the container glass).
+    float mask = 1.0;
 
     // 3. Sample the GLASS LAYER FBO (wallpaper + container glass, NO tab text).
     //    This is a snapshot taken after the container glass is rendered but
@@ -353,7 +360,8 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     // threshold needed (which caused jaggies by hard-clipping the AA gradient).
     vec3 sceneColor = mix(scene.rgb, uIndicatorAccent.rgb, tabMask);
 
-    // 5. Composite scene over wallpaper inside the inset capsule (SrcOver).
+    // 5. Composite scene over wallpaper (SrcOver). mask=1.0 inside indicator,
+    //    so a = scene.a — the glass scene is composited at its natural opacity.
     float a = scene.a * mask;
     vec3 resultRgb = mix(wp.rgb, sceneColor, a);
 
