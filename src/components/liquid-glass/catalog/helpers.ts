@@ -472,7 +472,8 @@ export function makeGlassShape(
     surfaceColor?: [number, number, number, number]
     highlight?: GlassHighlight | null
     outerShadow?: typeof DEFAULT_SHADOW | null
-    innerShadow?: { radius: number; alpha: number; offsetX: number; offsetY: number } | null
+    innerShadow?: { radius: number; alpha: number; offsetX: number; offsetY: number; color?: [number, number, number] } | null
+    innerShadow2?: { radius: number; alpha: number; offsetX: number; offsetY: number; color: [number, number, number] } | null
     depthEffect?: boolean
     chromaticAberration?: boolean
   } = {},
@@ -501,6 +502,7 @@ export function makeGlassShape(
     isInteractive: false,
     scroll,
     innerShadow: opts.innerShadow ?? null,
+    innerShadow2: opts.innerShadow2 ?? null,
   }
 }
 

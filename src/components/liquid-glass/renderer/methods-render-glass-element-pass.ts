@@ -92,6 +92,12 @@ export const glassElementPassMethods = {
     let elInnerShadowRadius = el.innerShadow ? el.innerShadow.radius : 0
     let elInnerShadowOffsetX = el.innerShadow ? el.innerShadow.offsetX : 0
     let elInnerShadowOffsetY = el.innerShadow ? el.innerShadow.offsetY : 0
+    let elInnerShadowColor: [number, number, number] = el.innerShadow?.color ?? [0, 0, 0]
+    let elInnerShadow2Alpha = el.innerShadow2 ? el.innerShadow2.alpha : 0
+    let elInnerShadow2Radius = el.innerShadow2 ? el.innerShadow2.radius : 0
+    let elInnerShadow2OffsetX = el.innerShadow2 ? el.innerShadow2.offsetX : 0
+    let elInnerShadow2OffsetY = el.innerShadow2 ? el.innerShadow2.offsetY : 0
+    let elInnerShadow2Color: [number, number, number] = el.innerShadow2?.color ?? [1, 1, 1]
     let elSurfaceAlpha = el.surfaceColor[3]
     // Bottom tab indicator: modulate refraction/blur/highlight/inner-shadow
     // with pressProgress, faithful to LiquidBottomTabs.kt:
@@ -111,6 +117,11 @@ export const glassElementPassMethods = {
       elInnerShadowRadius = (el.innerShadow?.radius ?? 0) * progress
       elInnerShadowOffsetX = (el.innerShadow?.offsetX ?? 0) * progress
       elInnerShadowOffsetY = (el.innerShadow?.offsetY ?? 0) * progress
+      // Bottom tab indicator innerShadow2 also modulated by pressProgress
+      elInnerShadow2Alpha = (el.innerShadow2?.alpha ?? 0) * progress
+      elInnerShadow2Radius = (el.innerShadow2?.radius ?? 0) * progress
+      elInnerShadow2OffsetX = (el.innerShadow2?.offsetX ?? 0) * progress
+      elInnerShadow2OffsetY = (el.innerShadow2?.offsetY ?? 0) * progress
     }
     // Content scale (non-uniform, faithful to LiquidToggle.kt / LiquidSlider.kt):
     //   scale(scaleX, scaleY) { drawBackdrop() }
@@ -146,6 +157,11 @@ export const glassElementPassMethods = {
       //   → default offset = DpOffset(0, radius) = (0, 4dp * progress)
       elInnerShadowOffsetX = (el.innerShadow?.offsetX ?? 0) * progress
       elInnerShadowOffsetY = (el.innerShadow?.offsetY ?? 0) * progress
+      // White inner shadow (innerShadow2): modulated the same way
+      elInnerShadow2Alpha = (el.innerShadow2?.alpha ?? 0) * progress
+      elInnerShadow2Radius = (el.innerShadow2?.radius ?? 0) * progress
+      elInnerShadow2OffsetX = (el.innerShadow2?.offsetX ?? 0) * progress
+      elInnerShadow2OffsetY = (el.innerShadow2?.offsetY ?? 0) * progress
       elSurfaceAlpha = 0
       // Faithful non-uniform content scale.
       // Toggle:  X: 2/3 → 0.75, Y: 0 → 0.75
@@ -541,10 +557,29 @@ export const glassElementPassMethods = {
         elInnerShadowOffsetX * this.dpr,
         elInnerShadowOffsetY * this.dpr
       )
+      gl.uniform3f(this.uEl['uInnerShadowColor'], elInnerShadowColor[0], elInnerShadowColor[1], elInnerShadowColor[2])
     } else {
       gl.uniform1f(this.uEl['uInnerShadowRadius'], 0)
       gl.uniform1f(this.uEl['uInnerShadowAlpha'], 0)
       gl.uniform2f(this.uEl['uInnerShadowOffset'], 0, 0)
+      gl.uniform3f(this.uEl['uInnerShadowColor'], 0, 0, 0)
+    }
+
+    // --- Inner shadow 2 (white / highlight) ---
+    if (elInnerShadow2Alpha > 0.001 && elInnerShadow2Radius > 0.5) {
+      gl.uniform1f(this.uEl['uInnerShadow2Radius'], elInnerShadow2Radius * this.dpr)
+      gl.uniform1f(this.uEl['uInnerShadow2Alpha'], elInnerShadow2Alpha)
+      gl.uniform2f(
+        this.uEl['uInnerShadow2Offset'],
+        elInnerShadow2OffsetX * this.dpr,
+        elInnerShadow2OffsetY * this.dpr
+      )
+      gl.uniform3f(this.uEl['uInnerShadow2Color'], elInnerShadow2Color[0], elInnerShadow2Color[1], elInnerShadow2Color[2])
+    } else {
+      gl.uniform1f(this.uEl['uInnerShadow2Radius'], 0)
+      gl.uniform1f(this.uEl['uInnerShadow2Alpha'], 0)
+      gl.uniform2f(this.uEl['uInnerShadow2Offset'], 0, 0)
+      gl.uniform3f(this.uEl['uInnerShadow2Color'], 1, 1, 1)
     }
 
     // --- SDF texture glass: bind sdfTexture + set SDF uniforms ---

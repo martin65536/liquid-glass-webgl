@@ -1,0 +1,252 @@
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:12:  /** Step 2b: Element pass — refraction + vibrancy + tint + highlight.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:78:    // Toggle knobs: animate refraction/blur/highlight/inner-shadow with
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:82:    //   highlight.alpha = progress         → no edge highlight at rest
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:90:    let elHighlightAlpha = el.highlight ? el.highlight.alpha : 0
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:96:    // Bottom tab indicator: modulate refraction/blur/highlight/inner-shadow
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:99:    //   highlight = Highlight.Default.copy(alpha = progress)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:102:    // At rest (progress=0): NO refraction, NO highlight, NO shadow, NO inner shadow.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:109:      elHighlightAlpha = (el.highlight?.alpha ?? 0) * progress
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:140:      elHighlightAlpha = (el.highlight?.alpha ?? 0) * progress
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:239:    // --- Bottom tab indicator: modulate refraction/highlight/shadow/innerShadow
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:242:    //   highlight: Highlight.Default.copy(alpha=progress)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:255:      elHighlightAlpha = (el.highlight?.alpha ?? 0) * progress
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:351:      // --- Generate inner backdrop plate rim highlight stroke mask ---
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:352:      // The 内层背景板 has its own Highlight.Default.copy(alpha=progress), which
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:353:      // uses the SAME HighlightModifier.kt approach as the outer indicator rim:
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:358:      // quality to the outer rim highlight (Step 2f in post-passes).
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:370:        // Highlight.Default: width=0.5dp, blurRadius=0.25dp
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:411:          // Keep cache bounded (same 32-entry limit as outer highlight masks)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:444:          // Clip to inside → stroke → blur — faithful to HighlightModifier.kt:
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:516:    if (el.highlight) {
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:517:      gl.uniform3f(this.uEl['uHighlightColor'], el.highlight.color[0], el.highlight.color[1], el.highlight.color[2])
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:518:      gl.uniform1f(this.uEl['uHighlightAngle'], el.highlight.angle)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:519:      gl.uniform1f(this.uEl['uHighlightFalloff'], el.highlight.falloff)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:520:      gl.uniform1f(this.uEl['uHighlightAlpha'], elHighlightAlpha)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:521:      gl.uniform1f(this.uEl['uHighlightMode'], el.highlight.mode)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:522:      // HighlightModifier.kt clamps the stroke width to minDimension / 2 before
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:525:      const elWidthPx = Math.min(el.highlight.widthDp * this.dpr, elMinDimPx * 0.5)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:526:      const elBlurPx = (el.highlight.blurRadiusDp ?? el.highlight.widthDp / 2) * this.dpr
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:527:      gl.uniform1f(this.uEl['uHighlightStrokeWidth'], Math.ceil(elWidthPx) * 2)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:528:      gl.uniform1f(this.uEl['uHighlightBlur'], elBlurPx)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:530:      gl.uniform1f(this.uEl['uHighlightAlpha'], 0)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:531:      gl.uniform1f(this.uEl['uHighlightMode'], 0)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:532:      gl.uniform1f(this.uEl['uHighlightStrokeWidth'], 0)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:533:      gl.uniform1f(this.uEl['uHighlightBlur'], 0)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:602:    // Stash the computed highlight alpha so the rim highlight pass can
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:604:    state.elHighlightAlpha = elHighlightAlpha
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:6:  HIGHLIGHT_FRAGMENT_SHADER,
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:9:  RIM_HIGHLIGHT_FRAGMENT_SHADER,
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:10:  HIGHLIGHT_STROKE_FRAGMENT_SHADER,
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:11:  HIGHLIGHT_COMPOSITE_FRAGMENT_SHADER,
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:23:  generateHighlightBlurShader,
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:24:  computeHighlightBlurTapCount,
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:40: *      b. Element pass (refraction + vibrancy + tint + highlight),
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:41: *         with InteractiveHighlight-driven scale/translation/stretch.
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:43: *      d. Radial highlight pass (Plus blend, at finger position) on press.
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:60:  highlightProgram: WebGLProgram
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:62:  rimHighlightProgram: WebGLProgram
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:64:  highlightStrokeProgram: WebGLProgram
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:66:  highlightCompositeProgram: WebGLProgram
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:130:  // --- Highlight mask FBO (3-pass faithful highlight) ---
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:131:  // Pass 1: HIGHLIGHT_STROKE_FRAGMENT_SHADER renders the clipped stroke alpha
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:133:  // Pass 2: blurTexture(highlightMaskTex, sigma) → blurFboB (2-pass Gaussian,
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:135:  // Pass 3: HIGHLIGHT_COMPOSITE_FRAGMENT_SHADER samples blurFboB, multiplies
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:137:  highlightMaskFbo: WebGLFramebuffer | null = null
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:138:  highlightMaskTex: WebGLTexture | null = null
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:149:  /** Highlight blur programs — separate from blurPrograms because these blur
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:152:  highlightBlurPrograms = new Map<number, { hProg: WebGLProgram; vProg: WebGLProgram; uH: Record<string, WebGLUniformLocation | null>; uV: Record<string, WebGLUniformLocation | null>; aPosH: number; aPosV: number }>()
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:153:  /** Gravity angle for glass highlight direction, in RADIANS. Updated live via
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:185:  /** Canvas2D stroke-mask cache for rim highlight. Keyed by exact geometry
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:187:   *  The mask is independent of highlight angle/alpha/press progress, so it can
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:207:  aPosLocHs: number  // highlight stroke
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:208:  aPosLocHc: number  // highlight composite
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:253:    this.highlightProgram = createProgram(gl, VERTEX_SHADER, HIGHLIGHT_FRAGMENT_SHADER)
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:255:    this.rimHighlightProgram = createProgram(gl, VERTEX_SHADER, RIM_HIGHLIGHT_FRAGMENT_SHADER)
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:256:    this.highlightStrokeProgram = createProgram(gl, VERTEX_SHADER, HIGHLIGHT_STROKE_FRAGMENT_SHADER)
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:257:    this.highlightCompositeProgram = createProgram(gl, VERTEX_SHADER, HIGHLIGHT_COMPOSITE_FRAGMENT_SHADER)
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:279:    this.aPosLocHl = gl.getAttribLocation(this.highlightProgram, 'aPos')
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:281:    this.aPosLocRm = gl.getAttribLocation(this.rimHighlightProgram, 'aPos')
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:282:    this.aPosLocHs = gl.getAttribLocation(this.highlightStrokeProgram, 'aPos')
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:283:    this.aPosLocHc = gl.getAttribLocation(this.highlightCompositeProgram, 'aPos')
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:311:      'uContrast', 'uTintColor', 'uSurfaceColor', 'uHighlightColor',
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:312:      'uHighlightAngle', 'uHighlightFalloff', 'uHighlightAlpha', 'uHighlightMode',
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:313:      'uHighlightStrokeWidth', 'uHighlightBlur',
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:350:    for (const n of hlNames) this.uHl[n] = gl.getUniformLocation(this.highlightProgram, n)
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:356:      'uHighlightColor', 'uHighlightAngle', 'uHighlightFalloff',
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:357:      'uHighlightAlpha', 'uHighlightMode', 'uHighlightStrokeWidth',
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:358:      'uHighlightBlur',
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:363:    for (const n of rmNames) this.uRm[n] = gl.getUniformLocation(this.rimHighlightProgram, n)
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:364:    // Highlight stroke pass (pass 1): renders the clipped stroke alpha mask.
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:366:      'uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uHighlightStrokeWidth',
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:371:    for (const n of hsNames) this.uHs[n] = gl.getUniformLocation(this.highlightStrokeProgram, n)
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:372:    // Highlight composite pass (pass 3): samples blurred mask, multiplies intensity+color.
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:376:      'uHighlightColor', 'uHighlightAngle', 'uHighlightFalloff', 'uHighlightAlpha', 'uHighlightMode',
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:380:    for (const n of hcNames) this.uHc[n] = gl.getUniformLocation(this.highlightCompositeProgram, n)
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:385:      'uHighlightColor', 'uHighlightAngle', 'uHighlightFalloff', 'uHighlightAlpha', 'uHighlightMode',
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:494:  /** Lazy-compile highlight blur programs (alpha-blurring, sigma semantics).
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:497:  ensureHighlightBlurPrograms(tapCount: number): void {
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:498:    if (this.highlightBlurPrograms.has(tapCount)) return
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:500:    const hFs = compileShader(gl, gl.FRAGMENT_SHADER, generateHighlightBlurShader(tapCount, 'horizontal'))
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:501:    const vFs = compileShader(gl, gl.FRAGMENT_SHADER, generateHighlightBlurShader(tapCount, 'vertical'))
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:514:        throw new Error('Highlight blur program link error (taps=' + tapCount + '): ' + log)
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:530:    this.highlightBlurPrograms.set(tapCount, { hProg, vProg, uH, uV, aPosH: 0, aPosV: 0 })
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:533:  /** 2-pass Gaussian blur on a highlight stroke MASK (alpha only).
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:540:  blurHighlightMask(srcTex: WebGLTexture, sigmaPx: number): WebGLTexture {
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:544:    let taps = computeHighlightBlurTapCount(sigmaPx)
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:546:    this.ensureHighlightBlurPrograms(taps)
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:547:    const entry = this.highlightBlurPrograms.get(taps)!
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:614:    if (this.highlightMaskFbo) gl.deleteFramebuffer(this.highlightMaskFbo)
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:615:    if (this.highlightMaskTex) gl.deleteTexture(this.highlightMaskTex)
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:616:    this.highlightMaskFbo = null
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:617:    this.highlightMaskTex = null
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:628:    for (const { hProg, vProg } of this.highlightBlurPrograms.values()) {
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:632:    this.highlightBlurPrograms.clear()
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:643:    gl.deleteProgram(this.highlightProgram)
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:645:    gl.deleteProgram(this.rimHighlightProgram)
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:646:    gl.deleteProgram(this.highlightStrokeProgram)
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:647:    gl.deleteProgram(this.highlightCompositeProgram)
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:694:  GlassHighlight,
+/home/z/my-project/src/components/liquid-glass/renderer/methods-fbo.ts:77:    // Highlight mask FBO (3-pass faithful highlight: stroke mask → blur → composite).
+/home/z/my-project/src/components/liquid-glass/renderer/methods-fbo.ts:78:    if (this.highlightMaskFbo) gl.deleteFramebuffer(this.highlightMaskFbo)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-fbo.ts:79:    if (this.highlightMaskTex) gl.deleteTexture(this.highlightMaskTex)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-fbo.ts:81:    this.highlightMaskFbo = hm.fb
+/home/z/my-project/src/components/liquid-glass/renderer/methods-fbo.ts:82:    this.highlightMaskTex = hm.tex
+/home/z/my-project/src/components/liquid-glass/renderer/methods-scroll.ts:11:    /** Update the gravity angle (radians) for glass highlight direction.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts:13:  /** Steps 2c–2f: Press glow, white overlay, foreground, rim highlight.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts:18:    const { el, st, isButton, p, sx, sy, sw, sh, radii, togglePressProgress, elHighlightAlpha } = state
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts:22:    // { scaleX, scaleY } post-scaling). See element.ts / highlight.ts.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts:30:    // Faithful to InteractiveHighlight.kt: a flat white Plus-blend overlay
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts:61:      // b. Radial highlight at finger position (button) or indicator center (container).
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts:62:      gl.useProgram(this.highlightProgram)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts:222:    // --- Step 2f: Rim highlight (Canvas2D stroke mask approach) ---
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts:235:    // The stroke mask is cached by exact geometry. Highlight angle/alpha/press
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts:239:    if (el.highlight && el.highlight.alpha > 0.001) {
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts:240:      const rimAlpha = (el.isToggleKnob || el.isBottomTabIndicator) ? elHighlightAlpha : el.highlight.alpha
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts:243:        // HighlightModifier.kt: ceil(width.toPx().coerceAtMost(minDimension / 2)) * 2
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts:245:          el.highlight.widthDp * this.dpr,
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts:249:        // Highlight data class: blurRadius defaults to width / 2. Honor it in the
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts:251:        // keeps non-default highlights faithful too).
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts:252:        const blurPx = Math.max(0, (el.highlight.blurRadiusDp ?? el.highlight.widthDp / 2) * this.dpr)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts:297:          // simultaneous highlight geometries and avoids unbounded growth on
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts:338:          // Faithful to HighlightModifier.kt: clipOutline(outline) BEFORE drawOutline,
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts:340:          // clip, Canvas2D keeps the outer half too and the rim highlight leaks
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts:349:          // inside stroke band, like the original HighlightModifier layer.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts:370:        if (el.highlight.mode === 1) {
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts:392:        gl.uniform4f(this.uSm['uHighlightColor'], el.highlight.color[0], el.highlight.color[1], el.highlight.color[2], 1.0)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts:393:        gl.uniform1f(this.uSm['uHighlightAngle'], el.useGravityAngle ? this.gravityAngle : el.highlight.angle)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts:394:        gl.uniform1f(this.uSm['uHighlightFalloff'], el.highlight.falloff)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts:395:        gl.uniform1f(this.uSm['uHighlightAlpha'], finalAlpha)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts:396:        gl.uniform1f(this.uSm['uHighlightMode'], el.highlight.mode)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts:407:    // --- Step 2g: 内层背景板 rim highlight (指示器 only) ---
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts:409:    // Highlight.Default.copy(alpha=progress). This is drawn INSIDE the
+/home/z/my-project/src/components/liquid-glass/renderer/methods-animation.ts:25:   * Spring-based animation loop. Matches InteractiveHighlight.kt's
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:20:  elHighlightAlpha: number
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:199:        // Drive press glow (InteractiveHighlight) via togglePressProgress.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:323:    // --- Scissor: limit drawing passes (shadow + element + highlight) to the
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:328:    // Margin covers: outer shadow (~24dp), highlight blur (~2px), press scale
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:340:      // For toggle knobs + bottom-tab indicators, the highlight alpha is
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:341:      // modulated by pressProgress (faithful to Highlight.Default.copy(alpha=progress)).
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:344:      // progress > 0. For non-toggle elements, use the static highlight alpha.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:345:      elHighlightAlpha: (el.isToggleKnob || el.isBottomTabIndicator) ? 0 : (el.highlight ? el.highlight.alpha : 0),
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:405:    // --- Steps 2c–2f: Press glow, white overlay, foreground, rim highlight ---
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:414:    // press glow + white overlay + foreground + rim highlight. It
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:14:export interface GlassHighlight {
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:24:   *  This matches HighlightModifier.kt:
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:25:   *    paint.strokeWidth = ceil(highlight.width.toPx()) * 2f
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:28:  /** Blur radius in dp. Faithful to Highlight.kt: blurRadius = width / 2.
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:53:  highlight: GlassHighlight | null
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:72:  /** Whether to apply InteractiveHighlight press effect. */
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:475:  /** When true, the rim highlight angle is driven by renderer.gravityAngle
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:476:   *  (updated live via setGravityAngle) instead of the static highlight.angle
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:477:   *  baked at build time. Used by CC tiles so the highlight rotates smoothly
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:490:/* Per-element interaction state — mirrors InteractiveHighlight.kt. */
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:492:  // InteractiveHighlight state (button press + drag) — used by 'button'
+/home/z/my-project/src/components/liquid-glass/renderer/continuous-mask.ts:11: *   - G (SDF) for highlight stroke (distance-based, matches clip shape)
+/home/z/my-project/src/components/liquid-glass/shaders/index.ts:23:  HIGHLIGHT_FRAGMENT_SHADER,
+/home/z/my-project/src/components/liquid-glass/shaders/index.ts:25:  RIM_HIGHLIGHT_FRAGMENT_SHADER,
+/home/z/my-project/src/components/liquid-glass/shaders/index.ts:26:  HIGHLIGHT_STROKE_FRAGMENT_SHADER,
+/home/z/my-project/src/components/liquid-glass/shaders/index.ts:27:  HIGHLIGHT_COMPOSITE_FRAGMENT_SHADER,
+/home/z/my-project/src/components/liquid-glass/shaders/index.ts:29:} from './highlight'
+/home/z/my-project/src/components/liquid-glass/shaders/index.ts:46:  generateHighlightBlurShader,
+/home/z/my-project/src/components/liquid-glass/shaders/index.ts:47:  computeHighlightBlurTapCount,
+/home/z/my-project/src/components/liquid-glass/shaders/element-uniforms.ts:36:uniform vec4  uHighlightColor;    // rgb + 1.0 (alpha handled by uHighlightAlpha)
+/home/z/my-project/src/components/liquid-glass/shaders/element-uniforms.ts:37:uniform float uHighlightAngle;    // radians
+/home/z/my-project/src/components/liquid-glass/shaders/element-uniforms.ts:38:uniform float uHighlightFalloff;
+/home/z/my-project/src/components/liquid-glass/shaders/element-uniforms.ts:39:uniform float uHighlightAlpha;
+/home/z/my-project/src/components/liquid-glass/shaders/element-uniforms.ts:40:uniform float uHighlightMode;     // 0=default, 1=ambient, 2=plain
+/home/z/my-project/src/components/liquid-glass/shaders/element-uniforms.ts:41:uniform float uHighlightStrokeWidth; // px (full stroke width, matching paint.strokeWidth)
+/home/z/my-project/src/components/liquid-glass/shaders/element-uniforms.ts:42:uniform float uHighlightBlur;     // px (BlurMaskFilter radius)
+/home/z/my-project/src/components/liquid-glass/shaders/element-uniforms.ts:132:// --- 内层背景板 rim highlight stroke mask (Canvas2D, same approach as outer rim) ---
+/home/z/my-project/src/components/liquid-glass/shaders/element-uniforms.ts:133:// When uIndicatorBackdrop=1, the inner backdrop plate's rim highlight is sampled
+/home/z/my-project/src/components/liquid-glass/shaders/element-uniforms.ts:137:uniform sampler2D uInnerStrokeMask;   // Canvas2D stroke mask texture for inner backdrop highlight
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:4: * Interactive highlight pass — faithful port of the AGSL shader from
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:5: * InteractiveHighlight.kt:
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:32:export const HIGHLIGHT_FRAGMENT_SHADER = /* glsl */ `
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:43:// The press glow (InteractiveHighlight) is drawn INSIDE the graphicsLayer, so
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:84: * first half of the InteractiveHighlight effect (drawRect white 8%
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:129: * Rim highlight pass — faithful port of HighlightModifier.kt +
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:130: * DefaultHighlightShaderString / AmbientHighlightShaderString.
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:147:export const RIM_HIGHLIGHT_FRAGMENT_SHADER = /* glsl */ `
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:154:uniform vec4  uHighlightColor;  // rgb + 1.0
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:155:uniform float uHighlightAngle;  // radians
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:156:uniform float uHighlightFalloff;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:157:uniform float uHighlightAlpha;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:158:uniform float uHighlightMode;     // 0=Default, 1=Ambient, 2=Plain
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:159:uniform float uHighlightStrokeWidth;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:160:uniform float uHighlightBlur;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:163:// (shape is correct, not stretched), so the highlight clip + stroke remain a
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:165:// a horizontally-stretched button would stretch the highlight clip too,
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:190:    // highlight implementation). When capsule is OFF, this is the exact
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:193:    // band, invisible in the highlight).
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:199:    // Stroke mask — faithful to HighlightModifier.kt:
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:219:    // uHighlightBlur is already in device px (set by the renderer as widthDp*dpr*0.5).
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:220:    float strokeHalf = uHighlightStrokeWidth * 0.5;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:221:    float sigma = max(uHighlightBlur, 0.1);
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:247:    if (uHighlightMode < 0.5) {
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:251:        vec2 normal = vec2(cos(uHighlightAngle), sin(uHighlightAngle));
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:253:        float intensity = pow(abs(d), uHighlightFalloff);
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:254:        vec3 c = uHighlightColor.rgb * intensity * strokeMask * uHighlightAlpha;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:256:    } else if (uHighlightMode < 1.5) {
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:260:        vec2 normal = vec2(cos(uHighlightAngle), sin(uHighlightAngle));
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:262:        float intensity = pow(abs(d), uHighlightFalloff);
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:264:        float i = intensity * strokeMask * uHighlightAlpha;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:265:        gl_FragColor = vec4(uHighlightColor.rgb * i, i);
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:268:        vec3 c = uHighlightColor.rgb * strokeMask * uHighlightAlpha;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:275: * HIGHLIGHT_STROKE_FRAGMENT_SHADER — pass 1 of the 3-pass faithful
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:276: * highlight (stroke mask → 2-pass blur → composite).
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:278: * Faithful to HighlightModifier.kt's GraphicsLayer record:
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:294:export const HIGHLIGHT_STROKE_FRAGMENT_SHADER = /* glsl */ `
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:301:uniform float uHighlightStrokeWidth;  // ceil(width*dpr)*2, device px
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:342:    float strokeHalf = uHighlightStrokeWidth * 0.5;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:350: * HIGHLIGHT_COMPOSITE_FRAGMENT_SHADER — pass 3 of the 3-pass faithful
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:351: * highlight. Samples the blurred stroke mask (from the 2-pass blur) and
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:357: *   2. AGSL RuntimeShader (DefaultHighlightShaderString) computes
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:373:export const HIGHLIGHT_COMPOSITE_FRAGMENT_SHADER = /* glsl */ `
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:382:uniform vec4  uHighlightColor;    // rgb + 1.0
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:383:uniform float uHighlightAngle;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:384:uniform float uHighlightFalloff;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:385:uniform float uHighlightAlpha;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:386:uniform float uHighlightMode;     // 0=Default, 1=Ambient, 2=Plain
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:407:    // Compute intensity from the SDF gradient (AGSL DefaultHighlightShaderString).
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:421:    // the highlight "leaks" outside the shape, making it brighter than the
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:434:    if (uHighlightMode < 1.5) {
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:438:        vec2 normal = vec2(cos(uHighlightAngle), sin(uHighlightAngle));
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:440:        intensity = pow(abs(d), uHighlightFalloff);
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:446:    float a = mask * uHighlightAlpha;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:448:    if (uHighlightMode < 0.5) {
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:451:        vec3 c = uHighlightColor.rgb * intensity * a;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:453:    } else if (uHighlightMode < 1.5) {
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:459:        gl_FragColor = vec4(uHighlightColor.rgb * i, i);
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:462:        vec3 c = uHighlightColor.rgb * a;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:487:uniform vec4  uHighlightColor;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:488:uniform float uHighlightAngle;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:489:uniform float uHighlightFalloff;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:490:uniform float uHighlightAlpha;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:491:uniform float uHighlightMode;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:527:    if (uHighlightMode < 1.5) {
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:530:        vec2 normal = vec2(cos(uHighlightAngle), sin(uHighlightAngle));
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:532:        intensity = pow(abs(d), uHighlightFalloff);
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:537:    float a = mask * uHighlightAlpha;
+/home/z/my-project/src/components/liquid-glass/shaders/highlight.ts:538:    if (uHighlightMode < 0.5) {
+
+[Showing results with pagination = limit: 250]

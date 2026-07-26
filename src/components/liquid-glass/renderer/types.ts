@@ -169,12 +169,31 @@ export interface GlassElementConfig extends GlassButtonConfig {
     /** Layout box size in px (default = size). See TextSpec.icon. */
     layoutSize?: number
   }
-  /** Inner shadow (optional, for toggle/slider knobs). */
+  /** Inner shadow (optional, for toggle/slider knobs).
+   *  Faithful to InnerShadowModifier.kt. Default color = Black.copy(alpha=0.15f).
+   *  When color is not set, the shader uses darkening (multiply blend).
+   *  When color is set, the shader uses SrcOver blend with that color. */
   innerShadow?: {
     radius: number
     alpha: number
     offsetX: number
     offsetY: number
+    /** Shadow color (rgb 0..1). When unset, defaults to [0,0,0] (black).
+     *  The shader uses: color = mix(color, shadowColor, ring * alpha) */
+    color?: [number, number, number]
+  } | null
+  /** Second inner shadow (optional, for 3D bevel effect).
+   *  Typically a WHITE inner shadow offset upward (0, -radius), creating
+   *  a bright band at the bottom edge — paired with the black inner shadow
+   *  (offset downward) at the top edge. This makes toggle/slider knobs
+   *  look 3D/立体.
+   *  The shader uses SrcOver blend: color = mix(color, shadowColor, ring * alpha). */
+  innerShadow2?: {
+    radius: number
+    alpha: number
+    offsetX: number
+    offsetY: number
+    color: [number, number, number]
   } | null
   /**
    * Scroll-anchor: if set, the element's rect.y is interpreted as relative

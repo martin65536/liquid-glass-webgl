@@ -46,3 +46,27 @@ Stage Summary:
 - Device info collection covers: UA, CPU cores, device memory, GPU (WebGL), screen/display, canvas CSS/buffer/DPR, viewport, language, timezone, connection info, canvas fingerprint, page context
 - Supabase table 'device_info' needs to be created in the user's Supabase dashboard
 - RLS needs to be configured (explained below)
+---
+Task ID: 3
+Agent: Main Agent
+Task: Add white inner shadow (innerShadow2) to toggle knob for 3D bevel effect
+
+Work Log:
+- Analyzed current toggle inner shadow implementation: only one black inner shadow (offset (0, 4dp) → dark band at top)
+- User reported toggle should have TWO inner shadows: one black (top), one white (bottom) → 3D/立体
+- Updated renderer/types.ts: added `color?: [number, number, number]` to `innerShadow` type, added `innerShadow2` type with mandatory `color`
+- Updated shaders/element-uniforms.ts: added `uInnerShadowColor` (vec3) + 4 new uniforms for innerShadow2 (radius, alpha, offset, color)
+- Updated shaders/element.ts: changed inner shadow rendering from `color *= 1.0 - ring * alpha` (hardcoded darkening) to `color = mix(color, uInnerShadowColor, ring * alpha)` (SrcOver blend with color). Added innerShadow2 block with same SrcOver blending approach.
+- Updated renderer/index.ts: added uniform location names for new uniforms
+- Updated renderer/methods-render-glass-element-pass.ts: added innerShadow2 variable declarations, progress modulation for toggle knobs and bottom tab indicators, and uniform pass code for both innerShadow color and innerShadow2
+- Updated catalog/helpers.ts: added `innerShadow2` option to makeGlassShape
+- Updated catalog/build-toggle.ts: added KNOB_INNER_SHADOW2 (white, alpha 0.15, offset (0, -4dp)) and passed it to both toggle knobs
+- Verified: lint passes ✓, dev server compiles without errors ✓
+
+Stage Summary:
+- Toggle knobs now have TWO inner shadows: black (top) + white (bottom) → 3D bevel effect
+- innerShadow type now supports custom color (defaults to black [0,0,0])
+- innerShadow2 is a new optional field for a second colored inner shadow
+- Shader uses SrcOver blend: `color = mix(color, shadowColor, ring * alpha)` for both
+- For black shadow, SrcOver is equivalent to the old darkening: `mix(color, [0,0,0], a)` = `color * (1-a)` ✓
+- White inner shadow: offset (0, -4dp*progress), alpha 0.15*progress, color White → bright band at bottom edge

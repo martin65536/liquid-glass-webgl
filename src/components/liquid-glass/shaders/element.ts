@@ -317,7 +317,7 @@ void main() {
     // element's edge AA, which is wrong — the highlight layer is composited
     // on top with its own blend mode.
 
-    // --- 6. Inner shadow ------------------------------------------
+    // --- 6. Inner shadow 1 (black / custom color) ------------------
     // Faithful to InnerShadowModifier.kt:
     //   1. Draw the shape outline with shadow color (Black 0.15)
     //   2. Translate by offset (0, radius) — shadow shifts DOWN
@@ -326,32 +326,42 @@ void main() {
     //   4. Blur the whole layer by radius
     //   5. Composite over content with shadow.alpha (SrcOver)
     //
-    // The result: a darkened band at the TOP inner edge (because the shape
-    // is offset downward, the top part of the ring remains after the clear).
+    // The result: a band at the inner edge opposite to the offset direction.
+    // When offset is (0, +radius) → dark band at the TOP (recessed look).
+    // When offset is (0, -radius) → bright band at the BOTTOM (lit look).
     // The blur softens it into a gradient.
     //
     // We approximate this with an inverted SDF: the shadow appears where
     // the pixel is INSIDE the shape but OUTSIDE the offset shape (the ring).
-    // The offset shifts the inner shape DOWN (positive Y), so the ring is
-    // thicker at the top.
+    // For the default black inner shadow, we darken: color *= 1.0 - ring * alpha.
+    // For a custom-color inner shadow (e.g. white), we SrcOver blend:
+    //   color = mix(color, shadowColor, ring * alpha).
     if (uInnerShadowAlpha > 0.001 && uInnerShadowRadius > 0.5) {
-        // The offset shape: same rect but shifted by the shadow offset.
-        // Original: draw outline → translate(offset) → clear outline.
-        // This means the clear happens at the offset position, removing
-        // the bottom part of the filled outline. What remains is the top.
-        // SDF approach: we're inside the shape (sd < 0) and the offset
-        // shape's SDF at this pixel is > 0 (outside the offset shape).
         vec2 offsetCentered = centeredOrigRot - uInnerShadowOffset;
         float offsetSd = sdShape(offsetCentered, origHalfSize, origRadius);
         // Ring = inside original (sd < 0) AND outside offset shape (offsetSd > 0)
-        // Plus blur falloff based on distance into the ring.
         float ring = smoothstep(0.0, uInnerShadowRadius, offsetSd) *
                      (1.0 - smoothstep(-uInnerShadowRadius, 0.0, sd));
         // ring is 1 in the middle of the ring, fading at both edges.
-        color *= 1.0 - ring * uInnerShadowAlpha;
+        // SrcOver blend: mix current color with shadow color by ring * alpha.
+        color = mix(color, uInnerShadowColor, ring * uInnerShadowAlpha);
     }
 
-    // --- 7. Edge anti-aliasing -----------------------------------
+    // --- 7. Inner shadow 2 (white / highlight) --------------------
+    // Second inner shadow for 3D bevel effect. Typically a WHITE inner shadow
+    // with offset (0, -radius) → bright band at the bottom edge, paired with
+    // the black inner shadow's dark band at the top edge. This makes
+    // toggle/slider knobs look 3D/立体.
+    // Uses SrcOver blend: color = mix(color, shadowColor, ring * alpha).
+    if (uInnerShadow2Alpha > 0.001 && uInnerShadow2Radius > 0.5) {
+        vec2 offsetCentered2 = centeredOrigRot - uInnerShadow2Offset;
+        float offsetSd2 = sdShape(offsetCentered2, origHalfSize, origRadius);
+        float ring2 = smoothstep(0.0, uInnerShadow2Radius, offsetSd2) *
+                      (1.0 - smoothstep(-uInnerShadow2Radius, 0.0, sd));
+        color = mix(color, uInnerShadow2Color, ring2 * uInnerShadow2Alpha);
+    }
+
+    // --- 8. Edge anti-aliasing -----------------------------------
     // edgeAlpha was computed earlier (mask mode: direct coverage, analytic: smoothstep).
     gl_FragColor = vec4(color, alpha * edgeAlpha * uEnterAlpha);
 }
