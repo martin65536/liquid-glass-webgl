@@ -99,9 +99,9 @@ export function buildBottomTabs(W: number, H: number, onBack: () => void, state:
         blurRadius: 8 * DP,
         saturation: 1.5,
         surfaceColor: containerColor,
-        // 容器 uses default Highlight.Default (alpha=1.0, width=0.5dp).
+        // 容器 uses default Highlight.Default (alpha=0.5, width=0.5dp).
         // The original Container Row doesn't pass highlight= → uses DefaultHighlight.
-        highlight: { ...DEFAULT_HIGHLIGHT, alpha: 1.0 },
+        highlight: { ...DEFAULT_HIGHLIGHT, alpha: 0.5 },
         outerShadow: null,
         depthEffect: true,
       }
@@ -211,8 +211,8 @@ export function buildBottomTabs(W: number, H: number, onBack: () => void, state:
         tintColor: [0, 0, 0, 0],
         surfaceColor: [0, 0, 0, 0],
         // Faithful to original: highlight = Highlight.Default.copy(alpha=progress).
-        // alpha=0 at rest (no edge highlight), full when pressed.
-        highlight: { ...DEFAULT_HIGHLIGHT, alpha: 1.0 },
+        // alpha=0 at rest (no edge highlight), max=0.5 when pressed (Default style alpha).
+        highlight: { ...DEFAULT_HIGHLIGHT, alpha: 0.5 },
         // Shadow(alpha=progress) — faithful to Shadow.Default:
         //   radius=24dp, offset=(0, radius/6=4dp), color=Black(0.1), alpha=1*progress.
         // Renderer modulates alpha by pressProgress.

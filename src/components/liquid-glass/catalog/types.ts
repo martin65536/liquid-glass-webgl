@@ -214,7 +214,7 @@ export const DEFAULT_HIGHLIGHT: GlassHighlight = {
   color: [1, 1, 1],
   angle: 45 * Math.PI / 180,
   falloff: 1.0,
-  alpha: 1.0,
+  alpha: 0.5, // faithful to HighlightStyle.Default: color = White.copy(alpha = 0.5f)
   widthDp: 0.5,
 }
 
