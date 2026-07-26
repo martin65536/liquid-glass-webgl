@@ -1,0 +1,252 @@
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-30-    gl.activeTexture(gl.TEXTURE0)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-31-    // uBackdrop: the backdrop texture the glass samples (refraction + blur).
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-32-    gl.bindTexture(gl.TEXTURE_2D, curTex)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-33-    gl.uniform1i(this.uEl['uBackdrop'], 0)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-34-
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:35:    // Bind wallpaper texture to TEXTURE1 for the toggle knob CombinedBackdrop
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:36:    // effect (faithful to LiquidToggle.kt's rememberCombinedBackdrop).
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-37-    // The knob samples the wallpaper (unscaled) + composited scaled track color
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-38-    // instead of the scene, matching the original where the knob's backdrop
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:39:    // is a CombinedBackdrop of (wallpaper, scaled trackBackdrop).
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-40-    //
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-41-    // For toggles on a solid-color card (t2 in ToggleContent.kt), the outer
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-42-    // backdrop is a CanvasBackdrop (card color), NOT the wallpaper. In that
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-43-    // case, solidBackdropColor is set and the shader uses it instead of the
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-44-    // wallpaper texture.
+--
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-129-    // Slider: X lerp(2/3, 1, p),    Y lerp(0, 1, p)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-130-    // At rest Y=0 → degenerate (single horizontal line), but the white
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-131-    // overlay (alpha=1) hides it. When pressed, scales to full.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-132-    let elContentScaleX = 1.0
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-133-    let elContentScaleY = 1.0
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:134:    // --- Toggle knob CombinedBackdrop (faithful to LiquidToggle.kt) ---
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-135-    // When enabled, the knob samples the wallpaper (unscaled) + composited
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-136-    // scaled track color, instead of the content-scaled scene. This matches
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:137:    // the original where the knob's backdrop is a CombinedBackdrop of
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-138-    // (wallpaper, scaled trackBackdrop) — only the track color is scaled,
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-139-    // not the wallpaper.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-140-    let useToggleBackdrop = 0.0
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-141-    let useSolidBackdrop = 0.0
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-142-    let solidR = 1, solidG = 1, solidB = 1, solidA = 1
+--
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-170-      const xEnd = isSlider ? 1.0 : 0.75
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-171-      const yEnd = isSlider ? 1.0 : 0.75
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-172-      elContentScaleX = (2.0 / 3.0) + (xEnd - 2.0 / 3.0) * progress
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-173-      elContentScaleY = 0.0 + (yEnd - 0.0) * progress
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-174-
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:175:      // --- CombinedBackdrop: outer backdrop + scaled track color ---
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-176-      // Faithful to LiquidToggle.kt:
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:177:      //   backdrop = rememberCombinedBackdrop(
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-178-      //     backdrop,                                            // outer
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-179-      //     rememberBackdrop(trackBackdrop) { drawBackdrop ->   // track color
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-180-      //       val scaleX = lerp(2f / 3f, 0.75f, progress)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-181-      //       val scaleY = lerp(0f, 0.75f, progress)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-182-      //       scale(scaleX, scaleY) { drawBackdrop() }
+--
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-243-          const sd = el.isToggleKnob.solidBackdropColor
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-244-          solidR = sd[0]; solidG = sd[1]; solidB = sd[2]; solidA = sd[3]
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-245-          useSolidBackdrop = 1.0
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-246-        }
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-247-
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:248:        // When using the CombinedBackdrop path, disable the content-scale
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-249-        // on the scene sample (we sample wallpaper/solid color at full scale
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-250-        // instead, plus the track color at its own scaled position).
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-251-        elContentScaleX = 1.0
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-252-        elContentScaleY = 1.0
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-253-      }
+--
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-272-      elInnerShadowAlpha = (el.innerShadow?.alpha ?? 0) * progress
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-273-      elInnerShadowRadius = (el.innerShadow?.radius ?? 0) * progress
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-274-      elInnerShadowOffsetX = (el.innerShadow?.offsetX ?? 0) * progress
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-275-      elInnerShadowOffsetY = (el.innerShadow?.offsetY ?? 0) * progress
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-276-
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:277:      // --- CombinedBackdrop (faithful to LiquidBottomTabs.kt 指示器) ---
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:278:      // The original 指示器's backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-279-      //   - backdrop (outer) = LayerBackdrop (wallpaper)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:280:      //   - tabsBackdrop (inner) = hidden Row's 56dp glass (内层背景板),
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-281-      //     inset 4dp on all sides relative to the 指示器.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-282-      // The 指示器 samples wallpaper (outer) + scene FBO (容器 glass)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-283-      // composited inside an inset capsule SDF.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-284-      if (el.isBottomTabIndicator.accentColor && el.isBottomTabIndicator.containerRect) {
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-285-        const ac = el.isBottomTabIndicator.accentColor
+--
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-294-        containerHalfH = (cr.h / 2) * this.dpr
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-295-        containerCornerRadius = (cr.h / 2) * this.dpr // capsule = height/2
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-296-        useIndicatorBackdrop = 1.0
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-297-      }
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-298-    }
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:299:    // Set the CombinedBackdrop uniforms (no-ops for non-toggle elements).
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-300-    gl.uniform1f(this.uEl['uUseToggleBackdrop'], useToggleBackdrop)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-301-    gl.uniform1f(this.uEl['uUseSolidBackdrop'], useSolidBackdrop)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-302-    gl.uniform4f(this.uEl['uSolidBackdropColor'], solidR, solidG, solidB, solidA)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-303-    gl.uniform4f(this.uEl['uTrackColor'], trackColorR, trackColorG, trackColorB, trackColorA)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-304-    gl.uniform4f(this.uEl['uTrackRect'], trackCenterX, trackCenterY, trackHalfW, trackHalfH)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-305-    gl.uniform1f(this.uEl['uTrackCornerRadius'], trackCornerRadius)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:306:    // Indicator CombinedBackdrop uniforms.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-307-    gl.uniform1f(this.uEl['uIndicatorBackdrop'], useIndicatorBackdrop)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-308-    gl.uniform4f(this.uEl['uContainerRect'], containerRectX, containerRectY, containerHalfW, containerHalfH)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-309-    gl.uniform1f(this.uEl['uContainerCornerRadius'], containerCornerRadius)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-310-    gl.uniform4f(this.uEl['uIndicatorAccent'], indicatorAccentR, indicatorAccentG, indicatorAccentB, indicatorAccentA)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-311-    // 指示器 backdrop inset: 4dp (the 内层背景板 capsule is inset 4dp
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-312-    // from the indicator's draw area on every side).
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-313-    gl.uniform1f(this.uEl['uInsetPx'], 4 * this.dpr)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-314-    // 2nd-layer (inset capsule) press progress + panelOffset — the inset
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-315-    // background plate scales (1→1.2) and shifts with panelOffset, matching
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:316:    // the original's hidden Row (graphicsLayer translationX = panelOffset)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-317-    // and tab content (LocalLiquidBottomTabScale lerp(1, 1.2, progress)).
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-318-    if (el.isBottomTabIndicator) {
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-319-      const tg = this.toggleStates.get(el.isBottomTabIndicator.groupId)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-320-      gl.uniform1f(this.uEl['uIndicatorPressProgress'], tg ? tg.pressProgress : 0)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-321-      gl.uniform1f(this.uEl['uIndicatorPanelOffset'], tg ? tg.panelOffset * this.dpr : 0)
+--
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-357-      }
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-358-      gl.uniform1f(this.uEl['uTabContentCount'], boundCount)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-359-      // Bind the glass-layer snapshot (wallpaper+glass, no tab text) to TEXTURE11.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-360-      // The indicator samples this instead of the live scene so no white/black
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-361-      // tab text bleeds through — the blue tint is drawn via fgTexture on top.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:362:      if (this.tabsBackdropTex) {
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-363-        gl.activeTexture(gl.TEXTURE11)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts:364:        gl.bindTexture(gl.TEXTURE_2D, this.tabsBackdropTex)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-365-        gl.uniform1i(this.uEl['uTabsGlassLayer'], 11)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-366-      }
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-367-      // --- Generate inner backdrop plate rim highlight stroke mask ---
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-368-      // The 内层背景板 has its own Highlight.Default.copy(alpha=progress), which
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-element-pass.ts-369-      // uses the SAME HighlightModifier.kt approach as the outer indicator rim:
+--
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts-101-  fboB: WebGLFramebuffer | null = null
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts-102-  fboBTex: WebGLTexture | null = null
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts-103-  fboW = 0
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts-104-  fboH = 0
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts-105-
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:106:  // --- tabsBackdrop FBO (indicator's hidden tinted layer) ---
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts-107-  // Faithful to LiquidBottomTabs.kt: the indicator's backdrop is
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:108:  //   rememberCombinedBackdrop(backdrop, tabsBackdrop)
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:109:  // where tabsBackdrop is a HIDDEN Row (alpha=0) that captures the container
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts-110-  // glass + tab content with ColorFilter.tint(accentColor). We render the
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts-111-  // current scene (container+tabs already drawn) into this FBO, apply a blue
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts-112-  // tint pass, then the indicator shader samples it as the second backdrop
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts-113-  // layer (composited over wallpaper).
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:114:  tabsBackdropFbo: WebGLFramebuffer | null = null
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:115:  tabsBackdropTex: WebGLTexture | null = null
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:116:  tabsBackdropDirty = true
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts-117-
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts-118-  // --- Separable 2-pass blur infrastructure (Glass Playground only) ---
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts-119-  // gpElementFbo: element pass renders here (refraction on CLEAR backdrop,
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts-120-  // uBlurRadius=0) for useSeparableBlur elements. Transparent background;
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts-121-  // the element shader's discard leaves only the glass shape's refracted content.
+--
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts-597-    if (this.fboATex) gl.deleteTexture(this.fboATex)
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts-598-    if (this.fboB) gl.deleteFramebuffer(this.fboB)
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts-599-    if (this.fboBTex) gl.deleteTexture(this.fboBTex)
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts-600-    this.fboA = this.fboB = null
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts-601-    this.fboATex = this.fboBTex = null
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:602:    if (this.tabsBackdropFbo) gl.deleteFramebuffer(this.tabsBackdropFbo)
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:603:    if (this.tabsBackdropTex) gl.deleteTexture(this.tabsBackdropTex)
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:604:    this.tabsBackdropFbo = null
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts:605:    this.tabsBackdropTex = null
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts-606-    // GP element FBO + blur FBOs + programs
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts-607-    if (this.gpElementFbo) gl.deleteFramebuffer(this.gpElementFbo)
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts-608-    if (this.gpElementTex) gl.deleteTexture(this.gpElementTex)
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts-609-    if (this.blurFboA) gl.deleteFramebuffer(this.blurFboA)
+/home/z/my-project/src/components/liquid-glass/renderer/index.ts-610-    if (this.blurFboATex) gl.deleteTexture(this.blurFboATex)
+--
+/home/z/my-project/src/components/liquid-glass/renderer/methods-fbo.ts-49-    const b = this.createFBO(w, h)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-fbo.ts-50-    this.fboA = a.fb
+/home/z/my-project/src/components/liquid-glass/renderer/methods-fbo.ts-51-    this.fboATex = a.tex
+/home/z/my-project/src/components/liquid-glass/renderer/methods-fbo.ts-52-    this.fboB = b.fb
+/home/z/my-project/src/components/liquid-glass/renderer/methods-fbo.ts-53-    this.fboBTex = b.tex
+/home/z/my-project/src/components/liquid-glass/renderer/methods-fbo.ts:54:    // tabsBackdrop FBO (indicator's hidden tinted layer) — same size as scene.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-fbo.ts:55:    if (this.tabsBackdropFbo) gl.deleteFramebuffer(this.tabsBackdropFbo)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-fbo.ts:56:    if (this.tabsBackdropTex) gl.deleteTexture(this.tabsBackdropTex)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-fbo.ts-57-    const tb = this.createFBO(w, h)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-fbo.ts:58:    this.tabsBackdropFbo = tb.fb
+/home/z/my-project/src/components/liquid-glass/renderer/methods-fbo.ts:59:    this.tabsBackdropTex = tb.tex
+/home/z/my-project/src/components/liquid-glass/renderer/methods-fbo.ts:60:    this.tabsBackdropDirty = true
+/home/z/my-project/src/components/liquid-glass/renderer/methods-fbo.ts-61-    // GP element FBO (useSeparableBlur element pass output) + blur ping-pong FBOs.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-fbo.ts-62-    if (this.gpElementFbo) gl.deleteFramebuffer(this.gpElementFbo)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-fbo.ts-63-    if (this.gpElementTex) gl.deleteTexture(this.gpElementTex)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-fbo.ts-64-    if (this.blurFboA) gl.deleteFramebuffer(this.blurFboA)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-fbo.ts-65-    if (this.blurFboATex) gl.deleteTexture(this.blurFboATex)
+--
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts-403-        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts-404-      }
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts-405-    }
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts-406-
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts-407-    // --- Step 2g: 内层背景板 rim highlight (指示器 only) ---
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts:408:    // The 内层背景板 (hidden Row's 56dp glass inside the 指示器) has its own
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts-409-    // Highlight.Default.copy(alpha=progress). This is drawn INSIDE the
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts-410-    // 指示器's element shader (sampleIndicatorBackdrop) so it's clipped by
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts-411-    // the 指示器's capsule SDF — no separate pass needed here.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts-412-  },
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass-post-passes.ts-413-}
+--
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts-299-    const cornerRadius = el.cornerRadius * Math.min(scaleX, scaleY)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts-300-    const radii: [number, number, number, number] = [
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts-301-      cornerRadius, cornerRadius, cornerRadius, cornerRadius,
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts-302-    ]
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts-303-
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:304:    // --- tabsBackdrop FBO pass removed ---
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts-305-    // The faithful sampleIndicatorBackdrop (element-utils.ts) computes the
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts-306-    // tinted layer inline (wallpaper + accentColor at containerColor alpha
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts-307-    // inside the 容器 capsule SDF), approximating LiquidBottomTabs.kt's
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts:308:    // ColorFilter.tint(SrcIn) on the 内层背景板 (hidden Row)'s content. No separate FBO
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts-309-    // capture is needed.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts-310-
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts-311-    // --- Step 1: Blit curFbo → otherFbo (FULLSCREEN — must copy the entire
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts-312-    // scene so ping-pong preserves all previously-rendered elements. Scissor
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render-glass.ts-313-    // cannot be used here because otherFbo's regions outside the current
+--
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-250-     *   - LiquidSlider.kt: velocity / 10
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-251-     * Defaults to 50 (toggle). Slider sets 10.
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-252-     */
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-253-    velocityDivisor?: number
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-254-    /**
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:255:     * CombinedBackdrop track color info (faithful to LiquidToggle.kt):
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:256:     *   backdrop = rememberCombinedBackdrop(
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-257-     *     backdrop,                                            // wallpaper
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-258-     *     rememberBackdrop(trackBackdrop) { drawBackdrop ->   // track color
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-259-     *       scale(scaleX, scaleY) { drawBackdrop() }
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-260-     *     }
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-261-     *   )
+--
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-292-     * Solid backdrop color (RGBA 0..1) — used when the outer backdrop is a
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-293-     * CanvasBackdrop (e.g. toggle inside a solid-color card). Faithful to
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-294-     * ToggleContent.kt's t2 which uses:
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-295-     *   rememberCanvasBackdrop { drawRect(backgroundColor) }
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-296-     * When set, the knob samples this solid color instead of the wallpaper
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:297:     * texture for the outer backdrop portion of the CombinedBackdrop.
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-298-     * When unset, samples the wallpaper texture (LayerBackdrop case).
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-299-     */
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-300-    solidBackdropColor?: [number, number, number, number]
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-301-  }
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-302-  /**
+--
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-368-     *  Faithful to LiquidBottomTabs.kt indicator:
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-369-     *    drawRect(if (isLightTheme) Color.Black.copy(0.1f) else Color.White.copy(0.1f), alpha = 1f - progress)
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-370-     *    drawRect(Color.Black.copy(alpha = 0.03f * progress))
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-371-     *  The renderer draws both overlays in the post-pass, modulated by pressProgress. */
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-372-    dimColor?: [number, number, number, number]
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:373:    /** CombinedBackdrop (faithful to LiquidBottomTabs.kt 指示器):
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:374:     *  backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop)
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-375-     *  - backdrop (outer) = LayerBackdrop (wallpaper)
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts:376:     *  - tabsBackdrop (inner) = 内层背景板 (hidden Row's 56dp glass),
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-377-     *    inset 4dp on all sides relative to the 指示器.
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-378-     *  The 指示器 samples wallpaper (outer) + the scene FBO (容器
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-379-     *  glass + content) composited inside an inset capsule SDF. */
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-380-    accentColor?: [number, number, number]
+/home/z/my-project/src/components/liquid-glass/renderer/types.ts-381-    /** Container rect (full container bar position/size). The inset capsule
+--
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render.ts-173-      curTex = result.curTex
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render.ts-174-      otherFbo = result.otherFbo
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render.ts-175-      otherTex = result.otherTex
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render.ts-176-
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render.ts-177-      // After the container glass is rendered (before tab-content), snapshot
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render.ts:178:      // the scene (wallpaper + glass, no text) into tabsBackdropFbo. The
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render.ts-179-      // indicator samples this to avoid the white/black tab text bleeding through.
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render.ts:180:      if (el.isBottomTabContainer && this.tabsBackdropFbo && this.tabsBackdropTex) {
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render.ts:181:        this.bindFBO(this.tabsBackdropFbo)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render.ts-182-        // Clear to transparent first (avoid stale black from previous frames).
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render.ts-183-        this.gl.clearColor(0, 0, 0, 0)
+/home/z/my-project/src/components/liquid-glass/renderer/methods-render.ts-184-        this.gl.clear(this.gl.COLOR_BUFFER_BIT)
+
+[Showing results with pagination = limit: 250]

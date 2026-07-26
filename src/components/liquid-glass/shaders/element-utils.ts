@@ -409,13 +409,13 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
             innerMask = texture2D(uInnerStrokeMask, innerMaskUv).a;
         }
 
-        // White(1.0) * intensity * innerMask * progress, Plus blend (additive).
-        // (color.copy(alpha=1) * highlightLayer.alpha=progress — the 0.5 alpha
-        // in HighlightStyle.Default.color is NOT used; the AGSL shader uses
-        // color.copy(alpha=1f) and the layer alpha is highlight.alpha=progress.)
-        // No *= 0.5 or clipAA needed — the Canvas2D clip(path) before stroke
-        // already removes the outer half, and Skia hardware coverage provides AA.
-        resultRgb += vec3(1.0) * intensity * innerMask * highlightAlpha;
+        // White(0.5) * intensity * innerMask * progress, Plus blend (additive).
+        // Faithful to HighlightStyle.Default: color = White.copy(alpha=0.5f).
+        // The AGSL shader uses this 0.5 alpha, NOT color.copy(alpha=1f).
+        // Same fix as DEFAULT_HIGHLIGHT.alpha = 0.5 (was previously 1.0).
+        // No clipAA needed — the Canvas2D clip(path) before stroke already removes
+        // the outer half, and Skia hardware coverage provides AA.
+        resultRgb += vec3(0.5) * intensity * innerMask * highlightAlpha;
     }
 
     return vec4(resultRgb, 1.0);

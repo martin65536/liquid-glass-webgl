@@ -1,0 +1,642 @@
+     1→     1→import type { LiquidGlassRenderer } from './index'
+     2→     2→import type { GlassRenderState } from './methods-render-glass'
+     3→     3→import { DP } from './spring'
+     4→     4→
+     5→     5→declare module './index' {
+     6→     6→  interface LiquidGlassRenderer {
+     7→     7→    renderGlassElementPass(state: GlassRenderState, curTex: WebGLTexture): void
+     8→     8→  }
+     9→     9→}
+    10→    10→
+    11→    11→export const glassElementPassMethods = {
+    12→    12→  /** Step 2b: Element pass — refraction + vibrancy + tint + highlight.
+    13→    13→   *  Samples `curTex` (the scene built up so far) to compute refraction
+    14→    14→   *  of the actual colors behind the glass (track color, card background,
+    15→    15→   *  other glass elements), not just the wallpaper. */
+    16→    16→  renderGlassElementPass(
+    17→    17→    this: LiquidGlassRenderer,
+    18→    18→    state: GlassRenderState,
+    19→    19→    curTex: WebGLTexture
+    20→    20→  ) {
+    21→    21→    const gl = this.gl
+    22→    22→    const { el, sx, sy, sw, sh, radii, togglePressProgress, layerScale } = state
+    23→    23→
+    24→    24→    gl.useProgram(this.elementProgram)
+    25→    25→    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+    26→    26→    gl.enableVertexAttribArray(this.aPosLocEl)
+    27→    27→    gl.vertexAttribPointer(this.aPosLocEl, 2, gl.FLOAT, false, 0, 0)
+    28→    28→    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+    29→    29→
+    30→    30→    gl.activeTexture(gl.TEXTURE0)
+    31→    31→    // uBackdrop: the backdrop texture the glass samples (refraction + blur).
+    32→    32→    gl.bindTexture(gl.TEXTURE_2D, curTex)
+    33→    33→    gl.uniform1i(this.uEl['uBackdrop'], 0)
+    34→    34→
+    35→    35→    // Bind wallpaper texture to TEXTURE1 for the toggle knob CombinedBackdrop
+    36→    36→    // effect (faithful to LiquidToggle.kt's rememberCombinedBackdrop).
+    37→    37→    // The knob samples the wallpaper (unscaled) + composited scaled track color
+    38→    38→    // instead of the scene, matching the original where the knob's backdrop
+    39→    39→    // is a CombinedBackdrop of (wallpaper, scaled trackBackdrop).
+    40→    40→    //
+    41→    41→    // For toggles on a solid-color card (t2 in ToggleContent.kt), the outer
+    42→    42→    // backdrop is a CanvasBackdrop (card color), NOT the wallpaper. In that
+    43→    43→    // case, solidBackdropColor is set and the shader uses it instead of the
+    44→    44→    // wallpaper texture.
+    45→    45→    if (this.wallpaperTexture) {
+    46→    46→      gl.activeTexture(gl.TEXTURE1)
+    47→    47→      gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture)
+    48→    48→      gl.uniform1i(this.uEl['uWallpaperSampler'], 1)
+    49→    49→    }
+    50→    50→
+    51→    51→    // uTabsBackdropSampler (TEXTURE2) is no longer bound — the faithful
+    52→    52→    // sampleIndicatorBackdrop computes the tinted layer inline (wallpaper +
+    53→    53→    // accentColor at containerColor alpha inside the container capsule SDF),
+    54→    54→    // without sampling a tinted scene FBO.
+    55→    55→
+    56→    56→    gl.uniform2f(this.uEl['uCanvasSize'], this.canvas.width, this.canvas.height)
+    57→    57→    gl.uniform2f(this.uEl['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
+    58→    58→    gl.uniform2f(this.uEl['uElementOffset'], sx * this.dpr, sy * this.dpr)
+    59→    59→    gl.uniform2f(this.uEl['uElementSize'], sw * this.dpr, sh * this.dpr)
+    60→    60→    gl.uniform4f(
+    61→    61→      this.uEl['uCornerRadii'],
+    62→    62→      radii[0] * this.dpr,
+    63→    63→      radii[1] * this.dpr,
+    64→    64→      radii[2] * this.dpr,
+    65→    65→      radii[3] * this.dpr
+    66→    66→    )
+    67→    67→    // ORIGINAL geometry + layer scale — the shader computes SDF/refraction in
+    68→    68→    // original space (shape is correct, not stretched), then maps the refraction
+    69→    69→    // offset to screen space via uLayerScale. Faithful to the original which
+    70→    70→    // shades at original size then scales the entire layer via graphicsLayer.
+    71→    71→    gl.uniform2f(this.uEl['uOriginalSize'], state.origW * this.dpr, state.origH * this.dpr)
+    72→    72→    gl.uniform1f(this.uEl['uOriginalCornerRadius'], state.origCornerRadius * this.dpr)
+    73→    73→    gl.uniform2f(this.uEl['uLayerScale'], state.layerScaleX, state.layerScaleY)
+    74→    74→    // Element rotation (graphicsLayer rotationZ) — 0 for most elements; the
+    75→    75→    // Glass Playground square uses this for 2-finger rotation.
+    76→    76→    gl.uniform1f(this.uEl['uElementRotation'], el.elementRotation ?? 0)
+    77→    77→
+    78→    78→    // Toggle knobs: animate refraction/blur/highlight/inner-shadow with
+    79→    79→    // pressProgress to faithfully match LiquidToggle.kt / LiquidSlider.kt:
+    80→    80→    //   blur(8.dp * (1 - progress))       → frosted at rest, clear when pressed
+    81→    81→    //   lens(H * progress, A * progress)  → no refraction at rest, full when pressed
+    82→    82→    //   highlight.alpha = progress         → no edge highlight at rest
+    83→    83→    //   innerShadow(radius = 4.dp * progress, alpha = progress)
+    84→    84→    // The white overlay (drawRect(White alpha = 1 - progress)) is drawn
+    85→    85→    // in a separate pass below — alpha 1.0 at rest (solid frosted white
+    86→    86→    // pebble) fading to 0 when pressed (revealing the glass refraction).
+    87→    87→    let elRefractionHeight = el.refractionHeight
+    88→    88→    let elRefractionAmount = el.refractionAmount
+    89→    89→    let elBlurRadius = el.blurRadius
+    90→    90→    let elHighlightAlpha = el.highlight ? el.highlight.alpha : 0
+    91→    91→    let elInnerShadowAlpha = el.innerShadow ? el.innerShadow.alpha : 0
+    92→    92→    let elInnerShadowRadius = el.innerShadow ? el.innerShadow.radius : 0
+    93→    93→    let elInnerShadowOffsetX = el.innerShadow ? el.innerShadow.offsetX : 0
+    94→    94→    let elInnerShadowOffsetY = el.innerShadow ? el.innerShadow.offsetY : 0
+    95→    95→    let elInnerShadowColor: [number, number, number] = el.innerShadow?.color ?? [0, 0, 0]
+    96→    96→    let elInnerShadow2Alpha = el.innerShadow2 ? el.innerShadow2.alpha : 0
+    97→    97→    let elInnerShadow2Radius = el.innerShadow2 ? el.innerShadow2.radius : 0
+    98→    98→    let elInnerShadow2OffsetX = el.innerShadow2 ? el.innerShadow2.offsetX : 0
+    99→    99→    let elInnerShadow2OffsetY = el.innerShadow2 ? el.innerShadow2.offsetY : 0
+   100→   100→    let elInnerShadow2Color: [number, number, number] = el.innerShadow2?.color ?? [1, 1, 1]
+   101→   101→    let elSurfaceAlpha = el.surfaceColor[3]
+   102→   102→    // Bottom tab indicator: modulate refraction/blur/highlight/inner-shadow
+   103→   103→    // with pressProgress, faithful to LiquidBottomTabs.kt:
+   104→   104→    //   lens(10dp * progress, 14dp * progress, chromaticAberration = true)
+   105→   105→    //   highlight = Highlight.Default.copy(alpha = progress)
+   106→   106→    //   Shadow(alpha = progress)
+   107→   107→    //   InnerShadow(radius = 8dp * progress, alpha = progress)
+   108→   108→    // At rest (progress=0): NO refraction, NO highlight, NO shadow, NO inner shadow.
+   109→   109→    // Pressed (progress=1): full lens refraction + chromatic aberration.
+   110→   110→    if (el.isBottomTabIndicator) {
+   111→   111→      const progress = togglePressProgress
+   112→   112→      elRefractionHeight = el.refractionHeight * progress
+   113→   113→      elRefractionAmount = el.refractionAmount * progress
+   114→   114→      elBlurRadius = 0 // indicator has NO blur (original only has lens)
+   115→   115→      elHighlightAlpha = (el.highlight?.alpha ?? 0) * progress
+   116→   116→      elInnerShadowAlpha = (el.innerShadow?.alpha ?? 0) * progress
+   117→   117→      elInnerShadowRadius = (el.innerShadow?.radius ?? 0) * progress
+   118→   118→      elInnerShadowOffsetX = (el.innerShadow?.offsetX ?? 0) * progress
+   119→   119→      elInnerShadowOffsetY = (el.innerShadow?.offsetY ?? 0) * progress
+   120→   120→      // Bottom tab indicator innerShadow2 also modulated by pressProgress
+   121→   121→      elInnerShadow2Alpha = (el.innerShadow2?.alpha ?? 0) * progress
+   122→   122→      elInnerShadow2Radius = (el.innerShadow2?.radius ?? 0) * progress
+   123→   123→      elInnerShadow2OffsetX = (el.innerShadow2?.offsetX ?? 0) * progress
+   124→   124→      elInnerShadow2OffsetY = (el.innerShadow2?.offsetY ?? 0) * progress
+   125→   125→    }
+   126→   126→    // Content scale (non-uniform, faithful to LiquidToggle.kt / LiquidSlider.kt):
+   127→   127→    //   scale(scaleX, scaleY) { drawBackdrop() }
+   128→   128→    // Toggle: X lerp(2/3, 0.75, p), Y lerp(0, 0.75, p)
+   129→   129→    // Slider: X lerp(2/3, 1, p),    Y lerp(0, 1, p)
+   130→   130→    // At rest Y=0 → degenerate (single horizontal line), but the white
+   131→   131→    // overlay (alpha=1) hides it. When pressed, scales to full.
+   132→   132→    let elContentScaleX = 1.0
+   133→   133→    let elContentScaleY = 1.0
+   134→   134→    // --- Toggle knob CombinedBackdrop (faithful to LiquidToggle.kt) ---
+   135→   135→    // When enabled, the knob samples the wallpaper (unscaled) + composited
+   136→   136→    // scaled track color, instead of the content-scaled scene. This matches
+   137→   137→    // the original where the knob's backdrop is a CombinedBackdrop of
+   138→   138→    // (wallpaper, scaled trackBackdrop) — only the track color is scaled,
+   139→   139→    // not the wallpaper.
+   140→   140→    let useToggleBackdrop = 0.0
+   141→   141→    let useSolidBackdrop = 0.0
+   142→   142→    let solidR = 1, solidG = 1, solidB = 1, solidA = 1
+   143→   143→    let trackColorR = 0, trackColorG = 0, trackColorB = 0, trackColorA = 0
+   144→   144→    let trackCenterX = 0, trackCenterY = 0, trackHalfW = 0, trackHalfH = 0
+   145→   145→    let trackCornerRadius = 0
+   146→   146→    if (el.isToggleKnob) {
+   147→   147→      const progress = togglePressProgress
+   148→   148→      elRefractionHeight = el.refractionHeight * progress
+   149→   149→      elRefractionAmount = el.refractionAmount * progress
+   150→   150→      elBlurRadius = 8 * (1 - progress)
+   151→   151→      elHighlightAlpha = (el.highlight?.alpha ?? 0) * progress
+   152→   152→      elInnerShadowAlpha = (el.innerShadow?.alpha ?? 0) * progress
+   153→   153→      elInnerShadowRadius = (el.innerShadow?.radius ?? 0) * progress
+   154→   154→      // InnerShadow default offset = (0, radius). Since radius = 4dp*progress,
+   155→   155→      // the offset also scales with progress. Faithful to LiquidToggle.kt:
+   156→   156→      //   InnerShadow(radius = 4dp * progress, alpha = progress)
+   157→   157→      //   → default offset = DpOffset(0, radius) = (0, 4dp * progress)
+   158→   158→      elInnerShadowOffsetX = (el.innerShadow?.offsetX ?? 0) * progress
+   159→   159→      elInnerShadowOffsetY = (el.innerShadow?.offsetY ?? 0) * progress
+   160→   160→      // White inner shadow (innerShadow2): modulated the same way
+   161→   161→      elInnerShadow2Alpha = (el.innerShadow2?.alpha ?? 0) * progress
+   162→   162→      elInnerShadow2Radius = (el.innerShadow2?.radius ?? 0) * progress
+   163→   163→      elInnerShadow2OffsetX = (el.innerShadow2?.offsetX ?? 0) * progress
+   164→   164→      elInnerShadow2OffsetY = (el.innerShadow2?.offsetY ?? 0) * progress
+   165→   165→      elSurfaceAlpha = 0
+   166→   166→      // Faithful non-uniform content scale.
+   167→   167→      // Toggle:  X: 2/3 → 0.75, Y: 0 → 0.75
+   168→   168→      // Slider:  X: 2/3 → 1,    Y: 0 → 1
+   169→   169→      const isSlider = el.isToggleKnob.velocityDivisor === 10
+   170→   170→      const xEnd = isSlider ? 1.0 : 0.75
+   171→   171→      const yEnd = isSlider ? 1.0 : 0.75
+   172→   172→      elContentScaleX = (2.0 / 3.0) + (xEnd - 2.0 / 3.0) * progress
+   173→   173→      elContentScaleY = 0.0 + (yEnd - 0.0) * progress
+   174→   174→
+   175→   175→      // --- CombinedBackdrop: outer backdrop + scaled track color ---
+   176→   176→      // Faithful to LiquidToggle.kt:
+   177→   177→      //   backdrop = rememberCombinedBackdrop(
+   178→   178→      //     backdrop,                                            // outer
+   179→   179→      //     rememberBackdrop(trackBackdrop) { drawBackdrop ->   // track color
+   180→   180→      //       val scaleX = lerp(2f / 3f, 0.75f, progress)
+   181→   181→      //       val scaleY = lerp(0f, 0.75f, progress)
+   182→   182→      //       scale(scaleX, scaleY) { drawBackdrop() }
+   183→   183→      //     }
+   184→   184→      //   )
+   185→   185→      //
+   186→   186→      // OUTER BACKDROP:
+   187→   187→      //   - For t1 (on wallpaper): outer = LayerBackdrop (wallpaper) → sample uWallpaperSampler
+   188→   188→      //   - For t2 (on card):      outer = CanvasBackdrop (card color) → use solidBackdropColor
+   189→   189→      //
+   190→   190→      // SCALED TRACK CONTENT:
+   191→   191→      //   - Captured at TRACK's original screen position (FIXED, does not move with knob)
+   192→   192→      //   - Scale pivot = KNOB's current center (moves with knob via toggleXOffset)
+   193→   193→      //   - Resulting center: knob_center + (track_center - knob_center) * scale
+   194→   194→      //   - The scaled track content moves PARTIALLY with the knob (rate = 1 - scale)
+   195→   195→      if (el.isToggleKnob.trackColorOff && el.isToggleKnob.trackColorOn && el.isToggleKnob.trackW && el.isToggleKnob.trackH) {
+   196→   196→        const tg = this.toggleStates.get(el.isToggleKnob.groupId)
+   197→   197→        const fraction = tg ? tg.fraction : 0
+   198→   198→        // Lerp track color: lerp(trackColorOff, trackColorOn, fraction)
+   199→   199→        const off = el.isToggleKnob.trackColorOff
+   200→   200→        const on = el.isToggleKnob.trackColorOn
+   201→   201→        trackColorR = off[0] + (on[0] - off[0]) * fraction
+   202→   202→        trackColorG = off[1] + (on[1] - off[1]) * fraction
+   203→   203→        trackColorB = off[2] + (on[2] - off[2]) * fraction
+   204→   204→        trackColorA = off[3] + (on[3] - off[3]) * fraction
+   205→   205→
+   206→   206→        // Knob's current screen center (includes toggleXOffset + translationX):
+   207→   207→        //   cx = el.rect.x + el.rect.w/2 + translationX + toggleXOffset
+   208→   208→        //   sx = cx - sw/2; knobCenterX = sx + sw/2 = cx
+   209→   209→        const knobCenterX = (sx + sw / 2) * this.dpr
+   210→   210→        const knobCenterY = (sy + sh / 2) * this.dpr
+   211→   211→
+   212→   212→        // Track's ORIGINAL screen center (FIXED, does not move with knob):
+   213→   213→        //   trackOriginalX/Y is the track's top-left in CSS px.
+   214→   214→        //   track center = trackOriginalX + trackW/2, trackOriginalY + trackH/2
+   215→   215→        const trackOrigX = el.isToggleKnob.trackOriginalX ?? el.rect.x
+   216→   216→        const trackOrigY = el.isToggleKnob.trackOriginalY ?? el.rect.y
+   217→   217→        const trackOrigCenterX = (trackOrigX + el.isToggleKnob.trackW / 2) * this.dpr
+   218→   218→        const trackOrigCenterY = (trackOrigY + el.isToggleKnob.trackH / 2) * this.dpr
+   219→   219→
+   220→   220→        // Scale factors (same as elContentScaleX/Y above, but explicit for clarity)
+   221→   221→        const trackScaleX = (2.0 / 3.0) + (xEnd - 2.0 / 3.0) * progress
+   222→   222→        const trackScaleY = 0.0 + (yEnd - 0.0) * progress
+   223→   223→
+   224→   224→        // Scaled track center = knob_center + (track_orig_center - knob_center) * scale
+   225→   225→        // Faithful to: scale(scaleX, scaleY, pivot = knob.center) applied to
+   226→   226→        // track content at its original screen position.
+   227→   227→        trackCenterX = knobCenterX + (trackOrigCenterX - knobCenterX) * trackScaleX
+   228→   228→        trackCenterY = knobCenterY + (trackOrigCenterY - knobCenterY) * trackScaleY
+   229→   229→
+   230→   230→        const trackW = el.isToggleKnob.trackW * this.dpr
+   231→   231→        const trackH = el.isToggleKnob.trackH * this.dpr
+   232→   232→        trackHalfW = (trackW * trackScaleX) * 0.5
+   233→   233→        trackHalfH = (trackH * trackScaleY) * 0.5
+   234→   234→        // Capsule corner radius = trackH/2, scaled by min(scaleX, scaleY)
+   235→   235→        // (non-uniform scale makes a true capsule into a stretched capsule,
+   236→   236→        // but for visual purposes we use the min-scaled radius)
+   237→   237→        trackCornerRadius = (trackH * 0.5) * Math.min(trackScaleX, trackScaleY)
+   238→   238→        useToggleBackdrop = 1.0
+   239→   239→
+   240→   240→        // Solid backdrop color (t2 case): if set, the shader uses this color
+   241→   241→        // instead of sampling the wallpaper texture for the outer backdrop.
+   242→   242→        if (el.isToggleKnob.solidBackdropColor) {
+   243→   243→          const sd = el.isToggleKnob.solidBackdropColor
+   244→   244→          solidR = sd[0]; solidG = sd[1]; solidB = sd[2]; solidA = sd[3]
+   245→   245→          useSolidBackdrop = 1.0
+   246→   246→        }
+   247→   247→
+   248→   248→        // When using the CombinedBackdrop path, disable the content-scale
+   249→   249→        // on the scene sample (we sample wallpaper/solid color at full scale
+   250→   250→        // instead, plus the track color at its own scaled position).
+   251→   251→        elContentScaleX = 1.0
+   252→   252→        elContentScaleY = 1.0
+   253→   253→      }
+   254→   254→    }
+   255→   255→    // --- Bottom tab indicator: modulate refraction/highlight/shadow/innerShadow
+   256→   256→    // by pressProgress (faithful to LiquidBottomTabs.kt indicator):
+   257→   257→    //   lens(10dp*progress, 14dp*progress)
+   258→   258→    //   highlight: Highlight.Default.copy(alpha=progress)
+   259→   259→    //   shadow: Shadow(alpha=progress)
+   260→   260→    //   innerShadow: InnerShadow(radius=8dp*progress, alpha=progress)
+   261→   261→    // The indicator is NOT a toggle knob, so the isToggleKnob block above
+   262→   262→    // doesn't run — we apply the same progress modulation here.
+   263→   263→    let useIndicatorBackdrop = 0.0
+   264→   264→    let containerRectX = 0, containerRectY = 0, containerHalfW = 0, containerHalfH = 0
+   265→   265→    let containerCornerRadius = 0
+   266→   266→    let indicatorAccentR = 0, indicatorAccentG = 0, indicatorAccentB = 0, indicatorAccentA = 0
+   267→   267→    if (el.isBottomTabIndicator) {
+   268→   268→      const progress = togglePressProgress
+   269→   269→      elRefractionHeight = el.refractionHeight * progress
+   270→   270→      elRefractionAmount = el.refractionAmount * progress
+   271→   271→      elHighlightAlpha = (el.highlight?.alpha ?? 0) * progress
+   272→   272→      elInnerShadowAlpha = (el.innerShadow?.alpha ?? 0) * progress
+   273→   273→      elInnerShadowRadius = (el.innerShadow?.radius ?? 0) * progress
+   274→   274→      elInnerShadowOffsetX = (el.innerShadow?.offsetX ?? 0) * progress
+   275→   275→      elInnerShadowOffsetY = (el.innerShadow?.offsetY ?? 0) * progress
+   276→   276→
+   277→   277→      // --- CombinedBackdrop (faithful to LiquidBottomTabs.kt 指示器) ---
+   278→   278→      // The original 指示器's backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop)
+   279→   279→      //   - backdrop (outer) = LayerBackdrop (wallpaper)
+   280→   280→      //   - tabsBackdrop (inner) = hidden Row's 56dp glass (内层背景板),
+   281→   281→      //     inset 4dp on all sides relative to the 指示器.
+   282→   282→      // The 指示器 samples wallpaper (outer) + scene FBO (容器 glass)
+   283→   283→      // composited inside an inset capsule SDF.
+   284→   284→      if (el.isBottomTabIndicator.accentColor && el.isBottomTabIndicator.containerRect) {
+   285→   285→        const ac = el.isBottomTabIndicator.accentColor
+   286→   286→        const cr = el.isBottomTabIndicator.containerRect
+   287→   287→        indicatorAccentR = ac[0]
+   288→   288→        indicatorAccentG = ac[1]
+   289→   289→        indicatorAccentB = ac[2]
+   290→   290→        indicatorAccentA = 1.0
+   291→   291→        containerRectX = (cr.x + cr.w / 2) * this.dpr
+   292→   292→        containerRectY = (cr.y + cr.h / 2) * this.dpr
+   293→   293→        containerHalfW = (cr.w / 2) * this.dpr
+   294→   294→        containerHalfH = (cr.h / 2) * this.dpr
+   295→   295→        containerCornerRadius = (cr.h / 2) * this.dpr // capsule = height/2
+   296→   296→        useIndicatorBackdrop = 1.0
+   297→   297→      }
+   298→   298→    }
+   299→   299→    // Set the CombinedBackdrop uniforms (no-ops for non-toggle elements).
+   300→   300→    gl.uniform1f(this.uEl['uUseToggleBackdrop'], useToggleBackdrop)
+   301→   301→    gl.uniform1f(this.uEl['uUseSolidBackdrop'], useSolidBackdrop)
+   302→   302→    gl.uniform4f(this.uEl['uSolidBackdropColor'], solidR, solidG, solidB, solidA)
+   303→   303→    gl.uniform4f(this.uEl['uTrackColor'], trackColorR, trackColorG, trackColorB, trackColorA)
+   304→   304→    gl.uniform4f(this.uEl['uTrackRect'], trackCenterX, trackCenterY, trackHalfW, trackHalfH)
+   305→   305→    gl.uniform1f(this.uEl['uTrackCornerRadius'], trackCornerRadius)
+   306→   306→    // Indicator CombinedBackdrop uniforms.
+   307→   307→    gl.uniform1f(this.uEl['uIndicatorBackdrop'], useIndicatorBackdrop)
+   308→   308→    gl.uniform4f(this.uEl['uContainerRect'], containerRectX, containerRectY, containerHalfW, containerHalfH)
+   309→   309→    gl.uniform1f(this.uEl['uContainerCornerRadius'], containerCornerRadius)
+   310→   310→    gl.uniform4f(this.uEl['uIndicatorAccent'], indicatorAccentR, indicatorAccentG, indicatorAccentB, indicatorAccentA)
+   311→   311→    // 指示器 backdrop inset: 4dp (the 内层背景板 capsule is inset 4dp
+   312→   312→    // from the indicator's draw area on every side).
+   313→   313→    gl.uniform1f(this.uEl['uInsetPx'], 4 * this.dpr)
+   314→   314→    // 2nd-layer (inset capsule) press progress + panelOffset — the inset
+   315→   315→    // background plate scales (1→1.2) and shifts with panelOffset, matching
+   316→   316→    // the original's hidden Row (graphicsLayer translationX = panelOffset)
+   317→   317→    // and tab content (LocalLiquidBottomTabScale lerp(1, 1.2, progress)).
+   318→   318→    if (el.isBottomTabIndicator) {
+   319→   319→      const tg = this.toggleStates.get(el.isBottomTabIndicator.groupId)
+   320→   320→      gl.uniform1f(this.uEl['uIndicatorPressProgress'], tg ? tg.pressProgress : 0)
+   321→   321→      gl.uniform1f(this.uEl['uIndicatorPanelOffset'], tg ? tg.panelOffset * this.dpr : 0)
+   322→   322→      gl.uniform1f(this.uEl['uDpr'], this.dpr)
+   323→   323→      // 容器 center + scale (for 内层背景板 to scale around the 容器
+   324→   324→      // center, same as tab-content and indicator).
+   325→   325→      const ccx = el.isBottomTabIndicator.containerCenterX ?? 0
+   326→   326→      const ccy = el.isBottomTabIndicator.containerCenterY ?? 0
+   327→   327→      const cw = el.isBottomTabIndicator.containerWidth ?? el.rect.w
+   328→   328→      const cScale = tg ? 1 + (16 * DP) / cw * tg.pressProgress : 1
+   329→   329→      gl.uniform2f(this.uEl['uContainerCenter'], ccx * this.dpr, ccy * this.dpr)
+   330→   330→      gl.uniform1f(this.uEl['uContainerScale'], cScale)
+   331→   331→      // Bind tab content fgTextures (icon+label alpha masks) to TEXTURE3..10
+   332→   332→      // for the blue tint. Only opaque icon/label pixels become blue.
+   333→   333→      const ids = el.isBottomTabIndicator.tabContentIds ?? []
+   334→   334→      const rects = el.isBottomTabIndicator.tabContentRects ?? []
+   335→   335→      const n = Math.min(ids.length, rects.length, 8)
+   336→   336→      let boundCount = 0
+   337→   337→      for (let i = 0; i < 8; i++) {
+   338→   338→        if (i < n) {
+   339→   339→          const tex = this.fgTextures.get(ids[i])
+   340→   340→          if (tex) {
+   341→   341→            gl.activeTexture(gl.TEXTURE3 + boundCount)
+   342→   342→            gl.bindTexture(gl.TEXTURE_2D, tex)
+   343→   343→            gl.uniform1i(this.uEl[`uTabContentTex${boundCount}`], 3 + boundCount)
+   344→   344→            const r = rects[i]
+   345→   345→            gl.uniform4f(this.uEl[`uTabContentRects[${boundCount}]`],
+   346→   346→              (r.x + r.w / 2) * this.dpr,
+   347→   347→              (r.y + r.h / 2) * this.dpr,
+   348→   348→              (r.w / 2) * this.dpr,
+   349→   349→              (r.h / 2) * this.dpr)
+   350→   350→            boundCount++
+   351→   351→          }
+   352→   352→        }
+   353→   353→      }
+   354→   354→      // Clear unused slots (rect = 0 so shader skips them).
+   355→   355→      for (let i = boundCount; i < 8; i++) {
+   356→   356→        gl.uniform4f(this.uEl[`uTabContentRects[${i}]`], 0, 0, 0, 0)
+   357→   357→      }
+   358→   358→      gl.uniform1f(this.uEl['uTabContentCount'], boundCount)
+   359→   359→      // Bind the glass-layer snapshot (wallpaper+glass, no tab text) to TEXTURE11.
+   360→   360→      // The indicator samples this instead of the live scene so no white/black
+   361→   361→      // tab text bleeds through — the blue tint is drawn via fgTexture on top.
+   362→   362→      if (this.tabsBackdropTex) {
+   363→   363→        gl.activeTexture(gl.TEXTURE11)
+   364→   364→        gl.bindTexture(gl.TEXTURE_2D, this.tabsBackdropTex)
+   365→   365→        gl.uniform1i(this.uEl['uTabsGlassLayer'], 11)
+   366→   366→      }
+   367→   367→      // --- Generate inner backdrop plate rim highlight stroke mask ---
+   368→   368→      // The 内层背景板 has its own Highlight.Default.copy(alpha=progress), which
+   369→   369→      // uses the SAME HighlightModifier.kt approach as the outer indicator rim:
+   370→   370→      // stroke(width=0.5dp) + BlurMaskFilter(sigma=0.25dp) + clip to inside.
+   371→   371→      // Instead of the old 65-tap analytical SDF loop (which had AA artifacts),
+   372→   372→      // we now use a Canvas2D stroke mask (browser-native Skia AA) and sample
+   373→   373→      // it in the element shader via uInnerStrokeMask. This gives identical AA
+   374→   374→      // quality to the outer rim highlight (Step 2f in post-passes).
+   375→   375→      //
+   376→   376→      // The inner backdrop capsule shape is defined by:
+   377→   377→      //   size = 2 * containerHalfW × 2 * containerHalfH (device px)
+   378→   378→      //   corner radius = containerCornerRadius (device px)
+   379→   379→      // These are the same values passed to uContainerRect/uContainerCornerRadius.
+   380→   380→      // The mask is cached in strokeMaskCache — it's stable across frames because
+   381→   381→      // the inner backdrop capsule dimensions don't change (only panelOffset shifts).
+   382→   382→      {
+   383→   383→        const innerW = 2 * containerHalfW  // full width in device px (logical)
+   384→   384→        const innerH = 2 * containerHalfH  // full height in device px (logical)
+   385→   385→        const innerR = containerCornerRadius  // corner radius in device px (logical)
+   386→   386→        // Highlight.Default: width=0.5dp, blurRadius=0.25dp
+   387→   387→        const widthPx = Math.min(0.5 * this.dpr, Math.min(innerW, innerH) * 0.5)
+   388→   388→        const strokeWidthDevice = Math.max(1, Math.ceil(widthPx) * 2)
+   389→   389→        const blurPx = Math.max(0, 0.25 * this.dpr)
+   390→   390→        const strokeMargin = Math.ceil(strokeWidthDevice) + 4  // logical margin
+   391→   391→        // Logical mask size (1x device px) — used for shader UV mapping
+   392→   392→        const maskW = Math.max(1, Math.ceil(innerW + 2 * strokeMargin))
+   393→   393→        const maskH = Math.max(1, Math.ceil(innerH + 2 * strokeMargin))
+   394→   394→        // Supersample for sharper stroke/blur rasterization.
+   395→   395→        // Cap SS so total mask DPR (this.dpr × SS) ≤ device's native DPR —
+   396→   396→        // no point rendering pixels beyond what the screen can display.
+   397→   397→        const deviceDpr = window.devicePixelRatio || 1
+   398→   398→        const SS = Math.min(2, Math.max(1, Math.floor(deviceDpr / this.dpr)))
+   399→   399→        const canvasW = maskW * SS
+   400→   400→        const canvasH = maskH * SS
+   401→   401→        // Cache key: inner backdrop capsule geometry + stroke params
+   402→   402→        const maskKey = [
+   403→   403→          'inner-rr',
+   404→   404→          innerW.toFixed(3),
+   405→   405→          innerH.toFixed(3),
+   406→   406→          innerR.toFixed(3),
+   407→   407→          strokeWidthDevice,
+   408→   408→          blurPx.toFixed(3),
+   409→   409→          strokeMargin,
+   410→   410→          maskW,
+   411→   411→          maskH,
+   412→   412→          `ss${SS}`,  // cache key includes supersample factor
+   413→   413→        ].join(':')
+   414→   414→        let mask = this.strokeMaskCache.get(maskKey)
+   415→   415→        if (!mask) {
+   416→   416→          const canvas = document.createElement('canvas')
+   417→   417→          canvas.width = canvasW  // 2x supersampled physical size
+   418→   418→          canvas.height = canvasH
+   419→   419→          const ctx = canvas.getContext('2d', { alpha: true })
+   420→   420→          if (!ctx) throw new Error('2D canvas not supported')
+   421→   421→          const tex = gl.createTexture()
+   422→   422→          if (!tex) throw new Error('WebGL texture allocation failed')
+   423→   423→          // w/h store the LOGICAL (1x) size for shader UV mapping;
+   424→   424→          // the physical canvas is SS times larger.
+   425→   425→          mask = { tex, canvas, ctx, w: maskW, h: maskH, ready: false }
+   426→   426→          this.strokeMaskCache.set(maskKey, mask)
+   427→   427→          // Keep cache bounded (same 32-entry limit as outer highlight masks)
+   428→   428→          if (this.strokeMaskCache.size > 32) {
+   429→   429→            const oldestKey = this.strokeMaskCache.keys().next().value as string | undefined
+   430→   430→            if (oldestKey && oldestKey !== maskKey) {
+   431→   431→              const oldest = this.strokeMaskCache.get(oldestKey)
+   432→   432→              if (oldest) gl.deleteTexture(oldest.tex)
+   433→   433→              this.strokeMaskCache.delete(oldestKey)
+   434→   434→            }
+   435→   435→          }
+   436→   436→        }
+   437→   437→        if (!mask.ready) {
+   438→   438→          const smCtx = mask.ctx
+   439→   439→          smCtx.clearRect(0, 0, canvasW, canvasH)
+   440→   440→          smCtx.save()
+   441→   441→          // Scale up for 2x supersampling: draw in logical (1x) coordinates
+   442→   442→          // while the physical canvas is 2x. This gives sharper stroke + blur.
+   443→   443→          smCtx.scale(SS, SS)
+   444→   444→          smCtx.translate(strokeMargin, strokeMargin)
+   445→   445→          // Build the 内层背景板 rounded rect path (0..innerW × 0..innerH)
+   446→   446→          // using arcTo — the inner backdrop uses simple circular-arc corners
+   447→   447→          // (not G2 continuous curvature).
+   448→   448→          const r = Math.min(innerR, innerW / 2, innerH / 2)
+   449→   449→          const path = new Path2D()
+   450→   450→          path.moveTo(r, 0)
+   451→   451→          path.lineTo(innerW - r, 0)
+   452→   452→          path.arcTo(innerW, 0, innerW, r, r)
+   453→   453→          path.lineTo(innerW, innerH - r)
+   454→   454→          path.arcTo(innerW, innerH, innerW - r, innerH, r)
+   455→   455→          path.lineTo(r, innerH)
+   456→   456→          path.arcTo(0, innerH, 0, innerH - r, r)
+   457→   457→          path.lineTo(0, r)
+   458→   458→          path.arcTo(0, 0, r, 0, r)
+   459→   459→          path.closePath()
+   460→   460→          // Clip to inside → stroke → blur — faithful to HighlightModifier.kt:
+   461→   461→          //   canvas.clipOutline(outline)  → ctx.clip(path)
+   462→   462→          //   paint.style = Stroke         → ctx.stroke(path)
+   463→   463→          //   paint.blur(sigma)            → ctx.filter = blur(Npx)
+   464→   464→          // Only the INSIDE half remains after clip, giving sub-pixel AA.
+   465→   465→          smCtx.clip(path)
+   466→   466→          smCtx.lineWidth = strokeWidthDevice
+   467→   467→          smCtx.strokeStyle = 'rgba(255,255,255,1)'
+   468→   468→          smCtx.lineJoin = 'round'
+   469→   469→          smCtx.lineCap = 'round'
+   470→   470→          smCtx.filter = blurPx > 0.01 ? `blur(${blurPx}px)` : 'none'
+   471→   471→          smCtx.stroke(path)
+   472→   472→          smCtx.filter = 'none'
+   473→   473→          smCtx.restore()
+   474→   474→          // Upload to GPU texture (top-left UV convention, LINEAR filtering)
+   475→   475→          gl.bindTexture(gl.TEXTURE_2D, mask.tex)
+   476→   476→          gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
+   477→   477→          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, mask.canvas)
+   478→   478→          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+   479→   479→          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+   480→   480→          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+   481→   481→          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+   482→   482→          mask.ready = true
+   483→   483→        }
+   484→   484→        // Bind mask to TEXTURE12 and set uniforms
+   485→   485→        gl.activeTexture(gl.TEXTURE12)
+   486→   486→        gl.bindTexture(gl.TEXTURE_2D, mask.tex)
+   487→   487→        gl.uniform1i(this.uEl['uInnerStrokeMask'], 12)
+   488→   488→        gl.uniform2f(this.uEl['uInnerStrokeMaskOffset'], strokeMargin, strokeMargin)
+   489→   489→        gl.uniform2f(this.uEl['uInnerStrokeMaskSize'], mask.w, mask.h)
+   490→   490→      }
+   491→   491→    } else {
+   492→   492→      gl.uniform1f(this.uEl['uIndicatorPressProgress'], 0)
+   493→   493→      gl.uniform1f(this.uEl['uIndicatorPanelOffset'], 0)
+   494→   494→      gl.uniform1f(this.uEl['uDpr'], this.dpr)
+   495→   495→      gl.uniform2f(this.uEl['uContainerCenter'], 0, 0)
+   496→   496→      gl.uniform1f(this.uEl['uContainerScale'], 1)
+   497→   497→      gl.uniform1f(this.uEl['uTabContentCount'], 0)
+   498→   498→      // No inner stroke mask for non-indicator elements — set zero defaults
+   499→   499→      // so the shader's texture2D(uInnerStrokeMask, ...) always returns 0
+   500→   500→      // for non-indicator draws (uIndicatorBackdrop=0 prevents sampling anyway,
+   501→   501→      // but setting safe defaults avoids stale texture unit issues).
+   502→   502→      gl.uniform2f(this.uEl['uInnerStrokeMaskOffset'], 1, 1)
+   503→   503→      gl.uniform2f(this.uEl['uInnerStrokeMaskSize'], 1, 1)
+   504→   504→    }
+   505→   505→    // Refraction params in ORIGINAL px (NOT scaled by layerScale).
+   506→   506→    // Faithful to the original: the AGSL shader receives the original element
+   507→   507→    // size and refraction params, computes refraction in original space, THEN
+   508→   508→    // graphicsLayer scales the rendered output. The shader now maps the
+   509→   509→    // refraction offset to screen space internally (offset_screen = offset_orig
+   510→   510→    // * uLayerScale), so we must pass the ORIGINAL (unscaled) params here.
+   511→   511→    gl.uniform1f(this.uEl['uRefractionHeight'], elRefractionHeight * this.dpr)
+   512→   512→    gl.uniform1f(this.uEl['uRefractionAmount'], elRefractionAmount * this.dpr)
+   513→   513→    gl.uniform1f(this.uEl['uDepthEffect'], el.depthEffect ? 1 : 0)
+   514→   514→    gl.uniform1f(this.uEl['uChromaticAberration'], el.chromaticAberration ? 1 : 0)
+   515→   515→    // Blur radius: for useSeparableBlur elements with blurRadius >= 0.5,
+   516→   516→    // the blur is applied as a separate 2-pass post-process on the element
+   517→   517→    // pass output, so the inline shader blur is disabled (uBlurRadius=0).
+   518→   518→    // For useSeparableBlur elements with blurRadius < 0.5, the 2-pass branch
+   519→   519→    // in renderGlassElement won't run (no blur needed), so keep inline blur
+   520→   520→    // (which is also ~0 anyway) to avoid losing blur entirely.
+   521→   521→    // For non-useSeparableBlur elements, the inline 16-tap Vogel disc applies.
+   522→   522→    const inlineBlurRadius = (el.useSeparableBlur && el.blurRadius >= 0.5) ? 0 : elBlurRadius
+   523→   523→    gl.uniform1f(this.uEl['uBlurRadius'], inlineBlurRadius * layerScale * this.dpr)
+   524→   524→    gl.uniform1f(this.uEl['uSaturation'], el.saturation)
+   525→   525→    gl.uniform1f(this.uEl['uBrightness'], el.brightness)
+   526→   526→    gl.uniform1f(this.uEl['uContrast'], el.contrast)
+   527→   527→    gl.uniform1f(this.uEl['uContentScaleX'], elContentScaleX)
+   528→   528→    gl.uniform1f(this.uEl['uContentScaleY'], elContentScaleY)
+   529→   529→    gl.uniform4f(this.uEl['uTintColor'], el.tintColor[0], el.tintColor[1], el.tintColor[2], el.tintColor[3])
+   530→   530→    gl.uniform4f(this.uEl['uSurfaceColor'], el.surfaceColor[0], el.surfaceColor[1], el.surfaceColor[2], elSurfaceAlpha)
+   531→   531→
+   532→   532→    if (el.highlight) {
+   533→   533→      gl.uniform3f(this.uEl['uHighlightColor'], el.highlight.color[0], el.highlight.color[1], el.highlight.color[2])
+   534→   534→      gl.uniform1f(this.uEl['uHighlightAngle'], el.highlight.angle)
+   535→   535→      gl.uniform1f(this.uEl['uHighlightFalloff'], el.highlight.falloff)
+   536→   536→      gl.uniform1f(this.uEl['uHighlightAlpha'], elHighlightAlpha)
+   537→   537→      gl.uniform1f(this.uEl['uHighlightMode'], el.highlight.mode)
+   538→   538→      // HighlightModifier.kt clamps the stroke width to minDimension / 2 before
+   539→   539→      // ceil()*2; blurRadius defaults to width / 2 unless explicitly provided.
+   540→   540→      const elMinDimPx = Math.min(state.origW, state.origH) * this.dpr
+   541→   541→      const elWidthPx = Math.min(el.highlight.widthDp * this.dpr, elMinDimPx * 0.5)
+   542→   542→      const elBlurPx = (el.highlight.blurRadiusDp ?? el.highlight.widthDp / 2) * this.dpr
+   543→   543→      gl.uniform1f(this.uEl['uHighlightStrokeWidth'], Math.ceil(elWidthPx) * 2)
+   544→   544→      gl.uniform1f(this.uEl['uHighlightBlur'], elBlurPx)
+   545→   545→    } else {
+   546→   546→      gl.uniform1f(this.uEl['uHighlightAlpha'], 0)
+   547→   547→      gl.uniform1f(this.uEl['uHighlightMode'], 0)
+   548→   548→      gl.uniform1f(this.uEl['uHighlightStrokeWidth'], 0)
+   549→   549→      gl.uniform1f(this.uEl['uHighlightBlur'], 0)
+   550→   550→    }
+   551→   551→
+   552→   552→    if (elInnerShadowAlpha > 0.001 && elInnerShadowRadius > 0.5) {
+   553→   553→      gl.uniform1f(this.uEl['uInnerShadowRadius'], elInnerShadowRadius * this.dpr)
+   554→   554→      gl.uniform1f(this.uEl['uInnerShadowAlpha'], elInnerShadowAlpha)
+   555→   555→      gl.uniform2f(
+   556→   556→        this.uEl['uInnerShadowOffset'],
+   557→   557→        elInnerShadowOffsetX * this.dpr,
+   558→   558→        elInnerShadowOffsetY * this.dpr
+   559→   559→      )
+   560→   560→      gl.uniform3f(this.uEl['uInnerShadowColor'], elInnerShadowColor[0], elInnerShadowColor[1], elInnerShadowColor[2])
+   561→   561→    } else {
+   562→   562→      gl.uniform1f(this.uEl['uInnerShadowRadius'], 0)
+   563→   563→      gl.uniform1f(this.uEl['uInnerShadowAlpha'], 0)
+   564→   564→      gl.uniform2f(this.uEl['uInnerShadowOffset'], 0, 0)
+   565→   565→      gl.uniform3f(this.uEl['uInnerShadowColor'], 0, 0, 0)
+   566→   566→    }
+   567→   567→
+   568→   568→    // --- Inner shadow 2 (white / highlight) ---
+   569→   569→    if (elInnerShadow2Alpha > 0.001 && elInnerShadow2Radius > 0.5) {
+   570→   570→      gl.uniform1f(this.uEl['uInnerShadow2Radius'], elInnerShadow2Radius * this.dpr)
+   571→   571→      gl.uniform1f(this.uEl['uInnerShadow2Alpha'], elInnerShadow2Alpha)
+   572→   572→      gl.uniform2f(
+   573→   573→        this.uEl['uInnerShadow2Offset'],
+   574→   574→        elInnerShadow2OffsetX * this.dpr,
+   575→   575→        elInnerShadow2OffsetY * this.dpr
+   576→   576→      )
+   577→   577→      gl.uniform3f(this.uEl['uInnerShadow2Color'], elInnerShadow2Color[0], elInnerShadow2Color[1], elInnerShadow2Color[2])
+   578→   578→    } else {
+   579→   579→      gl.uniform1f(this.uEl['uInnerShadow2Radius'], 0)
+   580→   580→      gl.uniform1f(this.uEl['uInnerShadow2Alpha'], 0)
+   581→   581→      gl.uniform2f(this.uEl['uInnerShadow2Offset'], 0, 0)
+   582→   582→      gl.uniform3f(this.uEl['uInnerShadow2Color'], 1, 1, 1)
+   583→   583→    }
+   584→   584→
+   585→   585→    // --- SDF texture glass: bind sdfTexture + set SDF uniforms ---
+   586→   586→    if (el.isSdfTexture && this.sdfTexture) {
+   587→   587→      gl.activeTexture(gl.TEXTURE2)
+   588→   588→      gl.bindTexture(gl.TEXTURE_2D, this.sdfTexture)
+   589→   589→      gl.uniform1i(this.uEl['uSdfTexSampler'], 2)
+   590→   590→      gl.uniform1f(this.uEl['uUseSdfTexture'], 1.0)
+   591→   591→      gl.uniform2f(this.uEl['uSdfTexSize'], this.sdfTextureSize[0], this.sdfTextureSize[1])
+   592→   592→      gl.uniform1f(this.uEl['uSdfLightAngle'], el.isSdfTexture.lightAngle)
+   593→   593→      gl.uniform1f(this.uEl['uRefractionHeight'], el.isSdfTexture.refractionHeight * this.dpr)
+   594→   594→    } else {
+   595→   595→      gl.uniform1f(this.uEl['uUseSdfTexture'], 0.0)
+   596→   596→    }
+   597→   597→    // --- Continuous-curvature SDF texture (capsule shape) ---
+   598→   598→    // Bind the precomputed continuous-curvature SDF texture for elements
+   599→   599→    // with useContinuousSdf=true (currently only the dialog card). The
+   600→   600→    // shader's sdShape() dispatches to sdContinuousCurvature which samples
+   601→   601→    // this texture instead of the analytic sdRoundedRect. The texture is
+   602→   602→    // 256×256, RGBA, cached by (w, h, radius) — see loadContinuousSdf().
+   603→   603→    // uContinuousSdfElementSize = the element's ORIGINAL (unscaled) w,h so
+   604→   604→    // the shader can map element coords to texture UV with the correct
+   605→   605→    // aspect ratio + margin (matching continuous-sdf.ts).
+   606→   606→    if (el.useContinuousSdf && this.continuousSdfTexture) {
+   607→   607→      gl.activeTexture(gl.TEXTURE2)
+   608→   608→      gl.bindTexture(gl.TEXTURE_2D, this.continuousSdfTexture)
+   609→   609→      gl.uniform1i(this.uEl['uContinuousSdf'], 2)
+   610→   610→      gl.uniform1f(this.uEl['uUseContinuousSdf'], 1.0)
+   611→   611→      gl.uniform2f(this.uEl['uContinuousSdfTexSize'], this.continuousSdfTexSize[0], this.continuousSdfTexSize[1])
+   612→   612→      gl.uniform2f(this.uEl['uContinuousSdfElementSize'], state.origW * this.dpr, state.origH * this.dpr)
+   613→   613→    } else {
+   614→   614→      gl.uniform1f(this.uEl['uUseContinuousSdf'], 0.0)
+   615→   615→    }
+   616→   616→    // Global enter alpha (ControlCenter enter progress)
+   617→   617→    gl.uniform1f(this.uEl['uEnterAlpha'], state.enterAlpha)
+   618→   618→    // Corner style: 0 = circular, 1 = continuous (squircle)
+   619→   619→    gl.uniform1f(this.uEl['uCornerStyle'], this.cornerStyle)
+   620→   620→    // Magnifier glass uniforms
+   621→   621→    if (el.isMagnifier) {
+   622→   622→      gl.uniform1f(this.uEl['uUseMagnifier'], 1.0)
+   623→   623→      gl.uniform1f(this.uEl['uMagnifierZoom'], el.isMagnifier.zoom)
+   624→   624→      gl.uniform1f(this.uEl['uMagnifierOffsetY'], el.isMagnifier.sampleOffsetY * this.dpr)
+   625→   625→    } else {
+   626→   626→      gl.uniform1f(this.uEl['uUseMagnifier'], 0.0)
+   627→   627→    }
+   628→   628→
+   629→   629→    // uSkipColorControls: when useSeparableBlur is active on a backdropFbo
+   630→   630→    // element, colorControls was already applied as a fullscreen pass BEFORE
+   631→   631→    // the 2-pass blur (in renderDialogBackdrop + renderGlassElement's blur
+   632→   632→    // branch), matching the original's colorControls→blur order. Skip it here.
+   633→   633→    gl.uniform1f(this.uEl['uSkipColorControls'], (el.backdropFbo && el.useSeparableBlur && el.blurRadius >= 0.5) ? 1.0 : 0.0)
+   634→   634→
+   635→   635→    gl.drawArrays(gl.TRIANGLES, 0, 6)
+   636→   636→
+   637→   637→    // Stash the computed highlight alpha so the rim highlight pass can
+   638→   638→    // reuse it (for toggle knobs the alpha is pressProgress-modulated).
+   639→   639→    state.elHighlightAlpha = elHighlightAlpha
+   640→   640→  },
+   641→   641→}
+   642→   642→
