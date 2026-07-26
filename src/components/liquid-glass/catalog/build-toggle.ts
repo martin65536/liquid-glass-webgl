@@ -109,17 +109,20 @@ export function buildToggle(
   //     blurRadius = Highlight.Ambient.blurRadius / 1.5f, → 0.25/1.5 ≈ 0.167dp
   //     alpha = progress  → modulated by pressProgress in renderer
   //   )
-  // Ambient style: color = White.copy(alpha=0.38), blendMode = SrcOver,
+  // Ambient style: paint.color = White.copy(alpha=0.38), blendMode = SrcOver,
   //   angle = 45°, falloff = 1.0
-  // In the original, paint.color = White.copy(alpha=0.38) → this 0.38 scales
-  // the entire highlight intensity. We bake this into highlight.alpha = 0.38;
-  // the renderer then multiplies by pressProgress for toggle knobs.
+  // IMPORTANT: paint.color is overridden by the AGSL shader (AmbientHighlightShaderString).
+  // The shader computes its own intensity (half4(t,t,t,1.0) * intensity) and does
+  // NOT use paint.color. So the 0.38 alpha is NOT baked into the shader output.
+  // The layer alpha (Highlight.Ambient.alpha = 1.0, copied to progress for toggle)
+  // is the ONLY alpha modulation. We set alpha = 1.0 here; the renderer multiplies
+  // by pressProgress for toggle knobs.
   const KNOB_HIGHLIGHT: GlassHighlight = {
-    mode: 1, // Ambient (SrcOver blend)
-    color: [1, 1, 1], // White — AmbientStyle color
+    mode: 1, // Ambient (premultiplied SrcOver blend)
+    color: [1, 1, 1], // White — AmbientStyle paint.color (shader overrides it)
     angle: Math.PI / 4, // 45° — AmbientHighlightShaderString default
     falloff: 1.0,
-    alpha: 0.38, // AmbientStyle intensity=0.38; renderer modulates by pressProgress
+    alpha: 1.0, // Layer alpha (paint.color 0.38 is irrelevant — shader overrides it)
     widthDp: 0.5 / 1.5, // ≈ 0.333dp (Highlight.Ambient.width / 1.5)
     blurRadiusDp: 0.25 / 1.5, // ≈ 0.167dp (Highlight.Ambient.blurRadius / 1.5)
   }

@@ -142,7 +142,11 @@ void main() {
  * Default shader: returns color * intensity, color = White(1.0).
  *   Plus blend (renderer uses gl.ONE/gl.ONE): output rgb = color * intensity * mask.
  * Ambient shader: returns half4(t,t,t,1.0) * intensity, t = step(0,d).
- *   SrcOver blend: output = (t*i, t*i, t*i, i) where i = intensity * mask.
+ *   PREMULTIPLIED SrcOver blend (renderer uses gl.ONE/gl.ONE_MINUS_SRC_ALPHA):
+ *   output = (t*i, t*i, t*i, i) — premultiplied format (rgb already has alpha).
+ *   bright side (t=1): adds white highlight; dark side (t=0): dims scene → 3D sphere.
+ *   IMPORTANT: paint.color = White(0.38) is OVERridden by the shader; the 0.38
+ *   does NOT scale the output. Layer alpha (Highlight.alpha) is the only modulation.
  * ------------------------------------------------------------------ */
 export const RIM_HIGHLIGHT_FRAGMENT_SHADER = /* glsl */ `
 precision highp float;
@@ -254,13 +258,15 @@ void main() {
         vec3 c = uHighlightColor.rgb * intensity * strokeMask * uHighlightAlpha;
         gl_FragColor = vec4(c, 1.0);
     } else if (uHighlightMode < 1.5) {
-        // Ambient — faithful to AmbientHighlightShaderString:
+        // Ambient — premultiplied SrcOver blend (renderer uses ONE, ONE_MINUS_SRC_ALPHA).
+        // Faithful to AmbientHighlightShaderString:
         //   float d = dot(grad, normal);
         //   float intensity = pow(abs(d), falloff);
         //   float t = step(0.0, d);  ← half-black-half-white split
         //   return half4(t, t, t, 1.0) * intensity;
-        // SrcOver blend: bright side adds white light, dark side reduces
-        // scene brightness → 3D sphere effect (half black, half white).
+        // Output is premultiplied: vec4(color.rgb * t * i, i).
+        // Bright side: adds white light. Dark side: dims scene → 3D sphere.
+        // paint.color(0.38) is overridden by shader; alpha = 1.0 not 0.38.
         float gradRadius = min(origRadius * 1.5, min(origHalfSize.x, origHalfSize.y));
         vec2 grad = gradSdRoundedRect(centeredOrigRot, origHalfSize, gradRadius);
         vec2 normal = vec2(cos(uHighlightAngle), sin(uHighlightAngle));
@@ -460,10 +466,15 @@ void main() {
         vec3 c = uHighlightColor.rgb * intensity * a;
         gl_FragColor = vec4(c, 1.0);
     } else if (uHighlightMode < 1.5) {
-        // Ambient — SrcOver blend. Faithful to AmbientHighlightShaderString:
+        // Ambient — PREMULTIPLIED SrcOver blend (renderer uses ONE, ONE_MINUS_SRC_ALPHA).
+        // Faithful to AmbientHighlightShaderString:
         //   float t = step(0.0, d);  ← half-black-half-white split
         // Bright side (d>=0): t=1 → white highlight. Dark side (d<0): t=0 →
-        // black overlay that reduces scene brightness via SrcOver → 3D sphere.
+        // black overlay that reduces scene brightness via premultiplied SrcOver → 3D sphere.
+        // Output is premultiplied: vec4(color.rgb * t * i, i).
+        // IMPORTANT: paint.color = White(0.38) is overridden by the shader.
+        // The 0.38 does NOT scale the output; layer alpha (Highlight.alpha) is the
+        // only modulation. For Ambient highlight, alpha = 1.0 (not 0.38).
         float t = step(0.0, d);
         float i = intensity * a;
         gl_FragColor = vec4(uHighlightColor.rgb * t * i, i);
@@ -482,7 +493,18 @@ void main() {
  * (browser-native Skia: exact Bezier tessellation + hardware coverage AA).
  * The mask is element-local (small, element size + margin).
  *
- * Composite: strokeMask × intensity × color, Plus/SrcOver blend.
+ * Composite: strokeMask × intensity × color.
+ * Blend modes (set by the renderer):
+ *   Default (mode 0): Plus blend (ONE, ONE) — additive, premultiplied.
+ *   Ambient (mode 1): Premultiplied SrcOver (ONE, ONE_MINUS_SRC_ALPHA).
+ *     Output is premultiplied: vec4(color.rgb * t * i, i).
+ *     bright side (t=1): adds highlight color. dark side (t=0): dims scene.
+ *   Plain (mode 2): Plus blend (ONE, ONE) — additive, even stroke.
+ *
+ * IMPORTANT: All output is premultiplied (rgb already includes alpha factor).
+ * The renderer MUST use premultiplied blend funcs (ONE, ONE_MINUS_SRC_ALPHA
+ * for SrcOver, ONE, ONE for Plus) — NOT non-premultiplied (SRC_ALPHA, …)
+ * which would square the alpha and make the effect invisible.
  * ------------------------------------------------------------------ */
 export const STROKE_MASK_COMPOSITE_FRAGMENT_SHADER = /* glsl */ `
 precision highp float;
@@ -551,10 +573,12 @@ void main() {
     if (uHighlightMode < 0.5) {
         gl_FragColor = vec4(uHighlightColor.rgb * intensity * a, 1.0);
     } else if (uHighlightMode < 1.5) {
-        // Ambient — faithful to AmbientHighlightShaderString:
+        // Ambient — premultiplied SrcOver (renderer uses ONE, ONE_MINUS_SRC_ALPHA).
+        // Faithful to AmbientHighlightShaderString:
         //   float t = step(0.0, d);  ← bright/dark split
-        // Bright side: t=1 → white highlight. Dark side: t=0 → black overlay
-        // that reduces scene brightness via SrcOver → 3D sphere effect.
+        // Bright side: t=1 → white highlight. Dark side: t=0 → dims scene.
+        // Output is premultiplied: vec4(color.rgb * t * i, i).
+        // paint.color(0.38) is overridden by shader; alpha should be 1.0 not 0.38.
         float t = step(0.0, d);
         float i = intensity * a;
         gl_FragColor = vec4(uHighlightColor.rgb * t * i, i);
@@ -575,7 +599,11 @@ void main() {
  * soft shadow band inside the shape, thicker on the side opposite
  * the offset direction — faithful to InnerShadowModifier.kt.
  *
- * Composite: shadowColor * maskAlpha * shadowAlpha, SrcOver blend.
+ * Composite: shadowColor * maskAlpha * shadowAlpha, PREMULTIPLIED SrcOver blend.
+ * Output is premultiplied: vec4(color * alpha, alpha). The renderer MUST use
+ * blendFunc(ONE, ONE_MINUS_SRC_ALPHA) — premultiplied SrcOver — NOT
+ * blendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA) which would square the alpha
+ * (making alpha=0.15 contribute only 0.15²=0.0225 — nearly invisible).
  * SDF clip ensures the shadow stays inside the shape boundary
  * (blur that leaked outside is discarded).
  * ------------------------------------------------------------------ */
@@ -634,9 +662,11 @@ void main() {
     float mask = texture2D(uInnerShadowMask, maskUv).a;
     if (mask < 0.001) discard;
 
-    // SrcOver composite: shadow color × mask × alpha.
+    // Premultiplied SrcOver composite: shadow color × mask × alpha.
     // No clipAlpha multiplier — hard discard at sd>0.5 is sufficient.
-    // Premultiplied alpha output with gl.blendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA).
+    // Output is premultiplied (rgb = color * alpha). Renderer uses
+    // gl.blendFunc(ONE, ONE_MINUS_SRC_ALPHA) — premultiplied SrcOver.
+    // Do NOT use (SRC_ALPHA, ONE_MINUS_SRC_ALPHA) — that squares the alpha.
     float a = mask * uInnerShadowAlpha;
     gl_FragColor = vec4(uInnerShadowColor * a, a);
 }

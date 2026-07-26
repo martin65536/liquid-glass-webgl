@@ -204,8 +204,11 @@ export const glassPostPassMethods = {
       }
 
       // --- Composite: inner shadow mask × shadowAlpha × shadowColor → scene ---
+      // PREMULTIPLIED SrcOver: the shader outputs vec4(color*alpha, alpha) (premultiplied).
+      // Using blendFunc(ONE, ONE_MINUS_SRC_ALPHA) avoids squaring the alpha (which
+      // would make innerShadow at alpha=0.15 contribute only 0.15²=0.0225 — invisible).
       gl.enable(gl.BLEND)
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
       gl.useProgram(this.innerShadowMaskCompositeProgram)
       gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
       gl.enableVertexAttribArray(this.aPosLocIs)
@@ -584,8 +587,16 @@ export const glassPostPassMethods = {
         // --- Composite: stroke mask × intensity × color → scene FBO ---
         gl.enable(gl.BLEND)
         if (el.highlight.mode === 1) {
-          gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+          // Ambient — premultiplied SrcOver blend. The shader outputs
+          // vec4(color.rgb*t*i, i) which is premultiplied (rgb already has alpha).
+          // blendFunc(ONE, ONE_MINUS_SRC_ALPHA) = premultiplied SrcOver, which
+          // avoids squaring the alpha (SRC_ALPHA would multiply rgb by alpha AGAIN).
+          // This produces the correct "half black, half white" sphere effect:
+          // dark side: result.rgb = 0 + dst*(1-i) → dims scene
+          // bright side: result.rgb = color*i + dst*(1-i) → adds highlight
+          gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
         } else {
+          // Default + Plain — Plus blend (additive). Premultiplied Plus = ONE, ONE.
           gl.blendFunc(gl.ONE, gl.ONE)
         }
         gl.useProgram(this.strokeMaskCompositeProgram)
