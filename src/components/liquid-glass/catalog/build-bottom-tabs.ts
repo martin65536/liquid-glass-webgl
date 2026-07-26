@@ -72,10 +72,9 @@ export function buildBottomTabs(W: number, H: number, onBack: () => void, state:
   const containerX = TABS_PAD
   const containerW = TABS_W
   const containerR = CONTAINER_H / 2 // Capsule = 64/2 = 32dp
-  // Tab content + indicator region: inside padding(4dp) → 56dp tall, TABS_W wide.
-  // Original does NOT subtract 8dp from the content/indicator width.
-  const glassX = TABS_PAD
-  const glassW = TABS_W
+  // Tab content + indicator region: inside padding(4dp) → 56dp tall, (TABS_W-8) wide.
+  const glassX = TABS_PAD + GLASS_PAD
+  const glassW = TABS_W - 2 * GLASS_PAD
   const glassR = GLASS_H / 2 // 56/2 = 28dp
 
   function buildTabBar(idPrefix: string, tabsCount: number, selectedTab: number, onSelect: (i: number) => void, y: number) {
@@ -190,7 +189,7 @@ export function buildBottomTabs(W: number, H: number, onBack: () => void, state:
       `${idPrefix}-indicator`,
       // Indicator glass x = TABS_PAD + 4dp. The renderer adds fraction*tabW
       // via toggleXOffset (isBottomTabIndicator.dragWidth = tabW).
-      { x: glassX, y: glassY, w: tabW, h: GLASS_H },
+      { x: TABS_PAD + GLASS_PAD, y: glassY, w: tabW, h: GLASS_H },
       {
         cornerRadius: glassR,
         refractionHeight: 10 * DP,
@@ -241,7 +240,7 @@ export function buildBottomTabs(W: number, H: number, onBack: () => void, state:
       // inset 4dp on all sides from the 容器. Faithful to LiquidBottomTabs.kt:
       //   hidden Row = height(56dp).fillMaxWidth().padding(horizontal=4dp)
       //   drawBackdrop paints 56dp × (TABS_W - 8dp) = 56dp × glassW.
-      containerRect: { x: glassX, y: glassY, w: glassW, h: GLASS_H },
+      containerRect: { x: glassX - GLASS_PAD, y: glassY, w: glassW + 2 * GLASS_PAD, h: GLASS_H },
       // Container center + width — the indicator scales around the container
       // center (like tab-content), matching the original parent-child transform.
       containerCenterX: containerX + containerW / 2,
