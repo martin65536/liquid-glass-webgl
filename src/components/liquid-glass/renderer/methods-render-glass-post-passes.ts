@@ -457,7 +457,12 @@ export const glassPostPassMethods = {
     // reused backing canvas and the logical mask size.
     if (el.highlight && el.highlight.alpha > 0.001) {
       const rimAlpha = (el.isToggleKnob || el.isBottomTabIndicator) ? elHighlightAlpha : el.highlight.alpha
-      const finalAlpha = rimAlpha * state.enterAlpha
+      // Ambient mode: paint.color = White.copy(alpha=0.38). Although the AGSL shader
+      // overrides the paint COLOR, Skia still applies paint.alpha on top of the shader
+      // output. Without this 0.38 factor the dark side dims the scene by 100% (pure
+      // black) instead of 38% (semi-transparent, faithful to the original).
+      const paintAlpha = el.highlight.mode === 1 ? 0.38 : 1.0
+      const finalAlpha = rimAlpha * state.enterAlpha * paintAlpha
       if (finalAlpha > 0.001) {
         // HighlightModifier.kt: ceil(width.toPx().coerceAtMost(minDimension / 2)) * 2
         const widthPx = Math.min(

@@ -112,11 +112,13 @@ export function buildToggle(
   // Ambient style: paint.color = White.copy(alpha=0.38), blendMode = SrcOver,
   //   angle = 45°, falloff = 1.0
   // IMPORTANT: paint.color is overridden by the AGSL shader (AmbientHighlightShaderString).
-  // The shader computes its own intensity (half4(t,t,t,1.0) * intensity) and does
-  // NOT use paint.color. So the 0.38 alpha is NOT baked into the shader output.
+  // The shader computes its own intensity (half4(t,t,t,1.0) * intensity) and
+  // overrides the paint COLOR, but Skia STILL applies paint.alpha (0.38 from
+  // AmbientStyle paint.color = White.copy(alpha=0.38)) on top of the shader output.
+  // This 0.38 factor makes the dark side semi-transparent (dims by 38%, not 100%).
+  // The renderer multiplies by this paintAlpha when mode=1 (Ambient).
   // The layer alpha (Highlight.Ambient.alpha = 1.0, copied to progress for toggle)
-  // is the ONLY alpha modulation. We set alpha = 1.0 here; the renderer multiplies
-  // by pressProgress for toggle knobs.
+  // is separate — we keep alpha=1.0 here.
   const KNOB_HIGHLIGHT: GlassHighlight = {
     mode: 1, // Ambient (premultiplied SrcOver blend)
     color: [1, 1, 1], // White — AmbientStyle paint.color (shader overrides it)
