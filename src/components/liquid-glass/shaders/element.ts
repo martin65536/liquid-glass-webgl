@@ -329,37 +329,27 @@ void main() {
     // The result: a band at the inner edge opposite to the offset direction.
     // When offset is (0, +radius) → dark band at the TOP (recessed look).
     // When offset is (0, -radius) → bright band at the BOTTOM (lit look).
-    // The blur softens it into a gradient.
     //
-    // We approximate this with an inverted SDF: the shadow appears where
-    // the pixel is INSIDE the shape but OUTSIDE the offset shape (the ring).
-    // For the default black inner shadow, we darken: color *= 1.0 - ring * alpha.
-    // For a custom-color inner shadow (e.g. white), we SrcOver blend:
-    //   color = mix(color, shadowColor, ring * alpha).
+    // Approximation: product of two Gaussians centered at each ring edge.
+    //   ring = exp(-sd²/(2σ²)) × exp(-offsetSd²/(2σ²))
+    //
+    // This naturally creates a bell-curve profile centered at the ring midpoint:
+    //   - At the inner edge (sd=0): ≈ 0.6 (VISIBLE at edge — not zero)
+    //   - Peak at ring midpoint: ≈ 0.78 (moderate — no flat 1.0 plateau)
+    //   - Wide spread ≈ 2×radius inward
+    //   - Concentrates at the edge opposite to offset direction
+    //
+    // Previous smoothstep ring approach had two fatal flaws:
+    //   1. (1-smoothstep(-W,0,sd)) = 0 at sd=0 → shadow invisible at edge
+    //   2. Ring plateau = 1.0 → "颜色太重" (too heavy)
+    //   These are STRUCTURAL — no aaW value can fix both simultaneously.
     if (uInnerShadowAlpha > 0.001 && uInnerShadowRadius > 0.5) {
         vec2 offsetCentered = centeredOrigRot - uInnerShadowOffset;
         float offsetSd = sdShape(offsetCentered, origHalfSize, origRadius);
-        // Ring = inside original (sd < 0) AND outside offset shape (offsetSd > 0).
-        //
-        // The original InnerShadowModifier:
-        //   1. Fill ring area (between original and offset shapes) with shadow color
-        //   2. Gaussian blur(radius) softens both edges by ~3σ ≈ radius pixels
-        //
-        // Result: a convolution of a solid ring (width ≈ offset_distance ≈ radius)
-        // with a Gaussian kernel (sigma = radius/3). The shadow profile has:
-        //   - Smooth ramp at inner edge (0 → 1 over ~radius px)
-        //   - PLATEAU in the ring middle (shadow ≈ peak)
-        //   - Smooth ramp at offset edge (1 → 0 over ~radius px)
-        //
-        // Total inward extent ≈ ring_width + 3σ ≈ 2*radius — much wider than
-        // a pure Gaussian from the edge (which only reaches 1*radius).
-        //
-        // The smoothstep ring approach naturally captures this plateau + edge
-        // softening. aaW = radius (≈ 3σ) gives transitions matching the Gaussian
-        // blur spread, and the ring middle stays at ~1.0 (the plateau).
-        float aaW = max(2.0, uInnerShadowRadius);
-        float ring = smoothstep(0.0, aaW, offsetSd) *
-                     (1.0 - smoothstep(-aaW, 0.0, sd));
+        float sigma = max(uInnerShadowRadius, 1.0);
+        float innerGaussian = exp(-sd * sd / (2.0 * sigma * sigma));
+        float offsetGaussian = exp(-offsetSd * offsetSd / (2.0 * sigma * sigma));
+        float ring = innerGaussian * offsetGaussian;
         // SrcOver blend: mix current color with shadow color by ring * alpha.
         color = mix(color, uInnerShadowColor, ring * uInnerShadowAlpha);
     }
@@ -369,13 +359,14 @@ void main() {
     // with offset (0, -radius) → bright band at the bottom edge, paired with
     // the black inner shadow's dark band at the top edge. This makes
     // toggle/slider knobs look 3D/立体.
-    // Same smoothstep ring approach with plateau + edge softening.
+    // Same product-of-Gaussians approach as inner shadow 1.
     if (uInnerShadow2Alpha > 0.001 && uInnerShadow2Radius > 0.5) {
         vec2 offsetCentered2 = centeredOrigRot - uInnerShadow2Offset;
         float offsetSd2 = sdShape(offsetCentered2, origHalfSize, origRadius);
-        float aaW2 = max(2.0, uInnerShadow2Radius);
-        float ring2 = smoothstep(0.0, aaW2, offsetSd2) *
-                      (1.0 - smoothstep(-aaW2, 0.0, sd));
+        float sigma2 = max(uInnerShadow2Radius, 1.0);
+        float innerGaussian2 = exp(-sd * sd / (2.0 * sigma2 * sigma2));
+        float offsetGaussian2 = exp(-offsetSd2 * offsetSd2 / (2.0 * sigma2 * sigma2));
+        float ring2 = innerGaussian2 * offsetGaussian2;
         color = mix(color, uInnerShadow2Color, ring2 * uInnerShadow2Alpha);
     }
 
