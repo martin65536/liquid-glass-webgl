@@ -339,10 +339,17 @@ void main() {
     if (uInnerShadowAlpha > 0.001 && uInnerShadowRadius > 0.5) {
         vec2 offsetCentered = centeredOrigRot - uInnerShadowOffset;
         float offsetSd = sdShape(offsetCentered, origHalfSize, origRadius);
-        // Ring = inside original (sd < 0) AND outside offset shape (offsetSd > 0)
-        float ring = smoothstep(0.0, uInnerShadowRadius, offsetSd) *
-                     (1.0 - smoothstep(-uInnerShadowRadius, 0.0, sd));
-        // ring is 1 in the middle of the ring, fading at both edges.
+        // Ring = inside original (sd < 0) AND outside offset shape (offsetSd > 0).
+        // The original InnerShadowModifier fills the ring area (between original
+        // and offset shapes) with shadow color at full alpha, then applies
+        // Gaussian blur(radius) to soften the edges. Our single-pass approximation
+        // uses narrow smoothstep transitions (width = radius * 0.3) at the ring
+        // edges, creating a flat plateau (ring ≈ 1.0) in the middle — matching
+        // the original's filled-ring peak. The narrow transitions approximate
+        // the Gaussian blur's edge softening.
+        float aaW = max(1.5, uInnerShadowRadius * 0.3);
+        float ring = smoothstep(0.0, aaW, offsetSd) *
+                     (1.0 - smoothstep(-aaW, 0.0, sd));
         // SrcOver blend: mix current color with shadow color by ring * alpha.
         color = mix(color, uInnerShadowColor, ring * uInnerShadowAlpha);
     }
@@ -356,8 +363,9 @@ void main() {
     if (uInnerShadow2Alpha > 0.001 && uInnerShadow2Radius > 0.5) {
         vec2 offsetCentered2 = centeredOrigRot - uInnerShadow2Offset;
         float offsetSd2 = sdShape(offsetCentered2, origHalfSize, origRadius);
-        float ring2 = smoothstep(0.0, uInnerShadow2Radius, offsetSd2) *
-                      (1.0 - smoothstep(-uInnerShadow2Radius, 0.0, sd));
+        float aaW2 = max(1.5, uInnerShadow2Radius * 0.3);
+        float ring2 = smoothstep(0.0, aaW2, offsetSd2) *
+                      (1.0 - smoothstep(-aaW2, 0.0, sd));
         color = mix(color, uInnerShadow2Color, ring2 * uInnerShadow2Alpha);
     }
 
