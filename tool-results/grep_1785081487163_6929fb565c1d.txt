@@ -1,0 +1,252 @@
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-126-          blurRadius: state.blurRadiusDp * DP,
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-127-          saturation: 1.5,
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-128-          surfaceColor: [0, 0, 0, 0],
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts:129:          highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, alpha: 0.38 },
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-130-          depthEffect: true,
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-131-          chromaticAberration: state.chromaticAberration > 0,
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-132-        }
+--
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-203-    contrast: 1,
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-204-    tintColor: [0, 0, 0, 0],
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-205-    surfaceColor: [0, 0, 0, 0],
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts:206:    highlight: { mode: 0, color: [1, 1, 1], angle: 0, falloff: 0, alpha: 0, widthDp: 0 },
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-207-    outerShadow: null,
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-208-    plainRect: { color: trackColor },
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-209-    isInteractive: false,
+--
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-227-      contrast: 1,
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-228-      tintColor: [0, 0, 0, 0],
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-229-      surfaceColor: [0, 0, 0, 0],
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts:230:      highlight: { mode: 0, color: [1, 1, 1], angle: 0, falloff: 0, alpha: 0, widthDp: 0 },
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-231-      outerShadow: null,
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-232-      plainRect: { color: [0, 136 / 255, 1, 1] },
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-233-      isInteractive: false,
+--
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-265-    cornerRadius: btnH / 2,
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-266-    tintColor: btnTintColor,
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-267-    surfaceColor: [0, 0, 0, 0],
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts:268:    highlight: { ...DEFAULT_HIGHLIGHT },
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-269-    outerShadow: { ...DEFAULT_SHADOW },
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-270-    label: btnLabel,
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-271-    labelColor: [1, 1, 1, 1],
+--
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-298-    const exitY_from = H - 60 * DP
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-299-    const exitY_to = H - 110 * DP
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-300-    const exitY = exitY_from + (exitY_to - exitY_from) * exitProg
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts:301:    // Fade in: tint, label, highlight, shadow alpha all scale with exitProg
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-302-    const exitAlpha = exitProg
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-303-    const exitBtn: GlassElementConfig = {
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-304-      id: 'perf-exit',
+--
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-316-      blurRadius: GLASS_PARAMS.blurRadius * exitAlpha,
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-317-      tintColor: [0x00 / 255, 0x88 / 255, 0xff / 255, exitAlpha],
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-318-      surfaceColor: [0, 0, 0, 0],
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts:319:      highlight: { ...DEFAULT_HIGHLIGHT, alpha: exitAlpha },
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-320-      outerShadow: { ...DEFAULT_SHADOW, alpha: DEFAULT_SHADOW.alpha * exitAlpha },
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-321-      label: t('perf_exit', locale),
+/home/z/my-project/src/components/liquid-glass/catalog/build-perf-benchmark.ts-322-      labelColor: [1, 1, 1, exitAlpha],
+--
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-29- *
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-30- * Layout: grid of glass tiles (68dp each, 2-span = 152dp) arranged
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-31- * like the iOS control center. Each tile is a glass rounded-rect
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts:32: * with Default highlight. Some tiles contain flight icons.
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-33- * ------------------------------------------------------------------ */
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-34-export function buildControlCenter(W: number, H: number, onBack: () => void, state: CatalogState, setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void, palette: ThemePalette = LIGHT_PALETTE): CatalogResult {
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-35-  const elements: GlassElementConfig[] = []
+--
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-106-        blurRadius: 0,
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-107-        saturation: 1.5,
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-108-        surfaceColor: [0, 0, 0, 0.05],
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts:109:        highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 },
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-110-        outerShadow: null,
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-111-        depthEffect: true,
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-112-      }
+--
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-133-        blurRadius: 0,
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-134-        saturation: 1.5,
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-135-        surfaceColor: [0, 0, 0, 0.05],
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts:136:        highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 },
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-137-        outerShadow: null,
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-138-        depthEffect: true,
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-139-      }
+--
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-146-  const leftColX = leftPad
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-147-  elements.push(
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-148-    makeGlassShape('cc-c', { x: leftColX, y: cursorY, w: itemSize, h: itemSize }, {
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts:149:      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 0, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-150-    })
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-151-  )
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-152-  elements.push(makeText('cc-c-icon', { x: leftColX, y: cursorY, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 24, color: iconColor, viewport: 960 } }))
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-153-  elements.push(
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-154-    makeGlassShape('cc-d', { x: leftColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: itemSize }, {
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts:155:      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 0, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-156-    })
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-157-  )
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-158-  elements.push(makeText('cc-d-icon', { x: leftColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 24, color: iconColor, viewport: 960 } }))
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-159-  // Wide tile under the two small ones
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-160-  elements.push(
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-161-    makeGlassShape('cc-e', { x: leftColX, y: cursorY + itemSize + itemSpacing, w: twoSpan, h: itemSize }, {
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts:162:      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 0, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-163-    })
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-164-  )
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-165-  // Right column: 2 tall tiles
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-166-  const rightColX = leftColX + twoSpan + itemSpacing
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-167-  elements.push(
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-168-    makeGlassShape('cc-f', { x: rightColX, y: cursorY, w: itemSize, h: twoSpan }, {
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts:169:      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 0, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-170-    })
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-171-  )
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-172-  elements.push(
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-173-    makeGlassShape('cc-g', { x: rightColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: twoSpan }, {
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts:174:      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 0, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-175-    })
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-176-  )
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-177-  cursorY += twoSpan + itemSpacing
+--
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-179-  // Row 3: [2×2 empty] / [1×1 + 1×1] / [1×1] — stretch factor 2
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-180-  elements.push(
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-181-    makeGlassShape('cc-h', { x: leftPad, y: cursorY, w: twoSpan, h: twoSpan }, {
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts:182:      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 0, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-183-    })
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-184-  )
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-185-  // Right: 2 small + 1 small
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-186-  elements.push(
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-187-    makeGlassShape('cc-i', { x: rightColX, y: cursorY, w: itemSize, h: itemSize }, {
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts:188:      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 0, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-189-    })
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-190-  )
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-191-  elements.push(makeText('cc-i-icon', { x: rightColX, y: cursorY, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 24, color: iconColor, viewport: 960 } }))
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-192-  elements.push(
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-193-    makeGlassShape('cc-j', { x: rightColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: itemSize }, {
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts:194:      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 0, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-195-    })
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-196-  )
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-197-  elements.push(makeText('cc-j-icon', { x: rightColX + itemSize + itemSpacing, y: cursorY, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 24, color: iconColor, viewport: 960 } }))
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-198-  elements.push(
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-199-    makeGlassShape('cc-k', { x: rightColX, y: cursorY + itemSize + itemSpacing, w: itemSize, h: itemSize }, {
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts:200:      cornerRadius: itemSize / 2, refractionHeight: ccRefractionHeight, refractionAmount: ccRefractionAmount, blurRadius: 0, saturation: 1.5, surfaceColor: [0, 0, 0, 0.05], highlight: { ...DEFAULT_HIGHLIGHT, falloff: 2.0 }, outerShadow: null, depthEffect: true,
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-201-    })
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-202-  )
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-203-  elements.push(makeText('cc-k-icon', { x: rightColX, y: cursorY + itemSize + itemSpacing, w: itemSize, h: itemSize }, '', { icon: { path: FLIGHT_ICON_PATH, size: 24, color: iconColor, viewport: 960 } }))
+--
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-309-      el.enterStretchFactor = ccStretchFactor[id]
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-310-      // No blur on tiles. blurRadius=0, no useSeparableBlur, no ccBlurredBackdrop.
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-311-      el.blurRadius = 0
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts:312:      // Rim highlight angle is driven LIVE by renderer.gravityAngle (updated
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-313-      // via setGravityAngle from the deviceorientation effect in page.tsx),
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts:314:      // NOT baked at build time. This lets the highlight rotate smoothly with
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-315-      // device orientation WITHOUT rebuilding the catalog (which would lose
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts:316:      // drag state). Faithful to ControlCenterContent.kt where the highlight
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-317-      // reads uiSensor.gravityAngle live each frame.
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-318-      el.useGravityAngle = true
+/home/z/my-project/src/components/liquid-glass/catalog/build-control-center.ts-319-      // Capsule shape: original CC tiles use RoundedRectangle(itemSize/2).
+--
+/home/z/my-project/src/components/liquid-glass/catalog/build-slider.ts-25- *   At rest (pressProgress = 0):
+/home/z/my-project/src/components/liquid-glass/catalog/build-slider.ts-26- *     - blur(8dp) → frosted backdrop
+/home/z/my-project/src/components/liquid-glass/catalog/build-slider.ts-27- *     - lens(0, 0) → no refraction
+/home/z/my-project/src/components/liquid-glass/catalog/build-slider.ts:28: *     - highlight.Ambient.alpha = 0 → no edge highlight
+/home/z/my-project/src/components/liquid-glass/catalog/build-slider.ts-29- *     - innerShadow(radius=0, alpha=0) → no inner shadow
+/home/z/my-project/src/components/liquid-glass/catalog/build-slider.ts-30- *     - onDrawSurface: drawRect(White alpha=1) → solid frosted white pebble
+/home/z/my-project/src/components/liquid-glass/catalog/build-slider.ts-31- *   Pressed (pressProgress = 1):
+/home/z/my-project/src/components/liquid-glass/catalog/build-slider.ts-32- *     - blur(0) → clear backdrop
+/home/z/my-project/src/components/liquid-glass/catalog/build-slider.ts-33- *     - lens(10dp, 14dp) → glass refraction visible (bigger lens than toggle)
+/home/z/my-project/src/components/liquid-glass/catalog/build-slider.ts:34: *     - highlight.Ambient.alpha = 1 → subtle edge glow
+/home/z/my-project/src/components/liquid-glass/catalog/build-slider.ts-35- *     - innerShadow(radius=4dp, alpha=1) → depth cue
+/home/z/my-project/src/components/liquid-glass/catalog/build-slider.ts-36- *     - onDrawSurface: drawRect(White alpha=0) → no overlay, glass visible
+/home/z/my-project/src/components/liquid-glass/catalog/build-slider.ts-37- *
+--
+/home/z/my-project/src/components/liquid-glass/catalog/build-slider.ts-120-      blurRadius: 8 * DP, // frosted blur at rest (renderer modulates)
+/home/z/my-project/src/components/liquid-glass/catalog/build-slider.ts-121-      saturation: 1.0, // NO saturation boost — slider effects block only has blur+lens
+/home/z/my-project/src/components/liquid-glass/catalog/build-slider.ts-122-      surfaceColor: [0, 0, 0, 0],
+/home/z/my-project/src/components/liquid-glass/catalog/build-slider.ts:123:      highlight: { mode: 1, color: [1, 1, 1], angle: Math.PI / 4, falloff: 1.0, alpha: 0.38, widthDp: 0.5 / 1.5, blurRadiusDp: 0.25 / 1.5 },
+/home/z/my-project/src/components/liquid-glass/catalog/build-slider.ts-124-      outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: (4 / 6) * DP, color: [0, 0, 0] },
+/home/z/my-project/src/components/liquid-glass/catalog/build-slider.ts-125-      innerShadow: { radius: 4 * DP, alpha: 0.15, offsetX: 0, offsetY: 4 * DP },
+/home/z/my-project/src/components/liquid-glass/catalog/build-slider.ts-126-      chromaticAberration: true,
+--
+/home/z/my-project/src/components/liquid-glass/catalog/build-slider.ts-191-      blurRadius: 8 * DP,
+/home/z/my-project/src/components/liquid-glass/catalog/build-slider.ts-192-      saturation: 1.0, // NO saturation boost — slider effects block only has blur+lens
+/home/z/my-project/src/components/liquid-glass/catalog/build-slider.ts-193-      surfaceColor: [0, 0, 0, 0],
+/home/z/my-project/src/components/liquid-glass/catalog/build-slider.ts:194:      highlight: { mode: 1, color: [1, 1, 1], angle: Math.PI / 4, falloff: 1.0, alpha: 0.38, widthDp: 0.5 / 1.5, blurRadiusDp: 0.25 / 1.5 },
+/home/z/my-project/src/components/liquid-glass/catalog/build-slider.ts-195-      outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: (4 / 6) * DP, color: [0, 0, 0] },
+/home/z/my-project/src/components/liquid-glass/catalog/build-slider.ts-196-      innerShadow: { radius: 4 * DP, alpha: 0.15, offsetX: 0, offsetY: 4 * DP },
+/home/z/my-project/src/components/liquid-glass/catalog/build-slider.ts-197-      chromaticAberration: true,
+--
+/home/z/my-project/src/components/liquid-glass/catalog/build-bottom-tabs.ts-100-        saturation: 1.5,
+/home/z/my-project/src/components/liquid-glass/catalog/build-bottom-tabs.ts-101-        surfaceColor: containerColor,
+/home/z/my-project/src/components/liquid-glass/catalog/build-bottom-tabs.ts-102-        // 容器 uses default Highlight.Default (alpha=0.5, width=0.5dp).
+/home/z/my-project/src/components/liquid-glass/catalog/build-bottom-tabs.ts:103:        // The original Container Row doesn't pass highlight= → uses DefaultHighlight.
+/home/z/my-project/src/components/liquid-glass/catalog/build-bottom-tabs.ts-104-        // Shadow defaults to Shadow.Default (24dp, Black@0.1).
+/home/z/my-project/src/components/liquid-glass/catalog/build-bottom-tabs.ts:105:        highlight: { ...DEFAULT_HIGHLIGHT, alpha: 0.5 },
+/home/z/my-project/src/components/liquid-glass/catalog/build-bottom-tabs.ts-106-        depthEffect: true,
+/home/z/my-project/src/components/liquid-glass/catalog/build-bottom-tabs.ts-107-      }
+/home/z/my-project/src/components/liquid-glass/catalog/build-bottom-tabs.ts-108-    )
+--
+/home/z/my-project/src/components/liquid-glass/catalog/build-bottom-tabs.ts-210-        // don't replicate — the indicator shows the scene as-is.)
+/home/z/my-project/src/components/liquid-glass/catalog/build-bottom-tabs.ts-211-        tintColor: [0, 0, 0, 0],
+/home/z/my-project/src/components/liquid-glass/catalog/build-bottom-tabs.ts-212-        surfaceColor: [0, 0, 0, 0],
+/home/z/my-project/src/components/liquid-glass/catalog/build-bottom-tabs.ts:213:        // Faithful to original: highlight = Highlight.Default.copy(alpha=progress).
+/home/z/my-project/src/components/liquid-glass/catalog/build-bottom-tabs.ts:214:        // alpha=0 at rest (no edge highlight), max=0.5 when pressed (Default style alpha).
+/home/z/my-project/src/components/liquid-glass/catalog/build-bottom-tabs.ts:215:        highlight: { ...DEFAULT_HIGHLIGHT, alpha: 0.5 },
+/home/z/my-project/src/components/liquid-glass/catalog/build-bottom-tabs.ts-216-        // Shadow(alpha=progress) — faithful to Shadow.Default:
+/home/z/my-project/src/components/liquid-glass/catalog/build-bottom-tabs.ts-217-        //   radius=24dp, offset=(0, radius/6=4dp), color=Black(0.1), alpha=1*progress.
+/home/z/my-project/src/components/liquid-glass/catalog/build-bottom-tabs.ts-218-        // Renderer modulates alpha by pressProgress.
+--
+/home/z/my-project/src/components/liquid-glass/catalog/build-magnifier.ts-108-      blurRadius: 0,
+/home/z/my-project/src/components/liquid-glass/catalog/build-magnifier.ts-109-      saturation: 1.0,
+/home/z/my-project/src/components/liquid-glass/catalog/build-magnifier.ts-110-      surfaceColor: [0, 0, 0, 0],
+/home/z/my-project/src/components/liquid-glass/catalog/build-magnifier.ts:111:      // Faithful to MagnifierContent.kt: drawBackdrop uses default highlight
+/home/z/my-project/src/components/liquid-glass/catalog/build-magnifier.ts-112-      // (Highlight.Default, alpha=1) and default shadow (Shadow.Default).
+/home/z/my-project/src/components/liquid-glass/catalog/build-magnifier.ts:113:      highlight: { ...DEFAULT_HIGHLIGHT },
+/home/z/my-project/src/components/liquid-glass/catalog/build-magnifier.ts-114-      outerShadow: { ...DEFAULT_SHADOW },
+/home/z/my-project/src/components/liquid-glass/catalog/build-magnifier.ts-115-      // Faithful to InnerShadow(radius = 16f.dp) — defaults: offset=(0,radius),
+/home/z/my-project/src/components/liquid-glass/catalog/build-magnifier.ts-116-      // color=Black(0.15), alpha=1.
+--
+/home/z/my-project/src/components/liquid-glass/catalog/build-adaptive-luminance.ts-39-  // Faithful to AdaptiveLuminanceGlassContent.kt:
+/home/z/my-project/src/components/liquid-glass/catalog/build-adaptive-luminance.ts-40-  //   size = 160dp, RoundedRectangle(24dp)
+/home/z/my-project/src/components/liquid-glass/catalog/build-adaptive-luminance.ts-41-  //   effects: colorControls(brightness/contrast/saturation) + blur + lens(24dp, size/2, depthEffect)
+/home/z/my-project/src/components/liquid-glass/catalog/build-adaptive-luminance.ts:42:  //   highlight = Highlight.Plain
+/home/z/my-project/src/components/liquid-glass/catalog/build-adaptive-luminance.ts-43-  //   layerBlock: translationX/Y (drag), scaleX/Y=zoom, rotationZ
+/home/z/my-project/src/components/liquid-glass/catalog/build-adaptive-luminance.ts-44-  //   contentColor adapts (Black/White) based on average luminance
+/home/z/my-project/src/components/liquid-glass/catalog/build-adaptive-luminance.ts-45-  //
+--
+/home/z/my-project/src/components/liquid-glass/catalog/build-adaptive-luminance.ts-84-      surfaceColor: [0, 0, 0, 0],
+/home/z/my-project/src/components/liquid-glass/catalog/build-adaptive-luminance.ts-85-      // Highlight.Plain = mode 2; its visible strength comes from the Plain
+/home/z/my-project/src/components/liquid-glass/catalog/build-adaptive-luminance.ts-86-      // style color alpha (0.38), not from the directional Default shader.
+/home/z/my-project/src/components/liquid-glass/catalog/build-adaptive-luminance.ts:87:      highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, alpha: 0.38 },
+/home/z/my-project/src/components/liquid-glass/catalog/build-adaptive-luminance.ts-88-      depthEffect: true,
+/home/z/my-project/src/components/liquid-glass/catalog/build-adaptive-luminance.ts-89-    }
+/home/z/my-project/src/components/liquid-glass/catalog/build-adaptive-luminance.ts-90-  )
+--
+/home/z/my-project/src/components/liquid-glass/catalog/build-glass-playground.ts-75-      blurRadius: state.blurRadiusDp * DP,
+/home/z/my-project/src/components/liquid-glass/catalog/build-glass-playground.ts-76-      saturation: 1.5,
+/home/z/my-project/src/components/liquid-glass/catalog/build-glass-playground.ts-77-      surfaceColor: [0, 0, 0, 0],
+/home/z/my-project/src/components/liquid-glass/catalog/build-glass-playground.ts:78:      highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, alpha: 0.38 },
+/home/z/my-project/src/components/liquid-glass/catalog/build-glass-playground.ts-79-      depthEffect: true,
+/home/z/my-project/src/components/liquid-glass/catalog/build-glass-playground.ts-80-      chromaticAberration: state.chromaticAberration > 0,
+/home/z/my-project/src/components/liquid-glass/catalog/build-glass-playground.ts-81-    }
+--
+/home/z/my-project/src/components/liquid-glass/catalog/build-glass-playground.ts-165-          blurRadius: 4 * DP,
+/home/z/my-project/src/components/liquid-glass/catalog/build-glass-playground.ts-166-          saturation: 1.5,
+/home/z/my-project/src/components/liquid-glass/catalog/build-glass-playground.ts-167-          surfaceColor: palette.tabsContainer,
+/home/z/my-project/src/components/liquid-glass/catalog/build-glass-playground.ts:168:          highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, alpha: 0.38 },
+/home/z/my-project/src/components/liquid-glass/catalog/build-glass-playground.ts-169-        }
+/home/z/my-project/src/components/liquid-glass/catalog/build-glass-playground.ts-170-      )
+/home/z/my-project/src/components/liquid-glass/catalog/build-glass-playground.ts-171-    )
+--
+/home/z/my-project/src/components/liquid-glass/catalog/build-glass-playground.ts-234-    cornerRadius: toggleBtnSize / 2,
+/home/z/my-project/src/components/liquid-glass/catalog/build-glass-playground.ts-235-    tintColor: ORANGE,
+/home/z/my-project/src/components/liquid-glass/catalog/build-glass-playground.ts-236-    surfaceColor: [0, 0, 0, 0],
+/home/z/my-project/src/components/liquid-glass/catalog/build-glass-playground.ts:237:    highlight: { ...DEFAULT_HIGHLIGHT },
+/home/z/my-project/src/components/liquid-glass/catalog/build-glass-playground.ts-238-    outerShadow: { ...DEFAULT_SHADOW },
+/home/z/my-project/src/components/liquid-glass/catalog/build-glass-playground.ts-239-    label: '',
+/home/z/my-project/src/components/liquid-glass/catalog/build-glass-playground.ts-240-    labelColor: [1, 1, 1, 1],
+--
+/home/z/my-project/src/components/liquid-glass/catalog/build-glass-playground.ts-262-    cornerRadius: toggleBtnSize / 2,
+/home/z/my-project/src/components/liquid-glass/catalog/build-glass-playground.ts-263-    tintColor: ORANGE,
+/home/z/my-project/src/components/liquid-glass/catalog/build-glass-playground.ts-264-    surfaceColor: [0, 0, 0, 0],
+/home/z/my-project/src/components/liquid-glass/catalog/build-glass-playground.ts:265:    highlight: { ...DEFAULT_HIGHLIGHT },
+/home/z/my-project/src/components/liquid-glass/catalog/build-glass-playground.ts-266-    outerShadow: { ...DEFAULT_SHADOW },
+/home/z/my-project/src/components/liquid-glass/catalog/build-glass-playground.ts-267-    label: '',
+/home/z/my-project/src/components/liquid-glass/catalog/build-glass-playground.ts-268-    labelColor: [1, 1, 1, 1],
+
+[Showing results with pagination = limit: 250]
