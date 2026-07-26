@@ -342,14 +342,27 @@ void main() {
         // Ring = inside original (sd < 0) AND outside offset shape (offsetSd > 0).
         // The original InnerShadowModifier fills the ring area (between original
         // and offset shapes) with shadow color at full alpha, then applies
-        // Gaussian blur(radius) to soften the edges. Our single-pass approximation
-        // uses narrow smoothstep transitions (width = radius * 0.3) at the ring
-        // edges, creating a flat plateau (ring ≈ 1.0) in the middle — matching
-        // the original's filled-ring peak. The narrow transitions approximate
-        // the Gaussian blur's edge softening.
-        float aaW = max(1.5, uInnerShadowRadius * 0.3);
-        float ring = smoothstep(0.0, aaW, offsetSd) *
-                     (1.0 - smoothstep(-aaW, 0.0, sd));
+        // Gaussian blur(radius) to soften the edges. The blur uses sigma = radius/3
+        // (matching BlurMaskFilter), giving an effective spread of ~radius pixels.
+        //
+        // Previous approach used smoothstep with width = radius*0.3, which was
+        // too narrow — the shadow didn't spread enough, looking like a thin line
+        // instead of a soft gradient.
+        //
+        // New approach: use a Gaussian falloff from the inner edge of the original
+        // shape (where sd = 0), fading inward over ~radius pixels. This faithfully
+        // approximates the original's blur behavior. The offset shape masks the
+        // shadow with a smooth transition (the blur bleeds into the offset area
+        // by ~sigma pixels).
+        float sigma = max(uInnerShadowRadius / 3.0, 0.5);
+        // Distance from inner edge of the original shape (positive = deeper inside)
+        float innerDist = max(-sd, 0.0);
+        // Gaussian falloff from the inner edge — faithful to blur(radius)
+        float falloff = exp(-innerDist * innerDist / (2.0 * sigma * sigma));
+        // Offset shape mask: the blur bleeds into the offset shape by ~sigma,
+        // so use a smooth transition (not a hard cutoff).
+        float mask = smoothstep(-sigma, sigma * 0.5, offsetSd);
+        float ring = falloff * mask;
         // SrcOver blend: mix current color with shadow color by ring * alpha.
         color = mix(color, uInnerShadowColor, ring * uInnerShadowAlpha);
     }
@@ -359,13 +372,15 @@ void main() {
     // with offset (0, -radius) → bright band at the bottom edge, paired with
     // the black inner shadow's dark band at the top edge. This makes
     // toggle/slider knobs look 3D/立体.
-    // Uses SrcOver blend: color = mix(color, shadowColor, ring * alpha).
+    // Uses the same Gaussian falloff approach as inner shadow 1.
     if (uInnerShadow2Alpha > 0.001 && uInnerShadow2Radius > 0.5) {
         vec2 offsetCentered2 = centeredOrigRot - uInnerShadow2Offset;
         float offsetSd2 = sdShape(offsetCentered2, origHalfSize, origRadius);
-        float aaW2 = max(1.5, uInnerShadow2Radius * 0.3);
-        float ring2 = smoothstep(0.0, aaW2, offsetSd2) *
-                      (1.0 - smoothstep(-aaW2, 0.0, sd));
+        float sigma2 = max(uInnerShadow2Radius / 3.0, 0.5);
+        float innerDist2 = max(-sd, 0.0);
+        float falloff2 = exp(-innerDist2 * innerDist2 / (2.0 * sigma2 * sigma2));
+        float mask2 = smoothstep(-sigma2, sigma2 * 0.5, offsetSd2);
+        float ring2 = falloff2 * mask2;
         color = mix(color, uInnerShadow2Color, ring2 * uInnerShadow2Alpha);
     }
 
