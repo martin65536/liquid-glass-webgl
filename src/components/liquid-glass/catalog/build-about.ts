@@ -1,7 +1,7 @@
 import type { ElementInteraction } from '../context'
 import type { GlassElementConfig } from '../renderer'
 import { DP, measureTextWidth, type CatalogResult, type CatalogState, type ThemePalette } from './types'
-import { applyVerticalCenter, makeBackButton, makeText } from './helpers'
+import { makeBackButton, makeText } from './helpers'
 import { t, type Locale } from './i18n'
 
 /** Measure the wrapped height of `text` at `fontPx` within `maxW`.
@@ -25,7 +25,8 @@ function measureWrappedHeight(text: string, fontPx: number, maxW: number): numbe
 }
 
 /* ------------------------------------------------------------------ *
- * ABOUT — info page: author credit + project links.
+ * ABOUT — info page: author credit + project links + Wall of Shame.
+ * Scrollable page with safe-area padding matching Settings.
  * ------------------------------------------------------------------ */
 export function buildAbout(W: number, H: number, onBack: () => void, palette: ThemePalette, locale: Locale = 'zh'): CatalogResult {
   const elements: GlassElementConfig[] = []
@@ -38,51 +39,58 @@ export function buildAbout(W: number, H: number, onBack: () => void, palette: Th
   const labelColor = palette.backIconColor
   const linkColor: [number, number, number, number] = [0x00 / 255, 0x88 / 255, 0xff / 255, 1]
   const pad = 32 * DP
-  let cursorY = 0
+  // Top padding: avoid overlap with fixed back/theme buttons (56dp height + 16dp margin)
+  const topPad = 72 * DP
+  // Bottom padding: avoid overlap with fixed pick-image button (56dp height + 16dp margin)
+  const bottomPad = 72 * DP
+  let cursorY = topPad
+
+  // ---- Section 1: About info (scrollable) ----
 
   // Title
-  elements.push(
-    makeText(
-      'about-title',
-      { x: pad, y: cursorY, w: W - 2 * pad, h: 40 },
-      t('about_title', locale),
-      { color: labelColor, fontSizePx: 24, fontWeight: 600, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
-    )
+  const titleEl = makeText(
+    'about-title',
+    { x: pad, y: cursorY, w: W - 2 * pad, h: 40 },
+    t('about_title', locale),
+    { color: labelColor, fontSizePx: 24, fontWeight: 600, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
   )
+  titleEl.scroll = true
+  elements.push(titleEl)
   cursorY += 40 + 16
 
   // Author credit
-  elements.push(
-    makeText(
-      'about-author',
-      { x: pad, y: cursorY, w: W - 2 * pad, h: 20 },
-      t('about_author', locale),
-      { color: labelColor, fontSizePx: 16, fontWeight: 500, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
-    )
+  const authorEl = makeText(
+    'about-author',
+    { x: pad, y: cursorY, w: W - 2 * pad, h: 20 },
+    t('about_author', locale),
+    { color: labelColor, fontSizePx: 16, fontWeight: 500, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
   )
+  authorEl.scroll = true
+  elements.push(authorEl)
   cursorY += 20 + 24
 
   // Section: Projects
-  elements.push(
-    makeText(
-      'about-projects-title',
-      { x: pad, y: cursorY, w: W - 2 * pad, h: 20 },
-      t('about_projects', locale),
-      { color: labelColor, fontSizePx: 16, fontWeight: 600, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
-    )
+  const projectsTitleEl = makeText(
+    'about-projects-title',
+    { x: pad, y: cursorY, w: W - 2 * pad, h: 20 },
+    t('about_projects', locale),
+    { color: labelColor, fontSizePx: 16, fontWeight: 600, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
   )
+  projectsTitleEl.scroll = true
+  elements.push(projectsTitleEl)
   cursorY += 20 + 12
 
-  // Original Android project (Kotlin/Compose Multiplatform)
-  elements.push(
-    makeText(
-      'about-original-label',
-      { x: pad, y: cursorY, w: W - 2 * pad, h: 16 },
-      t('about_original', locale),
-      { color: labelColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
-    )
+  // Original Android project
+  const originalLabelEl = makeText(
+    'about-original-label',
+    { x: pad, y: cursorY, w: W - 2 * pad, h: 16 },
+    t('about_original', locale),
+    { color: labelColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
   )
+  originalLabelEl.scroll = true
+  elements.push(originalLabelEl)
   cursorY += 16 + 4
+
   const originalUrlEl = makeText(
     'about-original-url',
     { x: pad, y: cursorY, w: W - 2 * pad, h: 16 },
@@ -90,6 +98,7 @@ export function buildAbout(W: number, H: number, onBack: () => void, palette: Th
     { color: linkColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
   )
   originalUrlEl.isInteractive = true
+  originalUrlEl.scroll = true
   elements.push(originalUrlEl)
   interactions['about-original-url'] = {
     onTap: () => { if (typeof window !== 'undefined') window.open('https://github.com/Kyant0/AndroidLiquidGlass', '_blank') },
@@ -97,15 +106,16 @@ export function buildAbout(W: number, H: number, onBack: () => void, palette: Th
   cursorY += 16 + 16
 
   // This web port
-  elements.push(
-    makeText(
-      'about-port-label',
-      { x: pad, y: cursorY, w: W - 2 * pad, h: 16 },
-      t('about_port', locale),
-      { color: labelColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
-    )
+  const portLabelEl = makeText(
+    'about-port-label',
+    { x: pad, y: cursorY, w: W - 2 * pad, h: 16 },
+    t('about_port', locale),
+    { color: labelColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
   )
+  portLabelEl.scroll = true
+  elements.push(portLabelEl)
   cursorY += 16 + 4
+
   const portUrlEl = makeText(
     'about-port-url',
     { x: pad, y: cursorY, w: W - 2 * pad, h: 16 },
@@ -113,6 +123,7 @@ export function buildAbout(W: number, H: number, onBack: () => void, palette: Th
     { color: linkColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
   )
   portUrlEl.isInteractive = true
+  portUrlEl.scroll = true
   elements.push(portUrlEl)
   interactions['about-port-url'] = {
     onTap: () => { if (typeof window !== 'undefined') window.open('https://github.com/martin65536/liquid-glass-webgl', '_blank') },
@@ -124,31 +135,29 @@ export function buildAbout(W: number, H: number, onBack: () => void, palette: Th
   const descFontPx = 14
   const descW = W - 2 * pad
   const descH = measureWrappedHeight(descText, descFontPx, descW)
-  elements.push(
-    makeText(
-      'about-desc',
-      { x: pad, y: cursorY, w: descW, h: descH },
-      descText,
-      { color: labelColor, fontSizePx: descFontPx, fontWeight: 400, align: 'left', wrap: true, paddingPx: 0, halo: palette.homeTextHalo }
-    )
+  const descEl = makeText(
+    'about-desc',
+    { x: pad, y: cursorY, w: descW, h: descH },
+    descText,
+    { color: labelColor, fontSizePx: descFontPx, fontWeight: 400, align: 'left', wrap: true, paddingPx: 0, halo: palette.homeTextHalo }
   )
-
-  const contentHeight = cursorY + descH + 20
-
-  // ---- Wall of Shame section ----
+  descEl.scroll = true
+  elements.push(descEl)
   cursorY += descH + 32
+
+  // ---- Section 2: Wall of Shame (scrollable) ----
   const shameColor: [number, number, number, number] = [0xcc / 255, 0x33 / 255, 0x33 / 255, 1]
   const shameTextColor: [number, number, number, number] = [0xff / 255, 0x99 / 255, 0x99 / 255, 1]
 
   // Shame title
-  elements.push(
-    makeText(
-      'about-shame-title',
-      { x: pad, y: cursorY, w: W - 2 * pad, h: 24 },
-      t('shame_title', locale),
-      { color: shameColor, fontSizePx: 18, fontWeight: 700, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
-    )
+  const shameTitleEl = makeText(
+    'about-shame-title',
+    { x: pad, y: cursorY, w: W - 2 * pad, h: 24 },
+    t('shame_title', locale),
+    { color: shameColor, fontSizePx: 18, fontWeight: 700, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
   )
+  shameTitleEl.scroll = true
+  elements.push(shameTitleEl)
   cursorY += 24 + 8
 
   // Shame project name (link to GooseHyperGlass)
@@ -159,6 +168,7 @@ export function buildAbout(W: number, H: number, onBack: () => void, palette: Th
     { color: linkColor, fontSizePx: 14, fontWeight: 600, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
   )
   shameProjectEl.isInteractive = true
+  shameProjectEl.scroll = true
   elements.push(shameProjectEl)
   interactions['about-shame-project'] = {
     onTap: () => { if (typeof window !== 'undefined') window.open('https://github.com/Minecraftgoose/GooseHyperGlass', '_blank') },
@@ -168,38 +178,38 @@ export function buildAbout(W: number, H: number, onBack: () => void, palette: Th
   // Plagiarism
   const shamePlagiarismText = t('shame_plagiarism', locale)
   const shamePlagiarismH = measureWrappedHeight(shamePlagiarismText, 13, W - 2 * pad)
-  elements.push(
-    makeText(
-      'about-shame-plagiarism',
-      { x: pad, y: cursorY, w: W - 2 * pad, h: shamePlagiarismH },
-      shamePlagiarismText,
-      { color: shameTextColor, fontSizePx: 13, fontWeight: 400, align: 'left', wrap: true, paddingPx: 0, halo: palette.homeTextHalo }
-    )
+  const shamePlagiarismEl = makeText(
+    'about-shame-plagiarism',
+    { x: pad, y: cursorY, w: W - 2 * pad, h: shamePlagiarismH },
+    shamePlagiarismText,
+    { color: shameTextColor, fontSizePx: 13, fontWeight: 400, align: 'left', wrap: true, paddingPx: 0, halo: palette.homeTextHalo }
   )
+  shamePlagiarismEl.scroll = true
+  elements.push(shamePlagiarismEl)
   cursorY += shamePlagiarismH + 6
 
   // Quality
   const shameQualityText = t('shame_quality', locale)
   const shameQualityH = measureWrappedHeight(shameQualityText, 13, W - 2 * pad)
-  elements.push(
-    makeText(
-      'about-shame-quality',
-      { x: pad, y: cursorY, w: W - 2 * pad, h: shameQualityH },
-      shameQualityText,
-      { color: shameTextColor, fontSizePx: 13, fontWeight: 400, align: 'left', wrap: true, paddingPx: 0, halo: palette.homeTextHalo }
-    )
+  const shameQualityEl = makeText(
+    'about-shame-quality',
+    { x: pad, y: cursorY, w: W - 2 * pad, h: shameQualityH },
+    shameQualityText,
+    { color: shameTextColor, fontSizePx: 13, fontWeight: 400, align: 'left', wrap: true, paddingPx: 0, halo: palette.homeTextHalo }
   )
+  shameQualityEl.scroll = true
+  elements.push(shameQualityEl)
   cursorY += shameQualityH + 8
 
   // Cover-up title
-  elements.push(
-    makeText(
-      'about-shame-coverup-title',
-      { x: pad, y: cursorY, w: W - 2 * pad, h: 16 },
-      t('shame_coverup_title', locale),
-      { color: shameColor, fontSizePx: 13, fontWeight: 600, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
-    )
+  const shameCoverupTitleEl = makeText(
+    'about-shame-coverup-title',
+    { x: pad, y: cursorY, w: W - 2 * pad, h: 16 },
+    t('shame_coverup_title', locale),
+    { color: shameColor, fontSizePx: 13, fontWeight: 600, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
   )
+  shameCoverupTitleEl.scroll = true
+  elements.push(shameCoverupTitleEl)
   cursorY += 16 + 4
 
   // Cover-up items
@@ -211,14 +221,14 @@ export function buildAbout(W: number, H: number, onBack: () => void, palette: Th
   for (const item of shameCoverups) {
     const text = t(item.key, locale)
     const h = measureWrappedHeight(text, 13, W - 2 * pad)
-    elements.push(
-      makeText(
-        item.id,
-        { x: pad, y: cursorY, w: W - 2 * pad, h: h },
-        text,
-        { color: shameTextColor, fontSizePx: 13, fontWeight: 400, align: 'left', wrap: true, paddingPx: 0, halo: palette.homeTextHalo }
-      )
+    const el = makeText(
+      item.id,
+      { x: pad, y: cursorY, w: W - 2 * pad, h: h },
+      text,
+      { color: shameTextColor, fontSizePx: 13, fontWeight: 400, align: 'left', wrap: true, paddingPx: 0, halo: palette.homeTextHalo }
     )
+    el.scroll = true
+    elements.push(el)
     cursorY += h + 3
   }
   cursorY += 6
@@ -226,14 +236,14 @@ export function buildAbout(W: number, H: number, onBack: () => void, palette: Th
   // Conclusion
   const shameConclusionText = t('shame_conclusion', locale)
   const shameConclusionH = measureWrappedHeight(shameConclusionText, 13, W - 2 * pad)
-  elements.push(
-    makeText(
-      'about-shame-conclusion',
-      { x: pad, y: cursorY, w: W - 2 * pad, h: shameConclusionH },
-      shameConclusionText,
-      { color: shameTextColor, fontSizePx: 13, fontWeight: 600, align: 'left', wrap: true, paddingPx: 0, halo: palette.homeTextHalo }
-    )
+  const shameConclusionEl = makeText(
+    'about-shame-conclusion',
+    { x: pad, y: cursorY, w: W - 2 * pad, h: shameConclusionH },
+    shameConclusionText,
+    { color: shameTextColor, fontSizePx: 13, fontWeight: 600, align: 'left', wrap: true, paddingPx: 0, halo: palette.homeTextHalo }
   )
+  shameConclusionEl.scroll = true
+  elements.push(shameConclusionEl)
   cursorY += shameConclusionH + 8
 
   // Evidence link
@@ -244,12 +254,13 @@ export function buildAbout(W: number, H: number, onBack: () => void, palette: Th
     { color: linkColor, fontSizePx: 13, fontWeight: 500, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
   )
   shameEvidenceEl.isInteractive = true
+  shameEvidenceEl.scroll = true
   elements.push(shameEvidenceEl)
   interactions['about-shame-evidence'] = {
     onTap: () => { if (typeof window !== 'undefined') window.open('https://github.com/Kyant0/AndroidLiquidGlass/issues/112', '_blank') },
   }
-  cursorY += 16 + 20
+  cursorY += 16 + bottomPad
 
-  const finalHeight = applyVerticalCenter(elements, 0, cursorY, H)
-  return { elements, interactions, contentHeight: finalHeight }
+  // Return the total content height — scroll will kick in when this exceeds H.
+  return { elements, interactions, contentHeight: cursorY }
 }
