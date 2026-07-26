@@ -49,6 +49,9 @@ const INNER_SIZE_AMP = 12      // dp — inner glass size pulse amplitude
 const OUTER_SIZE_AMP = 6       // dp — outer glass size pulse amplitude
 const INNER_SCALE_AMP = 0.20   // inner glass squeeze amplitude ±20%
 const OUTER_SCALE_AMP = 0.10   // outer glass squeeze amplitude ±10%
+const DRIFT_AMP_X = 28         // dp — large horizontal sway amplitude
+const DRIFT_AMP_Y = 22         // dp — large vertical sway amplitude
+const DRIFT_FREQ = 0.35        // slow frequency → graceful sweep
 
 export function buildPerfBenchmark(
   W: number,
@@ -93,9 +96,22 @@ export function buildPerfBenchmark(
       const sizeAmp = (isInner ? INNER_SIZE_AMP : OUTER_SIZE_AMP) * deformMul
       const scaleAmp = (isInner ? INNER_SCALE_AMP : OUTER_SCALE_AMP) * deformMul
 
-      // Cell center position — glasses stay in their grid positions (no drift)
+      // Cell rest position (before drift)
       const cellCenterX = gridStartX + (col * (GLASS_SIZE + GAP) + GLASS_SIZE / 2) * DP
       const cellCenterY = gridStartY + (row * (GLASS_SIZE + GAP) + GLASS_SIZE / 2) * DP
+
+      // --- POSITION: slow, sweeping grid-level sway ---
+      // Each ROW sways horizontally at its own phase → the grid undulates
+      // left-right like a slow banner wave.
+      // Each COLUMN sways vertically at its own phase → vertical ripple.
+      // Same-row glasses move together horizontally; same-column together vertically.
+      // This creates a grand, coordinated grid dance — not per-glass chaos.
+      const driftMul = deformMul * 0.8
+      const dx = DRIFT_AMP_X * DP * driftMul * Math.sin(angle * DRIFT_FREQ + row * 0.7)
+      const dy = DRIFT_AMP_Y * DP * driftMul * Math.cos(angle * DRIFT_FREQ + col * 0.8)
+
+      const centerX = cellCenterX + dx
+      const centerY = cellCenterY + dy
 
       let w: number, h: number
       const phase = diagPhase(row, col)
@@ -112,8 +128,8 @@ export function buildPerfBenchmark(
         h = GLASS_SIZE * DP
       }
 
-      const x = cellCenterX - w / 2
-      const y = cellCenterY - h / 2
+      const x = centerX - w / 2
+      const y = centerY - h / 2
 
       const minDim = Math.min(w, h)
       const cornerRadius = minDim * 0.5 * state.cornerRadiusFrac
