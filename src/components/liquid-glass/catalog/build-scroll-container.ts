@@ -35,7 +35,6 @@ export function buildScrollContainer(W: number, onBack: () => void, count: numbe
           saturation: 1.5,
           surfaceColor: [0, 0, 0, 0],
           highlight: { ...DEFAULT_HIGHLIGHT },
-          outerShadow: null,
         }
       )
     )

@@ -494,7 +494,7 @@ export function makeGlassShape(
     tintColor: [0, 0, 0, 0],
     surfaceColor: opts.surfaceColor ?? [0, 0, 0, 0],
     highlight: opts.highlight !== undefined ? opts.highlight : { ...DEFAULT_HIGHLIGHT },
-    outerShadow: opts.outerShadow !== undefined ? opts.outerShadow : null,
+    outerShadow: opts.outerShadow !== undefined ? opts.outerShadow : { ...DEFAULT_SHADOW }, // faithful to drawBackdrop default: shadow = Shadow.Default
     label: '',
     labelColor: [0, 0, 0, 1],
     showChevron: false,
@@ -546,7 +546,7 @@ export function makeBackButton(
     tintColor: [0, 0, 0, 0],
     surfaceColor: palette.buttonSurface,
     highlight: null, // no edge highlight on the back button
-    outerShadow: { ...DEFAULT_SHADOW, radius: 12 * DP, alpha: 0.08 },
+    outerShadow: { ...DEFAULT_SHADOW }, // faithful to drawBackdrop default: Shadow.Default
     label: '', // no text label — icon replaces it
     labelColor: palette.backIconColor,
     showChevron: false,
@@ -595,7 +595,7 @@ export function makeThemeToggleButton(
     tintColor: [0, 0, 0, 0],
     surfaceColor: palette.buttonSurface,
     highlight: null, // no edge highlight (matches back button)
-    outerShadow: { ...DEFAULT_SHADOW, radius: 12 * DP, alpha: 0.08 },
+    outerShadow: { ...DEFAULT_SHADOW }, // faithful to drawBackdrop default: Shadow.Default
     label: '',
     labelColor: palette.backIconColor,
     showChevron: false,

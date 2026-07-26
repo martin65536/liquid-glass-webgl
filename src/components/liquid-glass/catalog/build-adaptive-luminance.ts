@@ -85,7 +85,6 @@ export function buildAdaptiveLuminanceGlass(
       // Highlight.Plain = mode 2; its visible strength comes from the Plain
       // style color alpha (0.38), not from the directional Default shader.
       highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, alpha: 0.38 },
-      outerShadow: null,
       depthEffect: true,
     }
   )

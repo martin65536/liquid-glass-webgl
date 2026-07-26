@@ -127,7 +127,6 @@ export function buildPerfBenchmark(
           saturation: 1.5,
           surfaceColor: [0, 0, 0, 0],
           highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, alpha: 0.38 },
-          outerShadow: null,
           depthEffect: true,
           chromaticAberration: state.chromaticAberration > 0,
         }

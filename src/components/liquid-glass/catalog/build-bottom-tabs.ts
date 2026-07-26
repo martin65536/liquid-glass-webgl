@@ -101,8 +101,8 @@ export function buildBottomTabs(W: number, H: number, onBack: () => void, state:
         surfaceColor: containerColor,
         // 容器 uses default Highlight.Default (alpha=0.5, width=0.5dp).
         // The original Container Row doesn't pass highlight= → uses DefaultHighlight.
+        // Shadow defaults to Shadow.Default (24dp, Black@0.1).
         highlight: { ...DEFAULT_HIGHLIGHT, alpha: 0.5 },
-        outerShadow: null,
         depthEffect: true,
       }
     )

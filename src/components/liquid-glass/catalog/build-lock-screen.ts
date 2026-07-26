@@ -52,7 +52,6 @@ export function buildLockScreen(W: number, H: number, onBack: () => void, state:
       contrast: 0.75,
       surfaceColor: [1, 1, 1, 0.25],
       highlight: null,
-      outerShadow: null,
     }
   )
   lsGlass.isSdfTexture = { refractionHeight: 48 * DP, lightAngle: 45 }

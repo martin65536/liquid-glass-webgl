@@ -39,7 +39,6 @@ export function buildProgressiveBlur(W: number, H: number, onBack: () => void, p
     tintColor: [0, 0, 0, 0],
     surfaceColor: [0, 0, 0, 0],
     highlight: null,
-    outerShadow: null,
     label: '',
     labelColor: palette.progressiveContentColor,
     showChevron: false,

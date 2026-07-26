@@ -76,7 +76,6 @@ export function buildGlassPlayground(W: number, H: number, onBack: () => void, s
       saturation: 1.5,
       surfaceColor: [0, 0, 0, 0],
       highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, alpha: 0.38 },
-      outerShadow: null,
       depthEffect: true,
       chromaticAberration: state.chromaticAberration > 0,
     }
@@ -167,7 +166,6 @@ export function buildGlassPlayground(W: number, H: number, onBack: () => void, s
           saturation: 1.5,
           surfaceColor: palette.tabsContainer,
           highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, alpha: 0.38 },
-          outerShadow: null,
         }
       )
     )
