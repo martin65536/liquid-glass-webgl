@@ -146,3 +146,23 @@ Stage Summary:
 - methods-render-glass-post-passes.ts: inner shadow 1 + 2 post-passes added before press glow
 - Canvas2D mask generation: fill ring → destination-out → blur, cached by geometry
 - Blend mode: SrcOver (SRC_ALPHA, ONE_MINUS_SRC_ALPHA)
+
+---
+Task ID: 5
+Agent: Main Agent
+Task: Fix inner shadow alignment and radius bugs
+
+Work Log:
+- Identified two critical bugs in the Canvas2D inner shadow mask rendering:
+  1. drawImage sizing: mCtx.scale(SS,SS) then drawImage(tempCanvas,0,0) draws temp canvas at SS× natural size → ring appears wrong size
+  2. Blur radius: blur(blurSigma px) in scaled context produces blurSigma*SS physical px blur → SS× over-blur
+- Fixed drawImage: removed ctx.scale from mask canvas's blur step; now draw at 1:1 physical pixels with blur(blurSigma*SS px)
+- Identified SDF clipAlpha bug: smoothstep(-0.5, 0.5, sd) gives clipAlpha=0.5 at sd=0, reducing inner shadow intensity at edge → visible gap
+- Fixed composite shader: changed from clipAlpha*mask to hard discard (sd>0.5) + no clipAlpha multiplier
+  Matches InnerShadowModifier.kt's clip-after-blur behavior: full intensity at edge, mask blur provides transition
+- Verified: lint clean, VLM confirms all 3 checks YES (aligned, natural, no gap) for both static and pressed states
+
+Stage Summary:
+- drawImage bug fixed: 1:1 physical pixel mapping with blur(blurSigma*SS px)
+- SDF clipAlpha removed: hard discard at sd>0.5, mask handles edge transition
+- Inner shadow now aligns precisely with element shape boundary

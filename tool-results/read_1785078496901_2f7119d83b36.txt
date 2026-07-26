@@ -1,0 +1,616 @@
+     1→import type { LiquidGlassRenderer } from './index'
+     2→import type { GlassRenderState } from './methods-render-glass'
+     3→import { DP } from './spring'
+     4→import { continuousCurvatureRoundedRectPath } from './continuous-curve'
+     5→
+     6→declare module './index' {
+     7→  interface LiquidGlassRenderer {
+     8→    renderGlassPostPasses(state: GlassRenderState): void
+     9→  }
+    10→}
+    11→
+    12→export const glassPostPassMethods = {
+    13→  /** Steps 2b–2f: Inner shadow, press glow, white overlay, foreground, rim highlight.
+    14→   *  These all composite on top of the glass body (already drawn to
+    15→   *  otherFbo by renderGlassElementPass). */
+    16→  renderGlassPostPasses(this: LiquidGlassRenderer, state: GlassRenderState) {
+    17→    const gl = this.gl
+    18→    const { el, st, isButton, p, sx, sy, sw, sh, radii, togglePressProgress, elHighlightAlpha } = state
+    19→
+    20→    // Original-space SDF uniforms — shared by all post-pass shaders so their
+    21→    // capsule clip is computed in ORIGINAL space (faithful to graphicsLayer
+    22→    // { scaleX, scaleY } post-scaling). See element.ts / highlight.ts.
+    23→    const origSizeX = state.origW * this.dpr
+    24→    const origSizeY = state.origH * this.dpr
+    25→    const origRadius = state.origCornerRadius * this.dpr
+    26→    const layerScaleX = state.layerScaleX
+    27→    const layerScaleY = state.layerScaleY
+    28→
+    29→    // --- Step 2b: Inner shadow post-passes (Canvas2D ring mask approach) ---
+    30→    // Inner shadows are drawn on the element surface, underneath the press glow.
+    31→    // Each shadow uses a Canvas2D-generated blurred ring mask (fill shape →
+    32→    // destination-out offset shape → blur), composited via the
+    33→    // INNER_SHADOW_MASK_COMPOSITE_FRAGMENT_SHADER with SrcOver blend.
+    34→    // SDF clip in the shader ensures the shadow stays inside the shape boundary.
+    35→
+    36→    /** Helper: draw one inner shadow post-pass (shadow1 or shadow2). */
+    37→    const drawInnerShadowPass = (
+    38→      shadowCfg: { radius: number; alpha: number; offsetX: number; offsetY: number; color?: [number, number, number] },
+    39→      shadowIndex: number // 0 = innerShadow, 1 = innerShadow2
+    40→    ) => {
+    41→      // Progress modulation — faithful to the original inline shader:
+    42→      //   - Toggle knobs: radius, alpha, offset all modulated by togglePressProgress
+    43→      //   - Bottom-tab indicator: radius, alpha, offset modulated by togglePressProgress
+    44→      //   - Other elements (magnifier): static params, no modulation
+    45→      const progress = (el.isToggleKnob || el.isBottomTabIndicator) ? togglePressProgress : 1
+    46→      let shadowAlpha = shadowCfg.alpha * progress * state.enterAlpha
+    47→      let shadowRadius = shadowCfg.radius * progress
+    48→      let shadowOffsetX = shadowCfg.offsetX * progress
+    49→      let shadowOffsetY = shadowCfg.offsetY * progress
+    50→
+    51→      if (shadowAlpha <= 0.001 || shadowRadius <= 0.5) return
+    52→
+    53→      // Blur sigma = radius / 3 (BlurMaskFilter semantics: sigma = radius / 3)
+    54→      const blurSigma = (shadowRadius / 3) * this.dpr  // device px
+    55→      // Margin for blur spread + AA
+    56→      const margin = Math.ceil(blurSigma * 3) + 2
+    57→      // Mask dimensions in device px (origSize + 2*margin)
+    58→      const maskW = Math.max(1, Math.ceil(origSizeX + 2 * margin))
+    59→      const maskH = Math.max(1, Math.ceil(origSizeY + 2 * margin))
+    60→      // Supersampling for sharper mask rasterization
+    61→      const deviceDpr = window.devicePixelRatio || 1
+    62→      const SS = Math.min(2, Math.max(1, Math.floor(deviceDpr / this.dpr)))
+    63→      const canvasW = maskW * SS
+    64→      const canvasH = maskH * SS
+    65→      const useG2 = !!el.useContinuousSdf
+    66→
+    67→      // Offset in device px (already × progress)
+    68→      const offsetXDp = shadowOffsetX * this.dpr
+    69→      const offsetYDp = shadowOffsetY * this.dpr
+    70→
+    71→      const maskKey = [
+    72→        'is',
+    73→        shadowIndex,
+    74→        useG2 ? 'g2' : 'rr',
+    75→        origSizeX.toFixed(3),
+    76→        origSizeY.toFixed(3),
+    77→        origRadius.toFixed(3),
+    78→        offsetXDp.toFixed(3),
+    79→        offsetYDp.toFixed(3),
+    80→        blurSigma.toFixed(3),
+    81→        margin,
+    82→        maskW,
+    83→        maskH,
+    84→        `ss${SS}`,
+    85→      ].join(':')
+    86→
+    87→      let mask = this.innerShadowMaskCache.get(maskKey)
+    88→      if (!mask) {
+    89→        const canvas = document.createElement('canvas')
+    90→        canvas.width = canvasW
+    91→        canvas.height = canvasH
+    92→        const ctx = canvas.getContext('2d', { alpha: true })
+    93→        if (!ctx) throw new Error('2D canvas not supported')
+    94→        const tex = gl.createTexture()
+    95→        if (!tex) throw new Error('WebGL texture allocation failed')
+    96→        mask = { tex, canvas, ctx, w: maskW, h: maskH, ready: false }
+    97→        this.innerShadowMaskCache.set(maskKey, mask)
+    98→
+    99→        // Keep the cache bounded (32 entries)
+   100→        if (this.innerShadowMaskCache.size > 32) {
+   101→          const oldestKey = this.innerShadowMaskCache.keys().next().value as string | undefined
+   102→          if (oldestKey && oldestKey !== maskKey) {
+   103→            const oldest = this.innerShadowMaskCache.get(oldestKey)
+   104→            if (oldest) gl.deleteTexture(oldest.tex)
+   105→            this.innerShadowMaskCache.delete(oldestKey)
+   106→          }
+   107→        }
+   108→      }
+   109→
+   110→      if (!mask.ready) {
+   111→        // --- Generate the ring mask via Canvas2D (two-canvas approach) ---
+   112→        // Step 1: draw hard-edge ring on a temp canvas
+   113→        // Step 2: blur onto the output canvas via ctx.filter
+   114→        const mCtx = mask.ctx
+   115→        mCtx.clearRect(0, 0, canvasW, canvasH)
+   116→        mCtx.save()
+   117→        // Scale up for supersampling: draw in logical (1x) coordinates
+   118→        // while the physical canvas is SS× larger.
+   119→        mCtx.scale(SS, SS)
+   120→
+   121→        // --- Temp canvas for the hard-edge ring ---
+   122→        const tempCanvas = document.createElement('canvas')
+   123→        tempCanvas.width = canvasW
+   124→        tempCanvas.height = canvasH
+   125→        const tCtx = tempCanvas.getContext('2d', { alpha: true })
+   126→        if (!tCtx) throw new Error('2D canvas not supported')
+   127→
+   128→        // Draw ring on temp canvas: fill shape → destination-out offset shape
+   129→        tCtx.save()
+   130→        tCtx.scale(SS, SS)
+   131→        tCtx.translate(margin, margin)
+   132→
+   133→        // Build the path (element-local, 0..origSizeX × 0..origSizeY)
+   134→        let path: Path2D
+   135→        if (useG2) {
+   136→          path = continuousCurvatureRoundedRectPath(tCtx, origSizeX, origSizeY, origRadius)
+   137→        } else {
+   138→          path = new Path2D()
+   139→          const r = Math.min(origRadius, origSizeX / 2, origSizeY / 2)
+   140→          path.moveTo(r, 0)
+   141→          path.lineTo(origSizeX - r, 0)
+   142→          path.arcTo(origSizeX, 0, origSizeX, r, r)
+   143→          path.lineTo(origSizeX, origSizeY - r)
+   144→          path.arcTo(origSizeX, origSizeY, origSizeX - r, origSizeY, r)
+   145→          path.lineTo(r, origSizeY)
+   146→          path.arcTo(0, origSizeY, 0, origSizeY - r, r)
+   147→          path.lineTo(0, r)
+   148→          path.arcTo(0, 0, r, 0, r)
+   149→          path.closePath()
+   150→        }
+   151→
+   152→        // Fill the shape with white (creates full interior)
+   153→        tCtx.globalCompositeOperation = 'source-over'
+   154→        tCtx.fillStyle = 'white'
+   155→        tCtx.fill(path)
+   156→
+   157→        // Draw the OFFSET shape with destination-out (removes offset interior)
+   158→        tCtx.globalCompositeOperation = 'destination-out'
+   159→        tCtx.save()
+   160→        tCtx.translate(offsetXDp, offsetYDp)
+   161→        tCtx.fill(path) // same path, shifted by offset
+   162→        tCtx.restore()
+   163→
+   164→        tCtx.globalCompositeOperation = 'source-over'
+   165→        tCtx.restore()
+   166→
+   167→        // --- Blur the ring onto the output canvas ---
+   168→        if (blurSigma > 0.01) {
+   169→          mCtx.filter = `blur(${blurSigma}px)`
+   170→        } else {
+   171→          mCtx.filter = 'none'
+   172→        }
+   173→        // Draw the temp canvas onto the mask canvas (with blur)
+   174→        mCtx.drawImage(tempCanvas, 0, 0)
+   175→        mCtx.filter = 'none'
+   176→        mCtx.restore()
+   177→
+   178→        // Upload to GPU texture
+   179→        gl.bindTexture(gl.TEXTURE_2D, mask.tex)
+   180→        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
+   181→        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, mask.canvas)
+   182→        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+   183→        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+   184→        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+   185→        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+   186→        mask.ready = true
+   187→      }
+   188→
+   189→      // --- Composite: inner shadow mask × shadowAlpha × shadowColor → scene ---
+   190→      gl.enable(gl.BLEND)
+   191→      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+   192→      gl.useProgram(this.innerShadowMaskCompositeProgram)
+   193→      gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+   194→      gl.enableVertexAttribArray(this.aPosLocIs)
+   195→      gl.vertexAttribPointer(this.aPosLocIs, 2, gl.FLOAT, false, 0, 0)
+   196→
+   197→      gl.uniform2f(this.uIs['uCanvasSize'], this.canvas.width, this.canvas.height)
+   198→      gl.uniform2f(this.uIs['uOffset'], sx * this.dpr, sy * this.dpr)
+   199→      gl.uniform2f(this.uIs['uSize'], sw * this.dpr, sh * this.dpr)
+   200→      gl.uniform4f(this.uIs['uCornerRadii'], radii[0] * this.dpr, radii[1] * this.dpr, radii[2] * this.dpr, radii[3] * this.dpr)
+   201→
+   202→      gl.activeTexture(gl.TEXTURE0)
+   203→      gl.bindTexture(gl.TEXTURE_2D, mask.tex)
+   204→      gl.uniform1i(this.uIs['uInnerShadowMask'], 0)
+   205→      // uMaskOffset/uMaskSize are in LOGICAL (1x device px) space — the
+   206→      // physical canvas is SS× larger but the shader uses 1x coords for UV.
+   207→      gl.uniform2f(this.uIs['uMaskOffset'], margin, margin)
+   208→      gl.uniform2f(this.uIs['uMaskSize'], mask.w, mask.h)
+   209→
+   210→      // Shadow color (defaults to black [0,0,0] if not specified)
+   211→      const color = shadowCfg.color ?? [0, 0, 0]
+   212→      gl.uniform3f(this.uIs['uInnerShadowColor'], color[0], color[1], color[2])
+   213→      gl.uniform1f(this.uIs['uInnerShadowAlpha'], shadowAlpha)
+   214→
+   215→      gl.uniform2f(this.uIs['uOriginalSize'], origSizeX, origSizeY)
+   216→      gl.uniform1f(this.uIs['uOriginalCornerRadius'], origRadius)
+   217→      gl.uniform2f(this.uIs['uLayerScale'], layerScaleX, layerScaleY)
+   218→      gl.uniform1f(this.uIs['uElementRotation'], state.elementRotation)
+   219→      gl.drawArrays(gl.TRIANGLES, 0, 6)
+   220→    }
+   221→
+   222→    // Inner shadow 1 (typically dark/black, offset downward)
+   223→    if (el.innerShadow) {
+   224→      drawInnerShadowPass(el.innerShadow, 0)
+   225→    }
+   226→    // Inner shadow 2 (typically white/bright, offset upward — 3D bevel)
+   227→    if (el.innerShadow2) {
+   228→      drawInnerShadowPass(el.innerShadow2, 1)
+   229→    }
+   230→
+   231→    // --- Step 2c: Press glow (button + bottom-tab container) ---
+   232→    // Faithful to InteractiveHighlight.kt: a flat white Plus-blend overlay
+   233→    // + a radial white glow. For buttons, position = finger, intensity = st.pressProgress.
+   234→    // For the bottom-tab container, position = indicator center (via the
+   235→    // original's position lambda), intensity = toggleState.pressProgress.
+   236→    const isContainer = !!el.isBottomTabContainer
+   237→    const glowP = isButton ? p : (isContainer ? togglePressProgress : 0)
+   238→    if ((isButton && el.isInteractive && st && p > 0.001) || (isContainer && togglePressProgress > 0.001)) {
+   239→      // a. Flat white overlay
+   240→      gl.useProgram(this.tintProgram)
+   241→      gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+   242→      gl.enableVertexAttribArray(this.aPosLocTn)
+   243→      gl.vertexAttribPointer(this.aPosLocTn, 2, gl.FLOAT, false, 0, 0)
+   244→      gl.blendFunc(gl.SRC_ALPHA, gl.ONE)
+   245→      gl.uniform2f(this.uTn['uCanvasSize'], this.canvas.width, this.canvas.height)
+   246→      gl.uniform2f(this.uTn['uOffset'], sx * this.dpr, sy * this.dpr)
+   247→      gl.uniform2f(this.uTn['uSize'], sw * this.dpr, sh * this.dpr)
+   248→      gl.uniform4f(
+   249→        this.uTn['uCornerRadii'],
+   250→        radii[0] * this.dpr,
+   251→        radii[1] * this.dpr,
+   252→        radii[2] * this.dpr,
+   253→        radii[3] * this.dpr
+   254→      )
+   255→      gl.uniform2f(this.uTn['uOriginalSize'], origSizeX, origSizeY)
+   256→      gl.uniform1f(this.uTn['uOriginalCornerRadius'], origRadius)
+   257→      gl.uniform2f(this.uTn['uLayerScale'], layerScaleX, layerScaleY)
+   258→      gl.uniform1f(this.uTn['uElementRotation'], state.elementRotation)
+   259→      gl.uniform1f(this.uTn['uCornerStyle'], this.cornerStyle)
+   260→      gl.uniform4f(this.uTn['uColor'], 1, 1, 1, 0.08 * glowP)
+   261→      gl.drawArrays(gl.TRIANGLES, 0, 6)
+   262→
+   263→      // b. Radial highlight at finger position (button) or indicator center (container).
+   264→      gl.useProgram(this.highlightProgram)
+   265→      gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+   266→      gl.enableVertexAttribArray(this.aPosLocHl)
+   267→      gl.vertexAttribPointer(this.aPosLocHl, 2, gl.FLOAT, false, 0, 0)
+   268→      gl.blendFunc(gl.ONE, gl.ONE)
+   269→      gl.uniform2f(this.uHl['uCanvasSize'], this.canvas.width, this.canvas.height)
+   270→      gl.uniform2f(this.uHl['uOffset'], sx * this.dpr, sy * this.dpr)
+   271→      gl.uniform2f(this.uHl['uSize'], sw * this.dpr, sh * this.dpr)
+   272→      gl.uniform4f(
+   273→        this.uHl['uCornerRadii'],
+   274→        radii[0] * this.dpr,
+   275→        radii[1] * this.dpr,
+   276→        radii[2] * this.dpr,
+   277→        radii[3] * this.dpr
+   278→      )
+   279→      gl.uniform2f(this.uHl['uOriginalSize'], origSizeX, origSizeY)
+   280→      gl.uniform1f(this.uHl['uOriginalCornerRadius'], origRadius)
+   281→      gl.uniform2f(this.uHl['uLayerScale'], layerScaleX, layerScaleY)
+   282→      gl.uniform1f(this.uHl['uElementRotation'], state.elementRotation)
+   283→      gl.uniform1f(this.uHl['uCornerStyle'], this.cornerStyle)
+   284→      gl.uniform4f(this.uHl['uColor'], 1, 1, 1, 0.15 * glowP)
+   285→      const minDim = Math.min(sw, sh) * this.dpr
+   286→      gl.uniform1f(this.uHl['uRadius'], minDim * 1.5)
+   287→      // Position: for buttons, the finger position. For the container, the
+   288→      // indicator center — faithful to the original's position lambda which
+   289→      // returns (dampedDragAnimation.value + 0.5) * tabWidth (indicator center
+   290→      // relative to the container).
+   291→      let px: number, py: number
+   292→      if (isContainer) {
+   293→        const tg = this.toggleStates.get(el.isBottomTabContainer!.groupId)
+   294→        // tabW = container ORIGINAL width / tabsCount (not scaled — the position
+   295→        // lambda runs in pre-scale local coords). indicator center =
+   296→        // (fraction + 0.5) * tabW. Faithful to LiquidBottomTabs.kt:
+   297→        //   position = (dampedDragAnimation.value + 0.5) * tabWidth
+   298→        const tabsCount = el.isBottomTabContainer!.tabsCount ?? 4
+   299→        const tabW = el.rect.w / tabsCount
+   300→        const fraction = tg ? tg.fraction : 0
+   301→        const indCenterX = (fraction + 0.5) * tabW
+   302→        // Map original-local to scaled-local (the shader's uPosition is in
+   303→        // scaled-local coords, 0..sw). scale = sw / el.rect.w.
+   304→        const scaleToLocal = sw / el.rect.w
+   305→        px = Math.max(0, Math.min(sw, indCenterX * scaleToLocal)) * this.dpr
+   306→        py = (sh / 2) * this.dpr
+   307→      } else {
+   308→        px = Math.max(0, Math.min(sw, st!.dragX * state.layerScaleX)) * this.dpr
+   309→        py = Math.max(0, Math.min(sh, st!.dragY * state.layerScaleY)) * this.dpr
+   310→      }
+   311→      gl.uniform2f(this.uHl['uPosition'], px, py)
+   312→      gl.drawArrays(gl.TRIANGLES, 0, 6)
+   313→      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+   314→    }
+   315→
+   316→    // --- Step 2d: Toggle knob white overlay (faithful to LiquidToggle.kt
+   317→    // / LiquidSlider.kt onDrawSurface) ---
+   318→    if (el.isToggleKnob && togglePressProgress < 0.999) {
+   319→      const whiteAlpha = 1.0 * (1 - togglePressProgress)
+   320→      gl.useProgram(this.tintProgram)
+   321→      gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+   322→      gl.enableVertexAttribArray(this.aPosLocTn)
+   323→      gl.vertexAttribPointer(this.aPosLocTn, 2, gl.FLOAT, false, 0, 0)
+   324→      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+   325→      gl.uniform2f(this.uTn['uCanvasSize'], this.canvas.width, this.canvas.height)
+   326→      gl.uniform2f(this.uTn['uOffset'], sx * this.dpr, sy * this.dpr)
+   327→      gl.uniform2f(this.uTn['uSize'], sw * this.dpr, sh * this.dpr)
+   328→      gl.uniform4f(
+   329→        this.uTn['uCornerRadii'],
+   330→        radii[0] * this.dpr,
+   331→        radii[1] * this.dpr,
+   332→        radii[2] * this.dpr,
+   333→        radii[3] * this.dpr
+   334→      )
+   335→      gl.uniform2f(this.uTn['uOriginalSize'], origSizeX, origSizeY)
+   336→      gl.uniform1f(this.uTn['uOriginalCornerRadius'], origRadius)
+   337→      gl.uniform2f(this.uTn['uLayerScale'], layerScaleX, layerScaleY)
+   338→      gl.uniform1f(this.uTn['uElementRotation'], state.elementRotation)
+   339→      gl.uniform1f(this.uTn['uCornerStyle'], this.cornerStyle)
+   340→      // Faithful to LiquidToggle.kt onDrawSurface:
+   341→      //   drawRect(Color.White.copy(alpha = 1f - progress))
+   342→      // Solid white pebble at rest (alpha=1), fading to transparent when
+   343→      // pressed (alpha=0) to reveal the glass refraction beneath.
+   344→      gl.uniform4f(this.uTn['uColor'], 1, 1, 1, whiteAlpha)
+   345→      gl.drawArrays(gl.TRIANGLES, 0, 6)
+   346→    }
+   347→
+   348→    // --- Step 2d2: Bottom tab indicator onDrawSurface (faithful to
+   349→    // LiquidBottomTabs.kt indicator):
+   350→    //   drawRect(if (isLightTheme) Color.Black.copy(0.1f) else Color.White.copy(0.1f), alpha = 1f - progress)
+   351→    //   drawRect(Color.Black.copy(alpha = 0.03f * progress))
+   352→    // First: theme-aware dim overlay fading OUT on press (SrcOver).
+   353→    // Second: subtle black tint fading IN on press (SrcOver).
+   354→    if (el.isBottomTabIndicator && el.isBottomTabIndicator.dimColor) {
+   355→      const dc = el.isBottomTabIndicator.dimColor
+   356→      const p = togglePressProgress
+   357→      gl.useProgram(this.tintProgram)
+   358→      gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+   359→      gl.enableVertexAttribArray(this.aPosLocTn)
+   360→      gl.vertexAttribPointer(this.aPosLocTn, 2, gl.FLOAT, false, 0, 0)
+   361→      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+   362→      gl.uniform2f(this.uTn['uCanvasSize'], this.canvas.width, this.canvas.height)
+   363→      gl.uniform2f(this.uTn['uOffset'], sx * this.dpr, sy * this.dpr)
+   364→      gl.uniform2f(this.uTn['uSize'], sw * this.dpr, sh * this.dpr)
+   365→      gl.uniform4f(this.uTn['uCornerRadii'], radii[0] * this.dpr, radii[1] * this.dpr, radii[2] * this.dpr, radii[3] * this.dpr)
+   366→      gl.uniform2f(this.uTn['uOriginalSize'], origSizeX, origSizeY)
+   367→      gl.uniform1f(this.uTn['uOriginalCornerRadius'], origRadius)
+   368→      gl.uniform2f(this.uTn['uLayerScale'], layerScaleX, layerScaleY)
+   369→      gl.uniform1f(this.uTn['uElementRotation'], state.elementRotation)
+   370→      gl.uniform1f(this.uTn['uCornerStyle'], this.cornerStyle)
+   371→      // First overlay: dim color at 0.1 * (1 - progress) — fades out on press.
+   372→      gl.uniform4f(this.uTn['uColor'], dc[0], dc[1], dc[2], 0.1 * (1 - p))
+   373→      gl.drawArrays(gl.TRIANGLES, 0, 6)
+   374→      // Second overlay: black at 0.03 * progress — fades in on press.
+   375→      gl.uniform4f(this.uTn['uColor'], 0, 0, 0, 0.03 * p)
+   376→      gl.drawArrays(gl.TRIANGLES, 0, 6)
+   377→      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+   378→    }
+   379→
+   380→    // --- Step 2e: Foreground (label or icon) pass (button only) ---
+   381→    if (isButton && (el.label || el.icon)) {
+   382→      const fgTex = this.fgTextures.get(el.id)
+   383→      if (fgTex) {
+   384→        gl.useProgram(this.foregroundProgram)
+   385→        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+   386→        gl.enableVertexAttribArray(this.aPosLocFg)
+   387→        gl.vertexAttribPointer(this.aPosLocFg, 2, gl.FLOAT, false, 0, 0)
+   388→        gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+   389→
+   390→        gl.activeTexture(gl.TEXTURE0)
+   391→        gl.bindTexture(gl.TEXTURE_2D, fgTex)
+   392→        gl.uniform1i(this.uFg['uTexture'], 0)
+   393→        gl.uniform2f(this.uFg['uCanvasSize'], this.canvas.width, this.canvas.height)
+   394→        gl.uniform2f(this.uFg['uOffset'], sx * this.dpr, sy * this.dpr)
+   395→        gl.uniform2f(this.uFg['uSize'], sw * this.dpr, sh * this.dpr)
+   396→        gl.uniform4f(
+   397→          this.uFg['uCornerRadii'],
+   398→          radii[0] * this.dpr,
+   399→          radii[1] * this.dpr,
+   400→          radii[2] * this.dpr,
+   401→          radii[3] * this.dpr
+   402→        )
+   403→        gl.uniform2f(this.uFg['uOriginalSize'], origSizeX, origSizeY)
+   404→        gl.uniform1f(this.uFg['uOriginalCornerRadius'], origRadius)
+   405→      gl.uniform2f(this.uFg['uLayerScale'], layerScaleX, layerScaleY)
+   406→      gl.uniform1f(this.uFg['uCornerStyle'], this.cornerStyle)
+   407→      // Continuous-curvature mask for capsule foregrounds.
+   408→      if (el.useContinuousSdf && this.continuousSdfTexture) {
+   409→        gl.activeTexture(gl.TEXTURE2)
+   410→        gl.bindTexture(gl.TEXTURE_2D, this.continuousSdfTexture)
+   411→        gl.uniform1i(this.uFg['uContinuousSdf'], 2)
+   412→        gl.uniform1f(this.uFg['uUseContinuousSdf'], 1.0)
+   413→        gl.uniform2f(this.uFg['uContinuousSdfTexSize'], this.continuousSdfTexSize[0], this.continuousSdfTexSize[1])
+   414→        gl.uniform2f(this.uFg['uContinuousSdfElementSize'], state.origW * this.dpr, state.origH * this.dpr)
+   415→      } else {
+   416→        gl.uniform1f(this.uFg['uUseContinuousSdf'], 0.0)
+   417→      }
+   418→        gl.uniform1f(this.uFg['uAlpha'], 1.0 - 0.15 * p)
+   419→        gl.drawArrays(gl.TRIANGLES, 0, 6)
+   420→        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+   421→      }
+   422→    }
+   423→
+   424→    // --- Step 2f: Rim highlight (Canvas2D stroke mask approach) ---
+   425→    // Uses Canvas2D ctx.stroke() (browser-native Skia) to rasterize the G2
+   426→    // Bezier path as a stroke mask. This is the SAME method the original
+   427→    // uses (Skia drawOutline + paint.Stroke) — the browser's Canvas2D
+   428→    // internally calls Skia's SkCanvas::drawPath, which tessellates the
+   429→    // Bezier into triangles and rasterizes with hardware coverage AA.
+   430→    //
+   431→    // Advantages over the SDF approach:
+   432→    //   - Exact G2 Bezier shape (not SDF approximation)
+   433→    //   - Hardware coverage AA (sub-pixel accurate, no smoothstep needed)
+   434→    //   - No SDF computation in shader (just one texture fetch)
+   435→    //   - Adaptive tessellation (more samples at high-curvature corners)
+   436→    //
+   437→    // The stroke mask is cached by exact geometry. Highlight angle/alpha/press
+   438→    // progress only affect the composite uniforms, not the mask, so caching is
+   439→    // safe and avoids both per-frame rasterization and UV mismatch between a
+   440→    // reused backing canvas and the logical mask size.
+   441→    if (el.highlight && el.highlight.alpha > 0.001) {
+   442→      const rimAlpha = (el.isToggleKnob || el.isBottomTabIndicator) ? elHighlightAlpha : el.highlight.alpha
+   443→      const finalAlpha = rimAlpha * state.enterAlpha
+   444→      if (finalAlpha > 0.001) {
+   445→        // HighlightModifier.kt: ceil(width.toPx().coerceAtMost(minDimension / 2)) * 2
+   446→        const widthPx = Math.min(
+   447→          el.highlight.widthDp * this.dpr,
+   448→          Math.min(origSizeX, origSizeY) * 0.5
+   449→        )
+   450→        const strokeWidthDevice = Math.max(1, Math.ceil(widthPx) * 2)
+   451→        // Highlight data class: blurRadius defaults to width / 2. Honor it in the
+   452→        // Canvas2D mask as well (for the default 0.25dp this is sub-pixel, but it
+   453→        // keeps non-default highlights faithful too).
+   454→        const blurPx = Math.max(0, (el.highlight.blurRadiusDp ?? el.highlight.widthDp / 2) * this.dpr)
+   455→
+   456→        // --- Generate stroke mask via Canvas2D (browser-native Skia) ---
+   457→        // Element-local coordinates: (0,0) = element top-left in device px.
+   458→        // Margin for stroke width + AA + blur spread.
+   459→        const strokeMargin = Math.ceil(strokeWidthDevice) + 4  // logical margin
+   460→        // Logical mask size (1x device px) — used for shader UV mapping
+   461→        const maskW = Math.max(1, Math.ceil(origSizeX + 2 * strokeMargin))
+   462→        const maskH = Math.max(1, Math.ceil(origSizeY + 2 * strokeMargin))
+   463→        // Supersample for sharper stroke/blur rasterization.
+   464→        // Cap SS so total mask DPR (this.dpr × SS) ≤ device's native DPR —
+   465→        // no point rendering pixels beyond what the screen can display.
+   466→        const deviceDpr = window.devicePixelRatio || 1
+   467→        const SS = Math.min(2, Math.max(1, Math.floor(deviceDpr / this.dpr)))
+   468→        const canvasW = maskW * SS
+   469→        const canvasH = maskH * SS
+   470→        const useG2 = !!el.useContinuousSdf
+   471→        const maskKey = [
+   472→          useG2 ? 'g2' : 'rr',
+   473→          origSizeX.toFixed(3),
+   474→          origSizeY.toFixed(3),
+   475→          origRadius.toFixed(3),
+   476→          strokeWidthDevice,
+   477→          blurPx.toFixed(3),
+   478→          strokeMargin,
+   479→          maskW,
+   480→          maskH,
+   481→          `ss${SS}`,  // cache key includes supersample factor
+   482→        ].join(':')
+   483→
+   484→        let mask = this.strokeMaskCache.get(maskKey)
+   485→        if (!mask) {
+   486→          const canvas = document.createElement('canvas')
+   487→          canvas.width = canvasW  // 2x supersampled physical size
+   488→          canvas.height = canvasH
+   489→          const ctx = canvas.getContext('2d', { alpha: true })
+   490→          if (!ctx) throw new Error('2D canvas not supported')
+   491→          const tex = gl.createTexture()
+   492→          if (!tex) throw new Error('WebGL texture allocation failed')
+   493→          // w/h store the LOGICAL (1x) size for shader UV mapping;
+   494→          // the physical canvas is SS times larger.
+   495→          mask = { tex, canvas, ctx, w: maskW, h: maskH, ready: false }
+   496→          this.strokeMaskCache.set(maskKey, mask)
+   497→
+   498→          // Keep the cache bounded. 32 entries is far above the catalog's
+   499→          // simultaneous highlight geometries and avoids unbounded growth on
+   500→          // highly dynamic pages.
+   501→          if (this.strokeMaskCache.size > 32) {
+   502→            const oldestKey = this.strokeMaskCache.keys().next().value as string | undefined
+   503→            if (oldestKey && oldestKey !== maskKey) {
+   504→              const oldest = this.strokeMaskCache.get(oldestKey)
+   505→              if (oldest) gl.deleteTexture(oldest.tex)
+   506→              this.strokeMaskCache.delete(oldestKey)
+   507→            }
+   508→          }
+   509→        }
+   510→
+   511→        if (!mask.ready) {
+   512→          const smCtx = mask.ctx
+   513→          smCtx.clearRect(0, 0, canvasW, canvasH)
+   514→          smCtx.save()
+   515→          // Scale up for 2x supersampling: draw in logical (1x) coordinates
+   516→          // while the physical canvas is 2x. This gives sharper stroke + blur.
+   517→          smCtx.scale(SS, SS)
+   518→          smCtx.translate(strokeMargin, strokeMargin)
+   519→
+   520→          // Build the path (element-local, 0..origSizeX × 0..origSizeY)
+   521→          let path: Path2D
+   522→          if (useG2) {
+   523→            path = continuousCurvatureRoundedRectPath(smCtx, origSizeX, origSizeY, origRadius)
+   524→          } else {
+   525→            path = new Path2D()
+   526→            const r = Math.min(origRadius, origSizeX / 2, origSizeY / 2)
+   527→            path.moveTo(r, 0)
+   528→            path.lineTo(origSizeX - r, 0)
+   529→            path.arcTo(origSizeX, 0, origSizeX, r, r)
+   530→            path.lineTo(origSizeX, origSizeY - r)
+   531→            path.arcTo(origSizeX, origSizeY, origSizeX - r, origSizeY, r)
+   532→            path.lineTo(r, origSizeY)
+   533→            path.arcTo(0, origSizeY, 0, origSizeY - r, r)
+   534→            path.lineTo(0, r)
+   535→            path.arcTo(0, 0, r, 0, r)
+   536→            path.closePath()
+   537→          }
+   538→
+   539→          // Stroke — browser-native Skia stroke rasterization.
+   540→          // Faithful to HighlightModifier.kt: clipOutline(outline) BEFORE drawOutline,
+   541→          // so only the INSIDE half of the centered stroke remains. Without this
+   542→          // clip, Canvas2D keeps the outer half too and the rim highlight leaks
+   543→          // outside the glass / looks twice as thick.
+   544→          smCtx.clip(path)
+   545→          smCtx.lineWidth = strokeWidthDevice
+   546→          smCtx.strokeStyle = 'rgba(255,255,255,1)'
+   547→          smCtx.lineJoin = 'round'
+   548→          smCtx.lineCap = 'round'
+   549→          // Approximate Skia BlurMaskFilter on the stroke paint. The clip above
+   550→          // keeps the result inside the outline; the blur only softens that
+   551→          // inside stroke band, like the original HighlightModifier layer.
+   552→          smCtx.filter = blurPx > 0.01 ? `blur(${blurPx}px)` : 'none'
+   553→          smCtx.stroke(path)
+   554→          smCtx.filter = 'none'
+   555→          smCtx.restore()
+   556→
+   557→          // Upload to GPU texture. Keep the same top-left UV convention as the
+   558→          // foreground pass: with UNPACK_FLIP_Y_WEBGL=false, local y=0 samples
+   559→          // the top row of the mask.
+   560→          gl.bindTexture(gl.TEXTURE_2D, mask.tex)
+   561→          gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
+   562→          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, mask.canvas)
+   563→          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+   564→          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+   565→          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+   566→          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+   567→          mask.ready = true
+   568→        }
+   569→
+   570→        // --- Composite: stroke mask × intensity × color → scene FBO ---
+   571→        gl.enable(gl.BLEND)
+   572→        if (el.highlight.mode === 1) {
+   573→          gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+   574→        } else {
+   575→          gl.blendFunc(gl.ONE, gl.ONE)
+   576→        }
+   577→        gl.useProgram(this.strokeMaskCompositeProgram)
+   578→        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+   579→        gl.enableVertexAttribArray(this.aPosLocSm)
+   580→        gl.vertexAttribPointer(this.aPosLocSm, 2, gl.FLOAT, false, 0, 0)
+   581→        gl.uniform2f(this.uSm['uCanvasSize'], this.canvas.width, this.canvas.height)
+   582→        gl.uniform2f(this.uSm['uOffset'], sx * this.dpr, sy * this.dpr)
+   583→        gl.uniform2f(this.uSm['uSize'], sw * this.dpr, sh * this.dpr)
+   584→        gl.uniform4f(this.uSm['uCornerRadii'], radii[0] * this.dpr, radii[1] * this.dpr, radii[2] * this.dpr, radii[3] * this.dpr)
+   585→        gl.activeTexture(gl.TEXTURE0)
+   586→        gl.bindTexture(gl.TEXTURE_2D, mask.tex)
+   587→        gl.uniform1i(this.uSm['uStrokeMask'], 0)
+   588→        // uMaskOffset/uMaskSize are in LOGICAL (1x device px) space — the
+   589→        // physical canvas is SS× larger but the shader uses 1x coords for UV:
+   590→        //   UV = (localCoord + margin) / logicalMaskSize
+   591→        // LINEAR filtering on the SS× texture gives supersampled quality.
+   592→        gl.uniform2f(this.uSm['uMaskOffset'], strokeMargin, strokeMargin)
+   593→        gl.uniform2f(this.uSm['uMaskSize'], mask.w, mask.h)
+   594→        gl.uniform4f(this.uSm['uHighlightColor'], el.highlight.color[0], el.highlight.color[1], el.highlight.color[2], 1.0)
+   595→        gl.uniform1f(this.uSm['uHighlightAngle'], el.useGravityAngle ? this.gravityAngle : el.highlight.angle)
+   596→        gl.uniform1f(this.uSm['uHighlightFalloff'], el.highlight.falloff)
+   597→        gl.uniform1f(this.uSm['uHighlightAlpha'], finalAlpha)
+   598→        gl.uniform1f(this.uSm['uHighlightMode'], el.highlight.mode)
+   599→        gl.uniform2f(this.uSm['uOriginalSize'], origSizeX, origSizeY)
+   600→        gl.uniform1f(this.uSm['uOriginalCornerRadius'], origRadius)
+   601→        gl.uniform2f(this.uSm['uLayerScale'], layerScaleX, layerScaleY)
+   602→        gl.uniform1f(this.uSm['uElementRotation'], state.elementRotation)
+   603→        gl.drawArrays(gl.TRIANGLES, 0, 6)
+   604→
+   605→        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+   606→      }
+   607→    }
+   608→
+   609→    // --- Step 2g: 内层背景板 rim highlight (指示器 only) ---
+   610→    // The 内层背景板 (hidden Row's 56dp glass inside the 指示器) has its own
+   611→    // Highlight.Default.copy(alpha=progress). This is drawn INSIDE the
+   612→    // 指示器's element shader (sampleIndicatorBackdrop) so it's clipped by
+   613→    // the 指示器's capsule SDF — no separate pass needed here.
+   614→  },
+   615→}
+   616→

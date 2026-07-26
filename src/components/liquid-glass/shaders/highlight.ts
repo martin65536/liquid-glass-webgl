@@ -594,14 +594,17 @@ void main() {
     vec2 centeredOrig = centeredScreen / layerScale;
     vec2 centeredOrigRot = rotateBy(centeredOrig, -uElementRotation);
 
-    // Clip to element shape (SDF discard for pixels outside the shape).
-    // The inner shadow must stay inside the shape boundary. Blur from
-    // the Canvas2D mask may leak outside; the SDF clip discards those
-    // pixels — same approach as the stroke mask composite.
+    // Clip to element shape — hard discard for pixels outside.
+    // Faithful to InnerShadowModifier.kt's graphicsLayer clip which applies
+    // AFTER BlurMaskFilter: the blurred ring's outward spread is clipped away,
+    // but pixels AT the edge (sd ≈ 0) remain at full mask intensity.
+    // We use a HARD discard (no smoothstep clipAlpha) because multiplying by
+    // clipAlpha at the edge would reduce the inner shadow's peak intensity,
+    // creating a visible gap. The mask's own blur softness provides the
+    // edge transition, matching the original's clip-after-blur behavior.
     vec2 origHalfSize = uOriginalSize * 0.5;
     float sd = sdShape(centeredOrigRot, origHalfSize, uOriginalCornerRadius);
-    float clipAlpha = 1.0 - smoothstep(-0.5, 0.5, sd);
-    if (clipAlpha < 0.001) discard;
+    if (sd > 0.5) discard;
 
     // Map to mask UV: original-space coord → mask texture UV.
     // The mask was drawn with translate(margin, margin), so mask (0,0) =
@@ -613,14 +616,10 @@ void main() {
     float mask = texture2D(uInnerShadowMask, maskUv).a;
     if (mask < 0.001) discard;
 
-    // SrcOver composite: shadow color × mask × alpha × clip.
+    // SrcOver composite: shadow color × mask × alpha.
+    // No clipAlpha multiplier — hard discard at sd>0.5 is sufficient.
     // Premultiplied alpha output with gl.blendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA).
-    // For black shadow (uInnerShadowColor = [0,0,0]):
-    //   result.rgb = 0 * a → no color contribution (darkening)
-    //   result.a = a → composites over, dimming the underlying pixel
-    // For colored shadow (e.g. white for innerShadow2):
-    //   result.rgb = color * a → brightens the underlying pixel
-    float a = mask * uInnerShadowAlpha * clipAlpha;
+    float a = mask * uInnerShadowAlpha;
     gl_FragColor = vec4(uInnerShadowColor * a, a);
 }
 `

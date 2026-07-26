@@ -109,14 +109,11 @@ export const glassPostPassMethods = {
 
       if (!mask.ready) {
         // --- Generate the ring mask via Canvas2D (two-canvas approach) ---
-        // Step 1: draw hard-edge ring on a temp canvas
-        // Step 2: blur onto the output canvas via ctx.filter
-        const mCtx = mask.ctx
-        mCtx.clearRect(0, 0, canvasW, canvasH)
-        mCtx.save()
-        // Scale up for supersampling: draw in logical (1x) coordinates
-        // while the physical canvas is SS× larger.
-        mCtx.scale(SS, SS)
+        // Step 1: draw hard-edge ring on a temp canvas (with SS× supersampling)
+        // Step 2: blur the ring onto the output canvas at 1:1 physical pixels
+        //         (no ctx.scale — drawImage and blur must be in physical-px space)
+        //   - blur radius = blurSigma * SS physical px (= blurSigma logical px)
+        //   - drawImage at 1:1 physical (canvasW × canvasH → canvasW × canvasH)
 
         // --- Temp canvas for the hard-edge ring ---
         const tempCanvas = document.createElement('canvas')
@@ -126,6 +123,8 @@ export const glassPostPassMethods = {
         if (!tCtx) throw new Error('2D canvas not supported')
 
         // Draw ring on temp canvas: fill shape → destination-out offset shape
+        // Scale(SS, SS) for supersampling: draw in logical (device-px) coordinates
+        // while the physical canvas is SS× larger.
         tCtx.save()
         tCtx.scale(SS, SS)
         tCtx.translate(margin, margin)
@@ -164,16 +163,21 @@ export const glassPostPassMethods = {
         tCtx.globalCompositeOperation = 'source-over'
         tCtx.restore()
 
-        // --- Blur the ring onto the output canvas ---
+        // --- Blur the ring onto the output canvas (1:1 physical pixels) ---
+        // NO ctx.scale here — drawImage and ctx.filter blur must operate in
+        // physical-pixel space to avoid SS× size distortion.
+        //   blurSigma is in device px (logical); the SS× canvas has SS physical px
+        //   per logical px, so the physical blur radius = blurSigma * SS.
+        const mCtx = mask.ctx
+        mCtx.clearRect(0, 0, canvasW, canvasH)
         if (blurSigma > 0.01) {
-          mCtx.filter = `blur(${blurSigma}px)`
+          mCtx.filter = `blur(${blurSigma * SS}px)`
         } else {
           mCtx.filter = 'none'
         }
-        // Draw the temp canvas onto the mask canvas (with blur)
+        // 1:1 physical-pixel drawImage: temp(canvasW×canvasH) → mask(canvasW×canvasH)
         mCtx.drawImage(tempCanvas, 0, 0)
         mCtx.filter = 'none'
-        mCtx.restore()
 
         // Upload to GPU texture
         gl.bindTexture(gl.TEXTURE_2D, mask.tex)
