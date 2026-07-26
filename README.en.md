@@ -2,6 +2,16 @@
 
 # Liquid Glass — WebGL Port
 
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](./LICENSE)
+[![GitHub Stars](https://img.shields.io/github/stars/martin65536/liquid-glass-webgl?style=flat-square&logo=github&color=yellow)](https://github.com/martin65536/liquid-glass-webgl/stargazers)
+[![GitHub Issues](https://img.shields.io/github/issues/martin65536/liquid-glass-webgl?style=flat-square&logo=github)](https://github.com/martin65536/liquid-glass-webgl/issues)
+[![Last Commit](https://img.shields.io/github/last-commit/martin65536/liquid-glass-webgl?style=flat-square&logo=github)](https://github.com/martin65536/liquid-glass-webgl/commits/main)
+[![Next.js](https://img.shields.io/badge/Next.js-16-black?style=flat-square&logo=nextdotjs)](https://nextjs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![WebGL](https://img.shields.io/badge/WebGL-1-E34F26?style=flat-square&logo=webgl&logoColor=white)](https://www.khronos.org/webgl/)
+[![Bun](https://img.shields.io/badge/Bun-000?style=flat-square&logo=bun&logoColor=white)](https://bun.sh/)
+[![Made with Z.ai](https://img.shields.io/badge/Made%20with-Z.ai-6366F1?style=flat-square&logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAiIGhlaWdodD0iMjAiIHZpZXdCb3g9IjAgMCAyMCAyMCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxMCIgY3k9IjEwIiByPSI4IiBmaWxsPSJ3aGl0ZSIvPjwvc3ZnPg==)](https://z.ai)
+
 Thanks to [Z.ai Agent](https://z.ai) for providing powerful development capabilities for free, and thanks to [Kyant](https://github.com/Kyant0) for open-sourcing the [Liquid Glass](https://github.com/Kyant0/AndroidLiquidGlass) project on Android, giving me the chance to bring this exquisite visual experience to the browser.
 
 🔗 Try it now: [glass.mt512.qzz.io](https://glass.mt512.qzz.io/) (stable) | [liquid-glass-webgl.vercel.app](https://liquid-glass-webgl.vercel.app/) (blocked in China)
