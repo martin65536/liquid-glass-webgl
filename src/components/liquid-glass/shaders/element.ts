@@ -325,40 +325,39 @@ void main() {
     //   4. Gaussian blur(radius) softens edges, sigma = radius/3
     //   5. Composite with shadow.alpha (SrcOver)
     //
-    // The original's convolution gives this profile at the inner edge:
-    //   - Edge (sd=0): ~50% of ring_alpha (blur smears it — erf ≈ 0.5)
-    //   - Peak (~radius/2 inward): ~87% of ring_alpha
+    // The blurred ring profile (Gaussian convolution of a flat ring):
+    //   - Edge (sd=0): ~50% of ring_alpha (erf ≈ 0.5 at inner boundary)
+    //   - Peak (~radius/2 inward): ~87% of ring_alpha (erf(1.5)≈0.933, 0.933²≈0.87)
+    //   - Offset boundary (offsetSd=0): ~50% (erf at Clear hole boundary)
     //   - Offset shape interior: ZERO (Clear blend punched a hole)
     //
-    // Our single-pass approximation uses three factors:
-    //   1. (1-smoothstep(-W,+W,sd)) — 50% at edge, 100% inward. This matches
-    //      the original's erf-like edge transition from the Gaussian blur.
-    //      W = radius ≈ 3σ gives transition width matching blur spread.
-    //   2. smoothstep(0, W, offsetSd) — ZERO inside offset shape (faithful to
-    //      Clear blend), transitions to 1 outside. Prevents shadow from
-    //      appearing on the wrong edge (e.g. bottom when offset is down).
-    //   3. ×0.87 — peak reduction from the Gaussian blur. The original's blur
-    //      spills some alpha outside the ring, reducing peak from 1.0 to ~0.87.
-    //      This prevents the "颜色太重" flat plateau at full intensity.
+    // Approximation: product of two erf-like smoothstep transitions, centered
+    // on both boundaries.  sigma = radius/3 (matching BlurMaskFilter),
+    // W = 2.5σ ≈ 0.83*radius calibrates smoothstep to approximate erf.
+    // Peak naturally ≈ 0.87 without any extra correction factor.
     if (uInnerShadowAlpha > 0.001 && uInnerShadowRadius > 0.5) {
         vec2 offsetCentered = centeredOrigRot - uInnerShadowOffset;
         float offsetSd = sdShape(offsetCentered, origHalfSize, origRadius);
-        float aaW = max(2.0, uInnerShadowRadius);
-        float innerFactor = 1.0 - smoothstep(-aaW, aaW, sd);
-        float offsetMask = smoothstep(0.0, aaW, offsetSd);
-        float ring = innerFactor * offsetMask * 0.87;
+        float sigma = max(uInnerShadowRadius / 3.0, 1.0);
+        float W = sigma * 2.5;
+        // Inner boundary: 50% at edge (sd=0), →1 inward, →0 outward
+        float innerErf = 1.0 - smoothstep(-W, W, sd);
+        // Offset boundary: 50% at offsetSd=0, →0 inside offset shape (Clear), →1 outward
+        float offsetErf = smoothstep(-W, W, offsetSd);
+        float ring = innerErf * offsetErf;
         color = mix(color, uInnerShadowColor, ring * uInnerShadowAlpha);
     }
 
     // --- 7. Inner shadow 2 (white / highlight) --------------------
-    // Same centered-smoothstep + offset-mask + 0.87 peak reduction approach.
+    // Same erf-like approach as inner shadow 1.
     if (uInnerShadow2Alpha > 0.001 && uInnerShadow2Radius > 0.5) {
         vec2 offsetCentered2 = centeredOrigRot - uInnerShadow2Offset;
         float offsetSd2 = sdShape(offsetCentered2, origHalfSize, origRadius);
-        float aaW2 = max(2.0, uInnerShadow2Radius);
-        float innerFactor2 = 1.0 - smoothstep(-aaW2, aaW2, sd);
-        float offsetMask2 = smoothstep(0.0, aaW2, offsetSd2);
-        float ring2 = innerFactor2 * offsetMask2 * 0.87;
+        float sigma2 = max(uInnerShadow2Radius / 3.0, 1.0);
+        float W2 = sigma2 * 2.5;
+        float innerErf2 = 1.0 - smoothstep(-W2, W2, sd);
+        float offsetErf2 = smoothstep(-W2, W2, offsetSd2);
+        float ring2 = innerErf2 * offsetErf2;
         color = mix(color, uInnerShadow2Color, ring2 * uInnerShadow2Alpha);
     }
 
