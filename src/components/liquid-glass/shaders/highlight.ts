@@ -254,15 +254,21 @@ void main() {
         vec3 c = uHighlightColor.rgb * intensity * strokeMask * uHighlightAlpha;
         gl_FragColor = vec4(c, 1.0);
     } else if (uHighlightMode < 1.5) {
-        // Ambient — shader returns half4(t,t,t,1.0)*intensity, SrcOver blend.
+        // Ambient — faithful to AmbientHighlightShaderString:
+        //   float d = dot(grad, normal);
+        //   float intensity = pow(abs(d), falloff);
+        //   float t = step(0.0, d);  ← half-black-half-white split
+        //   return half4(t, t, t, 1.0) * intensity;
+        // SrcOver blend: bright side adds white light, dark side reduces
+        // scene brightness → 3D sphere effect (half black, half white).
         float gradRadius = min(origRadius * 1.5, min(origHalfSize.x, origHalfSize.y));
         vec2 grad = gradSdRoundedRect(centeredOrigRot, origHalfSize, gradRadius);
         vec2 normal = vec2(cos(uHighlightAngle), sin(uHighlightAngle));
         float d = dot(grad, normal);
         float intensity = pow(abs(d), uHighlightFalloff);
-        // No step(0,d) — use full intensity on both sides (no black edge).
+        float t = step(0.0, d);  // 0 on dark side (d<0), 1 on bright side (d>=0)
         float i = intensity * strokeMask * uHighlightAlpha;
-        gl_FragColor = vec4(uHighlightColor.rgb * i, i);
+        gl_FragColor = vec4(uHighlightColor.rgb * t * i, i);
     } else {
         // Plain — even stroke, paint.color, Plus blend.
         vec3 c = uHighlightColor.rgb * strokeMask * uHighlightAlpha;
@@ -430,13 +436,16 @@ void main() {
     mask *= clipAA;
     if (mask < 0.001) discard;
 
+    // Compute d (with sign) for Default + Ambient modes — needed for
+    // Ambient's step(0,d) half-black-half-white split.
+    float d = 0.0;  // signed dot(grad, normal) — 0 for Plain mode
     float intensity;
     if (uHighlightMode < 1.5) {
         // Default + Ambient use the SDF gradient · normal.
         float gradRadius = min(origRadius * 1.5, min(origHalfSize.x, origHalfSize.y));
         vec2 grad = gradSdRoundedRect(centeredOrigRot, origHalfSize, gradRadius);
         vec2 normal = vec2(cos(uHighlightAngle), sin(uHighlightAngle));
-        float d = dot(grad, normal);
+        d = dot(grad, normal);
         intensity = pow(abs(d), uHighlightFalloff);
     } else {
         // Plain — no directional intensity (even stroke).
@@ -451,12 +460,13 @@ void main() {
         vec3 c = uHighlightColor.rgb * intensity * a;
         gl_FragColor = vec4(c, 1.0);
     } else if (uHighlightMode < 1.5) {
-        // Ambient — SrcOver blend. Premultiplied output.
-        // Ambient uses t = step(0, d) in the original, but we keep abs(d)
-        // (both sides bright) to match the existing behavior. The original's
-        // step gives a hard dark/bright split; our abs gives symmetric glow.
+        // Ambient — SrcOver blend. Faithful to AmbientHighlightShaderString:
+        //   float t = step(0.0, d);  ← half-black-half-white split
+        // Bright side (d>=0): t=1 → white highlight. Dark side (d<0): t=0 →
+        // black overlay that reduces scene brightness via SrcOver → 3D sphere.
+        float t = step(0.0, d);
         float i = intensity * a;
-        gl_FragColor = vec4(uHighlightColor.rgb * i, i);
+        gl_FragColor = vec4(uHighlightColor.rgb * t * i, i);
     } else {
         // Plain — Plus blend, no intensity.
         vec3 c = uHighlightColor.rgb * a;
@@ -523,12 +533,15 @@ void main() {
 
     float origRadius = uOriginalCornerRadius;
 
+    // Compute d (with sign) for Default + Ambient modes — needed for
+    // Ambient's step(0,d) half-black-half-white split.
+    float d = 0.0;  // signed dot(grad, normal) — 0 for Plain mode
     float intensity;
     if (uHighlightMode < 1.5) {
         float gradRadius = min(origRadius * 1.5, min(origHalfSize.x, origHalfSize.y));
         vec2 grad = gradSdRoundedRect(centeredOrigRot, origHalfSize, gradRadius);
         vec2 normal = vec2(cos(uHighlightAngle), sin(uHighlightAngle));
-        float d = dot(grad, normal);
+        d = dot(grad, normal);
         intensity = pow(abs(d), uHighlightFalloff);
     } else {
         intensity = 1.0;
@@ -538,8 +551,13 @@ void main() {
     if (uHighlightMode < 0.5) {
         gl_FragColor = vec4(uHighlightColor.rgb * intensity * a, 1.0);
     } else if (uHighlightMode < 1.5) {
+        // Ambient — faithful to AmbientHighlightShaderString:
+        //   float t = step(0.0, d);  ← bright/dark split
+        // Bright side: t=1 → white highlight. Dark side: t=0 → black overlay
+        // that reduces scene brightness via SrcOver → 3D sphere effect.
+        float t = step(0.0, d);
         float i = intensity * a;
-        gl_FragColor = vec4(uHighlightColor.rgb * i, i);
+        gl_FragColor = vec4(uHighlightColor.rgb * t * i, i);
     } else {
         gl_FragColor = vec4(uHighlightColor.rgb * a, 1.0);
     }
