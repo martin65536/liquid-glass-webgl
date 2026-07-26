@@ -182,19 +182,7 @@ export interface GlassElementConfig extends GlassButtonConfig {
      *  The shader uses: color = mix(color, shadowColor, ring * alpha) */
     color?: [number, number, number]
   } | null
-  /** Second inner shadow (optional, for 3D bevel effect).
-   *  Typically a WHITE inner shadow offset upward (0, -radius), creating
-   *  a bright band at the bottom edge — paired with the black inner shadow
-   *  (offset downward) at the top edge. This makes toggle/slider knobs
-   *  look 3D/立体.
-   *  The shader uses SrcOver blend: color = mix(color, shadowColor, ring * alpha). */
-  innerShadow2?: {
-    radius: number
-    alpha: number
-    offsetX: number
-    offsetY: number
-    color: [number, number, number]
-  } | null
+
   /**
    * Scroll-anchor: if set, the element's rect.y is interpreted as relative
    * to the section top, and the renderer adds `scrollY` to its screen y.

@@ -190,3 +190,32 @@ Stage Summary:
 - This fixes both "radius也不对" (wrong radius/blur) and "并不严丝合缝" (not fitting tightly — caused by too-thin ring from weak blur)
 - Ambient highlight added to toggle + slider knobs (was missing — original LiquidToggle.kt/LiquidSlider.kt both have it)
 - AmbientStyle intensity=0.38 baked into highlight.alpha; renderer modulates by pressProgress
+---
+Task ID: 7
+Agent: Main Agent
+Task: 仔细对比原版toggle与当前实现，修复差异
+
+Work Log:
+- 仔细阅读所有6个关键文件：inner-shadow-mask.ts, methods-render-glass-post-passes.ts, highlight.ts, LiquidToggle.kt, InnerShadowModifier.kt, Shaders.kt
+- 逐一对比差异：
+  1. innerShadow2（白色内阴影）：原版LiquidToggle.kt只有ONE黑色内阴影，没有innerShadow2
+  2. 内阴影mask生成：原版InnerShadowModifier.kt在shadowLayer.record内先clipOutline再画ring，当前实现没有clip
+  3. Ambient高光：shader和blendMode都正确（step(0,d) + SrcOver）
+  4. Ambient alpha=0.38：经深入分析确认Skia的paint.color.alpha IS作为乘法器应用到RuntimeShader输出上，所以0.38是正确的
+  5. 内阴影offset方向(0, 4dp*progress)向下：正确
+  6. blur sigma=radius*dpr（BlurEffect语义）：正确
+- 修复1：移除innerShadow2
+  - types.ts: 删除innerShadow2类型定义
+  - helpers.ts: 删除innerShadow2选项和赋值
+  - methods-render-glass-post-passes.ts: 删除innerShadow2渲染分支
+- 修复2：添加clip到内阴影mask生成
+  - methods-render-glass-post-passes.ts: 在temp canvas上添加tCtx.clip(path)（匹配InnerShadowModifier.kt的clipOutline）
+  - inner-shadow-mask.ts: 同步添加clip(path)
+  - 注释更新：描述完整的4步流程（clip→fill→destination-out→blur）
+- 验证：lint clean, dev server compiles without errors
+
+Stage Summary:
+- innerShadow2完全移除（类型、helpers、渲染代码）
+- 内阴影mask生成添加clip(path)，忠实于InnerShadowModifier.kt的clipOutline
+- Ambient高光alpha=0.38经确认是正确的（Skia paint.color.alpha乘法器应用到shader输出）
+- 内阴影offset和blur sigma已经正确匹配原版

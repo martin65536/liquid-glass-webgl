@@ -3,10 +3,11 @@
  * to draw a blurred ring mask for inner shadow effects.
  *
  * Faithful to InnerShadowModifier.kt:
- *   1. Fill the rounded rect shape with white (creates full interior)
- *   2. Draw the OFFSET rounded rect with globalCompositeOperation =
+ *   1. Clip to the rounded rect shape (clipOutline — ensures ring is inside)
+ *   2. Fill the rounded rect shape with white (creates full interior)
+ *   3. Draw the OFFSET rounded rect with globalCompositeOperation =
  *      'destination-out' (removes offset interior, leaves ring at edges)
- *   3. Apply Gaussian blur (BlurEffect semantics: sigma = radius directly.
+ *   4. Apply Gaussian blur (BlurEffect semantics: sigma = radius directly.
  *      The original uses BlurEffect(radius, radius, TileMode.Decal) on the
  *      shadowLayer, NOT BlurMaskFilter. BlurEffect takes sigma directly.)
  *
@@ -139,6 +140,12 @@ export function generateInnerShadowMask(
   const canvas = outputCanvas!
 
   // ---- Step 1: Draw the hard-edge ring on the temp canvas ----
+  // Faithful to InnerShadowModifier.kt shadowLayer.record:
+  //   canvas.clipOutline(outline, clipPath)    // clip to shape FIRST
+  //   canvas.drawOutline(outline, paint)        // shadow-colored fill
+  //   canvas.translate(offsetX, offsetY)
+  //   canvas.drawOutline(outline, ShadowMaskPaint) // BlendMode.Clear
+  // The clip ensures the ring is strictly inside the shape boundary.
   // Clear temp canvas
   tCtx.clearRect(0, 0, canvasW, canvasH)
 
@@ -148,6 +155,9 @@ export function generateInnerShadowMask(
 
   // Build the shape path
   const path = buildPath(tCtx, w, h, radius, useG2)
+
+  // Clip to the shape FIRST (faithful to InnerShadowModifier.kt clipOutline)
+  tCtx.clip(path)
 
   // Fill the shape with white (creates full interior)
   tCtx.globalCompositeOperation = 'source-over'

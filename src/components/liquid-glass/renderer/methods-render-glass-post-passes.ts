@@ -36,7 +36,7 @@ export const glassPostPassMethods = {
     /** Helper: draw one inner shadow post-pass (shadow1 or shadow2). */
     const drawInnerShadowPass = (
       shadowCfg: { radius: number; alpha: number; offsetX: number; offsetY: number; color?: [number, number, number] },
-      shadowIndex: number // 0 = innerShadow, 1 = innerShadow2
+      shadowIndex: number // 0 = the only inner shadow (original has just ONE)
     ) => {
       // Progress modulation — faithful to the original inline shader:
       //   - Toggle knobs: radius, alpha, offset all modulated by togglePressProgress
@@ -125,9 +125,16 @@ export const glassPostPassMethods = {
         const tCtx = tempCanvas.getContext('2d', { alpha: true })
         if (!tCtx) throw new Error('2D canvas not supported')
 
-        // Draw ring on temp canvas: fill shape → destination-out offset shape
-        // Scale(SS, SS) for supersampling: draw in logical (device-px) coordinates
-        // while the physical canvas is SS× larger.
+        // Draw ring on temp canvas: clip → fill shape → destination-out offset shape
+        // Faithful to InnerShadowModifier.kt shadowLayer.record:
+        //   canvas.clipOutline(outline, clipPath)    // clip to shape FIRST
+        //   canvas.drawOutline(outline, paint)        // shadow-colored fill
+        //   canvas.translate(offsetX, offsetY)
+        //   canvas.drawOutline(outline, ShadowMaskPaint) // BlendMode.Clear
+        // The clip ensures the ring is strictly inside the shape boundary,
+        // and the destination-out only affects pixels within the clip.
+        // Without this clip, subtle AA differences at the shape edge can
+        // cause the inner shadow to not "严丝合缝" (not tight-fitting).
         tCtx.save()
         tCtx.scale(SS, SS)
         tCtx.translate(margin, margin)
@@ -150,6 +157,9 @@ export const glassPostPassMethods = {
           path.arcTo(0, 0, r, 0, r)
           path.closePath()
         }
+
+        // Clip to the shape FIRST (faithful to InnerShadowModifier.kt clipOutline)
+        tCtx.clip(path)
 
         // Fill the shape with white (creates full interior)
         tCtx.globalCompositeOperation = 'source-over'
@@ -226,13 +236,10 @@ export const glassPostPassMethods = {
       gl.drawArrays(gl.TRIANGLES, 0, 6)
     }
 
-    // Inner shadow 1 (typically dark/black, offset downward)
+    // Inner shadow (faithful to the original — only ONE black inner shadow,
+    // no innerShadow2. LiquidToggle.kt: InnerShadow(radius=4dp*progress, alpha=progress))
     if (el.innerShadow) {
       drawInnerShadowPass(el.innerShadow, 0)
-    }
-    // Inner shadow 2 (typically white/bright, offset upward — 3D bevel)
-    if (el.innerShadow2) {
-      drawInnerShadowPass(el.innerShadow2, 1)
     }
 
     // --- Step 2c: Press glow (button + bottom-tab container) ---
