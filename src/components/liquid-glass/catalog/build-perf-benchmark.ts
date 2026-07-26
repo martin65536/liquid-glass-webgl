@@ -97,21 +97,20 @@ export function buildPerfBenchmark(
       const cellCenterX = gridStartX + (col * (GLASS_SIZE + GAP) + GLASS_SIZE / 2) * DP
       const cellCenterY = gridStartY + (row * (GLASS_SIZE + GAP) + GLASS_SIZE / 2) * DP
 
-      // Diagonal phase: center pulses first, wave radiates outward
+      let w: number, h: number
       const phase = diagPhase(row, col)
       const t = angle + phase
 
-      // --- SIZE: uniform breathing (w and h grow together) ---
-      const breath = Math.sin(t)
-      const w = (GLASS_SIZE + sizeAmp * breath) * DP
-      const h = w  // symmetric → stays circular/pill-shaped, no wriggling
-
-      // --- SCALE: volume-preserving squeeze (cos for X, -cos for Y) ---
-      // When scaleX stretches, scaleY shrinks → elegant elastic deformation
-      // that preserves the overall "mass" feel.
-      const squeeze = Math.cos(t)
-      const scaleX = 1 + scaleAmp * squeeze
-      const scaleY = 1 - scaleAmp * squeeze  // opposite sign → volume-preserving
+      if (isInner) {
+        // INNER 4 glasses: change w/h (size pulse), uniform breathing
+        const breath = Math.sin(t)
+        w = (GLASS_SIZE + sizeAmp * breath) * DP
+        h = w  // symmetric → stays circular
+      } else {
+        // OUTER 12 glasses: fixed size, change scaleX/Y (volume-preserving squeeze)
+        w = GLASS_SIZE * DP
+        h = GLASS_SIZE * DP
+      }
 
       const x = cellCenterX - w / 2
       const y = cellCenterY - h / 2
@@ -137,9 +136,12 @@ export function buildPerfBenchmark(
       glassEl.isInteractive = true
       glassEl.scroll = false
 
-      // --- SCALE: volume-preserving squeeze ---
-      glassEl.elementScaleX = scaleX
-      glassEl.elementScaleY = scaleY
+      // --- SCALE: outer 12 glasses get volume-preserving squeeze ---
+      if (!isInner) {
+        const squeeze = Math.cos(t)
+        glassEl.elementScaleX = 1 + scaleAmp * squeeze
+        glassEl.elementScaleY = 1 - scaleAmp * squeeze
+      }
 
       elements.push(glassEl)
     }
