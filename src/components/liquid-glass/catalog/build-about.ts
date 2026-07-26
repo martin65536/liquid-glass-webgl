@@ -134,6 +134,122 @@ export function buildAbout(W: number, H: number, onBack: () => void, palette: Th
   )
 
   const contentHeight = cursorY + descH + 20
-  const finalHeight = applyVerticalCenter(elements, 0, contentHeight, H)
+
+  // ---- Wall of Shame section ----
+  cursorY += descH + 32
+  const shameColor: [number, number, number, number] = [0xcc / 255, 0x33 / 255, 0x33 / 255, 1]
+  const shameTextColor: [number, number, number, number] = [0xff / 255, 0x99 / 255, 0x99 / 255, 1]
+
+  // Shame title
+  elements.push(
+    makeText(
+      'about-shame-title',
+      { x: pad, y: cursorY, w: W - 2 * pad, h: 24 },
+      t('shame_title', locale),
+      { color: shameColor, fontSizePx: 18, fontWeight: 700, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
+    )
+  )
+  cursorY += 24 + 8
+
+  // Shame project name (link to GooseHyperGlass)
+  const shameProjectEl = makeText(
+    'about-shame-project',
+    { x: pad, y: cursorY, w: W - 2 * pad, h: 16 },
+    t('shame_project', locale),
+    { color: linkColor, fontSizePx: 14, fontWeight: 600, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
+  )
+  shameProjectEl.isInteractive = true
+  elements.push(shameProjectEl)
+  interactions['about-shame-project'] = {
+    onTap: () => { if (typeof window !== 'undefined') window.open('https://github.com/Minecraftgoose/GooseHyperGlass', '_blank') },
+  }
+  cursorY += 16 + 6
+
+  // Plagiarism
+  const shamePlagiarismText = t('shame_plagiarism', locale)
+  const shamePlagiarismH = measureWrappedHeight(shamePlagiarismText, 13, W - 2 * pad)
+  elements.push(
+    makeText(
+      'about-shame-plagiarism',
+      { x: pad, y: cursorY, w: W - 2 * pad, h: shamePlagiarismH },
+      shamePlagiarismText,
+      { color: shameTextColor, fontSizePx: 13, fontWeight: 400, align: 'left', wrap: true, paddingPx: 0, halo: palette.homeTextHalo }
+    )
+  )
+  cursorY += shamePlagiarismH + 6
+
+  // Quality
+  const shameQualityText = t('shame_quality', locale)
+  const shameQualityH = measureWrappedHeight(shameQualityText, 13, W - 2 * pad)
+  elements.push(
+    makeText(
+      'about-shame-quality',
+      { x: pad, y: cursorY, w: W - 2 * pad, h: shameQualityH },
+      shameQualityText,
+      { color: shameTextColor, fontSizePx: 13, fontWeight: 400, align: 'left', wrap: true, paddingPx: 0, halo: palette.homeTextHalo }
+    )
+  )
+  cursorY += shameQualityH + 8
+
+  // Cover-up title
+  elements.push(
+    makeText(
+      'about-shame-coverup-title',
+      { x: pad, y: cursorY, w: W - 2 * pad, h: 16 },
+      t('shame_coverup_title', locale),
+      { color: shameColor, fontSizePx: 13, fontWeight: 600, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
+    )
+  )
+  cursorY += 16 + 4
+
+  // Cover-up items
+  const shameCoverups = [
+    { key: 'shame_coverup_1', id: 'about-shame-coverup-1' },
+    { key: 'shame_coverup_2', id: 'about-shame-coverup-2' },
+    { key: 'shame_coverup_3', id: 'about-shame-coverup-3' },
+  ]
+  for (const item of shameCoverups) {
+    const text = t(item.key, locale)
+    const h = measureWrappedHeight(text, 13, W - 2 * pad)
+    elements.push(
+      makeText(
+        item.id,
+        { x: pad, y: cursorY, w: W - 2 * pad, h: h },
+        text,
+        { color: shameTextColor, fontSizePx: 13, fontWeight: 400, align: 'left', wrap: true, paddingPx: 0, halo: palette.homeTextHalo }
+      )
+    )
+    cursorY += h + 3
+  }
+  cursorY += 6
+
+  // Conclusion
+  const shameConclusionText = t('shame_conclusion', locale)
+  const shameConclusionH = measureWrappedHeight(shameConclusionText, 13, W - 2 * pad)
+  elements.push(
+    makeText(
+      'about-shame-conclusion',
+      { x: pad, y: cursorY, w: W - 2 * pad, h: shameConclusionH },
+      shameConclusionText,
+      { color: shameTextColor, fontSizePx: 13, fontWeight: 600, align: 'left', wrap: true, paddingPx: 0, halo: palette.homeTextHalo }
+    )
+  )
+  cursorY += shameConclusionH + 8
+
+  // Evidence link
+  const shameEvidenceEl = makeText(
+    'about-shame-evidence',
+    { x: pad, y: cursorY, w: W - 2 * pad, h: 16 },
+    t('shame_evidence', locale),
+    { color: linkColor, fontSizePx: 13, fontWeight: 500, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
+  )
+  shameEvidenceEl.isInteractive = true
+  elements.push(shameEvidenceEl)
+  interactions['about-shame-evidence'] = {
+    onTap: () => { if (typeof window !== 'undefined') window.open('https://github.com/Kyant0/AndroidLiquidGlass/issues/112', '_blank') },
+  }
+  cursorY += 16 + 20
+
+  const finalHeight = applyVerticalCenter(elements, 0, cursorY, H)
   return { elements, interactions, contentHeight: finalHeight }
 }

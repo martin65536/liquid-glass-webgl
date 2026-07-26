@@ -75,6 +75,36 @@ const translations: Record<string, { zh: string; en: string }> = {
     en: 'A faithful WebGL reproduction of Kyant\'s Android Liquid Glass catalog. Browse liquid-glass component demos in your browser — rendered with WebGL shaders, no Android required.',
   },
 
+  // ---- Wall of Shame ----
+  shame_title:              { zh: '⚠️ 耻辱柱', en: '⚠️ Wall of Shame' },
+  shame_project:            { zh: 'GooseHyperGlass', en: 'GooseHyperGlass' },
+  shame_plagiarism:         {
+    zh: '对本项目的抄袭山寨：Shader 代码与核心算法照搬照抄，却系统性抹除原作者 Kyant、移植者及 Z.ai Agent 署名，蓄意误导用户把别人成果包装成自己的"原创"。',
+    en: 'A plagiarized knockoff of this project: shader code and core algorithms ripped wholesale, yet all credit to original author Kyant, porter, and Z.ai Agent systematically erased — deliberately misleading users into believing it is independent original work.',
+  },
+  shame_quality:            {
+    zh: '抄都抄不明白：强制降分辨率不可调、blur滤镜滥用、点击行为未处理、对话框崩坏、锯齿刺眼、连G2连续曲率圆角都做不出来。',
+    en: 'Couldn\'t even copy it right: forced resolution downscaling, blur filter abuse, unhandled clicks, broken dialogs, jagged aliasing, failed to implement G2 continuous-curvature corners.',
+  },
+  shame_coverup_title:      { zh: '遮丑行径：', en: 'Cover-up tactics:' },
+  shame_coverup_1:          {
+    zh: '① 假改名又改回——短暂改名装样子后悄悄恢复，做贼心虚的拙劣表演',
+    en: '① Faked a rename then reverted — a clumsy performance of guilty conscience',
+  },
+  shame_coverup_2:          {
+    zh: '② 删光自己的回应帖——抹除对话痕迹，销毁证据',
+    en: '② Deleted all own response posts — destroying evidence and conversation trail',
+  },
+  shame_coverup_3:          {
+    zh: '③ 关闭Issue区——封堵一切公开质疑通道',
+    en: '③ Disabled Issue tracker — sealing off all channels for public scrutiny',
+  },
+  shame_conclusion:         {
+    zh: '抄了代码、抹了名字、被抓就删帖毁证据关门——系统性抄袭与欺诈，对开源社区伦理的公然践踏。',
+    en: 'Copied code, erased names, then deleted evidence and shut doors when caught — systematic plagiarism and fraud, a flagrant trampling of open-source ethics.',
+  },
+  shame_evidence:           { zh: '详细证据 → #112 & #114', en: 'Detailed evidence → #112 & #114' },
+
   // ---- Misc ----
   pick_image:               { zh: '选择图片', en: 'Pick an image' },
 
