@@ -302,17 +302,21 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     vec2 capsuleLocal = canvasPx - scaledCenter;
     vec2 cq = abs(capsuleLocal) - capsuleHalf + vec2(cr);
     float capsuleSd = length(max(cq, vec2(0.0))) + min(max(cq.x, cq.y), 0.0) - cr;
-    // Mask: always 1.0 inside the indicator — the indicator's own edgeAA
-    // (smoothstep on sd) handles the outer boundary. No separate smoothstep
-    // mask transition at the containerRect boundary, because the containerRect
-    // capsule and the indicator capsule share the same vertical edge (both
-    // 56dp tall, 28dp cornerRadius). A separate smoothstep here would create
-    // a SECOND transition line that reveals raw wallpaper at the indicator's
-    // edge, causing jagged aliasing. With mask=1.0, the indicator always shows
-    // the glass scene (container glass + vibrancy) inside its own shape, and
-    // the edgeAlpha smoothly fades to transparent — matching what's actually
-    // behind the indicator (the container glass).
-    float mask = 1.0;
+    // Mask: interpolate between 1.0 (at rest) and smoothstep (when pressed).
+    // At rest (progress=0): mask=1.0 — no separate smoothstep transition at
+    // the containerRect boundary, because it overlaps with the indicator's own
+    // edge (both 56dp capsules). A second smoothstep here would reveal raw
+    // wallpaper at the indicator edge, causing jagged aliasing. With mask=1.0,
+    // the indicator always shows the glass scene inside its shape, and edgeAlpha
+    // smoothly fades to transparent — matching the container glass behind it.
+    // When pressed (progress=1): restore the original smoothstep mask for the
+    // CombinedBackdrop clipping. Refraction displaces samples away from the
+    // shared edge, so the smoothstep no longer causes jaggies; and the inner
+    // backdrop capsule clip preserves the correct CombinedBackdrop visual
+    // (scene inside capsule, wallpaper outside).
+    float indicatorAaRadius = max(radius, 1.0);
+    float smoothstepMask = 1.0 - smoothstep(-indicatorAaRadius, indicatorAaRadius, capsuleSd);
+    float mask = mix(1.0, smoothstepMask, uIndicatorPressProgress);
 
     // 3. Sample the GLASS LAYER FBO (wallpaper + container glass, NO tab text).
     //    This is a snapshot taken after the container glass is rendered but
@@ -360,8 +364,9 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     // threshold needed (which caused jaggies by hard-clipping the AA gradient).
     vec3 sceneColor = mix(scene.rgb, uIndicatorAccent.rgb, tabMask);
 
-    // 5. Composite scene over wallpaper (SrcOver). mask=1.0 inside indicator,
-    //    so a = scene.a — the glass scene is composited at its natural opacity.
+    // 5. Composite scene over wallpaper (SrcOver).
+    //    At rest (mask≈1.0): a ≈ scene.a — glass scene composited at natural opacity.
+    //    When pressed (mask=smoothstep): a = scene.a * mask — CombinedBackdrop clip.
     float a = scene.a * mask;
     vec3 resultRgb = mix(wp.rgb, sceneColor, a);
 
