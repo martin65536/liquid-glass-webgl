@@ -22,29 +22,55 @@ import { t, type Locale } from './i18n'
  * rendering performance. Binary-search for optimal DPR runs
  * automatically in page.tsx.
  *
- * Layout (bottom section, stacked from top to bottom):
- *   - Status text (y = H - 170dp)
- *   - Progress bar  (y = H - 148dp, rendered in canvas as plain-rect)
- *   - Exit button    (y = H - 110dp, only when done)
- *   - Detect button  (y = H - 60dp, always visible)
- *
- * Glass grid (centered, offset up to leave room for bottom section):
- *   - When RUNNING: inner 4 glasses use W/H oscillation, outer 12 use
- *     elementScaleX/Y animation — all deform simultaneously.
- *   - When IDLE/DONE: all glasses are perfectly square (no deformation).
+ * Animation design (when RUNNING):
+ *   Every glass simultaneously morphs across 3 axes:
+ *     1. SIZE (w,h) — asymmetric breathing, X/Y at different frequencies
+ *     2. SCALE (elementScaleX/Y) — elastic stretch/squish overlay
+ *     3. POSITION (x,y drift) — gentle orbital float around grid cell
+ *   Multi-frequency sin waves + per-glass phase offsets create an
+ *   organic "living grid" ripple — each glass has its own personality
+ *   yet the whole grid flows coherently.
+ *   Inner 4 glasses have larger amplitude (more dramatic), outer 12
+ *   are subtler, creating a visual "eye" at the center.
  * ------------------------------------------------------------------ */
 
-// Per-glass phase offsets for 16 glasses. Each glass's animation angle
-// is perfGlassAngle + phaseOffset[i], creating a ripple/wave pattern.
-const PHASE_OFFSETS = [
-  0,           0.39,   0.79,   1.18,
-  1.57,        1.96,   2.36,   2.75,
-  3.14,        3.53,   3.93,   4.32,
-  4.71,        5.10,   5.50,   5.89,
+// Per-glass X/Y phase offsets — each glass gets TWO independent phases
+// so w and h breathe at different rates → asymmetric shape morphing.
+// Arranged so diagonal neighbors share partial phase → diagonal wave.
+const PHASE_X = [
+  0.00, 0.55, 1.10, 1.65,
+  0.40, 0.95, 1.50, 2.05,
+  0.80, 1.35, 1.90, 2.45,
+  1.20, 1.75, 2.30, 2.85,
+]
+const PHASE_Y = [
+  0.30, 0.85, 1.40, 1.95,
+  0.70, 1.25, 1.80, 2.35,
+  1.10, 1.65, 2.20, 2.75,
+  1.50, 2.05, 2.60, 3.15,
+]
+// Position drift phase — slower frequency for gentle floating
+const PHASE_POS = [
+  0.00, 0.50, 1.00, 1.50,
+  0.25, 0.75, 1.25, 1.75,
+  0.50, 1.00, 1.50, 2.00,
+  0.75, 1.25, 1.75, 2.25,
 ]
 
 // Inner glasses: indices 5, 6, 9, 10 (center 2×2 of a 4×4 grid)
 const INNER_INDICES = new Set([5, 6, 9, 10])
+
+// Animation amplitude constants
+const INNER_SIZE_AMP = 14      // dp — inner glass W/H oscillation amplitude
+const OUTER_SIZE_AMP = 8       // dp — outer glass W/H oscillation amplitude
+const INNER_SCALE_AMP = 0.22   // inner glass scale amplitude ±22%
+const OUTER_SCALE_AMP = 0.12   // outer glass scale amplitude ±12%
+const DRIFT_AMP = 6            // dp — position drift amplitude (all glasses)
+const SIZE_FREQ_X = 1.0        // X-size frequency multiplier (relative to base angle)
+const SIZE_FREQ_Y = 0.7        // Y-size frequency (slower → asymmetric breathing)
+const SCALE_FREQ_X = 0.8       // X-scale frequency
+const SCALE_FREQ_Y = 0.6       // Y-scale frequency
+const DRIFT_FREQ = 0.4         // position drift frequency (very slow → gentle float)
 
 export function buildPerfBenchmark(
   W: number,
@@ -66,8 +92,6 @@ export function buildPerfBenchmark(
 
   // --- 16 glasses in 4×4 grid ---
   const GLASS_SIZE = 65    // dp — base glass width/height
-  const ORBIT_RADIUS = 10 // dp — vertex orbit radius (inner W/H oscillation)
-  const SCALE_AMP = 0.15  // scale amplitude (outer glasses: ±15%)
   const GRID_COLS = 4
   const GRID_ROWS = 4
   const GAP = 10           // dp — gap between glasses
@@ -77,42 +101,42 @@ export function buildPerfBenchmark(
   const gridH = GRID_ROWS * GLASS_SIZE + (GRID_ROWS - 1) * GAP
 
   // Center the grid, offset upward to leave room for status/progress/buttons
-  // (bottom section occupies ~170dp: text + bar + exit + detect)
   const gridStartX = (W - gridW * DP) / 2
   const gridStartY = (H - gridH * DP) / 2 - 100 * DP
 
   const angle = state.perfGlassAngle || 0
   // Deformation multiplier: 1 = full deformation (running), 0 = square (idle/settled).
-  // During settle animation, this decays smoothly from 1→0.
   const deformMul = state.perfDeformMul ?? (isRunning ? 1 : 0)
 
   for (let row = 0; row < GRID_ROWS; row++) {
     for (let col = 0; col < GRID_COLS; col++) {
       const idx = row * GRID_COLS + col
-      const phaseOffset = PHASE_OFFSETS[idx]
-      const glassAngle = angle + phaseOffset
       const isInner = INNER_INDICES.has(idx)
+      const sizeAmp = (isInner ? INNER_SIZE_AMP : OUTER_SIZE_AMP) * deformMul
+      const scaleAmp = (isInner ? INNER_SCALE_AMP : OUTER_SCALE_AMP) * deformMul
+      const driftAmp = DRIFT_AMP * deformMul * (isInner ? 1.2 : 0.8)
 
-      // Cell center position (fixed regardless of animation type)
+      // Cell center position (rest position, before drift)
       const cellCenterX = gridStartX + (col * (GLASS_SIZE + GAP) + GLASS_SIZE / 2) * DP
       const cellCenterY = gridStartY + (row * (GLASS_SIZE + GAP) + GLASS_SIZE / 2) * DP
 
-      // Compute deformation scaled by deformMul (0 = perfectly square, 1 = full deformation)
-      let w: number, h: number, x: number, y: number
+      // --- SIZE morphing: asymmetric w/h breathing ---
+      // X-size uses faster frequency, Y-size uses slower → organic "breathing"
+      const sizePhaseX = angle * SIZE_FREQ_X + PHASE_X[idx]
+      const sizePhaseY = angle * SIZE_FREQ_Y + PHASE_Y[idx]
+      const wDelta = sizeAmp * DP * Math.cos(sizePhaseX)
+      const hDelta = sizeAmp * DP * Math.sin(sizePhaseY)
+      const w = GLASS_SIZE * DP + wDelta
+      const h = GLASS_SIZE * DP + hDelta
 
-      if (isInner) {
-        // INNER glasses: W/H oscillation, amplitude scaled by deformMul.
-        w = (GLASS_SIZE + 2 * ORBIT_RADIUS * deformMul * Math.cos(glassAngle)) * DP
-        h = (GLASS_SIZE + 2 * ORBIT_RADIUS * deformMul * Math.sin(glassAngle)) * DP
-        x = cellCenterX - w / 2
-        y = cellCenterY - h / 2
-      } else {
-        // OUTER glasses: fixed rect, scale deformation scaled by deformMul.
-        w = GLASS_SIZE * DP
-        h = GLASS_SIZE * DP
-        x = cellCenterX - w / 2
-        y = cellCenterY - h / 2
-      }
+      // --- POSITION drift: gentle orbital float ---
+      const posPhaseX = angle * DRIFT_FREQ + PHASE_POS[idx]
+      const posPhaseY = angle * DRIFT_FREQ * 0.8 + PHASE_POS[idx] + 0.5
+      const dx = driftAmp * DP * Math.cos(posPhaseX)
+      const dy = driftAmp * DP * Math.sin(posPhaseY)
+
+      const x = cellCenterX + dx - w / 2
+      const y = cellCenterY + dy - h / 2
 
       const minDim = Math.min(w, h)
       const cornerRadius = minDim * 0.5 * state.cornerRadiusFrac
@@ -135,11 +159,12 @@ export function buildPerfBenchmark(
       glassEl.isInteractive = true
       glassEl.scroll = false
 
-      // Outer glasses: scale deformation scaled by deformMul (0 = no scale change, 1 = full)
-      if (!isInner) {
-        glassEl.elementScaleX = 1 + SCALE_AMP * deformMul * Math.cos(glassAngle)
-        glassEl.elementScaleY = 1 + SCALE_AMP * deformMul * Math.sin(glassAngle)
-      }
+      // --- SCALE morphing: elastic stretch overlay ---
+      // Independent X/Y frequencies → each axis stretches at its own rhythm
+      const scalePhaseX = angle * SCALE_FREQ_X + PHASE_X[idx]
+      const scalePhaseY = angle * SCALE_FREQ_Y + PHASE_Y[idx]
+      glassEl.elementScaleX = 1 + scaleAmp * Math.cos(scalePhaseX)
+      glassEl.elementScaleY = 1 + scaleAmp * Math.sin(scalePhaseY)
 
       elements.push(glassEl)
     }
@@ -170,10 +195,6 @@ export function buildPerfBenchmark(
   }
 
   // --- Progress bar (canvas-rendered plain-rect) ---
-  // Track (background): thin rounded rect spanning almost full width.
-  // Fill (foreground): blue rounded rect, width proportional to progress.
-  // The fill width uses perfProgressFracAnimated (smoothly animated in page.tsx)
-  // to replace the CSS transition that the DOM overlay used.
   const progFrac = state.perfProgressFracAnimated ?? 0
   const PROG_BAR_Y = H - 120 * DP
   const PROG_BAR_H = 4 * DP
@@ -182,12 +203,10 @@ export function buildPerfBenchmark(
   const PROG_FILL_W = Math.max(0, PROG_BAR_W * progFrac)
   const PROG_CORNER_RADIUS = PROG_BAR_H / 2
 
-  // Track background (theme-dependent semi-transparent)
-  // homeTextHalo: 'dark' = light theme (light bg, dark text), 'light' = dark theme
   const isDarkTheme = palette.homeTextHalo === 'light'
   const trackColor: [number, number, number, number] = isDarkTheme
-    ? [1, 1, 1, 0.12]   // rgba(255,255,255,0.12) on dark bg
-    : [0, 0, 0, 0.12]   // rgba(0,0,0,0.12) on light bg
+    ? [1, 1, 1, 0.12]
+    : [0, 0, 0, 0.12]
   elements.push({
     id: 'perf-progress-track',
     kind: 'plain-rect',
@@ -210,7 +229,6 @@ export function buildPerfBenchmark(
     scroll: false,
   })
 
-  // Fill foreground (blue, #0088ff → r=0, g=136/255, b=255/255)
   if (PROG_FILL_W > 0.5) {
     elements.push({
       id: 'perf-progress-fill',
@@ -235,19 +253,15 @@ export function buildPerfBenchmark(
     })
   }
 
-  // Main button — ALWAYS visible
-  // When running: "停止" (red, interactive — stops benchmark early)
-  // When done: "重新检测" (restart)
-  // When idle: "性能检测" (start)
+  // Main button
   const btnLabel = isRunning
     ? t('perf_stop', locale)
     : isDone
       ? t('perf_retest', locale)
       : t('item_perf_benchmark', locale)
-  // Red tint when running (stop button), orange tint otherwise
   const btnTintColor: [number, number, number, number] = isRunning
-    ? [0xe8 / 255, 0x44 / 255, 0x3a / 255, 1]  // red-ish for stop
-    : [0xff / 255, 0x8d / 255, 0x28 / 255, 1]  // orange for detect/re-test
+    ? [0xe8 / 255, 0x44 / 255, 0x3a / 255, 1]
+    : [0xff / 255, 0x8d / 255, 0x28 / 255, 1]
 
   const btnW = 140 * DP
   const btnH = 44 * DP
@@ -277,10 +291,6 @@ export function buildPerfBenchmark(
   interactions['perf-btn'] = {
     onTap: () => {
       if (isRunning) {
-        // Stop button — finalize with the best DPR found so far (perfLo)
-        // The perfLo ref is managed by page.tsx and holds the best confirmed DPR.
-        // We signal early stop by setting perfProgress to null and perfDone to true.
-        // page.tsx's stopBenchmark effect will pick this up and finalize.
         setState({ perfProgress: 'stop-requested' })
       } else {
         setState({ perfProgress: 'running', perfDone: false, perfResultDpr: 0, perfStatusText: '', perfGlassAngle: 0, perfProgressFrac: 0, perfProgressFracAnimated: 0, perfDeformMul: 1, perfExitProgress: 0, perfRoundTrigger: 1 })
@@ -288,17 +298,14 @@ export function buildPerfBenchmark(
     },
   }
 
-  // "退出" button — visible ONLY when test is done, animated via perfExitProgress
-  // (slides up from detect-button position and fades in).
+  // "退出" button
   const exitProg = state.perfExitProgress ?? 0
   if (isDone && exitProg > 0.01) {
     const exitBtnW = 100 * DP
     const exitBtnH = 44 * DP
-    // Slide up: from detect-button Y (H-60) → final exit Y (H-110)
     const exitY_from = H - 60 * DP
     const exitY_to = H - 110 * DP
     const exitY = exitY_from + (exitY_to - exitY_from) * exitProg
-    // Fade in: tint, label, highlight, shadow alpha all scale with exitProg
     const exitAlpha = exitProg
     const exitBtn: GlassElementConfig = {
       id: 'perf-exit',
@@ -321,7 +328,7 @@ export function buildPerfBenchmark(
       label: t('perf_exit', locale),
       labelColor: [1, 1, 1, exitAlpha],
       showChevron: false,
-      isInteractive: exitProg > 0.5, // only interactive when mostly visible
+      isInteractive: exitProg > 0.5,
       scroll: false,
     }
     elements.push(exitBtn)
