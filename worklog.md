@@ -70,3 +70,79 @@ Stage Summary:
 - Shader uses SrcOver blend: `color = mix(color, shadowColor, ring * alpha)` for both
 - For black shadow, SrcOver is equivalent to the old darkening: `mix(color, [0,0,0], a)` = `color * (1-a)` ✓
 - White inner shadow: offset (0, -4dp*progress), alpha 0.15*progress, color White → bright band at bottom edge
+---
+Task ID: 1
+Agent: full-stack-developer
+Task: Create inner shadow Canvas2D mask generator + composite shader
+
+Work Log:
+- Read stroke-mask.ts, highlight.ts, continuous-curve.ts, sdf.ts for reference
+- Created inner-shadow-mask.ts with Canvas2D ring generation (fill → destination-out → blur via two-canvas approach)
+- Added INNER_SHADOW_MASK_COMPOSITE_FRAGMENT_SHADER to highlight.ts
+- Lint passes cleanly with no errors
+
+Stage Summary:
+- inner-shadow-mask.ts: generates blurred ring mask via Canvas2D (two-canvas approach: ring on temp canvas → blur onto output canvas)
+- INNER_SHADOW_MASK_COMPOSITE_FRAGMENT_SHADER: simple mask × color × alpha composite with SDF clipping, SrcOver blend
+---
+Task ID: 2
+Agent: full-stack-developer
+Task: Remove INNER_SHADOW from element shader + element-uniforms.ts
+
+Work Log:
+- Read element.ts, element-uniforms.ts, index.ts
+- Removed INNER_SHADOW macro and invocations from element.ts
+- Removed inner shadow uniform declarations from element-uniforms.ts
+- Added INNER_SHADOW_MASK_COMPOSITE_FRAGMENT_SHADER export to shaders/index.ts
+- Updated shader header comment to reflect inner shadow as post-pass
+
+Stage Summary:
+- element.ts: no more inline inner shadow; shader is cleaner
+- element-uniforms.ts: 8 inner shadow uniforms removed
+- shaders/index.ts: new composite shader exported
+---
+Task ID: 3
+Agent: full-stack-developer
+Task: Remove inner shadow uniform uploads from methods-render-glass-element-pass.ts + index.ts
+
+Work Log:
+- Read methods-render-glass-element-pass.ts and index.ts
+- Removed inner shadow variable declarations (elInnerShadowAlpha, elInnerShadowRadius, elInnerShadowOffsetX/Y, elInnerShadowColor, elInnerShadow2Alpha, elInnerShadow2Radius, elInnerShadow2OffsetX/Y, elInnerShadow2Color) from element-pass
+- Removed inner shadow modulation code in bottom tab indicator block (lines 116-124)
+- Removed inner shadow modulation code in toggle knob block (lines 152-164)
+- Removed inner shadow modulation code in second bottom tab indicator block (lines 272-275)
+- Removed inner shadow 1 uniform uploads (gl.uniform* calls for uInnerShadowRadius, uInnerShadowAlpha, uInnerShadowOffset, uInnerShadowColor) from element-pass
+- Removed inner shadow 2 uniform uploads (gl.uniform* calls for uInnerShadow2Radius, uInnerShadow2Alpha, uInnerShadow2Offset, uInnerShadow2Color) from element-pass
+- Removed 8 inner shadow uniform names from cacheUniforms elNames array in index.ts
+- Updated comments to remove inner shadow references
+- Kept all other code intact (outer shadow, refraction, highlight, etc.)
+- Lint passes cleanly with no errors
+- Dev server compiles without errors
+
+Stage Summary:
+- methods-render-glass-element-pass.ts: no more inner shadow variable declarations, modulation code, or uniform uploads
+- index.ts: 8 inner shadow uniform names removed from cacheUniforms (uInnerShadowRadius, uInnerShadowAlpha, uInnerShadowOffset, uInnerShadowColor, uInnerShadow2Radius, uInnerShadow2Alpha, uInnerShadow2Offset, uInnerShadow2Color)
+- Inner shadow is now fully a Canvas2D post-pass; no element shader uniform uploads remain
+---
+Task ID: 4
+Agent: full-stack-developer
+Task: Add inner shadow post-pass rendering + renderer init
+
+Work Log:
+- Read index.ts, post-passes.ts, inner-shadow-mask.ts, types.ts, element-pass.ts
+- Added innerShadowMaskCompositeProgram, aPosLocIs, uIs, innerShadowMaskCache to renderer class
+- Added INNER_SHADOW_MASK_COMPOSITE_FRAGMENT_SHADER import and program creation in constructor
+- Added isNames uniform caching
+- Added dispose cleanup for inner shadow mask cache + program
+- Added inner shadow post-pass rendering in methods-render-glass-post-passes.ts
+- Implemented Canvas2D mask generation inline (two-canvas approach, cached by geometry)
+- Implemented progress modulation for toggle knobs and bottom tab indicators
+- Draw order: inner shadow BEFORE press glow
+- Lint passes cleanly with no errors
+- Dev server compiles without errors
+
+Stage Summary:
+- index.ts: new shader program + uniforms + cache infrastructure
+- methods-render-glass-post-passes.ts: inner shadow 1 + 2 post-passes added before press glow
+- Canvas2D mask generation: fill ring → destination-out → blur, cached by geometry
+- Blend mode: SrcOver (SRC_ALPHA, ONE_MINUS_SRC_ALPHA)

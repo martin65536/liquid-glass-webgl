@@ -15,8 +15,11 @@ import { generateElementUtilsGLSL, DEFAULT_BLUR_TAPS } from './element-utils'
  *   5. Apply onDrawSurface: tint (BlendMode.Hue + 0.75 alpha) and/or
  *      surfaceColor (drawRect with alpha).
  *   6. Apply highlight (Default / Ambient / Plain edge specular).
- *   7. Apply inner shadow.
- *   8. Edge anti-aliasing via smoothstep on the SDF.
+ *   7. Edge anti-aliasing via smoothstep on the SDF.
+ *
+ * Inner shadow is now applied as a Canvas2D post-pass (see
+ * inner-shadow-mask.ts + INNER_SHADOW_MASK_COMPOSITE_FRAGMENT_SHADER),
+ * not inline in this shader.
  *
  * Outer drop shadow is drawn as a separate expanded quad pass below
  * the main element (see renderer).
@@ -317,26 +320,7 @@ void main() {
     // element's edge AA, which is wrong — the highlight layer is composited
     // on top with its own blend mode.
 
-    // --- Inner shadow 1 & 2 ----------------------------------------
-    // InnerShadowModifier.kt: fill ring → offset → Clear → blur(radius)
-    // Mathematically: blurred ring = erf(-sd*k) × erf(offsetSd*k)
-    // where k = 1/(σ√2), σ = radius/3 (BlurMaskFilter sigma)
-    // Peak ≈ 0.87, edge ≈ 0.5, extent ≈ 2×radius — matches original exactly.
-    #define INNER_SHADOW(ALPHA, RADIUS, OFFSET, COL) \
-        if (ALPHA > 0.001 && RADIUS > 0.5) { \
-            float k = 1.0 / (max(RADIUS / 3.0, 1.0) * 1.4142); \
-            float os = sdShape(centeredOrigRot - OFFSET, origHalfSize, origRadius); \
-            float ring = (0.5 + 0.5 * erfApprox(-sd * k)) \
-                       * (0.5 + 0.5 * erfApprox(os * k)); \
-            color = mix(color, COL, ring * ALPHA); \
-        }
-
-    INNER_SHADOW(uInnerShadowAlpha, uInnerShadowRadius, uInnerShadowOffset, uInnerShadowColor)
-    INNER_SHADOW(uInnerShadow2Alpha, uInnerShadow2Radius, uInnerShadow2Offset, uInnerShadow2Color)
-
-    #undef INNER_SHADOW
-
-    // --- 8. Edge anti-aliasing -----------------------------------
+    // --- 7. Edge anti-aliasing -----------------------------------
     // edgeAlpha was computed earlier (mask mode: direct coverage, analytic: smoothstep).
     gl_FragColor = vec4(color, alpha * edgeAlpha * uEnterAlpha);
 }

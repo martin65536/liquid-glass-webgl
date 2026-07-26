@@ -10,6 +10,7 @@ import {
   HIGHLIGHT_STROKE_FRAGMENT_SHADER,
   HIGHLIGHT_COMPOSITE_FRAGMENT_SHADER,
   STROKE_MASK_COMPOSITE_FRAGMENT_SHADER,
+  INNER_SHADOW_MASK_COMPOSITE_FRAGMENT_SHADER,
   SHADOW_FRAGMENT_SHADER,
   TINT_FRAGMENT_SHADER,
   VERTEX_SHADER,
@@ -66,6 +67,8 @@ export class LiquidGlassRenderer {
   highlightCompositeProgram: WebGLProgram
   /** Stroke mask composite (Canvas2D stroke mask × intensity × color). */
   strokeMaskCompositeProgram: WebGLProgram
+  /** Inner shadow mask composite (Canvas2D ring mask × color × alpha). */
+  innerShadowMaskCompositeProgram: WebGLProgram
   plainRectProgram: WebGLProgram
   progressiveBlurProgram: WebGLProgram
   copyProgram: WebGLProgram
@@ -194,6 +197,17 @@ export class LiquidGlassRenderer {
     h: number
     ready: boolean
   }>()
+  /** Canvas2D inner-shadow-mask cache. Keyed by exact geometry
+   *  (element size + corner radius + offset + blur sigma + path style).
+   *  Two entries per element (shadow1 + shadow2). */
+  innerShadowMaskCache = new Map<string, {
+    tex: WebGLTexture
+    canvas: HTMLCanvasElement
+    ctx: CanvasRenderingContext2D
+    w: number
+    h: number
+    ready: boolean
+  }>()
 
   rafId: number | null = null
   animRafId: number | null = null
@@ -207,6 +221,7 @@ export class LiquidGlassRenderer {
   aPosLocHs: number  // highlight stroke
   aPosLocHc: number  // highlight composite
   aPosLocSm: number  // stroke mask composite
+  aPosLocIs: number  // inner shadow mask composite
   aPosLocPr: number
   aPosLocPb: number
   aPosLocCp: number
@@ -225,6 +240,7 @@ export class LiquidGlassRenderer {
   uHs: Record<string, WebGLUniformLocation | null> = {}
   uHc: Record<string, WebGLUniformLocation | null> = {}
   uSm: Record<string, WebGLUniformLocation | null> = {}
+  uIs: Record<string, WebGLUniformLocation | null> = {}
   uPr: Record<string, WebGLUniformLocation | null> = {}
   uPb: Record<string, WebGLUniformLocation | null> = {}
   uCp: Record<string, WebGLUniformLocation | null> = {}
@@ -256,6 +272,7 @@ export class LiquidGlassRenderer {
     this.highlightStrokeProgram = createProgram(gl, VERTEX_SHADER, HIGHLIGHT_STROKE_FRAGMENT_SHADER)
     this.highlightCompositeProgram = createProgram(gl, VERTEX_SHADER, HIGHLIGHT_COMPOSITE_FRAGMENT_SHADER)
     this.strokeMaskCompositeProgram = createProgram(gl, VERTEX_SHADER, STROKE_MASK_COMPOSITE_FRAGMENT_SHADER)
+    this.innerShadowMaskCompositeProgram = createProgram(gl, VERTEX_SHADER, INNER_SHADOW_MASK_COMPOSITE_FRAGMENT_SHADER)
     this.plainRectProgram = createProgram(gl, VERTEX_SHADER, PLAIN_RECT_FRAGMENT_SHADER)
     this.progressiveBlurProgram = createProgram(gl, VERTEX_SHADER, PROGRESSIVE_BLUR_FRAGMENT_SHADER)
     this.copyProgram = createProgram(gl, VERTEX_SHADER, COPY_FRAGMENT_SHADER)
@@ -282,6 +299,7 @@ export class LiquidGlassRenderer {
     this.aPosLocHs = gl.getAttribLocation(this.highlightStrokeProgram, 'aPos')
     this.aPosLocHc = gl.getAttribLocation(this.highlightCompositeProgram, 'aPos')
     this.aPosLocSm = gl.getAttribLocation(this.strokeMaskCompositeProgram, 'aPos')
+    this.aPosLocIs = gl.getAttribLocation(this.innerShadowMaskCompositeProgram, 'aPos')
     this.aPosLocPr = gl.getAttribLocation(this.plainRectProgram, 'aPos')
     this.aPosLocPb = gl.getAttribLocation(this.progressiveBlurProgram, 'aPos')
     this.aPosLocCp = gl.getAttribLocation(this.copyProgram, 'aPos')
@@ -311,8 +329,6 @@ export class LiquidGlassRenderer {
       'uContrast', 'uTintColor', 'uSurfaceColor', 'uHighlightColor',
       'uHighlightAngle', 'uHighlightFalloff', 'uHighlightAlpha', 'uHighlightMode',
       'uHighlightStrokeWidth', 'uHighlightBlur',
-      'uInnerShadowRadius', 'uInnerShadowAlpha', 'uInnerShadowOffset', 'uInnerShadowColor',
-      'uInnerShadow2Radius', 'uInnerShadow2Alpha', 'uInnerShadow2Offset', 'uInnerShadow2Color',
       'uContentScaleX', 'uContentScaleY',
       'uUseToggleBackdrop', 'uUseSolidBackdrop', 'uSolidBackdropColor',
       'uTrackColor', 'uTrackRect', 'uTrackCornerRadius',
@@ -387,6 +403,14 @@ export class LiquidGlassRenderer {
       'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation',
     ]
     for (const n of smNames) this.uSm[n] = gl.getUniformLocation(this.strokeMaskCompositeProgram, n)
+    // Inner shadow mask composite (Canvas2D ring mask approach)
+    const isNames = [
+      'uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii',
+      'uInnerShadowMask', 'uMaskOffset', 'uMaskSize',
+      'uInnerShadowColor', 'uInnerShadowAlpha',
+      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation',
+    ]
+    for (const n of isNames) this.uIs[n] = gl.getUniformLocation(this.innerShadowMaskCompositeProgram, n)
     const prNames = ['uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uColor', 'uCornerStyle',
       'uUseContinuousSdf', 'uContinuousSdf', 'uContinuousSdfTexSize', 'uContinuousSdfElementSize']
     for (const n of prNames) this.uPr[n] = gl.getUniformLocation(this.plainRectProgram, n)
@@ -593,6 +617,8 @@ export class LiquidGlassRenderer {
     this.fgTextures.clear()
     for (const entry of this.strokeMaskCache.values()) gl.deleteTexture(entry.tex)
     this.strokeMaskCache.clear()
+    for (const entry of this.innerShadowMaskCache.values()) gl.deleteTexture(entry.tex)
+    this.innerShadowMaskCache.clear()
     if (this.fboA) gl.deleteFramebuffer(this.fboA)
     if (this.fboATex) gl.deleteTexture(this.fboATex)
     if (this.fboB) gl.deleteFramebuffer(this.fboB)
@@ -647,6 +673,7 @@ export class LiquidGlassRenderer {
     gl.deleteProgram(this.highlightStrokeProgram)
     gl.deleteProgram(this.highlightCompositeProgram)
     gl.deleteProgram(this.strokeMaskCompositeProgram)
+    gl.deleteProgram(this.innerShadowMaskCompositeProgram)
     gl.deleteProgram(this.plainRectProgram)
     gl.deleteProgram(this.progressiveBlurProgram)
     gl.deleteProgram(this.copyProgram)

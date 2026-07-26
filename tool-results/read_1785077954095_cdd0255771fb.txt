@@ -1,0 +1,627 @@
+     1→import { SDF_GLSL } from './sdf'
+     2→
+     3→/* ------------------------------------------------------------------ *
+     4→ * Interactive highlight pass — faithful port of the AGSL shader from
+     5→ * InteractiveHighlight.kt:
+     6→ *
+     7→ *   uniform float2 size;
+     8→ *   layout(color) uniform half4 color;
+     9→ *   uniform float radius;
+    10→ *   uniform float2 position;
+    11→ *   half4 main(float2 coord) {
+    12→ *       float dist = distance(coord, position);
+    13→ *       float intensity = smoothstep(radius, radius * 0.5, dist);
+    14→ *       return color * intensity;
+    15→ *   }
+    16→ *
+    17→ * Combined with the white-overlay pass (drawRect white 8% Plus blend)
+    18→ * this reproduces the catalog's drag-follow press glow. Drawn ABOVE the
+    19→ * element pass and BELOW the foreground (label) pass, all clipped to the
+    20→ * element rect.
+    21→ *
+    22→ * BLEND CORRECTNESS: Skia's BlendMode.Plus is `result = S + D` where S
+    23→ * is the source color in PREMULTIPLIED form. Compose stores
+    24→ * `White(1.0).copy(alpha = a)` premultiplied as `(a, a, a, a)`, so the
+    25→ * actual contribution to dst.rgb is `color.rgb * color.a * intensity`.
+    26→ *
+    27→ * To replicate in WebGL we output the premultiplied contribution as RGB
+    28→ * and use blendFunc(ONE, ONE) (pure additive). Using (SRC_ALPHA, ONE)
+    29→ * here would re-multiply by src.a, squaring the alpha and making the
+    30→ * glow ~50x dimmer (e.g. 0.15² = 0.0225 — essentially invisible).
+    31→ * ------------------------------------------------------------------ */
+    32→export const HIGHLIGHT_FRAGMENT_SHADER = /* glsl */ `
+    33→precision highp float;
+    34→
+    35→uniform vec2  uCanvasSize;
+    36→uniform vec2  uOffset;       // element top-left in canvas px (top-left origin) — SCALED rect
+    37→uniform vec2  uSize;         // element size in canvas px — SCALED
+    38→uniform vec4  uCornerRadii;  // capsule radii (topLeft, topRight, bottomRight, bottomLeft) in px — SCALED
+    39→uniform vec4  uColor;        // rgba; usually white * (alpha = 0.15 * progress)
+    40→uniform float uRadius;       // glow radius in canvas px (= minDim * 1.5, SCALED space)
+    41→uniform vec2  uPosition;     // finger position in element-local px (top-left origin, SCALED space)
+    42→// --- ORIGINAL-SPACE SDF clip (faithful to graphicsLayer { scaleX, scaleY }) ---
+    43→// The press glow (InteractiveHighlight) is drawn INSIDE the graphicsLayer, so
+    44→// it is clipped to the ORIGINAL capsule shape, then scaled with the layer.
+    45→// The glow position + radius are in SCALED space (they track the finger in
+    46→// screen px), but the clip SDF is in original space so the capsule clip stays
+    47→// correct when the button is stretched.
+    48→uniform vec2  uOriginalSize;
+    49→uniform float uOriginalCornerRadius;
+    50→uniform vec2  uLayerScale;
+    51→uniform float uElementRotation;
+    52→
+    53→${SDF_GLSL}
+    54→
+    55→void main() {
+    56→    vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
+    57→    vec2 localCoord = screenCoord - uOffset;
+    58→
+    59→    // --- Capsule clip in ORIGINAL space (faithful to graphicsLayer clip) ---
+    60→    vec2 elementCenter = uOffset + uSize * 0.5;
+    61→    vec2 centeredScreen = screenCoord - elementCenter;
+    62→    vec2 layerScale = max(uLayerScale, vec2(1e-4));
+    63→    vec2 centeredOrig = centeredScreen / layerScale;
+    64→    vec2 origHalfSize = uOriginalSize * 0.5;
+    65→    float sd = sdShape(rotateBy(centeredOrig, -uElementRotation), origHalfSize, uOriginalCornerRadius);
+    66→    if (sd > 0.5) discard;
+    67→    float clipAlpha = 1.0 - smoothstep(-0.5, 0.5, sd);
+    68→
+    69→    // Faithful AGSL port: smoothstep(radius, radius*0.5, dist) means
+    70→    // intensity = 1 at dist <= radius*0.5, fading to 0 at dist >= radius.
+    71→    // dist + uPosition are in SCALED local space (finger tracks screen px).
+    72→    float dist = distance(localCoord, uPosition);
+    73→    float intensity = smoothstep(uRadius, uRadius * 0.5, dist);
+    74→
+    75→    // Premultiplied Plus-blend contribution. Renderer uses blendFunc(ONE, ONE)
+    76→    // so result.rgb = contribution + dst.rgb (clamped to 1).
+    77→    vec3 contribution = uColor.rgb * uColor.a * intensity * clipAlpha;
+    78→    gl_FragColor = vec4(contribution, 1.0);
+    79→}
+    80→`
+    81→
+    82→/* ------------------------------------------------------------------ *
+    83→ * White-overlay pass — a flat white fill at low alpha, used for the
+    84→ * first half of the InteractiveHighlight effect (drawRect white 8%
+    85→ * Plus blend in the Kotlin source). Plus blend is approximated by
+    86→ * additive blending in the renderer.
+    87→ *
+    88→ * IMPORTANT: the original Compose chain wraps everything (this drawRect
+    89→ * included) in a graphicsLayer with clip=true and the capsule shape.
+    90→ * Without SDF clipping here, the white fill would flood the AABB
+    91→ * corners OUTSIDE the capsule. We discard sd > 0.5 with 1px AA.
+    92→ * ------------------------------------------------------------------ */
+    93→export const TINT_FRAGMENT_SHADER = /* glsl */ `
+    94→precision highp float;
+    95→
+    96→uniform vec2  uCanvasSize;
+    97→uniform vec2  uOffset;
+    98→uniform vec2  uSize;
+    99→uniform vec4  uCornerRadii;
+   100→uniform vec4  uColor;
+   101→// --- ORIGINAL-SPACE SDF clip (faithful to graphicsLayer { scaleX, scaleY }) ---
+   102→// The white overlay (onDrawSurface drawRect) is drawn INSIDE the graphicsLayer,
+   103→// so it is clipped to the ORIGINAL capsule shape, then scaled with the layer.
+   104→// Computing the clip SDF in original space keeps the capsule clip correct when
+   105→// the button is stretched (no corner bleed, no stretched-clip artifacts).
+   106→uniform vec2  uOriginalSize;
+   107→uniform float uOriginalCornerRadius;
+   108→uniform vec2  uLayerScale;
+   109→uniform float uElementRotation;
+   110→
+   111→${SDF_GLSL}
+   112→
+   113→void main() {
+   114→    vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
+   115→    vec2 elementCenter = uOffset + uSize * 0.5;
+   116→    vec2 centeredScreen = screenCoord - elementCenter;
+   117→    vec2 layerScale = max(uLayerScale, vec2(1e-4));
+   118→    vec2 centeredOrig = centeredScreen / layerScale;
+   119→    vec2 origHalfSize = uOriginalSize * 0.5;
+   120→    float sd = sdShape(rotateBy(centeredOrig, -uElementRotation), origHalfSize, uOriginalCornerRadius);
+   121→    if (sd > 0.5) discard;
+   122→    float clipAlpha = 1.0 - smoothstep(-0.5, 0.5, sd);
+   123→
+   124→    gl_FragColor = vec4(uColor.rgb, uColor.a * clipAlpha);
+   125→}
+   126→`
+   127→
+   128→/* ------------------------------------------------------------------ *
+   129→ * Rim highlight pass — faithful port of HighlightModifier.kt +
+   130→ * DefaultHighlightShaderString / AmbientHighlightShaderString.
+   131→ *
+   132→ * The original draws a STROKE of width strokeWidth centered on the shape
+   133→ * edge, blurred by blurRadius, clipped to inside the shape. The stroke is
+   134→ * colored by the AGSL shader (Default or Ambient), then composited with
+   135→ * the layer's blendMode (Plus for Default, SrcOver for Ambient).
+   136→ *
+   137→ * We model the visible (post-clip) stroke band as a smooth mask: 1 from
+   138→ * sd = -strokeWidth/2 up to sd = 0 (edge), fading to 0 over blur pixels
+   139→ * further inward. The outward half is removed by the shape clip (discard
+   140→ * for sd > 0).
+   141→ *
+   142→ * Default shader: returns color * intensity, color = White(1.0).
+   143→ *   Plus blend (renderer uses gl.ONE/gl.ONE): output rgb = color * intensity * mask.
+   144→ * Ambient shader: returns half4(t,t,t,1.0) * intensity, t = step(0,d).
+   145→ *   SrcOver blend: output = (t*i, t*i, t*i, i) where i = intensity * mask.
+   146→ * ------------------------------------------------------------------ */
+   147→export const RIM_HIGHLIGHT_FRAGMENT_SHADER = /* glsl */ `
+   148→precision highp float;
+   149→
+   150→uniform vec2  uCanvasSize;
+   151→uniform vec2  uOffset;          // element top-left in canvas px (top-left origin) — SCALED rect
+   152→uniform vec2  uSize;            // element size in canvas px — SCALED (includes graphicsLayer scale)
+   153→uniform vec4  uCornerRadii;     // (topLeft, topRight, bottomRight, bottomLeft) in px — SCALED
+   154→uniform vec4  uHighlightColor;  // rgb + 1.0
+   155→uniform float uHighlightAngle;  // radians
+   156→uniform float uHighlightFalloff;
+   157→uniform float uHighlightAlpha;
+   158→uniform float uHighlightMode;     // 0=Default, 1=Ambient, 2=Plain
+   159→uniform float uHighlightStrokeWidth;
+   160→uniform float uHighlightBlur;
+   161→// --- ORIGINAL-SPACE SDF (faithful to graphicsLayer { scaleX, scaleY }) ---
+   162→// Same approach as the element shader: compute SDF/stroke in ORIGINAL space
+   163→// (shape is correct, not stretched), so the highlight clip + stroke remain a
+   164→// correct capsule shape that is then scaled by graphicsLayer. Without this,
+   165→// a horizontally-stretched button would stretch the highlight clip too,
+   166→// making the stroke band uneven. See element.ts for the full rationale.
+   167→uniform vec2  uOriginalSize;        // element size in px (ORIGINAL, unscaled)
+   168→uniform float uOriginalCornerRadius; // corner radius in px (ORIGINAL, unscaled)
+   169→uniform vec2  uLayerScale;          // (scaleX, scaleY) from graphicsLayer
+   170→uniform float uElementRotation;     // rotation in radians (graphicsLayer rotationZ)
+   171→
+   172→${SDF_GLSL}
+   173→
+   174→void main() {
+   175→    vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
+   176→    // elementCenter is the SAME for scaled and original rects (scaling is
+   177→    // around the center), so uOffset + uSize*0.5 gives the correct center.
+   178→    vec2 elementCenter = uOffset + uSize * 0.5;
+   179→    vec2 centeredScreen = screenCoord - elementCenter;
+   180→    // Map to ORIGINAL space (guard against divide-by-zero).
+   181→    vec2 layerScale = max(uLayerScale, vec2(1e-4));
+   182→    vec2 centeredOrig = centeredScreen / layerScale;
+   183→    // Un-rotate into the element's local space so the SDF shape rotates.
+   184→    vec2 centeredOrigRot = rotateBy(centeredOrig, -uElementRotation);
+   185→
+   186→    vec2 origHalfSize = uOriginalSize * 0.5;
+   187→    float origRadius = uOriginalCornerRadius;
+   188→
+   189→    // SDF for stroke — analytic sdRoundedRect (matches the pre-capsule
+   190→    // highlight implementation). When capsule is OFF, this is the exact
+   191→    // shape. When capsule is ON, this is a close approximation (circular
+   192→    // arc vs G2 Bezier — the difference is sub-pixel within the 2px stroke
+   193→    // band, invisible in the highlight).
+   194→    float sd = sdRoundedRect(centeredOrigRot, origHalfSize, origRadius);
+   195→
+   196→    // Outside the shape — clip (hard discard, matching pre-capsule behavior).
+   197→    if (sd > 0.0) discard;
+   198→
+   199→    // Stroke mask — faithful to HighlightModifier.kt:
+   200→    //   paint.style = Stroke
+   201→    //   paint.strokeWidth = ceil(width.toPx()) * 2     // full stroke, centered on edge
+   202→    //   paint.blur(blurRadius.toPx())                   // BlurMaskFilter, Blur.NORMAL
+   203→    //   canvas.clipOutline(outline)                     // clip to inside the shape
+   204→    //   canvas.drawOutline(outline, paint)              // stroke centered on edge
+   205→    //
+   206→    // Implementation: first compute a HARD-EDGE stroke mask (1.0 inside the
+   207→    // stroke band, 0.0 outside), then convolve it with a Gaussian kernel by
+   208→    // sampling the SDF at multiple offsets along the gradient direction.
+   209→    // This mirrors the original's two-step process (draw stroke → blur),
+   210→    // rather than using an analytic erf approximation.
+   211→    //
+   212→    // The hard stroke band: sd in [-strokeHalf, +strokeHalf].
+   213→    // After clip (sd > 0 discarded by the outer if), only [-strokeHalf, 0] shows.
+   214→    //
+   215→    // Faithful to the original BlurMaskFilter:
+   216→    //   paint.blur(blurRadius.toPx())  →  BlurMaskFilter(NORMAL, sigma=blurRadius_px)
+   217→    // In Skia/Android, BlurMaskFilter's radius param IS the Gaussian sigma
+   218→    // (not radius/3). blurRadius = width/2 = 0.25dp, so sigma = 0.25*dpr px.
+   219→    // uHighlightBlur is already in device px (set by the renderer as widthDp*dpr*0.5).
+   220→    float strokeHalf = uHighlightStrokeWidth * 0.5;
+   221→    float sigma = max(uHighlightBlur, 0.1);
+   222→
+   223→    // Gaussian convolution of the hard stroke mask — 3-tap (σ-spaced).
+   224→    // The original's BlurMaskFilter has σ = blurRadius = 0.25dp → 0.25px at
+   225→    // dpr=1. At this sub-pixel sigma, only 3 taps (at -σ, 0, +σ) are needed
+   226→    // — the Gaussian weight at ±2σ is exp(-2) ≈ 0.14, negligible. This
+   227→    // replaces the old 65-tap loop (which computed 65 exp() calls per pixel,
+   228→    // ~650 cycles — the single biggest shader cost). 3 taps = 3 exp() = ~30
+   229→    // cycles, a 20× reduction with identical visual result at σ=0.25.
+   230→    //   hardMask(sd) = 1.0 if |sd| < strokeHalf, else 0.0
+   231→    //   blurred(sd) = Σ hardMask(sd - offset_k) * gauss(offset_k, σ)
+   232→    // CLIP HALVING: the stroke is centered on sd=0; clip removes sd>0 (outer
+   233→    // half), so peak ≈ 0.5. We halve to match.
+   234→    float strokeMask = 0.0;
+   235→    float wSum = 0.0;
+   236→    for (int i = -1; i <= 1; i++) {
+   237→        float offset = float(i) * sigma;  // taps at -σ, 0, +σ
+   238→        float sampleSd = sd - offset;
+   239→        float hard = (abs(sampleSd) < strokeHalf) ? 1.0 : 0.0;
+   240→        float w = exp(-0.5 * (offset * offset) / (sigma * sigma));
+   241→        strokeMask += hard * w;
+   242→        wSum += w;
+   243→    }
+   244→    strokeMask /= wSum;
+   245→    strokeMask *= 0.5;  // clip halves the symmetric stroke at the edge
+   246→
+   247→    if (uHighlightMode < 0.5) {
+   248→        // Default — shader returns color * intensity, Plus blend.
+   249→        float gradRadius = min(origRadius * 1.5, min(origHalfSize.x, origHalfSize.y));
+   250→        vec2 grad = gradSdRoundedRect(centeredOrigRot, origHalfSize, gradRadius);
+   251→        vec2 normal = vec2(cos(uHighlightAngle), sin(uHighlightAngle));
+   252→        float d = dot(grad, normal);
+   253→        float intensity = pow(abs(d), uHighlightFalloff);
+   254→        vec3 c = uHighlightColor.rgb * intensity * strokeMask * uHighlightAlpha;
+   255→        gl_FragColor = vec4(c, 1.0);
+   256→    } else if (uHighlightMode < 1.5) {
+   257→        // Ambient — shader returns half4(t,t,t,1.0)*intensity, SrcOver blend.
+   258→        float gradRadius = min(origRadius * 1.5, min(origHalfSize.x, origHalfSize.y));
+   259→        vec2 grad = gradSdRoundedRect(centeredOrigRot, origHalfSize, gradRadius);
+   260→        vec2 normal = vec2(cos(uHighlightAngle), sin(uHighlightAngle));
+   261→        float d = dot(grad, normal);
+   262→        float intensity = pow(abs(d), uHighlightFalloff);
+   263→        // No step(0,d) — use full intensity on both sides (no black edge).
+   264→        float i = intensity * strokeMask * uHighlightAlpha;
+   265→        gl_FragColor = vec4(uHighlightColor.rgb * i, i);
+   266→    } else {
+   267→        // Plain — even stroke, paint.color, Plus blend.
+   268→        vec3 c = uHighlightColor.rgb * strokeMask * uHighlightAlpha;
+   269→        gl_FragColor = vec4(c, 1.0);
+   270→    }
+   271→}
+   272→`
+   273→
+   274→/* ------------------------------------------------------------------ *
+   275→ * HIGHLIGHT_STROKE_FRAGMENT_SHADER — pass 1 of the 3-pass faithful
+   276→ * highlight (stroke mask → 2-pass blur → composite).
+   277→ *
+   278→ * Faithful to HighlightModifier.kt's GraphicsLayer record:
+   279→ *   canvas.clipOutline(outline)            // clip to INSIDE the shape
+   280→ *   canvas.drawOutline(outline, paint)     // paint.Stroke + BlurMaskFilter
+   281→ *
+   282→ * This shader ONLY renders the stroke alpha mask (clipped to inside):
+   283→ *   - paint.style = Stroke, strokeWidth = ceil(width*dpr)*2, centered on edge
+   284→ *   - clipOutline → discard sd > 0 (outside), keep inside half
+   285→ *   - NO blur here (blur is done as a separate 2-pass Gaussian on this mask)
+   286→ *   - NO intensity/color here (composite pass multiplies them in)
+   287→ *
+   288→ * Output: gl_FragColor.a = stroke mask (1.0 inside the stroke band, 0 outside),
+   289→ *         rgb = 0 (unused; only alpha matters for the blur pass).
+   290→ * The FBO is cleared to transparent (0,0,0,0) before this pass, so the
+   291→ * surround is transparent and the 2-pass blur will naturally expand the
+   292→ * stroke's alpha fringe outward (matching BlurMaskFilter NORMAL behavior).
+   293→ * ------------------------------------------------------------------ */
+   294→export const HIGHLIGHT_STROKE_FRAGMENT_SHADER = /* glsl */ `
+   295→precision highp float;
+   296→
+   297→uniform vec2  uCanvasSize;
+   298→uniform vec2  uOffset;          // element top-left (top-left origin) — SCALED
+   299→uniform vec2  uSize;            // element size — SCALED
+   300→uniform vec4  uCornerRadii;     // SCALED
+   301→uniform float uHighlightStrokeWidth;  // ceil(width*dpr)*2, device px
+   302→uniform vec2  uOriginalSize;
+   303→uniform float uOriginalCornerRadius;
+   304→uniform vec2  uLayerScale;
+   305→uniform float uElementRotation;
+   306→// uCornerStyle, uUseContinuousSdf, uContinuousSdf, uContinuousSdfTexSize,
+   307→// uContinuousSdfElementSize are declared in SDF_GLSL (do NOT redeclare here).
+   308→
+   309→${SDF_GLSL}
+   310→
+   311→void main() {
+   312→    vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
+   313→    vec2 elementCenter = uOffset + uSize * 0.5;
+   314→    vec2 centeredScreen = screenCoord - elementCenter;
+   315→    vec2 layerScale = max(uLayerScale, vec2(1e-4));
+   316→    vec2 centeredOrig = centeredScreen / layerScale;
+   317→    vec2 centeredOrigRot = rotateBy(centeredOrig, -uElementRotation);
+   318→
+   319→    vec2 origHalfSize = uOriginalSize * 0.5;
+   320→    float origRadius = uOriginalCornerRadius;
+   321→
+   322→    float sd = sdShape(centeredOrigRot, origHalfSize, origRadius);
+   323→
+   324→    // clipOutline — clip to INSIDE the shape. Outside (sd > 0) is discarded.
+   325→    float edgeAA;
+   326→    if (uUseContinuousSdf > 0.5) {
+   327→        float mask = sampleClipMask(centeredOrigRot, origHalfSize, origRadius);
+   328→        if (mask < 0.01) discard;
+   329→        edgeAA = mask;
+   330→    } else {
+   331→        if (sd > 0.0) discard;
+   332→        edgeAA = 1.0 - smoothstep(-0.5, 0.5, sd);
+   333→    }
+   334→
+   335→    // Stroke band centered on the edge (sd = 0), with 0.5px coverage AA on
+   336→    // the inner boundary. The outer boundary (sd = +strokeHalf) is clipped
+   337→    // away by edgeAA above. Faithful to Skia Paint.Stroke's coverage AA.
+   338→    // The BlurMaskFilter pass (when sigma >= 0.5px) softens this further;
+   339→    // at sub-pixel sigma (0.25px) the blur is skipped and this 0.5px AA
+   340→    // is what matches the original's look (Skia's 0.25px blur is negligibly
+   341→    // soft — essentially just AA).
+   342→    float strokeHalf = uHighlightStrokeWidth * 0.5;
+   343→    float strokeAA = 1.0 - smoothstep(strokeHalf - 0.5, strokeHalf, abs(sd));
+   344→
+   345→    gl_FragColor = vec4(0.0, 0.0, 0.0, strokeAA * edgeAA);
+   346→}
+   347→`
+   348→
+   349→/* ------------------------------------------------------------------ *
+   350→ * HIGHLIGHT_COMPOSITE_FRAGMENT_SHADER — pass 3 of the 3-pass faithful
+   351→ * highlight. Samples the blurred stroke mask (from the 2-pass blur) and
+   352→ * multiplies by the AGSL RuntimeShader's intensity + color.
+   353→ *
+   354→ * Faithful to the original two-part pipeline:
+   355→ *   1. Skia stroke + BlurMaskFilter produces the blurred alpha mask
+   356→ *      (this is pass 1 + the 2-pass blur).
+   357→ *   2. AGSL RuntimeShader (DefaultHighlightShaderString) computes
+   358→ *      intensity = pow(abs(dot(grad, normal)), falloff) and returns
+   359→ *      color * intensity. The RuntimeShader runs PER PIXEL of the stroke,
+   360→ *      so the final visible color = strokeMask * intensity * color.
+   361→ *
+   362→ * This composite shader does step 2: read blurredMask.a, compute intensity
+   363→ * from the SDF gradient, output color * intensity * mask (premultiplied).
+   364→ *
+   365→ * Blend modes (set by the renderer):
+   366→ *   - Default (mode 0): Plus blend (gl.ONE, gl.ONE) — output rgb is added.
+   367→ *     Premultiplied: rgb = color * intensity * mask * alpha.
+   368→ *   - Ambient (mode 1): SrcOver blend (gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA).
+   369→ *     Output = (color*i*mask, i*mask) premultiplied; the renderer's
+   370→ *     gl.blendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA) un-premultiplies correctly.
+   371→ *   - Plain (mode 2): Plus blend, no intensity (even stroke).
+   372→ * ------------------------------------------------------------------ */
+   373→export const HIGHLIGHT_COMPOSITE_FRAGMENT_SHADER = /* glsl */ `
+   374→precision highp float;
+   375→
+   376→uniform vec2  uCanvasSize;
+   377→uniform vec2  uOffset;
+   378→uniform vec2  uSize;
+   379→uniform vec4  uCornerRadii;
+   380→uniform sampler2D uBlurredMask;   // the 2-pass-blurred stroke mask FBO
+   381→uniform vec2  uMaskTexSize;       // size of the mask FBO (= canvas size)
+   382→uniform vec4  uHighlightColor;    // rgb + 1.0
+   383→uniform float uHighlightAngle;
+   384→uniform float uHighlightFalloff;
+   385→uniform float uHighlightAlpha;
+   386→uniform float uHighlightMode;     // 0=Default, 1=Ambient, 2=Plain
+   387→uniform vec2  uOriginalSize;
+   388→uniform float uOriginalCornerRadius;
+   389→uniform vec2  uLayerScale;
+   390→uniform float uElementRotation;
+   391→// uCornerStyle, uUseContinuousSdf, uContinuousSdf, uContinuousSdfTexSize,
+   392→// uContinuousSdfElementSize are declared in SDF_GLSL (do NOT redeclare here).
+   393→
+   394→${SDF_GLSL}
+   395→
+   396→void main() {
+   397→    vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
+   398→
+   399→    // Sample the blurred stroke mask at this pixel. The mask FBO covers the
+   400→    // full canvas (same size), so UV = gl_FragCoord / maskTexSize.
+   401→    // Mask FBO is Y-down (top-left origin, like our scene FBOs), so flip Y
+   402→    // to match the screenCoord convention.
+   403→    vec2 maskUv = vec2(gl_FragCoord.x / uMaskTexSize.x, gl_FragCoord.y / uMaskTexSize.y);
+   404→    float mask = texture2D(uBlurredMask, maskUv).a;
+   405→    if (mask < 0.001) discard;
+   406→
+   407→    // Compute intensity from the SDF gradient (AGSL DefaultHighlightShaderString).
+   408→    vec2 elementCenter = uOffset + uSize * 0.5;
+   409→    vec2 centeredScreen = screenCoord - elementCenter;
+   410→    vec2 layerScale = max(uLayerScale, vec2(1e-4));
+   411→    vec2 centeredOrig = centeredScreen / layerScale;
+   412→    vec2 centeredOrigRot = rotateBy(centeredOrig, -uElementRotation);
+   413→    vec2 origHalfSize = uOriginalSize * 0.5;
+   414→    float origRadius = uOriginalCornerRadius;
+   415→
+   416→    // Faithful clip-after-blur: the original does clipOutline → stroke(blur),
+   417→    // but Skia applies clip at the canvas level AFTER the BlurMaskFilter
+   418→    // spreads alpha. So alpha that blurred OUTSIDE the shape is clipped away.
+   419→    // Our stroke shader clips before blur (discard sd>0), then blur spreads
+   420→    // alpha back outside — we must clip AGAIN here to match. Without this,
+   421→    // the highlight "leaks" outside the shape, making it brighter than the
+   422→    // original (which has zero contribution outside the clip region).
+   423→    float sd = sdShape(centeredOrigRot, origHalfSize, origRadius);
+   424→    float clipAA;
+   425→    if (uUseContinuousSdf > 0.5) {
+   426→        clipAA = sampleClipMask(centeredOrigRot, origHalfSize, origRadius);
+   427→    } else {
+   428→        clipAA = 1.0 - smoothstep(-0.5, 0.5, sd);
+   429→    }
+   430→    mask *= clipAA;
+   431→    if (mask < 0.001) discard;
+   432→
+   433→    float intensity;
+   434→    if (uHighlightMode < 1.5) {
+   435→        // Default + Ambient use the SDF gradient · normal.
+   436→        float gradRadius = min(origRadius * 1.5, min(origHalfSize.x, origHalfSize.y));
+   437→        vec2 grad = gradSdRoundedRect(centeredOrigRot, origHalfSize, gradRadius);
+   438→        vec2 normal = vec2(cos(uHighlightAngle), sin(uHighlightAngle));
+   439→        float d = dot(grad, normal);
+   440→        intensity = pow(abs(d), uHighlightFalloff);
+   441→    } else {
+   442→        // Plain — no directional intensity (even stroke).
+   443→        intensity = 1.0;
+   444→    }
+   445→
+   446→    float a = mask * uHighlightAlpha;
+   447→
+   448→    if (uHighlightMode < 0.5) {
+   449→        // Default — Plus blend. Output premultiplied rgb (alpha=1 so blendFunc
+   450→        // (ONE, ONE) adds rgb directly).
+   451→        vec3 c = uHighlightColor.rgb * intensity * a;
+   452→        gl_FragColor = vec4(c, 1.0);
+   453→    } else if (uHighlightMode < 1.5) {
+   454→        // Ambient — SrcOver blend. Premultiplied output.
+   455→        // Ambient uses t = step(0, d) in the original, but we keep abs(d)
+   456→        // (both sides bright) to match the existing behavior. The original's
+   457→        // step gives a hard dark/bright split; our abs gives symmetric glow.
+   458→        float i = intensity * a;
+   459→        gl_FragColor = vec4(uHighlightColor.rgb * i, i);
+   460→    } else {
+   461→        // Plain — Plus blend, no intensity.
+   462→        vec3 c = uHighlightColor.rgb * a;
+   463→        gl_FragColor = vec4(c, 1.0);
+   464→    }
+   465→}
+   466→`
+   467→
+   468→/* ------------------------------------------------------------------ *
+   469→ * STROKE_MASK_COMPOSITE_FRAGMENT_SHADER — Canvas2D stroke mask approach.
+   470→ *
+   471→ * Samples a stroke mask texture generated by Canvas2D ctx.stroke()
+   472→ * (browser-native Skia: exact Bezier tessellation + hardware coverage AA).
+   473→ * The mask is element-local (small, element size + margin).
+   474→ *
+   475→ * Composite: strokeMask × intensity × color, Plus/SrcOver blend.
+   476→ * ------------------------------------------------------------------ */
+   477→export const STROKE_MASK_COMPOSITE_FRAGMENT_SHADER = /* glsl */ `
+   478→precision highp float;
+   479→
+   480→uniform vec2  uCanvasSize;
+   481→uniform vec2  uOffset;
+   482→uniform vec2  uSize;
+   483→uniform vec4  uCornerRadii;
+   484→uniform sampler2D uStrokeMask;
+   485→uniform vec2  uMaskOffset;
+   486→uniform vec2  uMaskSize;
+   487→uniform vec4  uHighlightColor;
+   488→uniform float uHighlightAngle;
+   489→uniform float uHighlightFalloff;
+   490→uniform float uHighlightAlpha;
+   491→uniform float uHighlightMode;
+   492→uniform vec2  uOriginalSize;
+   493→uniform float uOriginalCornerRadius;
+   494→uniform vec2  uLayerScale;
+   495→uniform float uElementRotation;
+   496→
+   497→${SDF_GLSL}
+   498→
+   499→void main() {
+   500→    vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
+   501→
+   502→    // Map screen coord → element-local ORIGINAL space (un-scale, un-rotate).
+   503→    // The stroke mask is drawn in original space (origSizeX × origSizeY + margin).
+   504→    // elementCenter is the same in scaled and original space (scaling is around center).
+   505→    vec2 elementCenter = uOffset + uSize * 0.5;
+   506→    vec2 centeredScreen = screenCoord - elementCenter;
+   507→    vec2 layerScale = max(uLayerScale, vec2(1e-4));
+   508→    vec2 centeredOrig = centeredScreen / layerScale;
+   509→    vec2 centeredOrigRot = rotateBy(centeredOrig, -uElementRotation);
+   510→
+   511→    // Mask UV: map original-space coord → mask texture UV.
+   512→    // The mask was drawn with translate(margin, margin), so mask (0,0) =
+   513→    // element-local (-margin). Element-local coord 0..origSize maps to
+   514→    // mask UV (0+margin)/maskSize .. (origSize+margin)/maskSize.
+   515→    // uMaskOffset = margin (scalar, passed as vec2 for convenience).
+   516→    // uMaskSize = (origSize + 2*margin).
+   517→    vec2 origHalfSize = uOriginalSize * 0.5;
+   518→    vec2 maskTexCoord = centeredOrigRot + origHalfSize;  // 0..origSize (element-local)
+   519→    vec2 maskUv = (maskTexCoord + uMaskOffset) / uMaskSize;
+   520→    if (maskUv.x < 0.0 || maskUv.x > 1.0 || maskUv.y < 0.0 || maskUv.y > 1.0) discard;
+   521→    float mask = texture2D(uStrokeMask, maskUv).a;
+   522→    if (mask < 0.001) discard;
+   523→
+   524→    float origRadius = uOriginalCornerRadius;
+   525→
+   526→    float intensity;
+   527→    if (uHighlightMode < 1.5) {
+   528→        float gradRadius = min(origRadius * 1.5, min(origHalfSize.x, origHalfSize.y));
+   529→        vec2 grad = gradSdRoundedRect(centeredOrigRot, origHalfSize, gradRadius);
+   530→        vec2 normal = vec2(cos(uHighlightAngle), sin(uHighlightAngle));
+   531→        float d = dot(grad, normal);
+   532→        intensity = pow(abs(d), uHighlightFalloff);
+   533→    } else {
+   534→        intensity = 1.0;
+   535→    }
+   536→
+   537→    float a = mask * uHighlightAlpha;
+   538→    if (uHighlightMode < 0.5) {
+   539→        gl_FragColor = vec4(uHighlightColor.rgb * intensity * a, 1.0);
+   540→    } else if (uHighlightMode < 1.5) {
+   541→        float i = intensity * a;
+   542→        gl_FragColor = vec4(uHighlightColor.rgb * i, i);
+   543→    } else {
+   544→        gl_FragColor = vec4(uHighlightColor.rgb * a, 1.0);
+   545→    }
+   546→}
+   547→`
+   548→
+   549→/* ------------------------------------------------------------------ *
+   550→ * INNER_SHADOW_MASK_COMPOSITE_FRAGMENT_SHADER — Canvas2D inner shadow
+   551→ * mask composite. Samples a blurred ring mask texture generated by
+   552→ * Canvas2D (fill → destination-out → blur) and composites onto the
+   553→ * scene with SrcOver blend.
+   554→ *
+   555→ * The mask represents the inner shadow ring: the area of the shape
+   556→ * that is NOT covered by the offset shape, blurred. This creates a
+   557→ * soft shadow band inside the shape, thicker on the side opposite
+   558→ * the offset direction — faithful to InnerShadowModifier.kt.
+   559→ *
+   560→ * Composite: shadowColor * maskAlpha * shadowAlpha, SrcOver blend.
+   561→ * SDF clip ensures the shadow stays inside the shape boundary
+   562→ * (blur that leaked outside is discarded).
+   563→ * ------------------------------------------------------------------ */
+   564→export const INNER_SHADOW_MASK_COMPOSITE_FRAGMENT_SHADER = /* glsl */ `
+   565→precision highp float;
+   566→
+   567→uniform vec2  uCanvasSize;
+   568→uniform vec2  uOffset;           // element top-left in canvas px (top-left origin) — SCALED rect
+   569→uniform vec2  uSize;             // element size in canvas px — SCALED
+   570→uniform vec4  uCornerRadii;      // (topLeft, topRight, bottomRight, bottomLeft) — SCALED
+   571→uniform sampler2D uInnerShadowMask; // Canvas2D-generated blurred ring mask
+   572→uniform vec2  uMaskOffset;       // margin in device px (for UV mapping: element-local → mask UV)
+   573→uniform vec2  uMaskSize;         // total mask size in device px (w+2*margin, h+2*margin)
+   574→uniform vec3  uInnerShadowColor; // shadow color RGB
+   575→uniform float uInnerShadowAlpha; // shadow alpha
+   576→// --- ORIGINAL-SPACE SDF clip (faithful to graphicsLayer { scaleX, scaleY }) ---
+   577→uniform vec2  uOriginalSize;        // element size in px (ORIGINAL, unscaled)
+   578→uniform float uOriginalCornerRadius; // corner radius in px (ORIGINAL, unscaled)
+   579→uniform vec2  uLayerScale;          // (scaleX, scaleY) from graphicsLayer
+   580→uniform float uElementRotation;     // rotation in radians (graphicsLayer rotationZ)
+   581→
+   582→${SDF_GLSL}
+   583→
+   584→void main() {
+   585→    vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
+   586→
+   587→    // Map screen coord → element-local ORIGINAL space (un-scale, un-rotate).
+   588→    // The inner shadow mask is drawn in original space (origSize + margin).
+   589→    // elementCenter is the same in scaled and original space (scaling is
+   590→    // around center).
+   591→    vec2 elementCenter = uOffset + uSize * 0.5;
+   592→    vec2 centeredScreen = screenCoord - elementCenter;
+   593→    vec2 layerScale = max(uLayerScale, vec2(1e-4));
+   594→    vec2 centeredOrig = centeredScreen / layerScale;
+   595→    vec2 centeredOrigRot = rotateBy(centeredOrig, -uElementRotation);
+   596→
+   597→    // Clip to element shape (SDF discard for pixels outside the shape).
+   598→    // The inner shadow must stay inside the shape boundary. Blur from
+   599→    // the Canvas2D mask may leak outside; the SDF clip discards those
+   600→    // pixels — same approach as the stroke mask composite.
+   601→    vec2 origHalfSize = uOriginalSize * 0.5;
+   602→    float sd = sdShape(centeredOrigRot, origHalfSize, uOriginalCornerRadius);
+   603→    float clipAlpha = 1.0 - smoothstep(-0.5, 0.5, sd);
+   604→    if (clipAlpha < 0.001) discard;
+   605→
+   606→    // Map to mask UV: original-space coord → mask texture UV.
+   607→    // The mask was drawn with translate(margin, margin), so mask (0,0) =
+   608→    // element-local (-margin). Element-local coord 0..origSize maps to
+   609→    // mask UV (0+margin)/maskSize .. (origSize+margin)/maskSize.
+   610→    vec2 maskTexCoord = centeredOrigRot + origHalfSize;  // 0..origSize (element-local)
+   611→    vec2 maskUv = (maskTexCoord + uMaskOffset) / uMaskSize;
+   612→    if (maskUv.x < 0.0 || maskUv.x > 1.0 || maskUv.y < 0.0 || maskUv.y > 1.0) discard;
+   613→    float mask = texture2D(uInnerShadowMask, maskUv).a;
+   614→    if (mask < 0.001) discard;
+   615→
+   616→    // SrcOver composite: shadow color × mask × alpha × clip.
+   617→    // Premultiplied alpha output with gl.blendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA).
+   618→    // For black shadow (uInnerShadowColor = [0,0,0]):
+   619→    //   result.rgb = 0 * a → no color contribution (darkening)
+   620→    //   result.a = a → composites over, dimming the underlying pixel
+   621→    // For colored shadow (e.g. white for innerShadow2):
+   622→    //   result.rgb = color * a → brightens the underlying pixel
+   623→    float a = mask * uInnerShadowAlpha * clipAlpha;
+   624→    gl_FragColor = vec4(uInnerShadowColor * a, a);
+   625→}
+   626→`
+   627→

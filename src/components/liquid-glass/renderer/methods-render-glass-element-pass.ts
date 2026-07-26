@@ -80,7 +80,6 @@ export const glassElementPassMethods = {
     //   blur(8.dp * (1 - progress))       → frosted at rest, clear when pressed
     //   lens(H * progress, A * progress)  → no refraction at rest, full when pressed
     //   highlight.alpha = progress         → no edge highlight at rest
-    //   innerShadow(radius = 4.dp * progress, alpha = progress)
     // The white overlay (drawRect(White alpha = 1 - progress)) is drawn
     // in a separate pass below — alpha 1.0 at rest (solid frosted white
     // pebble) fading to 0 when pressed (revealing the glass refraction).
@@ -88,24 +87,14 @@ export const glassElementPassMethods = {
     let elRefractionAmount = el.refractionAmount
     let elBlurRadius = el.blurRadius
     let elHighlightAlpha = el.highlight ? el.highlight.alpha : 0
-    let elInnerShadowAlpha = el.innerShadow ? el.innerShadow.alpha : 0
-    let elInnerShadowRadius = el.innerShadow ? el.innerShadow.radius : 0
-    let elInnerShadowOffsetX = el.innerShadow ? el.innerShadow.offsetX : 0
-    let elInnerShadowOffsetY = el.innerShadow ? el.innerShadow.offsetY : 0
-    let elInnerShadowColor: [number, number, number] = el.innerShadow?.color ?? [0, 0, 0]
-    let elInnerShadow2Alpha = el.innerShadow2 ? el.innerShadow2.alpha : 0
-    let elInnerShadow2Radius = el.innerShadow2 ? el.innerShadow2.radius : 0
-    let elInnerShadow2OffsetX = el.innerShadow2 ? el.innerShadow2.offsetX : 0
-    let elInnerShadow2OffsetY = el.innerShadow2 ? el.innerShadow2.offsetY : 0
-    let elInnerShadow2Color: [number, number, number] = el.innerShadow2?.color ?? [1, 1, 1]
+
     let elSurfaceAlpha = el.surfaceColor[3]
-    // Bottom tab indicator: modulate refraction/blur/highlight/inner-shadow
+    // Bottom tab indicator: modulate refraction/blur/highlight
     // with pressProgress, faithful to LiquidBottomTabs.kt:
     //   lens(10dp * progress, 14dp * progress, chromaticAberration = true)
     //   highlight = Highlight.Default.copy(alpha = progress)
     //   Shadow(alpha = progress)
-    //   InnerShadow(radius = 8dp * progress, alpha = progress)
-    // At rest (progress=0): NO refraction, NO highlight, NO shadow, NO inner shadow.
+    // At rest (progress=0): NO refraction, NO highlight, NO shadow.
     // Pressed (progress=1): full lens refraction + chromatic aberration.
     if (el.isBottomTabIndicator) {
       const progress = togglePressProgress
@@ -113,15 +102,6 @@ export const glassElementPassMethods = {
       elRefractionAmount = el.refractionAmount * progress
       elBlurRadius = 0 // indicator has NO blur (original only has lens)
       elHighlightAlpha = (el.highlight?.alpha ?? 0) * progress
-      elInnerShadowAlpha = (el.innerShadow?.alpha ?? 0) * progress
-      elInnerShadowRadius = (el.innerShadow?.radius ?? 0) * progress
-      elInnerShadowOffsetX = (el.innerShadow?.offsetX ?? 0) * progress
-      elInnerShadowOffsetY = (el.innerShadow?.offsetY ?? 0) * progress
-      // Bottom tab indicator innerShadow2 also modulated by pressProgress
-      elInnerShadow2Alpha = (el.innerShadow2?.alpha ?? 0) * progress
-      elInnerShadow2Radius = (el.innerShadow2?.radius ?? 0) * progress
-      elInnerShadow2OffsetX = (el.innerShadow2?.offsetX ?? 0) * progress
-      elInnerShadow2OffsetY = (el.innerShadow2?.offsetY ?? 0) * progress
     }
     // Content scale (non-uniform, faithful to LiquidToggle.kt / LiquidSlider.kt):
     //   scale(scaleX, scaleY) { drawBackdrop() }
@@ -149,19 +129,6 @@ export const glassElementPassMethods = {
       elRefractionAmount = el.refractionAmount * progress
       elBlurRadius = 8 * (1 - progress)
       elHighlightAlpha = (el.highlight?.alpha ?? 0) * progress
-      elInnerShadowAlpha = (el.innerShadow?.alpha ?? 0) * progress
-      elInnerShadowRadius = (el.innerShadow?.radius ?? 0) * progress
-      // InnerShadow default offset = (0, radius). Since radius = 4dp*progress,
-      // the offset also scales with progress. Faithful to LiquidToggle.kt:
-      //   InnerShadow(radius = 4dp * progress, alpha = progress)
-      //   → default offset = DpOffset(0, radius) = (0, 4dp * progress)
-      elInnerShadowOffsetX = (el.innerShadow?.offsetX ?? 0) * progress
-      elInnerShadowOffsetY = (el.innerShadow?.offsetY ?? 0) * progress
-      // White inner shadow (innerShadow2): modulated the same way
-      elInnerShadow2Alpha = (el.innerShadow2?.alpha ?? 0) * progress
-      elInnerShadow2Radius = (el.innerShadow2?.radius ?? 0) * progress
-      elInnerShadow2OffsetX = (el.innerShadow2?.offsetX ?? 0) * progress
-      elInnerShadow2OffsetY = (el.innerShadow2?.offsetY ?? 0) * progress
       elSurfaceAlpha = 0
       // Faithful non-uniform content scale.
       // Toggle:  X: 2/3 → 0.75, Y: 0 → 0.75
@@ -269,10 +236,6 @@ export const glassElementPassMethods = {
       elRefractionHeight = el.refractionHeight * progress
       elRefractionAmount = el.refractionAmount * progress
       elHighlightAlpha = (el.highlight?.alpha ?? 0) * progress
-      elInnerShadowAlpha = (el.innerShadow?.alpha ?? 0) * progress
-      elInnerShadowRadius = (el.innerShadow?.radius ?? 0) * progress
-      elInnerShadowOffsetX = (el.innerShadow?.offsetX ?? 0) * progress
-      elInnerShadowOffsetY = (el.innerShadow?.offsetY ?? 0) * progress
 
       // --- CombinedBackdrop (faithful to LiquidBottomTabs.kt 指示器) ---
       // The original 指示器's backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop)
@@ -547,39 +510,6 @@ export const glassElementPassMethods = {
       gl.uniform1f(this.uEl['uHighlightMode'], 0)
       gl.uniform1f(this.uEl['uHighlightStrokeWidth'], 0)
       gl.uniform1f(this.uEl['uHighlightBlur'], 0)
-    }
-
-    if (elInnerShadowAlpha > 0.001 && elInnerShadowRadius > 0.5) {
-      gl.uniform1f(this.uEl['uInnerShadowRadius'], elInnerShadowRadius * this.dpr)
-      gl.uniform1f(this.uEl['uInnerShadowAlpha'], elInnerShadowAlpha)
-      gl.uniform2f(
-        this.uEl['uInnerShadowOffset'],
-        elInnerShadowOffsetX * this.dpr,
-        elInnerShadowOffsetY * this.dpr
-      )
-      gl.uniform3f(this.uEl['uInnerShadowColor'], elInnerShadowColor[0], elInnerShadowColor[1], elInnerShadowColor[2])
-    } else {
-      gl.uniform1f(this.uEl['uInnerShadowRadius'], 0)
-      gl.uniform1f(this.uEl['uInnerShadowAlpha'], 0)
-      gl.uniform2f(this.uEl['uInnerShadowOffset'], 0, 0)
-      gl.uniform3f(this.uEl['uInnerShadowColor'], 0, 0, 0)
-    }
-
-    // --- Inner shadow 2 (white / highlight) ---
-    if (elInnerShadow2Alpha > 0.001 && elInnerShadow2Radius > 0.5) {
-      gl.uniform1f(this.uEl['uInnerShadow2Radius'], elInnerShadow2Radius * this.dpr)
-      gl.uniform1f(this.uEl['uInnerShadow2Alpha'], elInnerShadow2Alpha)
-      gl.uniform2f(
-        this.uEl['uInnerShadow2Offset'],
-        elInnerShadow2OffsetX * this.dpr,
-        elInnerShadow2OffsetY * this.dpr
-      )
-      gl.uniform3f(this.uEl['uInnerShadow2Color'], elInnerShadow2Color[0], elInnerShadow2Color[1], elInnerShadow2Color[2])
-    } else {
-      gl.uniform1f(this.uEl['uInnerShadow2Radius'], 0)
-      gl.uniform1f(this.uEl['uInnerShadow2Alpha'], 0)
-      gl.uniform2f(this.uEl['uInnerShadow2Offset'], 0, 0)
-      gl.uniform3f(this.uEl['uInnerShadow2Color'], 1, 1, 1)
     }
 
     // --- SDF texture glass: bind sdfTexture + set SDF uniforms ---

@@ -40,14 +40,6 @@ uniform float uHighlightAlpha;
 uniform float uHighlightMode;     // 0=default, 1=ambient, 2=plain
 uniform float uHighlightStrokeWidth; // px (full stroke width, matching paint.strokeWidth)
 uniform float uHighlightBlur;     // px (BlurMaskFilter radius)
-uniform float uInnerShadowRadius;
-uniform float uInnerShadowAlpha;
-uniform vec2  uInnerShadowOffset;
-uniform vec3  uInnerShadowColor;     // rgb 0..1; defaults to (0,0,0) = black
-uniform float uInnerShadow2Radius;
-uniform float uInnerShadow2Alpha;
-uniform vec2  uInnerShadow2Offset;
-uniform vec3  uInnerShadow2Color;     // rgb 0..1; white = (1,1,1)
 // Content scale (non-uniform, faithful to LiquidToggle.kt / LiquidSlider.kt):
 //   scale(scaleX, scaleY) { drawBackdrop() }
 // Toggle: X lerp(2/3, 0.75, p), Y lerp(0, 0.75, p)

@@ -10,7 +10,7 @@ declare module './index' {
 }
 
 export const glassPostPassMethods = {
-  /** Steps 2c–2f: Press glow, white overlay, foreground, rim highlight.
+  /** Steps 2b–2f: Inner shadow, press glow, white overlay, foreground, rim highlight.
    *  These all composite on top of the glass body (already drawn to
    *  otherFbo by renderGlassElementPass). */
   renderGlassPostPasses(this: LiquidGlassRenderer, state: GlassRenderState) {
@@ -25,6 +25,208 @@ export const glassPostPassMethods = {
     const origRadius = state.origCornerRadius * this.dpr
     const layerScaleX = state.layerScaleX
     const layerScaleY = state.layerScaleY
+
+    // --- Step 2b: Inner shadow post-passes (Canvas2D ring mask approach) ---
+    // Inner shadows are drawn on the element surface, underneath the press glow.
+    // Each shadow uses a Canvas2D-generated blurred ring mask (fill shape →
+    // destination-out offset shape → blur), composited via the
+    // INNER_SHADOW_MASK_COMPOSITE_FRAGMENT_SHADER with SrcOver blend.
+    // SDF clip in the shader ensures the shadow stays inside the shape boundary.
+
+    /** Helper: draw one inner shadow post-pass (shadow1 or shadow2). */
+    const drawInnerShadowPass = (
+      shadowCfg: { radius: number; alpha: number; offsetX: number; offsetY: number; color?: [number, number, number] },
+      shadowIndex: number // 0 = innerShadow, 1 = innerShadow2
+    ) => {
+      // Progress modulation — faithful to the original inline shader:
+      //   - Toggle knobs: radius, alpha, offset all modulated by togglePressProgress
+      //   - Bottom-tab indicator: radius, alpha, offset modulated by togglePressProgress
+      //   - Other elements (magnifier): static params, no modulation
+      const progress = (el.isToggleKnob || el.isBottomTabIndicator) ? togglePressProgress : 1
+      let shadowAlpha = shadowCfg.alpha * progress * state.enterAlpha
+      let shadowRadius = shadowCfg.radius * progress
+      let shadowOffsetX = shadowCfg.offsetX * progress
+      let shadowOffsetY = shadowCfg.offsetY * progress
+
+      if (shadowAlpha <= 0.001 || shadowRadius <= 0.5) return
+
+      // Blur sigma = radius / 3 (BlurMaskFilter semantics: sigma = radius / 3)
+      const blurSigma = (shadowRadius / 3) * this.dpr  // device px
+      // Margin for blur spread + AA
+      const margin = Math.ceil(blurSigma * 3) + 2
+      // Mask dimensions in device px (origSize + 2*margin)
+      const maskW = Math.max(1, Math.ceil(origSizeX + 2 * margin))
+      const maskH = Math.max(1, Math.ceil(origSizeY + 2 * margin))
+      // Supersampling for sharper mask rasterization
+      const deviceDpr = window.devicePixelRatio || 1
+      const SS = Math.min(2, Math.max(1, Math.floor(deviceDpr / this.dpr)))
+      const canvasW = maskW * SS
+      const canvasH = maskH * SS
+      const useG2 = !!el.useContinuousSdf
+
+      // Offset in device px (already × progress)
+      const offsetXDp = shadowOffsetX * this.dpr
+      const offsetYDp = shadowOffsetY * this.dpr
+
+      const maskKey = [
+        'is',
+        shadowIndex,
+        useG2 ? 'g2' : 'rr',
+        origSizeX.toFixed(3),
+        origSizeY.toFixed(3),
+        origRadius.toFixed(3),
+        offsetXDp.toFixed(3),
+        offsetYDp.toFixed(3),
+        blurSigma.toFixed(3),
+        margin,
+        maskW,
+        maskH,
+        `ss${SS}`,
+      ].join(':')
+
+      let mask = this.innerShadowMaskCache.get(maskKey)
+      if (!mask) {
+        const canvas = document.createElement('canvas')
+        canvas.width = canvasW
+        canvas.height = canvasH
+        const ctx = canvas.getContext('2d', { alpha: true })
+        if (!ctx) throw new Error('2D canvas not supported')
+        const tex = gl.createTexture()
+        if (!tex) throw new Error('WebGL texture allocation failed')
+        mask = { tex, canvas, ctx, w: maskW, h: maskH, ready: false }
+        this.innerShadowMaskCache.set(maskKey, mask)
+
+        // Keep the cache bounded (32 entries)
+        if (this.innerShadowMaskCache.size > 32) {
+          const oldestKey = this.innerShadowMaskCache.keys().next().value as string | undefined
+          if (oldestKey && oldestKey !== maskKey) {
+            const oldest = this.innerShadowMaskCache.get(oldestKey)
+            if (oldest) gl.deleteTexture(oldest.tex)
+            this.innerShadowMaskCache.delete(oldestKey)
+          }
+        }
+      }
+
+      if (!mask.ready) {
+        // --- Generate the ring mask via Canvas2D (two-canvas approach) ---
+        // Step 1: draw hard-edge ring on a temp canvas
+        // Step 2: blur onto the output canvas via ctx.filter
+        const mCtx = mask.ctx
+        mCtx.clearRect(0, 0, canvasW, canvasH)
+        mCtx.save()
+        // Scale up for supersampling: draw in logical (1x) coordinates
+        // while the physical canvas is SS× larger.
+        mCtx.scale(SS, SS)
+
+        // --- Temp canvas for the hard-edge ring ---
+        const tempCanvas = document.createElement('canvas')
+        tempCanvas.width = canvasW
+        tempCanvas.height = canvasH
+        const tCtx = tempCanvas.getContext('2d', { alpha: true })
+        if (!tCtx) throw new Error('2D canvas not supported')
+
+        // Draw ring on temp canvas: fill shape → destination-out offset shape
+        tCtx.save()
+        tCtx.scale(SS, SS)
+        tCtx.translate(margin, margin)
+
+        // Build the path (element-local, 0..origSizeX × 0..origSizeY)
+        let path: Path2D
+        if (useG2) {
+          path = continuousCurvatureRoundedRectPath(tCtx, origSizeX, origSizeY, origRadius)
+        } else {
+          path = new Path2D()
+          const r = Math.min(origRadius, origSizeX / 2, origSizeY / 2)
+          path.moveTo(r, 0)
+          path.lineTo(origSizeX - r, 0)
+          path.arcTo(origSizeX, 0, origSizeX, r, r)
+          path.lineTo(origSizeX, origSizeY - r)
+          path.arcTo(origSizeX, origSizeY, origSizeX - r, origSizeY, r)
+          path.lineTo(r, origSizeY)
+          path.arcTo(0, origSizeY, 0, origSizeY - r, r)
+          path.lineTo(0, r)
+          path.arcTo(0, 0, r, 0, r)
+          path.closePath()
+        }
+
+        // Fill the shape with white (creates full interior)
+        tCtx.globalCompositeOperation = 'source-over'
+        tCtx.fillStyle = 'white'
+        tCtx.fill(path)
+
+        // Draw the OFFSET shape with destination-out (removes offset interior)
+        tCtx.globalCompositeOperation = 'destination-out'
+        tCtx.save()
+        tCtx.translate(offsetXDp, offsetYDp)
+        tCtx.fill(path) // same path, shifted by offset
+        tCtx.restore()
+
+        tCtx.globalCompositeOperation = 'source-over'
+        tCtx.restore()
+
+        // --- Blur the ring onto the output canvas ---
+        if (blurSigma > 0.01) {
+          mCtx.filter = `blur(${blurSigma}px)`
+        } else {
+          mCtx.filter = 'none'
+        }
+        // Draw the temp canvas onto the mask canvas (with blur)
+        mCtx.drawImage(tempCanvas, 0, 0)
+        mCtx.filter = 'none'
+        mCtx.restore()
+
+        // Upload to GPU texture
+        gl.bindTexture(gl.TEXTURE_2D, mask.tex)
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, mask.canvas)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+        mask.ready = true
+      }
+
+      // --- Composite: inner shadow mask × shadowAlpha × shadowColor → scene ---
+      gl.enable(gl.BLEND)
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+      gl.useProgram(this.innerShadowMaskCompositeProgram)
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+      gl.enableVertexAttribArray(this.aPosLocIs)
+      gl.vertexAttribPointer(this.aPosLocIs, 2, gl.FLOAT, false, 0, 0)
+
+      gl.uniform2f(this.uIs['uCanvasSize'], this.canvas.width, this.canvas.height)
+      gl.uniform2f(this.uIs['uOffset'], sx * this.dpr, sy * this.dpr)
+      gl.uniform2f(this.uIs['uSize'], sw * this.dpr, sh * this.dpr)
+      gl.uniform4f(this.uIs['uCornerRadii'], radii[0] * this.dpr, radii[1] * this.dpr, radii[2] * this.dpr, radii[3] * this.dpr)
+
+      gl.activeTexture(gl.TEXTURE0)
+      gl.bindTexture(gl.TEXTURE_2D, mask.tex)
+      gl.uniform1i(this.uIs['uInnerShadowMask'], 0)
+      // uMaskOffset/uMaskSize are in LOGICAL (1x device px) space — the
+      // physical canvas is SS× larger but the shader uses 1x coords for UV.
+      gl.uniform2f(this.uIs['uMaskOffset'], margin, margin)
+      gl.uniform2f(this.uIs['uMaskSize'], mask.w, mask.h)
+
+      // Shadow color (defaults to black [0,0,0] if not specified)
+      const color = shadowCfg.color ?? [0, 0, 0]
+      gl.uniform3f(this.uIs['uInnerShadowColor'], color[0], color[1], color[2])
+      gl.uniform1f(this.uIs['uInnerShadowAlpha'], shadowAlpha)
+
+      gl.uniform2f(this.uIs['uOriginalSize'], origSizeX, origSizeY)
+      gl.uniform1f(this.uIs['uOriginalCornerRadius'], origRadius)
+      gl.uniform2f(this.uIs['uLayerScale'], layerScaleX, layerScaleY)
+      gl.uniform1f(this.uIs['uElementRotation'], state.elementRotation)
+      gl.drawArrays(gl.TRIANGLES, 0, 6)
+    }
+
+    // Inner shadow 1 (typically dark/black, offset downward)
+    if (el.innerShadow) {
+      drawInnerShadowPass(el.innerShadow, 0)
+    }
+    // Inner shadow 2 (typically white/bright, offset upward — 3D bevel)
+    if (el.innerShadow2) {
+      drawInnerShadowPass(el.innerShadow2, 1)
+    }
 
     // --- Step 2c: Press glow (button + bottom-tab container) ---
     // Faithful to InteractiveHighlight.kt: a flat white Plus-blend overlay
