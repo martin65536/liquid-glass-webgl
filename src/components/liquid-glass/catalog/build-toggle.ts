@@ -104,8 +104,26 @@ export function buildToggle(
   const KNOB_REFRACTION_HEIGHT = 5 * DP
   const KNOB_REFRACTION_AMOUNT = -10 * DP
   const KNOB_BLUR_RADIUS = 8 * DP
-  // No highlight on the toggle knob (per user request — all knobs plain).
-  const KNOB_HIGHLIGHT: GlassHighlight | null = null
+  // Ambient highlight on toggle knob (faithful to LiquidToggle.kt):
+  //   highlight = Highlight.Ambient.copy(
+  //     width = Highlight.Ambient.width / 1.5f,   → 0.5/1.5 ≈ 0.333dp
+  //     blurRadius = Highlight.Ambient.blurRadius / 1.5f, → 0.25/1.5 ≈ 0.167dp
+  //     alpha = progress  → modulated by pressProgress in renderer
+  //   )
+  // Ambient style: color = White.copy(alpha=0.38), blendMode = SrcOver,
+  //   angle = 45°, falloff = 1.0
+  // In the original, paint.color = White.copy(alpha=0.38) → this 0.38 scales
+  // the entire highlight intensity. We bake this into highlight.alpha = 0.38;
+  // the renderer then multiplies by pressProgress for toggle knobs.
+  const KNOB_HIGHLIGHT: GlassHighlight = {
+    mode: 1, // Ambient (SrcOver blend)
+    color: [1, 1, 1], // White — AmbientStyle color
+    angle: Math.PI / 4, // 45° — AmbientHighlightShaderString default
+    falloff: 1.0,
+    alpha: 0.38, // AmbientStyle intensity=0.38; renderer modulates by pressProgress
+    widthDp: 0.5 / 1.5, // ≈ 0.333dp (Highlight.Ambient.width / 1.5)
+    blurRadiusDp: 0.25 / 1.5, // ≈ 0.167dp (Highlight.Ambient.blurRadius / 1.5)
+  }
   // Shadow(radius=4dp, color=Black.copy(alpha=0.05f))
   // Default offset = DpOffset(0, radius/6) = (0, 4/6 dp)
   const KNOB_OUTER_SHADOW = {

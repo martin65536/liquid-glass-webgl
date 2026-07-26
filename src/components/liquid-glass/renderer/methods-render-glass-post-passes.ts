@@ -50,9 +50,12 @@ export const glassPostPassMethods = {
 
       if (shadowAlpha <= 0.001 || shadowRadius <= 0.5) return
 
-      // Blur sigma = radius / 3 (BlurMaskFilter semantics: sigma = radius / 3)
-      const blurSigma = (shadowRadius / 3) * this.dpr  // device px
-      // Margin for blur spread + AA
+      // Blur sigma = radius * dpr (BlurEffect semantics: sigma = radius directly).
+      // The original InnerShadowModifier.kt uses BlurEffect(radius, radius, TileMode.Decal)
+      // where the radius parameter IS the Gaussian sigma (NOT radius/3 like BlurMaskFilter).
+      // BlurEffect wraps SkImageFilter::MakeBlur which takes sigma directly.
+      const blurSigma = shadowRadius * this.dpr  // device px — sigma = radius, not radius/3
+      // Margin for blur spread (3σ) + AA
       const margin = Math.ceil(blurSigma * 3) + 2
       // Mask dimensions in device px (origSize + 2*margin)
       const maskW = Math.max(1, Math.ceil(origSizeX + 2 * margin))

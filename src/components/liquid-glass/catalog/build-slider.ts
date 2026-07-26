@@ -120,7 +120,7 @@ export function buildSlider(
       blurRadius: 8 * DP, // frosted blur at rest (renderer modulates)
       saturation: 1.0, // NO saturation boost — slider effects block only has blur+lens
       surfaceColor: [0, 0, 0, 0],
-      highlight: null,
+      highlight: { mode: 1, color: [1, 1, 1], angle: Math.PI / 4, falloff: 1.0, alpha: 0.38, widthDp: 0.5 / 1.5, blurRadiusDp: 0.25 / 1.5 },
       outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: (4 / 6) * DP, color: [0, 0, 0] },
       innerShadow: { radius: 4 * DP, alpha: 0.15, offsetX: 0, offsetY: 4 * DP },
       chromaticAberration: true,
@@ -191,7 +191,7 @@ export function buildSlider(
       blurRadius: 8 * DP,
       saturation: 1.0, // NO saturation boost — slider effects block only has blur+lens
       surfaceColor: [0, 0, 0, 0],
-      highlight: null,
+      highlight: { mode: 1, color: [1, 1, 1], angle: Math.PI / 4, falloff: 1.0, alpha: 0.38, widthDp: 0.5 / 1.5, blurRadiusDp: 0.25 / 1.5 },
       outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: (4 / 6) * DP, color: [0, 0, 0] },
       innerShadow: { radius: 4 * DP, alpha: 0.15, offsetX: 0, offsetY: 4 * DP },
       chromaticAberration: true,

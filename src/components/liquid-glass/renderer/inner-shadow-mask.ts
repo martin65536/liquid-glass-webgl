@@ -6,13 +6,15 @@
  *   1. Fill the rounded rect shape with white (creates full interior)
  *   2. Draw the OFFSET rounded rect with globalCompositeOperation =
  *      'destination-out' (removes offset interior, leaves ring at edges)
- *   3. Apply Gaussian blur (BlurMaskFilter semantics: sigma = radius/3)
+ *   3. Apply Gaussian blur (BlurEffect semantics: sigma = radius directly.
+ *      The original uses BlurEffect(radius, radius, TileMode.Decal) on the
+ *      shadowLayer, NOT BlurMaskFilter. BlurEffect takes sigma directly.)
  *
  * Implementation uses a two-canvas approach:
  *   - Canvas A (temp): draw the hard-edge ring (fill → destination-out)
  *   - Canvas B (output): draw Canvas A with ctx.filter = 'blur(sigma px)'
  *
- * This matches the original's BlurMaskFilter which applies AFTER the
+ * This matches the original's BlurEffect (RenderEffect) which applies AFTER the
  * ring is created (not per-draw-call). The blur spreads the ring's
  * alpha outward, creating a soft shadow band at the shape's interior
  * edges. The composite shader clips the result to the shape via SDF,
@@ -112,8 +114,9 @@ function buildPath(
  *  @param radius         Device px corner radius
  *  @param offsetX        Inner shadow X offset (device px, positive = right)
  *  @param offsetY        Inner shadow Y offset (device px, positive = down)
- *  @param blurSigma      Blur sigma in device px (= innerShadow radius / 3,
- *                        matching BlurMaskFilter semantics where sigma = radius/3)
+ *  @param blurSigma      Blur sigma in device px (= innerShadow radius * dpr,
+ *                        matching BlurEffect semantics where sigma = radius directly.
+ *                        NOT radius/3 — BlurEffect takes sigma directly, unlike BlurMaskFilter.)
  *  @param margin         Device px margin around element for blur spread + AA
  *  @param useG2          If true, use G2 Bezier path. If false, standard roundRect
  */

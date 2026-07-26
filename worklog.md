@@ -166,3 +166,27 @@ Stage Summary:
 - drawImage bug fixed: 1:1 physical pixel mapping with blur(blurSigma*SS px)
 - SDF clipAlpha removed: hard discard at sd>0.5, mask handles edge transition
 - Inner shadow now aligns precisely with element shape boundary
+
+---
+Task ID: 6
+Agent: Main Agent
+Task: Fix inner shadow radius and alignment + add Ambient highlight to knobs
+
+Work Log:
+- Deep analysis of InnerShadowModifier.kt vs current Canvas2D implementation
+- Identified CRITICAL bug: blur sigma uses BlurMaskFilter semantics (radius/3) but original uses BlurEffect semantics (sigma = radius directly)
+  - Original: BlurEffect(radius, radius, TileMode.Decal) → sigma = radius
+  - Current: blurSigma = (shadowRadius / 3) * dpr → sigma = radius/3, 3x too weak!
+- Fixed blur sigma: changed from `shadowRadius / 3 * this.dpr` to `shadowRadius * this.dpr`
+- Margin calculation automatically corrected (was 3x too small for correct sigma)
+- Added Ambient highlight to toggle knob (was set to null, original has Highlight.Ambient.copy(width/1.5, blurRadius/1.5, alpha=progress))
+- Added Ambient highlight to slider knob (same as toggle)
+- Highlight parameters: mode=1 (Ambient), color=White, angle=π/4, falloff=1.0, alpha=0.38 (AmbientStyle intensity), widthDp=0.5/1.5≈0.333, blurRadiusDp=0.25/1.5≈0.167
+- Updated inner-shadow-mask.ts comments to reflect BlurEffect semantics (not BlurMaskFilter)
+- Verified: lint clean, dev server compiles, Agent Browser confirms page renders without errors
+
+Stage Summary:
+- Blur sigma fix: radius * dpr (BlurEffect semantics) instead of radius/3 * dpr (BlurMaskFilter semantics)
+- This fixes both "radius也不对" (wrong radius/blur) and "并不严丝合缝" (not fitting tightly — caused by too-thin ring from weak blur)
+- Ambient highlight added to toggle + slider knobs (was missing — original LiquidToggle.kt/LiquidSlider.kt both have it)
+- AmbientStyle intensity=0.38 baked into highlight.alpha; renderer modulates by pressProgress
