@@ -23,54 +23,32 @@ import { t, type Locale } from './i18n'
  * automatically in page.tsx.
  *
  * Animation design (when RUNNING):
- *   Every glass simultaneously morphs across 3 axes:
- *     1. SIZE (w,h) — asymmetric breathing, X/Y at different frequencies
- *     2. SCALE (elementScaleX/Y) — elastic stretch/squish overlay
- *     3. POSITION (x,y drift) — gentle orbital float around grid cell
- *   Multi-frequency sin waves + per-glass phase offsets create an
- *   organic "living grid" ripple — each glass has its own personality
- *   yet the whole grid flows coherently.
- *   Inner 4 glasses have larger amplitude (more dramatic), outer 12
- *   are subtler, creating a visual "eye" at the center.
+ *   Diagonal ripple wave: each glass pulses with a phase offset
+ *   proportional to its diagonal distance from the grid center.
+ *   The wave radiates outward → clean, rhythmic "heartbeat".
+ *   Each glass simultaneously changes w/h + scaleX/Y, but in a
+ *   coordinated way (no wriggling):
+ *     - SIZE: uniform breathing (w and h grow/shrink together)
+ *     - SCALE: volume-preserving squeeze (when scaleX stretches,
+ *       scaleY contracts) → elegant elastic deformation
+ *   Inner glasses pulse stronger, outer ones subtler.
  * ------------------------------------------------------------------ */
 
-// Per-glass X/Y phase offsets — each glass gets TWO independent phases
-// so w and h breathe at different rates → asymmetric shape morphing.
-// Arranged so diagonal neighbors share partial phase → diagonal wave.
-const PHASE_X = [
-  0.00, 0.55, 1.10, 1.65,
-  0.40, 0.95, 1.50, 2.05,
-  0.80, 1.35, 1.90, 2.45,
-  1.20, 1.75, 2.30, 2.85,
-]
-const PHASE_Y = [
-  0.30, 0.85, 1.40, 1.95,
-  0.70, 1.25, 1.80, 2.35,
-  1.10, 1.65, 2.20, 2.75,
-  1.50, 2.05, 2.60, 3.15,
-]
-// Position drift phase — slower frequency for gentle floating
-const PHASE_POS = [
-  0.00, 0.50, 1.00, 1.50,
-  0.25, 0.75, 1.25, 1.75,
-  0.50, 1.00, 1.50, 2.00,
-  0.75, 1.25, 1.75, 2.25,
-]
+// Phase offset = diagonal distance from grid center (row+col - 3)
+// Center glasses (row+col=3) pulse first, wave radiates outward.
+// Each "ring" (same diagonal distance) pulses together → clean ripple.
+function diagPhase(row: number, col: number): number {
+  return (row + col - 3) * 0.35
+}
 
 // Inner glasses: indices 5, 6, 9, 10 (center 2×2 of a 4×4 grid)
 const INNER_INDICES = new Set([5, 6, 9, 10])
 
 // Animation amplitude constants
-const INNER_SIZE_AMP = 14      // dp — inner glass W/H oscillation amplitude
-const OUTER_SIZE_AMP = 8       // dp — outer glass W/H oscillation amplitude
-const INNER_SCALE_AMP = 0.22   // inner glass scale amplitude ±22%
-const OUTER_SCALE_AMP = 0.12   // outer glass scale amplitude ±12%
-const DRIFT_AMP = 6            // dp — position drift amplitude (all glasses)
-const SIZE_FREQ_X = 1.0        // X-size frequency multiplier (relative to base angle)
-const SIZE_FREQ_Y = 0.7        // Y-size frequency (slower → asymmetric breathing)
-const SCALE_FREQ_X = 0.8       // X-scale frequency
-const SCALE_FREQ_Y = 0.6       // Y-scale frequency
-const DRIFT_FREQ = 0.4         // position drift frequency (very slow → gentle float)
+const INNER_SIZE_AMP = 12      // dp — inner glass size pulse amplitude
+const OUTER_SIZE_AMP = 6       // dp — outer glass size pulse amplitude
+const INNER_SCALE_AMP = 0.20   // inner glass squeeze amplitude ±20%
+const OUTER_SCALE_AMP = 0.10   // outer glass squeeze amplitude ±10%
 
 export function buildPerfBenchmark(
   W: number,
@@ -114,29 +92,29 @@ export function buildPerfBenchmark(
       const isInner = INNER_INDICES.has(idx)
       const sizeAmp = (isInner ? INNER_SIZE_AMP : OUTER_SIZE_AMP) * deformMul
       const scaleAmp = (isInner ? INNER_SCALE_AMP : OUTER_SCALE_AMP) * deformMul
-      const driftAmp = DRIFT_AMP * deformMul * (isInner ? 1.2 : 0.8)
 
-      // Cell center position (rest position, before drift)
+      // Cell center position — glasses stay in their grid positions (no drift)
       const cellCenterX = gridStartX + (col * (GLASS_SIZE + GAP) + GLASS_SIZE / 2) * DP
       const cellCenterY = gridStartY + (row * (GLASS_SIZE + GAP) + GLASS_SIZE / 2) * DP
 
-      // --- SIZE morphing: asymmetric w/h breathing ---
-      // X-size uses faster frequency, Y-size uses slower → organic "breathing"
-      const sizePhaseX = angle * SIZE_FREQ_X + PHASE_X[idx]
-      const sizePhaseY = angle * SIZE_FREQ_Y + PHASE_Y[idx]
-      const wDelta = sizeAmp * DP * Math.cos(sizePhaseX)
-      const hDelta = sizeAmp * DP * Math.sin(sizePhaseY)
-      const w = GLASS_SIZE * DP + wDelta
-      const h = GLASS_SIZE * DP + hDelta
+      // Diagonal phase: center pulses first, wave radiates outward
+      const phase = diagPhase(row, col)
+      const t = angle + phase
 
-      // --- POSITION drift: gentle orbital float ---
-      const posPhaseX = angle * DRIFT_FREQ + PHASE_POS[idx]
-      const posPhaseY = angle * DRIFT_FREQ * 0.8 + PHASE_POS[idx] + 0.5
-      const dx = driftAmp * DP * Math.cos(posPhaseX)
-      const dy = driftAmp * DP * Math.sin(posPhaseY)
+      // --- SIZE: uniform breathing (w and h grow together) ---
+      const breath = Math.sin(t)
+      const w = (GLASS_SIZE + sizeAmp * breath) * DP
+      const h = w  // symmetric → stays circular/pill-shaped, no wriggling
 
-      const x = cellCenterX + dx - w / 2
-      const y = cellCenterY + dy - h / 2
+      // --- SCALE: volume-preserving squeeze (cos for X, -cos for Y) ---
+      // When scaleX stretches, scaleY shrinks → elegant elastic deformation
+      // that preserves the overall "mass" feel.
+      const squeeze = Math.cos(t)
+      const scaleX = 1 + scaleAmp * squeeze
+      const scaleY = 1 - scaleAmp * squeeze  // opposite sign → volume-preserving
+
+      const x = cellCenterX - w / 2
+      const y = cellCenterY - h / 2
 
       const minDim = Math.min(w, h)
       const cornerRadius = minDim * 0.5 * state.cornerRadiusFrac
@@ -159,12 +137,9 @@ export function buildPerfBenchmark(
       glassEl.isInteractive = true
       glassEl.scroll = false
 
-      // --- SCALE morphing: elastic stretch overlay ---
-      // Independent X/Y frequencies → each axis stretches at its own rhythm
-      const scalePhaseX = angle * SCALE_FREQ_X + PHASE_X[idx]
-      const scalePhaseY = angle * SCALE_FREQ_Y + PHASE_Y[idx]
-      glassEl.elementScaleX = 1 + scaleAmp * Math.cos(scalePhaseX)
-      glassEl.elementScaleY = 1 + scaleAmp * Math.sin(scalePhaseY)
+      // --- SCALE: volume-preserving squeeze ---
+      glassEl.elementScaleX = scaleX
+      glassEl.elementScaleY = scaleY
 
       elements.push(glassEl)
     }
