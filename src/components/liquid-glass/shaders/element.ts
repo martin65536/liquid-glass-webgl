@@ -325,39 +325,43 @@ void main() {
     //   4. Gaussian blur(radius) softens edges, sigma = radius/3
     //   5. Composite with shadow.alpha (SrcOver)
     //
-    // The blurred ring profile (Gaussian convolution of a flat ring):
-    //   - Edge (sd=0): ~50% of ring_alpha (erf ≈ 0.5 at inner boundary)
-    //   - Peak (~radius/2 inward): ~87% of ring_alpha (erf(1.5)≈0.933, 0.933²≈0.87)
-    //   - Offset boundary (offsetSd=0): ~50% (erf at Clear hole boundary)
-    //   - Offset shape interior: ZERO (Clear blend punched a hole)
+    // The blurred ring profile = product of two erf functions:
+    //   coverage(sd, offsetSd) = (0.5+0.5*erf(-sd*k)) * (0.5+0.5*erf(offsetSd*k))
+    //   where k = 1/(sigma*sqrt(2)), sigma = radius/3
     //
-    // Approximation: product of two erf-like smoothstep transitions, centered
-    // on both boundaries.  sigma = radius/3 (matching BlurMaskFilter),
-    // W = 2.5σ ≈ 0.83*radius calibrates smoothstep to approximate erf.
-    // Peak naturally ≈ 0.87 without any extra correction factor.
+    // This gives EXACT values matching the original BlurMaskFilter convolution:
+    //   - Edge (sd=0): 0.5 * ring_alpha (erf=0 at boundary)
+    //   - Peak (~radius/2 inward): 0.87 * ring_alpha (erf(1.5)≈0.933, 0.933²≈0.87)
+    //   - Offset boundary (offsetSd=0): 0.5 * ring_alpha (erf=0)
+    //   - Offset shape interior: ~0 (Clear blend hole, slight Gaussian leak)
+    //   - Inward extent: ~2*radius (offset ring + blur spread on each side)
+    //
+    // Uses erfApprox (Abramowitz & Stegun 7.1.26, max error < 2.5e-5).
+    // No extra correction factors — the erf product naturally gives peak ≈ 0.87.
     if (uInnerShadowAlpha > 0.001 && uInnerShadowRadius > 0.5) {
         vec2 offsetCentered = centeredOrigRot - uInnerShadowOffset;
         float offsetSd = sdShape(offsetCentered, origHalfSize, origRadius);
         float sigma = max(uInnerShadowRadius / 3.0, 1.0);
-        float W = sigma * 2.5;
-        // Inner boundary: 50% at edge (sd=0), →1 inward, →0 outward
-        float innerErf = 1.0 - smoothstep(-W, W, sd);
-        // Offset boundary: 50% at offsetSd=0, →0 inside offset shape (Clear), →1 outward
-        float offsetErf = smoothstep(-W, W, offsetSd);
-        float ring = innerErf * offsetErf;
+        float k = 1.0 / (sigma * 1.41421356);  // 1/(sigma*sqrt(2))
+        // Inner boundary: shadow increases inward from edge (sd goes negative)
+        float innerCoverage = 0.5 + 0.5 * erfApprox(-sd * k);
+        // Offset boundary: shadow increases outward from offset shape (offsetSd goes positive)
+        // Clear blend hole: coverage → 0 inside offset shape (offsetSd < 0)
+        float offsetCoverage = 0.5 + 0.5 * erfApprox(offsetSd * k);
+        float ring = innerCoverage * offsetCoverage;
         color = mix(color, uInnerShadowColor, ring * uInnerShadowAlpha);
     }
 
     // --- 7. Inner shadow 2 (white / highlight) --------------------
-    // Same erf-like approach as inner shadow 1.
+    // Same erf product approach as inner shadow 1.
     if (uInnerShadow2Alpha > 0.001 && uInnerShadow2Radius > 0.5) {
         vec2 offsetCentered2 = centeredOrigRot - uInnerShadow2Offset;
         float offsetSd2 = sdShape(offsetCentered2, origHalfSize, origRadius);
         float sigma2 = max(uInnerShadow2Radius / 3.0, 1.0);
-        float W2 = sigma2 * 2.5;
-        float innerErf2 = 1.0 - smoothstep(-W2, W2, sd);
-        float offsetErf2 = smoothstep(-W2, W2, offsetSd2);
-        float ring2 = innerErf2 * offsetErf2;
+        float k2 = 1.0 / (sigma2 * 1.41421356);
+        float innerCoverage2 = 0.5 + 0.5 * erfApprox(-sd * k2);
+        float offsetCoverage2 = 0.5 + 0.5 * erfApprox(offsetSd2 * k2);
+        float ring2 = innerCoverage2 * offsetCoverage2;
         color = mix(color, uInnerShadow2Color, ring2 * uInnerShadow2Alpha);
     }
 

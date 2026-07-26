@@ -126,6 +126,16 @@ vec2 rotateBy(vec2 v, float angle) {
     float s = sin(angle);
     return vec2(v.x * c - v.y * s, v.x * s + v.y * c);
 }
+
+// erfApprox — error function approximation (Abramowitz & Stegun 7.1.26).
+// Max error < 2.5e-5. Used by inner shadow to model BlurMaskFilter's
+// Gaussian convolution of a ring shape. erf(x) ∈ [-1, 1].
+float erfApprox(float x) {
+    float a = abs(x);
+    float t = 1.0 / (1.0 + 0.47047 * a);
+    float y = 1.0 - (((0.3480242 * t - 0.0958798) * t + 0.7478556) * t * exp(-a * a));
+    return sign(x) * y;
+}
 `
 
 /* ------------------------------------------------------------------ *
