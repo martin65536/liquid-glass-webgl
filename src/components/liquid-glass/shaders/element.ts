@@ -319,54 +319,46 @@ void main() {
 
     // --- 6. Inner shadow 1 (black / custom color) ------------------
     // Faithful to InnerShadowModifier.kt:
-    //   1. Draw the shape outline with shadow color (Black 0.15)
-    //   2. Translate by offset (0, radius) — shadow shifts DOWN
-    //   3. Clear (BlendMode.Clear) the shape outline at the offset position
-    //      → this punches a hole, leaving only the ring (top edge) visible
-    //   4. Blur the whole layer by radius
-    //   5. Composite over content with shadow.alpha (SrcOver)
+    //   1. Draw shape filled with shadow color (Black alpha=0.15)
+    //   2. Translate by offset (0, radius) — shifts DOWN
+    //   3. Clear the shape at offset position → ring (top edge) only
+    //   4. Gaussian blur(radius) softens edges, sigma = radius/3
+    //   5. Composite with shadow.alpha (SrcOver)
     //
-    // The result: a band at the inner edge opposite to the offset direction.
-    // When offset is (0, +radius) → dark band at the TOP (recessed look).
-    // When offset is (0, -radius) → bright band at the BOTTOM (lit look).
+    // The original's convolution gives this profile at the inner edge:
+    //   - Edge (sd=0): ~50% of ring_alpha (blur smears it — erf ≈ 0.5)
+    //   - Peak (~radius/2 inward): ~87% of ring_alpha
+    //   - Offset shape interior: ZERO (Clear blend punched a hole)
     //
-    // Approximation: product of two Gaussians centered at each ring edge.
-    //   ring = exp(-sd²/(2σ²)) × exp(-offsetSd²/(2σ²))
-    //
-    // This naturally creates a bell-curve profile centered at the ring midpoint:
-    //   - At the inner edge (sd=0): ≈ 0.6 (VISIBLE at edge — not zero)
-    //   - Peak at ring midpoint: ≈ 0.78 (moderate — no flat 1.0 plateau)
-    //   - Wide spread ≈ 2×radius inward
-    //   - Concentrates at the edge opposite to offset direction
-    //
-    // Previous smoothstep ring approach had two fatal flaws:
-    //   1. (1-smoothstep(-W,0,sd)) = 0 at sd=0 → shadow invisible at edge
-    //   2. Ring plateau = 1.0 → "颜色太重" (too heavy)
-    //   These are STRUCTURAL — no aaW value can fix both simultaneously.
+    // Our single-pass approximation uses three factors:
+    //   1. (1-smoothstep(-W,+W,sd)) — 50% at edge, 100% inward. This matches
+    //      the original's erf-like edge transition from the Gaussian blur.
+    //      W = radius ≈ 3σ gives transition width matching blur spread.
+    //   2. smoothstep(0, W, offsetSd) — ZERO inside offset shape (faithful to
+    //      Clear blend), transitions to 1 outside. Prevents shadow from
+    //      appearing on the wrong edge (e.g. bottom when offset is down).
+    //   3. ×0.87 — peak reduction from the Gaussian blur. The original's blur
+    //      spills some alpha outside the ring, reducing peak from 1.0 to ~0.87.
+    //      This prevents the "颜色太重" flat plateau at full intensity.
     if (uInnerShadowAlpha > 0.001 && uInnerShadowRadius > 0.5) {
         vec2 offsetCentered = centeredOrigRot - uInnerShadowOffset;
         float offsetSd = sdShape(offsetCentered, origHalfSize, origRadius);
-        float sigma = max(uInnerShadowRadius, 1.0);
-        float innerGaussian = exp(-sd * sd / (2.0 * sigma * sigma));
-        float offsetGaussian = exp(-offsetSd * offsetSd / (2.0 * sigma * sigma));
-        float ring = innerGaussian * offsetGaussian;
-        // SrcOver blend: mix current color with shadow color by ring * alpha.
+        float aaW = max(2.0, uInnerShadowRadius);
+        float innerFactor = 1.0 - smoothstep(-aaW, aaW, sd);
+        float offsetMask = smoothstep(0.0, aaW, offsetSd);
+        float ring = innerFactor * offsetMask * 0.87;
         color = mix(color, uInnerShadowColor, ring * uInnerShadowAlpha);
     }
 
     // --- 7. Inner shadow 2 (white / highlight) --------------------
-    // Second inner shadow for 3D bevel effect. Typically a WHITE inner shadow
-    // with offset (0, -radius) → bright band at the bottom edge, paired with
-    // the black inner shadow's dark band at the top edge. This makes
-    // toggle/slider knobs look 3D/立体.
-    // Same product-of-Gaussians approach as inner shadow 1.
+    // Same centered-smoothstep + offset-mask + 0.87 peak reduction approach.
     if (uInnerShadow2Alpha > 0.001 && uInnerShadow2Radius > 0.5) {
         vec2 offsetCentered2 = centeredOrigRot - uInnerShadow2Offset;
         float offsetSd2 = sdShape(offsetCentered2, origHalfSize, origRadius);
-        float sigma2 = max(uInnerShadow2Radius, 1.0);
-        float innerGaussian2 = exp(-sd * sd / (2.0 * sigma2 * sigma2));
-        float offsetGaussian2 = exp(-offsetSd2 * offsetSd2 / (2.0 * sigma2 * sigma2));
-        float ring2 = innerGaussian2 * offsetGaussian2;
+        float aaW2 = max(2.0, uInnerShadow2Radius);
+        float innerFactor2 = 1.0 - smoothstep(-aaW2, aaW2, sd);
+        float offsetMask2 = smoothstep(0.0, aaW2, offsetSd2);
+        float ring2 = innerFactor2 * offsetMask2 * 0.87;
         color = mix(color, uInnerShadow2Color, ring2 * uInnerShadow2Alpha);
     }
 
