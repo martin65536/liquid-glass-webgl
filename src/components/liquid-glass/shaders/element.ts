@@ -317,53 +317,24 @@ void main() {
     // element's edge AA, which is wrong — the highlight layer is composited
     // on top with its own blend mode.
 
-    // --- 6. Inner shadow 1 (black / custom color) ------------------
-    // Faithful to InnerShadowModifier.kt:
-    //   1. Draw shape filled with shadow color (Black alpha=0.15)
-    //   2. Translate by offset (0, radius) — shifts DOWN
-    //   3. Clear the shape at offset position → ring (top edge) only
-    //   4. Gaussian blur(radius) softens edges, sigma = radius/3
-    //   5. Composite with shadow.alpha (SrcOver)
-    //
-    // The blurred ring profile = product of two erf functions:
-    //   coverage(sd, offsetSd) = (0.5+0.5*erf(-sd*k)) * (0.5+0.5*erf(offsetSd*k))
-    //   where k = 1/(sigma*sqrt(2)), sigma = radius/3
-    //
-    // This gives EXACT values matching the original BlurMaskFilter convolution:
-    //   - Edge (sd=0): 0.5 * ring_alpha (erf=0 at boundary)
-    //   - Peak (~radius/2 inward): 0.87 * ring_alpha (erf(1.5)≈0.933, 0.933²≈0.87)
-    //   - Offset boundary (offsetSd=0): 0.5 * ring_alpha (erf=0)
-    //   - Offset shape interior: ~0 (Clear blend hole, slight Gaussian leak)
-    //   - Inward extent: ~2*radius (offset ring + blur spread on each side)
-    //
-    // Uses erfApprox (Abramowitz & Stegun 7.1.26, max error < 2.5e-5).
-    // No extra correction factors — the erf product naturally gives peak ≈ 0.87.
-    if (uInnerShadowAlpha > 0.001 && uInnerShadowRadius > 0.5) {
-        vec2 offsetCentered = centeredOrigRot - uInnerShadowOffset;
-        float offsetSd = sdShape(offsetCentered, origHalfSize, origRadius);
-        float sigma = max(uInnerShadowRadius / 3.0, 1.0);
-        float k = 1.0 / (sigma * 1.41421356);  // 1/(sigma*sqrt(2))
-        // Inner boundary: shadow increases inward from edge (sd goes negative)
-        float innerCoverage = 0.5 + 0.5 * erfApprox(-sd * k);
-        // Offset boundary: shadow increases outward from offset shape (offsetSd goes positive)
-        // Clear blend hole: coverage → 0 inside offset shape (offsetSd < 0)
-        float offsetCoverage = 0.5 + 0.5 * erfApprox(offsetSd * k);
-        float ring = innerCoverage * offsetCoverage;
-        color = mix(color, uInnerShadowColor, ring * uInnerShadowAlpha);
-    }
+    // --- Inner shadow 1 & 2 ----------------------------------------
+    // InnerShadowModifier.kt: fill ring → offset → Clear → blur(radius)
+    // Mathematically: blurred ring = erf(-sd*k) × erf(offsetSd*k)
+    // where k = 1/(σ√2), σ = radius/3 (BlurMaskFilter sigma)
+    // Peak ≈ 0.87, edge ≈ 0.5, extent ≈ 2×radius — matches original exactly.
+    #define INNER_SHADOW(ALPHA, RADIUS, OFFSET, COL) \
+        if (ALPHA > 0.001 && RADIUS > 0.5) { \
+            float k = 1.0 / (max(RADIUS / 3.0, 1.0) * 1.4142); \
+            float os = sdShape(centeredOrigRot - OFFSET, origHalfSize, origRadius); \
+            float ring = (0.5 + 0.5 * erfApprox(-sd * k)) \
+                       * (0.5 + 0.5 * erfApprox(os * k)); \
+            color = mix(color, COL, ring * ALPHA); \
+        }
 
-    // --- 7. Inner shadow 2 (white / highlight) --------------------
-    // Same erf product approach as inner shadow 1.
-    if (uInnerShadow2Alpha > 0.001 && uInnerShadow2Radius > 0.5) {
-        vec2 offsetCentered2 = centeredOrigRot - uInnerShadow2Offset;
-        float offsetSd2 = sdShape(offsetCentered2, origHalfSize, origRadius);
-        float sigma2 = max(uInnerShadow2Radius / 3.0, 1.0);
-        float k2 = 1.0 / (sigma2 * 1.41421356);
-        float innerCoverage2 = 0.5 + 0.5 * erfApprox(-sd * k2);
-        float offsetCoverage2 = 0.5 + 0.5 * erfApprox(offsetSd2 * k2);
-        float ring2 = innerCoverage2 * offsetCoverage2;
-        color = mix(color, uInnerShadow2Color, ring2 * uInnerShadow2Alpha);
-    }
+    INNER_SHADOW(uInnerShadowAlpha, uInnerShadowRadius, uInnerShadowOffset, uInnerShadowColor)
+    INNER_SHADOW(uInnerShadow2Alpha, uInnerShadow2Radius, uInnerShadow2Offset, uInnerShadow2Color)
+
+    #undef INNER_SHADOW
 
     // --- 8. Edge anti-aliasing -----------------------------------
     // edgeAlpha was computed earlier (mask mode: direct coverage, analytic: smoothstep).
