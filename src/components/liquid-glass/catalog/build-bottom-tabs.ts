@@ -220,9 +220,9 @@ export function buildBottomTabs(W: number, H: number, onBack: () => void, state:
         // The renderer modulates this by state.togglePressProgress in renderGlassShadowPass.
         outerShadow: { ...DEFAULT_SHADOW },
         // InnerShadow(radius=8dp*progress, alpha=progress) — offset=(0, radius).
-        // Kotlin default color.alpha=0.15, but visually too faint in our WebGL pipeline.
-        // Increased to 0.2 for better visibility (0.3 was too heavy per user feedback).
-        innerShadow: { radius: 8 * DP, alpha: 0.2, offsetX: 0, offsetY: 8 * DP },
+        // alpha=0.3: previous 0.15/0.2 were too faint; 0.3 was previously "too heavy"
+        // but that was due to a radius/sigma bug, now fixed.
+        innerShadow: { radius: 8 * DP, alpha: 0.3, offsetX: 0, offsetY: 8 * DP },
         chromaticAberration: true,
       }
     )
