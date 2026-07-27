@@ -245,7 +245,7 @@ export function makeLiquidSlider(
       surfaceColor: [0, 0, 0, 0],
       highlight: null,
       outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: (4 / 6) * DP, color: [0, 0, 0] },
-      innerShadow: { radius: 4 * DP, alpha: 0.4, offsetX: 0, offsetY: 4 * DP }, // Boosted from Kotlin's 0.15 for visibility
+      innerShadow: { radius: 4 * DP, alpha: 0.15, offsetX: 0, offsetY: 4 * DP }, // InnerShadow default: Black.copy(alpha=0.15f)
       chromaticAberration: true,
     },
     scroll

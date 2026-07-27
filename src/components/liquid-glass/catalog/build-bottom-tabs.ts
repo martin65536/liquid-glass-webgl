@@ -213,12 +213,13 @@ export function buildBottomTabs(W: number, H: number, onBack: () => void, state:
         // Faithful to original: highlight = Highlight.Default.copy(alpha=progress).
         // alpha=0 at rest (no edge highlight), max=0.5 when pressed (Default style alpha).
         highlight: { ...DEFAULT_HIGHLIGHT, alpha: 0.5 },
-        // Shadow(alpha=progress) — faithful to Shadow.Default:
-        //   radius=24dp, offset=(0, radius/6=4dp), color=Black(0.1), alpha=1*progress.
-        // Renderer modulates alpha by pressProgress.
-        outerShadow: { radius: 24 * DP, alpha: 0.1, offsetX: 0, offsetY: (24 / 6) * DP, color: [0, 0, 0] },
+        // NO outer shadow — the original indicator does NOT have Shadow.
+        // (The Kotlin code has Shadow(alpha=progress), but on the original Android
+        // app the indicator has no visible drop shadow. Removing to match the
+        // original visual appearance.)
         // InnerShadow(radius=8dp*progress, alpha=progress) — color=Black(0.15), offset=(0, radius).
-        innerShadow: { radius: 8 * DP, alpha: 0.4, offsetX: 0, offsetY: 8 * DP }, // Boosted from Kotlin's 0.15 for visibility
+        // Faithful to InnerShadow default: color=Black.copy(alpha=0.15f).
+        innerShadow: { radius: 8 * DP, alpha: 0.15, offsetX: 0, offsetY: 8 * DP },
         chromaticAberration: true,
       }
     )

@@ -425,14 +425,10 @@ export const glassRenderMethods = {
     const gl = this.gl
     const { el, sx, sy, sw, sh, radii } = state
     if (!el.outerShadow || el.outerShadow.alpha <= 0.001 || el.outerShadow.radius <= 0.5) return
-    // Bottom tab indicator: white outer glow modulated by pressProgress
-    // (faithful to LiquidBottomTabs.kt: Shadow(alpha=progress)). At rest no
-    // glow; pressed → full white halo.
+    // Note: Bottom tab indicator no longer has outerShadow — removed to match
+    // the original visual appearance (the original Android app shows no visible
+    // drop shadow on the indicator capsule).
     let shadowAlpha = el.outerShadow.alpha
-    if (el.isBottomTabIndicator) {
-      shadowAlpha = el.outerShadow.alpha * state.togglePressProgress
-      if (shadowAlpha <= 0.001) return
-    }
     gl.useProgram(this.shadowProgram)
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
     gl.enableVertexAttribArray(this.aPosLocSh)

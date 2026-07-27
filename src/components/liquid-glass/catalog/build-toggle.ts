@@ -142,7 +142,7 @@ export function buildToggle(
   // Default offset = DpOffset(0, radius) = (0, 4dp*progress) — renderer modulates by progress
   const KNOB_INNER_SHADOW = {
     radius: 4 * DP,
-    alpha: 0.4, // Boosted from Kotlin's 0.15 for visibility; renderer multiplies by progress
+    alpha: 0.15, // InnerShadow default color alpha = Black.copy(alpha=0.15f); renderer multiplies by progress
     offsetX: 0,
     offsetY: 4 * DP, // default offset = radius; renderer modulates by progress
     color: [0, 0, 0] as [number, number, number], // Black
