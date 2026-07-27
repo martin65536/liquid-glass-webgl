@@ -318,6 +318,33 @@ vec4 sampleIndicatorBackdrop(vec2 canvasPx, float radius) {
     float smoothstepMask = 1.0 - smoothstep(-indicatorAaRadius, indicatorAaRadius, capsuleSd);
     float mask = mix(1.0, smoothstepMask, uIndicatorPressProgress);
 
+    // 2b. 内层背景板 shadow (Shadow.Default) — faithful to LiquidBottomTabs.kt
+    //     hidden Row's drawBackdrop: shadow defaults to Shadow.Default when not specified.
+    //     Shadow.Default: radius=24dp, offset=DpOffset(0, radius/6=4dp), color=Black@0.1, alpha=1.
+    //     In the CombinedBackdrop, the shadow is composited between wallpaper (outer)
+    //     and glass body (inner). Through the semi-transparent glass body, this shadow
+    //     bleeds through near the capsule edges — most visible near the top edge where
+    //     the shadow offset (0, +4dp) makes those pixels "outside" the shadow capsule
+    //     (shadow capsule top = original top + 4dp, so original top is outside it).
+    //     Implementation mirrors ShadowModifier.kt:
+    //       1. Shift capsule by shadow offset → shadow shape SDF
+    //       2. Gaussian falloff (MaskFilter.makeBlur sigma = radius directly)
+    //       3. Mask inside original capsule (ShadowMaskPaint BlendMode.Clear)
+    //       4. Darken wallpaper by Black@0.1 × shadowIntensity
+    float shadowOffsetYpx = (24.0 / 6.0) * uDpr; // DpOffset(0, radius/6) in device px
+    vec2 shadowLocal = capsuleLocal - vec2(0.0, shadowOffsetYpx);
+    vec2 shadowCq2 = abs(shadowLocal) - capsuleHalf + vec2(cr);
+    float shadowSd = length(max(shadowCq2, vec2(0.0))) + min(max(shadowCq2.x, shadowCq2.y), 0.0) - cr;
+    // Shadow intensity: Gaussian falloff from shadow shape edge.
+    // MaskFilter.makeBlur(FilterBlurMode.NORMAL, radius) takes sigma = radius directly.
+    float shadowSigma = max(24.0 * uDpr, 1.0); // sigma = 24dp in device px
+    float shadowIntensity = 0.5 * exp(-shadowSd * shadowSd / (2.0 * shadowSigma * shadowSigma));
+    // Mask shadow inside the original capsule (ShadowMaskPaint BlendMode.Clear
+    // removes shadow where the shape itself is drawn, so shadow only appears outside).
+    shadowIntensity *= smoothstep(-1.0, 1.0, capsuleSd);
+    // Darken wallpaper by Black@0.1 × shadowIntensity (SrcOver compositing).
+    wp.rgb *= (1.0 - shadowIntensity * 0.1);
+
     // 3. Sample the GLASS LAYER FBO (wallpaper + container glass, NO tab text).
     //    This is a snapshot taken after the container glass is rendered but
     //    before tab-content is drawn — so it has no white/black text to bleed
