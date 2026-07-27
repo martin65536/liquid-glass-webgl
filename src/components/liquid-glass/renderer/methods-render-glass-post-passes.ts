@@ -3,6 +3,7 @@ import type { GlassRenderState } from './methods-render-glass'
 import { DP } from './spring'
 import { generateInnerShadowMask, type InnerShadowMaskParams } from './inner-shadow-mask'
 import { buildMaskKey, getOrCreateMaskEntry, uploadMaskTexture } from './inner-shadow-cache'
+import { continuousCurvatureRoundedRectPath } from './continuous-curve'
 
 declare module './index' {
   interface LiquidGlassRenderer {
