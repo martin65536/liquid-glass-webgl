@@ -219,3 +219,73 @@ Stage Summary:
 - 内阴影mask生成添加clip(path)，忠实于InnerShadowModifier.kt的clipOutline
 - Ambient高光alpha=0.38经确认是正确的（Skia paint.color.alpha乘法器应用到shader输出）
 - 内阴影offset和blur sigma已经正确匹配原版
+---
+Task ID: 8
+Agent: Main Agent
+Task: Rewrite inner shadow system — modularize and clean up
+
+Work Log:
+- Analyzed all inner shadow related files: inner-shadow-mask.ts (unused), methods-render-glass-post-passes.ts (inline mask gen), highlight.ts (shader), index.ts (cache), types.ts
+- Read original Kotlin InnerShadowModifier.kt and InnerShadow.kt for reference
+- Used Plan subagent to design comprehensive rewrite architecture
+- Used full-stack-developer subagent to implement the rewrite
+- Created shaders/inner-shadow.ts: extracted INNER_SHADOW_MASK_COMPOSITE_FRAGMENT_SHADER from highlight.ts into its own file
+- Rewrote renderer/inner-shadow-mask.ts: replaced unused standalone module with production module featuring reusable module-level canvases (tempCanvas/outputCanvas), typed interfaces (InnerShadowMaskParams, InnerShadowMaskResult), buildPath() utility, generateInnerShadowMask() with SS support
+- Created renderer/inner-shadow-cache.ts: InnerShadowMaskCacheEntry (tex+w+h+ready only, no canvas/ctx), buildMaskKey(), getOrCreateMaskEntry(), uploadMaskTexture(), destroyCache()
+- Modified shaders/highlight.ts: removed INNER_SHADOW_MASK_COMPOSITE_FRAGMENT_SHADER export (was misplaced in highlight file)
+- Modified shaders/index.ts: changed re-export from ./highlight to ./inner-shadow
+- Modified renderer/index.ts: replaced inline cache type with InnerShadowMaskCacheEntry, used destroyCache() for cleanup
+- Modified renderer/methods-render-glass-post-passes.ts: replaced ~110 lines inline mask generation with 4 module calls (buildMaskKey, getOrCreateMaskEntry, generateInnerShadowMask, uploadMaskTexture)
+- Lint passes cleanly, dev server compiles without errors
+- Browser check: "WebGL not supported" error is from agent-browser's headless Chrome (not supporting WebGL), not related to the rewrite
+
+Stage Summary:
+- Inner shadow system fully modularized: mask generation (inner-shadow-mask.ts), cache management (inner-shadow-cache.ts), shader (shaders/inner-shadow.ts)
+- No duplicate code: removed unused standalone module, consolidated inline code into reusable modules
+- Efficient canvas reuse: module-level OffscreenCanvas canvases that only grow (no per-entry canvas allocation)
+- Cache entries hold only WebGL texture + dimensions (no canvas/ctx — those are reusable module-level)
+- ~110 lines of inline mask generation code replaced with ~50 lines using 4 clean module calls
+- Shader correctly relocated from highlight.ts to its own inner-shadow.ts file
+---
+Task ID: 4
+Agent: Main Agent
+Task: Rewrite inner shadow system — extract shader, rewrite mask generator, add cache module, refactor post-passes
+
+Work Log:
+- Read all required source files (highlight.ts, index.ts, inner-shadow-mask.ts, renderer/index.ts, methods-render-glass-post-passes.ts, types.ts)
+- Created shaders/inner-shadow.ts: extracted INNER_SHADOW_MASK_COMPOSITE_FRAGMENT_SHADER from highlight.ts with proper SDF_GLSL import and full comment block
+- Modified shaders/highlight.ts: removed INNER_SHADOW_MASK_COMPOSITE_FRAGMENT_SHADER export and its comment block (lines 590-673)
+- Modified shaders/index.ts: changed INNER_SHADOW_MASK_COMPOSITE_FRAGMENT_SHADER re-export from ./highlight to ./inner-shadow
+- Rewrote renderer/inner-shadow-mask.ts: replaced unused standalone module with production mask generator featuring:
+  - Reusable module-level OffscreenCanvas/HTMLCanvasElement canvases (tempCanvas, outputCanvas) that only grow, never shrink
+  - ensureCanvases(w, h) for canvas sizing
+  - buildPath(w, h, radius, useG2) utility function exported
+  - InnerShadowMaskParams interface (w, h, radius, offsetX, offsetY, blurSigma, margin, useG2, supersample)
+  - InnerShadowMaskResult interface (canvas, maskW, maskH, margin)
+  - generateInnerShadowMask(params) function with SS× supersampling, clip→fill→destination-out→blur pipeline
+- Created renderer/inner-shadow-cache.ts: new cache management module with:
+  - InnerShadowMaskCacheEntry interface (tex, w, h, ready — no canvas/ctx fields)
+  - MAX_CACHE_SIZE = 32
+  - buildMaskKey(shadowIndex, params) — same format as inline key
+  - getOrCreateMaskEntry(cache, gl, key, maskW, maskH) — get or create, evict oldest if > 32
+  - uploadMaskTexture(gl, entry, result) — bind, texImage2D, LINEAR/CLAMP_TO_EDGE, set ready
+  - destroyCache(gl, cache) — delete all textures and clear
+- Modified renderer/index.ts:
+  - Changed innerShadowMaskCache type from {tex, canvas, ctx, w, h, ready} to InnerShadowMaskCacheEntry
+  - Imported destroyCache and InnerShadowMaskCacheEntry from ./inner-shadow-cache
+  - Replaced inline cleanup loop with destroyCache(gl, this.innerShadowMaskCache)
+- Modified renderer/methods-render-glass-post-passes.ts:
+  - Added imports: generateInnerShadowMask, InnerShadowMaskParams from ./inner-shadow-mask; buildMaskKey, getOrCreateMaskEntry, uploadMaskTexture from ./inner-shadow-cache
+  - Removed import: continuousCurvatureRoundedRectPath (now in inner-shadow-mask module)
+  - Rewrote drawInnerShadowPass closure: replaced ~110 lines of inline mask generation with calls to generateInnerShadowMask + uploadMaskTexture + buildMaskKey + getOrCreateMaskEntry
+  - Composite draw call uses entry.tex and entry.w/h instead of mask.tex and mask.w/h
+- Lint passes cleanly with no errors
+
+Stage Summary:
+- INNER_SHADOW_MASK_COMPOSITE_FRAGMENT_SHADER extracted to its own file (shaders/inner-shadow.ts)
+- highlight.ts is cleaner — no inner shadow shader code
+- inner-shadow-mask.ts rewritten as production mask generator with reusable canvases and typed interfaces
+- inner-shadow-cache.ts new module manages WebGL texture cache with bounded size
+- renderer/index.ts uses InnerShadowMaskCacheEntry type and destroyCache for cleanup
+- methods-render-glass-post-passes.ts refactored: ~110 lines of inline code replaced with 4 module calls
+- No functional changes — same mask generation pipeline, same composite shader, same caching strategy

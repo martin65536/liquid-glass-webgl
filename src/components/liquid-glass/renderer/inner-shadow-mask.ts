@@ -11,7 +11,8 @@
  *      The original uses BlurEffect(radius, radius, TileMode.Decal) on the
  *      shadowLayer, NOT BlurMaskFilter. BlurEffect takes sigma directly.)
  *
- * Implementation uses a two-canvas approach:
+ * Implementation uses a two-canvas approach with reusable module-level
+ * canvases that only grow (never shrink) for efficient mask generation:
  *   - Canvas A (temp): draw the hard-edge ring (fill → destination-out)
  *   - Canvas B (output): draw Canvas A with ctx.filter = 'blur(sigma px)'
  *
@@ -30,51 +31,56 @@
 
 import { continuousCurvatureRoundedRectPath } from './continuous-curve'
 
-// Offscreen canvases for inner shadow mask rasterization. Reused across
-// elements, resized as needed. Two canvases: temp (ring without blur)
-// and output (ring with blur applied).
+// --- Reusable module-level canvases (only grow, never shrink) ---
 let tempCanvas: OffscreenCanvas | HTMLCanvasElement | null = null
 let tempCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null
 let outputCanvas: OffscreenCanvas | HTMLCanvasElement | null = null
 let outputCtx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null = null
 
+/** Ensure module-level canvases are at least (w × h). Only grows, never shrinks. */
 function ensureCanvases(w: number, h: number) {
-  const needsResize = !outputCanvas ||
-    (outputCanvas as HTMLCanvasElement).width < w ||
-    (outputCanvas as HTMLCanvasElement).height < h
+  const currentW = outputCanvas ? (outputCanvas as HTMLCanvasElement).width : 0
+  const currentH = outputCanvas ? (outputCanvas as HTMLCanvasElement).height : 0
 
-  if (!needsResize) return
+  if (currentW >= w && currentH >= h) return // already big enough
+
+  // Use the larger of current and requested dimensions (only grow)
+  const newW = Math.max(currentW, w)
+  const newH = Math.max(currentH, h)
 
   if (typeof OffscreenCanvas !== 'undefined') {
-    tempCanvas = new OffscreenCanvas(w, h)
+    tempCanvas = new OffscreenCanvas(newW, newH)
     tempCtx = (tempCanvas as OffscreenCanvas).getContext('2d', { alpha: true })!
-    outputCanvas = new OffscreenCanvas(w, h)
+    outputCanvas = new OffscreenCanvas(newW, newH)
     outputCtx = (outputCanvas as OffscreenCanvas).getContext('2d', { alpha: true })!
   } else {
     tempCanvas = document.createElement('canvas')
-    ;(tempCanvas as HTMLCanvasElement).width = w
-    ;(tempCanvas as HTMLCanvasElement).height = h
+    ;(tempCanvas as HTMLCanvasElement).width = newW
+    ;(tempCanvas as HTMLCanvasElement).height = newH
     tempCtx = (tempCanvas as HTMLCanvasElement).getContext('2d', { alpha: true })!
 
     outputCanvas = document.createElement('canvas')
-    ;(outputCanvas as HTMLCanvasElement).width = w
-    ;(outputCanvas as HTMLCanvasElement).height = h
+    ;(outputCanvas as HTMLCanvasElement).width = newW
+    ;(outputCanvas as HTMLCanvasElement).height = newH
     outputCtx = (outputCanvas as HTMLCanvasElement).getContext('2d', { alpha: true })!
   }
 }
 
 /** Build a rounded rect path (in element-local coords, 0..w × 0..h).
- *  Same path construction as stroke-mask.ts — useG2 → continuous curve,
- *  else standard rounded rect. */
-function buildPath(
-  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+ *  useG2 → continuous curvature (G2 Bezier), else standard rounded rect. */
+export function buildPath(
   w: number,
   h: number,
   radius: number,
   useG2: boolean
 ): Path2D {
   if (useG2) {
-    return continuousCurvatureRoundedRectPath(ctx, w, h, radius)
+    // continuousCurvatureRoundedRectPath needs a context for bezier fitting,
+    // but we only need the Path2D. Create a temp context-less path.
+    // The function takes ctx for measurement but returns Path2D.
+    // Use a dummy canvas if we don't have a live context.
+    const dummyCtx = tempCtx || document.createElement('canvas').getContext('2d')!
+    return continuousCurvatureRoundedRectPath(dummyCtx, w, h, radius)
   }
 
   // Standard rounded rect (circular arc) via Path2D
@@ -98,6 +104,42 @@ function buildPath(
   return path
 }
 
+/** Parameters for inner shadow mask generation. All in DEVICE pixels (× dpr). */
+export interface InnerShadowMaskParams {
+  /** Device px width of the element (original, unscaled) */
+  w: number
+  /** Device px height */
+  h: number
+  /** Device px corner radius */
+  radius: number
+  /** Inner shadow X offset (device px, positive = right) */
+  offsetX: number
+  /** Inner shadow Y offset (device px, positive = down) */
+  offsetY: number
+  /** Blur sigma in device px (= innerShadow radius * dpr,
+   *  matching BlurEffect semantics where sigma = radius directly.
+   *  NOT radius/3 — BlurEffect takes sigma directly, unlike BlurMaskFilter.) */
+  blurSigma: number
+  /** Device px margin around element for blur spread + AA */
+  margin: number
+  /** If true, use G2 Bezier path. If false, standard roundRect */
+  useG2: boolean
+  /** Supersample factor for sharper mask rasterization */
+  supersample: number
+}
+
+/** Result of inner shadow mask generation. */
+export interface InnerShadowMaskResult {
+  /** The canvas containing the blurred ring mask (upload to GPU as texture) */
+  canvas: OffscreenCanvas | HTMLCanvasElement
+  /** Mask width in 1× device px (logical mask space) */
+  maskW: number
+  /** Mask height in 1× device px (logical mask space) */
+  maskH: number
+  /** Margin in 1× device px (offset from mask edge to element origin) */
+  margin: number
+}
+
 /** Generate an inner shadow mask for a rounded rect element.
  *  Uses Canvas2D to draw a blurred ring (fill shape → destination-out
  *  offset shape → blur), faithful to InnerShadowModifier.kt.
@@ -107,37 +149,23 @@ function buildPath(
  *  ring outward from the shape edges, and the composite shader clips
  *  the result to the shape via SDF discard.
  *
- *  Parameters are in DEVICE pixels (already × dpr).
- *  Returns the output canvas (caller uploads to GPU as texture).
- *
- *  @param w              Device px width of the element (original, unscaled)
- *  @param h              Device px height
- *  @param radius         Device px corner radius
- *  @param offsetX        Inner shadow X offset (device px, positive = right)
- *  @param offsetY        Inner shadow Y offset (device px, positive = down)
- *  @param blurSigma      Blur sigma in device px (= innerShadow radius * dpr,
- *                        matching BlurEffect semantics where sigma = radius directly.
- *                        NOT radius/3 — BlurEffect takes sigma directly, unlike BlurMaskFilter.)
- *  @param margin         Device px margin around element for blur spread + AA
- *  @param useG2          If true, use G2 Bezier path. If false, standard roundRect
- */
-export function generateInnerShadowMask(
-  w: number,
-  h: number,
-  radius: number,
-  offsetX: number,
-  offsetY: number,
-  blurSigma: number,
-  margin: number,
-  useG2: boolean
-): { canvas: OffscreenCanvas | HTMLCanvasElement; canvasW: number; canvasH: number; offsetX: number; offsetY: number } {
-  const canvasW = Math.ceil(w + 2 * margin)
-  const canvasH = Math.ceil(h + 2 * margin)
+ *  Uses module-level reusable canvases (only grow, never shrink).
+ *  Returns the output canvas with mask dimensions. */
+export function generateInnerShadowMask(params: InnerShadowMaskParams): InnerShadowMaskResult {
+  const { w, h, radius, offsetX, offsetY, blurSigma, margin, useG2, supersample: SS } = params
+
+  // Mask dimensions in 1× device px (origSize + 2*margin)
+  const maskW = Math.max(1, Math.ceil(w + 2 * margin))
+  const maskH = Math.max(1, Math.ceil(h + 2 * margin))
+
+  // Canvas dimensions in physical pixels (SS× supersampled)
+  const canvasW = maskW * SS
+  const canvasH = maskH * SS
+
   ensureCanvases(canvasW, canvasH)
 
   const tCtx = tempCtx!
   const oCtx = outputCtx!
-  const canvas = outputCanvas!
 
   // ---- Step 1: Draw the hard-edge ring on the temp canvas ----
   // Faithful to InnerShadowModifier.kt shadowLayer.record:
@@ -146,15 +174,16 @@ export function generateInnerShadowMask(
   //   canvas.translate(offsetX, offsetY)
   //   canvas.drawOutline(outline, ShadowMaskPaint) // BlendMode.Clear
   // The clip ensures the ring is strictly inside the shape boundary.
-  // Clear temp canvas
   tCtx.clearRect(0, 0, canvasW, canvasH)
 
-  // Translate to element-local coords (element top-left = (margin, margin))
+  // Scale for supersampling, translate to element-local coords
+  // (element top-left = (margin, margin) in 1× space)
   tCtx.save()
+  tCtx.scale(SS, SS)
   tCtx.translate(margin, margin)
 
-  // Build the shape path
-  const path = buildPath(tCtx, w, h, radius, useG2)
+  // Build the shape path (element-local, 0..w × 0..h)
+  const path = buildPath(w, h, radius, useG2)
 
   // Clip to the shape FIRST (faithful to InnerShadowModifier.kt clipOutline)
   tCtx.clip(path)
@@ -177,21 +206,20 @@ export function generateInnerShadowMask(
   tCtx.restore()
 
   // ---- Step 2: Draw the ring WITH blur onto the output canvas ----
-  // Clear output canvas
+  // NO ctx.scale here — drawImage and ctx.filter blur must operate in
+  // physical-pixel space to avoid SS× size distortion.
+  // blurSigma is in device px (logical); the SS× canvas has SS physical px
+  // per logical px, so the physical blur radius = blurSigma * SS.
   oCtx.clearRect(0, 0, canvasW, canvasH)
 
-  // Apply Gaussian blur via Canvas2D filter (matches BlurMaskFilter)
-  // ctx.filter blur is applied per-draw-call. By drawing the temp canvas
-  // (which already has the hard-edge ring) onto the output canvas with
-  // blur, we get the same effect as applying BlurMaskFilter AFTER the
-  // ring is created — faithful to InnerShadowModifier.kt.
   if (blurSigma > 0.01) {
-    oCtx.filter = `blur(${blurSigma}px)`
+    oCtx.filter = `blur(${blurSigma * SS}px)`
   } else {
     oCtx.filter = 'none'
   }
+  // 1:1 physical-pixel drawImage: temp(canvasW×canvasH) → output(canvasW×canvasH)
   oCtx.drawImage(tempCanvas as HTMLCanvasElement, 0, 0)
   oCtx.filter = 'none'
 
-  return { canvas, canvasW, canvasH, offsetX: margin, offsetY: margin }
+  return { canvas: outputCanvas!, maskW, maskH, margin }
 }

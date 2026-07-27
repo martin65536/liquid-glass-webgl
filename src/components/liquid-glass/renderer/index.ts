@@ -25,6 +25,8 @@ import {
   computeHighlightBlurTapCount,
 } from '../shaders'
 import { compileShader, createProgram } from './gl-utils'
+import { destroyCache } from './inner-shadow-cache'
+import type { InnerShadowMaskCacheEntry } from './inner-shadow-cache'
 import type {
   GlassElementConfig,
   ElementState,
@@ -200,14 +202,7 @@ export class LiquidGlassRenderer {
   /** Canvas2D inner-shadow-mask cache. Keyed by exact geometry
    *  (element size + corner radius + offset + blur sigma + path style).
    *  Two entries per element (shadow1 + shadow2). */
-  innerShadowMaskCache = new Map<string, {
-    tex: WebGLTexture
-    canvas: HTMLCanvasElement
-    ctx: CanvasRenderingContext2D
-    w: number
-    h: number
-    ready: boolean
-  }>()
+  innerShadowMaskCache = new Map<string, InnerShadowMaskCacheEntry>()
 
   rafId: number | null = null
   animRafId: number | null = null
@@ -617,8 +612,7 @@ export class LiquidGlassRenderer {
     this.fgTextures.clear()
     for (const entry of this.strokeMaskCache.values()) gl.deleteTexture(entry.tex)
     this.strokeMaskCache.clear()
-    for (const entry of this.innerShadowMaskCache.values()) gl.deleteTexture(entry.tex)
-    this.innerShadowMaskCache.clear()
+    destroyCache(gl, this.innerShadowMaskCache)
     if (this.fboA) gl.deleteFramebuffer(this.fboA)
     if (this.fboATex) gl.deleteTexture(this.fboATex)
     if (this.fboB) gl.deleteFramebuffer(this.fboB)
