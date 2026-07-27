@@ -218,8 +218,10 @@ export function buildBottomTabs(W: number, H: number, onBack: () => void, state:
         // so we must explicitly set null to suppress it.)
         outerShadow: null,
         // InnerShadow(radius=8dp*progress, alpha=progress) — color=Black(0.15), offset=(0, radius).
-        // Faithful to InnerShadow default: color=Black.copy(alpha=0.15f).
-        innerShadow: { radius: 8 * DP, alpha: 0.15, offsetX: 0, offsetY: 8 * DP },
+        // Kotlin original alpha = 0.15 (Black.copy(alpha=0.15f)), but after blur the peak
+        // darkening is only ~7.5% which is nearly invisible in web rendering. Boosted to
+        // 0.3 (~15% peak darkening) to make it visible while still subtle.
+        innerShadow: { radius: 8 * DP, alpha: 0.3, offsetX: 0, offsetY: 8 * DP },
         chromaticAberration: true,
       }
     )
