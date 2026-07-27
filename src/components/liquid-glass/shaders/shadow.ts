@@ -65,9 +65,10 @@ void main() {
     float elementSd = sdShape(centeredOrigRot, origHalfSize, origRadius);
 
     // Shadow intensity: Gaussian falloff from the shadow shape's edge.
-    // uShadowRadius is in ORIGINAL px (faithful to BlurMaskFilter at original
-    // size). sigma = radius/3 matches the BlurMaskFilter spread.
-    float sigma = max(uShadowRadius / 3.0, 1.0);
+    // uShadowRadius is in ORIGINAL px. sigma = radius directly — faithful to
+    // the Kotlin original's MaskFilter.makeBlur(FilterBlurMode.NORMAL, radius)
+    // which takes sigma = radius (NOT radius/3 like the old Android BlurMaskFilter).
+    float sigma = max(uShadowRadius, 1.0);
     float shadow = 0.5 * exp(-sd * sd / (2.0 * sigma * sigma));
     // Mask out the shadow inside the element (the element covers it).
     shadow *= smoothstep(-1.0, 1.0, elementSd);
