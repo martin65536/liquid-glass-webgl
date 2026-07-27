@@ -3,6 +3,7 @@ import type { ElementInteraction } from '../context'
 import type { GlassElementConfig, LiquidGlassRenderer } from '../renderer'
 import {
   DEFAULT_HIGHLIGHT,
+  DEFAULT_SHADOW,
   DP,
   FLIGHT_ICON_PATH,
   LIGHT_PALETTE,
@@ -213,15 +214,14 @@ export function buildBottomTabs(W: number, H: number, onBack: () => void, state:
         // Faithful to original: highlight = Highlight.Default.copy(alpha=progress).
         // alpha=0 at rest (no edge highlight), max=0.5 when pressed (Default style alpha).
         highlight: { ...DEFAULT_HIGHLIGHT, alpha: 0.5 },
-        // NO outer shadow — the original indicator does NOT have Shadow.
-        // (makeGlassShape defaults to DEFAULT_SHADOW when outerShadow is undefined,
-        // so we must explicitly set null to suppress it.)
-        outerShadow: null,
+        // Outer shadow: Shadow.Default.copy(alpha=pressProgress) — faithful to
+        //   shadow = { val progress = dampedDragAnimation.pressProgress; Shadow(alpha = progress) }
+        // At rest (progress=0): shadow alpha=0 → invisible. When pressed: Shadow.Default visible.
+        // The renderer modulates this by state.togglePressProgress in renderGlassShadowPass.
+        outerShadow: { ...DEFAULT_SHADOW },
         // InnerShadow(radius=8dp*progress, alpha=progress) — color=Black(0.15), offset=(0, radius).
-        // Kotlin original alpha = 0.15 (Black.copy(alpha=0.15f)), but after blur the peak
-        // darkening is only ~7.5% which is nearly invisible in web rendering. Boosted to
-        // 0.3 (~15% peak darkening) to make it visible while still subtle.
-        innerShadow: { radius: 8 * DP, alpha: 0.3, offsetX: 0, offsetY: 8 * DP },
+        // Faithful to InnerShadow default: color=Black.copy(alpha=0.15f).
+        innerShadow: { radius: 8 * DP, alpha: 0.15, offsetX: 0, offsetY: 8 * DP },
         chromaticAberration: true,
       }
     )

@@ -424,11 +424,15 @@ export const glassRenderMethods = {
   renderGlassShadowPass(this: LiquidGlassRenderer, state: GlassRenderState) {
     const gl = this.gl
     const { el, sx, sy, sw, sh, radii } = state
-    if (!el.outerShadow || el.outerShadow.alpha <= 0.001 || el.outerShadow.radius <= 0.5) return
-    // Note: Bottom tab indicator no longer has outerShadow — removed to match
-    // the original visual appearance (the original Android app shows no visible
-    // drop shadow on the indicator capsule).
+    if (!el.outerShadow || el.outerShadow.radius <= 0.5) return
+    // Shadow alpha: for bottom tab indicator, modulate by pressProgress
+    // (faithful to Kotlin: Shadow(alpha = progress)). At rest (progress=0),
+    // shadow is invisible; when pressed, Shadow.Default becomes visible.
     let shadowAlpha = el.outerShadow.alpha
+    if (el.isBottomTabIndicator) {
+      shadowAlpha *= state.togglePressProgress
+    }
+    if (shadowAlpha <= 0.001) return
     gl.useProgram(this.shadowProgram)
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
     gl.enableVertexAttribArray(this.aPosLocSh)
