@@ -115,21 +115,9 @@ export function generateInnerShadowMask(params: InnerShadowMaskParams): InnerSha
   const maskW = Math.max(1, Math.ceil(w + 2 * margin))
   const maskH = Math.max(1, Math.ceil(h + 2 * margin))
 
-  // PERFORMANCE: Cap the canvas dimensions to prevent exponential growth
-  // when zoomed in. The inner shadow mask only needs enough resolution to
-  // show the blurred ring clearly — capping at 512×512 physical pixels is
-  // sufficient for any reasonable element size.
-  const MAX_MASK_CANVAS_SIZE = 512
-  // Effective supersample factor — reduce if the uncapped size exceeds the limit.
-  // This preserves the mask's logical coordinate space (maskW × maskH) while
-  // limiting the physical canvas size (canvasW × canvasH).
-  const uncappedW = maskW * SS
-  const uncappedH = maskH * SS
-  const effectiveSS = Math.min(SS, MAX_MASK_CANVAS_SIZE / Math.max(maskW, maskH, 1))
-
-  // Canvas dimensions in physical pixels (effectiveSS× supersampled, capped)
-  const canvasW = Math.max(1, Math.ceil(maskW * effectiveSS))
-  const canvasH = Math.max(1, Math.ceil(maskH * effectiveSS))
+  // Canvas dimensions in physical pixels (SS× supersampled)
+  const canvasW = maskW * SS
+  const canvasH = maskH * SS
 
   // Create FRESH canvases for this mask — no reuse, no contamination
   const { canvas: tempCanvas, ctx: tCtx } = createCanvas(canvasW, canvasH)
@@ -146,7 +134,7 @@ export function generateInnerShadowMask(params: InnerShadowMaskParams): InnerSha
   // Scale for supersampling, translate to element-local coords
   // (element top-left = (margin, margin) in 1× space)
   tCtx.save()
-  tCtx.scale(effectiveSS, effectiveSS)
+  tCtx.scale(SS, SS)
   tCtx.translate(margin, margin)
 
   // Build the shape path (element-local, 0..w × 0..h)
@@ -184,11 +172,11 @@ export function generateInnerShadowMask(params: InnerShadowMaskParams): InnerSha
   // (samples outside content bounds treated as transparent).
   //
   // NO ctx.scale here — drawImage and ctx.filter blur must operate in
-  // physical-pixel space. blurSigma is in device px (logical); the canvas
-  // has effectiveSS physical px per logical px, so the physical blur radius
-  // = blurSigma * effectiveSS.
+  // physical-pixel space to avoid SS× size distortion.
+  // blurSigma is in device px (logical); the SS× canvas has SS physical px
+  // per logical px, so the physical blur radius = blurSigma * SS.
   if (blurSigma > 0.01) {
-    oCtx.filter = `blur(${blurSigma * effectiveSS}px)`
+    oCtx.filter = `blur(${blurSigma * SS}px)`
   } else {
     oCtx.filter = 'none'
   }

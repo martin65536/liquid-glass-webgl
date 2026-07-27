@@ -36,10 +36,6 @@ export interface GlassRenderState {
   origCornerRadius: number
   // Element rotation in radians (graphicsLayer rotationZ). 0 for most.
   elementRotation: number
-  // Per-element FBO coordinate mapping (when usePerElementFbo=true)
-  usePerElementFbo: boolean
-  sceneRectOffset: [number, number]  // top-left of element region in scene (top-left origin, device px)
-  sceneRectSize: [number, number]    // size of element region in scene (device px)
 }
 
 declare module './index' {
@@ -339,20 +335,6 @@ export const glassRenderMethods = {
     gl.enable(gl.SCISSOR_TEST)
     gl.scissor(scissorX, scissorY, scissorW, scissorH)
 
-    // Per-element FBO coordinate mapping — renders the element at capped
-    // resolution (MAX_ELEMENT_FBO_SIZE), making shader processing O(1)
-    // regardless of zoom level.
-    const EL_FBO_MARGIN_CSS = 2  // small margin for edge AA smoothstep
-    const sceneRectOffset: [number, number] = [
-      (sx - EL_FBO_MARGIN_CSS) * this.dpr,
-      (sy - EL_FBO_MARGIN_CSS) * this.dpr,
-    ]
-    const sceneRectSize: [number, number] = [
-      (sw + 2 * EL_FBO_MARGIN_CSS) * this.dpr,
-      (sh + 2 * EL_FBO_MARGIN_CSS) * this.dpr,
-    ]
-    this.ensureElementFBO(sceneRectSize[0], sceneRectSize[1])
-
     const state: GlassRenderState = {
       el, st, isButton, p, sx, sy, sw, sh, radii, togglePressProgress,
       // For toggle knobs + bottom-tab indicators, the highlight alpha is
@@ -382,50 +364,43 @@ export const glassRenderMethods = {
       origH: el.rect.h,
       origCornerRadius: el.cornerRadius,
       elementRotation: el.elementRotation ?? 0,
-      usePerElementFbo: true,
-      sceneRectOffset,
-      sceneRectSize,
     }
 
     // --- Step 2a: Shadow pass (to otherFbo, on top of copied scene) ---
     this.renderGlassShadowPass(state)
 
-    // Clear per-element FBO to transparent
-    this.bindElementFBO()
-    gl.clearColor(0, 0, 0, 0)
-    gl.clear(gl.COLOR_BUFFER_BIT)
-
     // --- Step 2b: Element pass (refraction + vibrancy + tint) ---
-    // Renders INTO the per-element FBO (capped resolution), then composites
-    // onto otherFbo. This makes shader processing O(1) regardless of zoom
-    // level — the biggest performance win for the glass playground.
+    // For useSeparableBlur elements: blur the BACKDROP first (via 2-pass
+    // separable Gaussian on curTex), then render the element pass sampling
+    // the blurred backdrop. This matches the original's RenderEffect chain
+    // createChainEffect(blur, lens): blur is applied to the backdrop BEFORE
+    // the SDF/refraction shader, not to the glass output afterwards.
+    // The element pass renders directly to otherFbo (like inline blur),
+    // with inlineBlurRadius=0 (handled in renderGlassElementPass) since the
+    // backdrop is already blurred.
     //
-    // For useSeparableBlur: cropAndBlurBackdrop operates at per-element
-    // resolution (O(elFboSize²) instead of O(sceneSize²)).
-    // For normal elements: render the element pass sampling curTex with
-    // inline 16-tap Vogel disc blur, into the per-element FBO.
+    // For normal elements: render the element pass directly to otherFbo
+    // (sampling curTex) with inline 16-tap Vogel disc blur.
     if (el.useSeparableBlur && el.blurRadius >= 0.5) {
       const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr
+      // For backdropFbo elements (dialog card), blur the dialogBackdropTex
+      // (wallpaper+scrim+colorControls opaque layer) instead of the scene FBO.
       const backdropSrc = (el.backdropFbo && this.dialogBackdropTex) ? this.dialogBackdropTex : curTex
-      const blurredBackdrop = this.cropAndBlurBackdrop(backdropSrc, blurRadiusPx, sceneRectOffset, sceneRectSize)
-      this.bindElementFBO()
-      gl.enable(gl.BLEND)
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+      const blurredBackdrop = this.blurTexture(backdropSrc, blurRadiusPx)
+      // blurTexture disables BLEND — re-enable it so renderGlassElementPass
+      // composites the glass onto otherFbo with alpha blending.
+      this.gl.enable(this.gl.BLEND)
+      this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA)
+      this.bindFBO(otherFbo)
+      this.gl.viewport(0, 0, this.fboW, this.fboH)
+      // Pass the pre-blurred texture as curTex. For backdropFbo elements,
+      // temporarily disable backdropFbo so the element pass binds curTex
+      // (the blurred backdrop) instead of the raw dialogBackdropTex.
       const passState = el.backdropFbo ? { ...state, el: { ...el, backdropFbo: false } } : state
       this.renderGlassElementPass(passState, blurredBackdrop)
     } else {
-      this.bindElementFBO()
-      gl.enable(gl.BLEND)
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
       this.renderGlassElementPass(state, curTex)
     }
-
-    // Composite per-element FBO onto otherFbo
-    this.bindFBO(otherFbo)
-    gl.viewport(0, 0, this.fboW, this.fboH)
-    gl.enable(gl.BLEND)
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-    this.drawElFboComposite(sceneRectOffset, sceneRectSize)
 
     // --- Steps 2c–2f: Press glow, white overlay, foreground, rim highlight ---
     this.renderGlassPostPasses(state)

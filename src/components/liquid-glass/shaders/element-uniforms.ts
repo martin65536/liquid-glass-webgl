@@ -134,15 +134,4 @@ uniform vec4 uScrimColor;           // rgba 0..1; a=0 = no scrim
 uniform sampler2D uInnerStrokeMask;   // Canvas2D stroke mask texture for inner backdrop highlight
 uniform vec2  uInnerStrokeMaskOffset; // margin (strokeMargin) in device px — UV offset
 uniform vec2  uInnerStrokeMaskSize;   // (maskW, maskH) in device px — total mask texture size
-// --- Per-element FBO coordinate mapping ---
-// When uUsePerElementFbo=1.0, the element is rendered into a small capped-resolution
-// FBO instead of the full-screen scene FBO. gl_FragCoord is in per-element FBO space,
-// and we need to map it to scene coords for backdrop sampling and SDF computation.
-// Mapping: screenCoord = uSceneRectOffset + fboCoordTopLeft * (uSceneRectSize / uElFboSize)
-// When uUsePerElementFbo=0.0, the original mapping is used:
-//   screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y)
-uniform float uUsePerElementFbo;      // 0 or 1 — per-element FBO mode
-uniform vec2  uSceneRectOffset;       // top-left of element region in scene (top-left origin, device px)
-uniform vec2  uSceneRectSize;         // size of element region in scene (device px)
-uniform vec2  uElFboSize;             // per-element FBO size (device px)
 `

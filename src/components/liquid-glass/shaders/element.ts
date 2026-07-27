@@ -42,18 +42,8 @@ ${COVER_GLSL}
 ${utilsGlsl}
 
 void main() {
-    // --- Coordinate mapping ---
-    // When rendering into a per-element FBO (uUsePerElementFbo=1.0), gl_FragCoord
-    // is in per-element FBO space. We map it to scene coords for backdrop sampling
-    // and SDF computation. When rendering directly into the scene FBO, we use the
-    // original Y-flipped mapping.
-    vec2 screenCoord;
-    if (uUsePerElementFbo > 0.5) {
-        vec2 fboCoordTopLeft = vec2(gl_FragCoord.x, uElFboSize.y - gl_FragCoord.y);
-        screenCoord = uSceneRectOffset + fboCoordTopLeft * (uSceneRectSize / uElFboSize);
-    } else {
-        screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
-    }
+    // gl_FragCoord origin is bottom-left in WebGL; flip to top-left.
+    vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
     // Content scale (non-uniform): when < 1.0, compress the backdrop UV toward
     // the element center. Faithful to LiquidToggle.kt / LiquidSlider.kt:
     //   scale(scaleX, scaleY) { drawBackdrop() }
