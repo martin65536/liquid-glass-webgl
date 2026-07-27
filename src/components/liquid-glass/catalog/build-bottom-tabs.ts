@@ -214,9 +214,9 @@ export function buildBottomTabs(W: number, H: number, onBack: () => void, state:
         // alpha=0 at rest (no edge highlight), max=0.5 when pressed (Default style alpha).
         highlight: { ...DEFAULT_HIGHLIGHT, alpha: 0.5 },
         // NO outer shadow — the original indicator does NOT have Shadow.
-        // (The Kotlin code has Shadow(alpha=progress), but on the original Android
-        // app the indicator has no visible drop shadow. Removing to match the
-        // original visual appearance.)
+        // (makeGlassShape defaults to DEFAULT_SHADOW when outerShadow is undefined,
+        // so we must explicitly set null to suppress it.)
+        outerShadow: null,
         // InnerShadow(radius=8dp*progress, alpha=progress) — color=Black(0.15), offset=(0, radius).
         // Faithful to InnerShadow default: color=Black.copy(alpha=0.15f).
         innerShadow: { radius: 8 * DP, alpha: 0.15, offsetX: 0, offsetY: 8 * DP },
