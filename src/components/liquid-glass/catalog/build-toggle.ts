@@ -138,11 +138,10 @@ export function buildToggle(
     color: [0, 0, 0] as [number, number, number],
   }
   // InnerShadow(radius=4dp*progress, alpha=progress)
-  // Default color = Black.copy(alpha=0.15f) → effective alpha = 0.15 * progress
   // Default offset = DpOffset(0, radius) = (0, 4dp*progress) — renderer modulates by progress
   const KNOB_INNER_SHADOW = {
     radius: 4 * DP,
-    alpha: 0.15, // InnerShadow default color alpha = Black.copy(alpha=0.15f); renderer multiplies by progress
+    alpha: 0.3, // 0.15 was too faint; 0.3 matches visual intent (same fix as bottom-tabs indicator)
     offsetX: 0,
     offsetY: 4 * DP, // default offset = radius; renderer modulates by progress
     color: [0, 0, 0] as [number, number, number], // Black
