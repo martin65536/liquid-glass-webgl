@@ -1,0 +1,726 @@
+     1→     1→'use client'
+     2→     2→
+     3→     3→import {
+     4→     4→  ELEMENT_FRAGMENT_SHADER,
+     5→     5→  FOREGROUND_FRAGMENT_SHADER,
+     6→     6→  HIGHLIGHT_FRAGMENT_SHADER,
+     7→     7→  PLAIN_RECT_FRAGMENT_SHADER,
+     8→     8→  PROGRESSIVE_BLUR_FRAGMENT_SHADER,
+     9→     9→  RIM_HIGHLIGHT_FRAGMENT_SHADER,
+    10→    10→  HIGHLIGHT_STROKE_FRAGMENT_SHADER,
+    11→    11→  HIGHLIGHT_COMPOSITE_FRAGMENT_SHADER,
+    12→    12→  STROKE_MASK_COMPOSITE_FRAGMENT_SHADER,
+    13→    13→  INNER_SHADOW_MASK_COMPOSITE_FRAGMENT_SHADER,
+    14→    14→  SHADOW_FRAGMENT_SHADER,
+    15→    15→  TINT_FRAGMENT_SHADER,
+    16→    16→  VERTEX_SHADER,
+    17→    17→  WALLPAPER_FRAGMENT_SHADER,
+    18→    18→  COPY_FRAGMENT_SHADER,
+    19→    19→  SOLID_FILL_FRAGMENT_SHADER,
+    20→    20→  COLOR_CONTROLS_FRAGMENT_SHADER,
+    21→    21→  SCENE_TINT_FRAGMENT_SHADER,
+    22→    22→  generateSeparableBlurShader,
+    23→    23→  computeBlur1DTapCount,
+    24→    24→  generateHighlightBlurShader,
+    25→    25→  computeHighlightBlurTapCount,
+    26→    26→} from '../shaders'
+    27→    27→import { compileShader, createProgram } from './gl-utils'
+    28→    28→import { destroyCache } from './inner-shadow-cache'
+    29→    29→import type { InnerShadowMaskCacheEntry } from './inner-shadow-cache'
+    30→    30→import type {
+    31→    31→  GlassElementConfig,
+    32→    32→  ElementState,
+    33→    33→  ToggleGroupState,
+    34→    34→} from './types'
+    35→    35→
+    36→    36→/* ------------------------------------------------------------------ *
+    37→    37→ * LiquidGlassRenderer
+    38→    38→ *
+    39→    39→ * One opaque WebGL canvas. Render pipeline per frame:
+    40→    40→ *   1. Wallpaper background pass (cover-fit).
+    41→    41→ *   2. For each button (in order):
+    42→    42→ *      a. Outer drop shadow pass (if configured).
+    43→    43→ *      b. Element pass (refraction + vibrancy + tint + highlight),
+    44→    44→ *         with InteractiveHighlight-driven scale/translation/stretch.
+    45→    45→ *      c. White overlay pass (Plus blend, 8% * progress) on press.
+    46→    46→ *      d. Radial highlight pass (Plus blend, at finger position) on press.
+    47→    47→ *      e. Foreground pass (button label, with press-driven alpha fade).
+    48→    48→ *
+    49→    49→ * No DOM children — the canvas owns the entire visual surface.
+    50→    50→ *
+    51→    51→ * NOTE: The class methods are split across multiple files in this
+    52→    52→ * directory (methods-*.ts). Each methods file declares its method
+    53→    53→ * signatures via `declare module './index'` and exports a record of
+    54→    54→ * named functions. Those records are merged onto the prototype at the
+    55→    55→ * bottom of this file via Object.assign.
+    56→    56→ * ------------------------------------------------------------------ */
+    57→    57→export class LiquidGlassRenderer {
+    58→    58→  gl: WebGLRenderingContext
+    59→    59→  elementProgram: WebGLProgram
+    60→    60→  shadowProgram: WebGLProgram
+    61→    61→  wallpaperProgram: WebGLProgram
+    62→    62→  foregroundProgram: WebGLProgram
+    63→    63→  highlightProgram: WebGLProgram
+    64→    64→  tintProgram: WebGLProgram
+    65→    65→  rimHighlightProgram: WebGLProgram
+    66→    66→  /** Pass 1: stroke mask (clip + hard stroke, no blur/intensity). */
+    67→    67→  highlightStrokeProgram: WebGLProgram
+    68→    68→  /** Pass 3: composite (blurred mask * intensity * color). */
+    69→    69→  highlightCompositeProgram: WebGLProgram
+    70→    70→  /** Stroke mask composite (Canvas2D stroke mask × intensity × color). */
+    71→    71→  strokeMaskCompositeProgram: WebGLProgram
+    72→    72→  /** Inner shadow mask composite (Canvas2D ring mask × color × alpha). */
+    73→    73→  innerShadowMaskCompositeProgram: WebGLProgram
+    74→    74→  plainRectProgram: WebGLProgram
+    75→    75→  progressiveBlurProgram: WebGLProgram
+    76→    76→  copyProgram: WebGLProgram
+    77→    77→  solidFillProgram: WebGLProgram
+    78→    78→  colorControlsProgram: WebGLProgram
+    79→    79→  sceneTintProgram: WebGLProgram
+    80→    80→  quadBuffer: WebGLBuffer
+    81→    81→  wallpaperTexture: WebGLTexture | null = null
+    82→    82→  wallpaperReady = false
+    83→    83→  wallpaperSize: [number, number] = [1, 1]
+    84→    84→  canvas: HTMLCanvasElement
+    85→    85→  dpr = 0 // 0 = not yet set; resize() sets default cap on first call
+    86→    86→  buttonConfigs: GlassElementConfig[] = []
+    87→    87→  buttonStates = new Map<string, ElementState>()
+    88→    88→  /** Toggle group state — keyed by groupId. Faithful port of DampedDragAnimation.kt. */
+    89→    89→  toggleStates = new Map<string, ToggleGroupState>()
+    90→    90→  scrollY = 0
+    91→    91→  scrollVelocity = 0
+    92→    92→  contentHeight = 0
+    93→    93→  cssWidth = 0
+    94→    94→  cssHeight = 0
+    95→    95→  wheelTarget: HTMLElement | null = null
+    96→    96→  backgroundColor: [number, number, number] | null = null
+    97→    97→  /** PERFORMANCE: Dirty flag — set by any state change that requires a redraw.
+    98→    98→   *  render() checks this and early-exits if false, avoiding redundant
+    99→    99→   *  full-scene re-render when requestAnimationFrame fires but nothing changed. */
+   100→   100→  needsRedraw = true
+   101→   101→
+   102→   102→  // --- Scene FBO ping-pong infrastructure ---
+   103→   103→  // See render() for the full ping-pong pipeline description.
+   104→   104→  fboA: WebGLFramebuffer | null = null
+   105→   105→  fboATex: WebGLTexture | null = null
+   106→   106→  fboB: WebGLFramebuffer | null = null
+   107→   107→  fboBTex: WebGLTexture | null = null
+   108→   108→  fboW = 0
+   109→   109→  fboH = 0
+   110→   110→
+   111→   111→  // --- tabsBackdrop FBO (indicator's hidden tinted layer) ---
+   112→   112→  // Faithful to LiquidBottomTabs.kt: the indicator's backdrop is
+   113→   113→  //   rememberCombinedBackdrop(backdrop, tabsBackdrop)
+   114→   114→  // where tabsBackdrop is a HIDDEN Row (alpha=0) that captures the container
+   115→   115→  // glass + tab content with ColorFilter.tint(accentColor). We render the
+   116→   116→  // current scene (container+tabs already drawn) into this FBO, apply a blue
+   117→   117→  // tint pass, then the indicator shader samples it as the second backdrop
+   118→   118→  // layer (composited over wallpaper).
+   119→   119→  tabsBackdropFbo: WebGLFramebuffer | null = null
+   120→   120→  tabsBackdropTex: WebGLTexture | null = null
+   121→   121→  tabsBackdropDirty = true
+   122→   122→
+   123→   123→  // --- Separable 2-pass blur infrastructure (Glass Playground only) ---
+   124→   124→  // gpElementFbo: element pass renders here (refraction on CLEAR backdrop,
+   125→   125→  // uBlurRadius=0) for useSeparableBlur elements. Transparent background;
+   126→   126→  // the element shader's discard leaves only the glass shape's refracted content.
+   127→   127→  // blurFboA/blurFboB: ping-pong for the 2-pass Gaussian (H then V).
+   128→   128→  // The blurred result is alpha-composited back into the scene (otherFbo).
+   129→   129→  gpElementFbo: WebGLFramebuffer | null = null
+   130→   130→  gpElementTex: WebGLTexture | null = null
+   131→   131→  blurFboA: WebGLFramebuffer | null = null
+   132→   132→  blurFboATex: WebGLTexture | null = null
+   133→   133→  blurFboB: WebGLFramebuffer | null = null
+   134→   134→  blurFboBTex: WebGLTexture | null = null
+   135→   135→  // --- Highlight mask FBO (3-pass faithful highlight) ---
+   136→   136→  // Pass 1: HIGHLIGHT_STROKE_FRAGMENT_SHADER renders the clipped stroke alpha
+   137→   137→  //   mask here (transparent surround, alpha=1 in the stroke band).
+   138→   138→  // Pass 2: blurTexture(highlightMaskTex, sigma) → blurFboB (2-pass Gaussian,
+   139→   139→  //   faithful to Skia BlurMaskFilter NORMAL).
+   140→   140→  // Pass 3: HIGHLIGHT_COMPOSITE_FRAGMENT_SHADER samples blurFboB, multiplies
+   141→   141→  //   by intensity+color, blends into the scene FBO.
+   142→   142→  highlightMaskFbo: WebGLFramebuffer | null = null
+   143→   143→  highlightMaskTex: WebGLTexture | null = null
+   144→   144→  // --- Dialog backdrop FBO ---
+   145→   145→  // Holds wallpaper+scrim+colorControls as one opaque layer for the dialog
+   146→   146→  // card's 2-pass blur path. Rendered by renderDialogBackdrop; the dialog card
+   147→   147→  // (backdropFbo=true + useSeparableBlur) samples this via 2-pass blur.
+   148→   148→  dialogBackdropFbo: WebGLFramebuffer | null = null
+   149→   149→  dialogBackdropTex: WebGLTexture | null = null
+   150→   150→  /** Cache key for dialogBackdropFbo (scrim+cc params) — skip re-render if unchanged. */
+   151→   151→  dialogBackdropKey: string | null = null
+   152→   152→  /** Blur shader variants keyed by 1D tap count (H + V programs each). */
+   153→   153→  blurPrograms = new Map<number, { hProg: WebGLProgram; vProg: WebGLProgram; uH: Record<string, WebGLUniformLocation | null>; uV: Record<string, WebGLUniformLocation | null>; aPosH: number; aPosV: number }>()
+   154→   154→  /** Highlight blur programs — separate from blurPrograms because these blur
+   155→   155→   *  ALPHA (mask), use Android BlurMaskFilter sigma semantics (uRadius=sigma),
+   156→   156→   *  and support sub-pixel sigma (no 0.5 early-return). */
+   157→   157→  highlightBlurPrograms = new Map<number, { hProg: WebGLProgram; vProg: WebGLProgram; uH: Record<string, WebGLUniformLocation | null>; uV: Record<string, WebGLUniformLocation | null>; aPosH: number; aPosV: number }>()
+   158→   158→  /** Gravity angle for glass highlight direction, in RADIANS. Updated live via
+   159→   159→   *  setGravityAngle (no catalog rebuild). Default 45° = 0.785 rad.
+   160→   160→   *  Elements with useGravityAngle=true read this at render time. */
+   161→   161→  gravityAngle = 45 * Math.PI / 180
+   162→   162→  /** Max 1D taps per blur pass (1..33). Lower = faster, Higher = better quality.
+   163→   163→   *  Set from CatalogState.blurTapCap. Default 17. */
+   164→   164→  blurTapCap = 17
+   165→   165→  /** Blur downsample factor (1=full-res, 2=half-res, 4=quarter). Higher = much
+   166→   166→   *  faster but slightly lower quality. Set from CatalogState.blurDownsample. */
+   167→   167→  blurDownsample = 1
+   168→   168→  /** Corner style: 0 = circular, 1 = continuous (squircle). Set from
+   169→   169→   *  CatalogState.capsuleShape. Default 1 (Continuous, matching original). */
+   170→   170→  cornerStyle = 1
+   171→   171→
+   172→   172→  // SDF texture (clock_sdf) for LockScreen glass
+   173→   173→  sdfTexture: WebGLTexture | null = null
+   174→   174→  sdfTextureReady = false
+   175→   175→  sdfTextureSize: [number, number] = [1, 1]
+   176→   176→
+   177→   177→  // Continuous-curvature mask texture pool: each unique (w,h,radius,dpr) gets
+   178→   178→  // its own texture. The currently-bound one is in continuousSdfTexture.
+   179→   179→  continuousSdfPool = new Map<string, { tex: WebGLTexture; texSize: number }>()
+   180→   180→  continuousSdfTexture: WebGLTexture | null = null
+   181→   181→  continuousSdfTexSize: [number, number] = [256, 256]
+   182→   182→  continuousSdfKey: string | null = null
+   183→   183→
+   184→   184→  // Offscreen 2D canvas for the foreground (label + chevron). Reused
+   185→   185→  // across buttons — we re-rasterize + re-upload per button per frame.
+   186→   186→  fgCanvas: HTMLCanvasElement
+   187→   187→  fgCtx: CanvasRenderingContext2D
+   188→   188→  fgTextures = new Map<string, WebGLTexture>()
+   189→   189→  fgDirtyIds = new Set<string>()
+   190→   190→  /** Canvas2D stroke-mask cache for rim highlight. Keyed by exact geometry
+   191→   191→   *  (element size + corner radius + stroke width + path style at current dpr).
+   192→   192→   *  The mask is independent of highlight angle/alpha/press progress, so it can
+   193→   193→   *  be reused across frames without a resolution ceiling or UV mismatch. */
+   194→   194→  strokeMaskCache = new Map<string, {
+   195→   195→    tex: WebGLTexture
+   196→   196→    canvas: HTMLCanvasElement
+   197→   197→    ctx: CanvasRenderingContext2D
+   198→   198→    w: number
+   199→   199→    h: number
+   200→   200→    ready: boolean
+   201→   201→  }>()
+   202→   202→  /** Canvas2D inner-shadow-mask cache. Keyed by exact geometry
+   203→   203→   *  (element size + corner radius + offset + blur sigma + path style).
+   204→   204→   *  Two entries per element (shadow1 + shadow2). */
+   205→   205→  innerShadowMaskCache = new Map<string, InnerShadowMaskCacheEntry>()
+   206→   206→
+   207→   207→  rafId: number | null = null
+   208→   208→  animRafId: number | null = null
+   209→   209→  aPosLocEl: number
+   210→   210→  aPosLocSh: number
+   211→   211→  aPosLocWp: number
+   212→   212→  aPosLocFg: number
+   213→   213→  aPosLocHl: number
+   214→   214→  aPosLocTn: number
+   215→   215→  aPosLocRm: number
+   216→   216→  aPosLocHs: number  // highlight stroke
+   217→   217→  aPosLocHc: number  // highlight composite
+   218→   218→  aPosLocSm: number  // stroke mask composite
+   219→   219→  aPosLocIs: number  // inner shadow mask composite
+   220→   220→  aPosLocPr: number
+   221→   221→  aPosLocPb: number
+   222→   222→  aPosLocCp: number
+   223→   223→  aPosLocSf: number
+   224→   224→  aPosLocCc: number
+   225→   225→  aPosLocSt: number
+   226→   226→
+   227→   227→  // Program uniform locations (cached)
+   228→   228→  uEl: Record<string, WebGLUniformLocation | null> = {}
+   229→   229→  uSh: Record<string, WebGLUniformLocation | null> = {}
+   230→   230→  uWp: Record<string, WebGLUniformLocation | null> = {}
+   231→   231→  uFg: Record<string, WebGLUniformLocation | null> = {}
+   232→   232→  uHl: Record<string, WebGLUniformLocation | null> = {}
+   233→   233→  uTn: Record<string, WebGLUniformLocation | null> = {}
+   234→   234→  uRm: Record<string, WebGLUniformLocation | null> = {}
+   235→   235→  uHs: Record<string, WebGLUniformLocation | null> = {}
+   236→   236→  uHc: Record<string, WebGLUniformLocation | null> = {}
+   237→   237→  uSm: Record<string, WebGLUniformLocation | null> = {}
+   238→   238→  uIs: Record<string, WebGLUniformLocation | null> = {}
+   239→   239→  uPr: Record<string, WebGLUniformLocation | null> = {}
+   240→   240→  uPb: Record<string, WebGLUniformLocation | null> = {}
+   241→   241→  uCp: Record<string, WebGLUniformLocation | null> = {}
+   242→   242→  uSf: Record<string, WebGLUniformLocation | null> = {}
+   243→   243→  uCc: Record<string, WebGLUniformLocation | null> = {}
+   244→   244→  uSt: Record<string, WebGLUniformLocation | null> = {}
+   245→   245→
+   246→   246→  /** The pressed scale for bottom tabs indicator (78f/56f in Kotlin). */
+   247→   247→  static readonly TAB_PRESSED_SCALE = 78 / 56
+   248→   248→
+   249→   249→  constructor(canvas: HTMLCanvasElement) {
+   250→   250→    this.canvas = canvas
+   251→   251→    const gl = canvas.getContext('webgl', {
+   252→   252→      premultipliedAlpha: false,
+   253→   253→      alpha: false,
+   254→   254→      antialias: true,
+   255→   255→      preserveDrawingBuffer: false,
+   256→   256→    })
+   257→   257→    if (!gl) throw new Error('WebGL not supported')
+   258→   258→    this.gl = gl
+   259→   259→
+   260→   260→    this.elementProgram = createProgram(gl, VERTEX_SHADER, ELEMENT_FRAGMENT_SHADER)
+   261→   261→    this.shadowProgram = createProgram(gl, VERTEX_SHADER, SHADOW_FRAGMENT_SHADER)
+   262→   262→    this.wallpaperProgram = createProgram(gl, VERTEX_SHADER, WALLPAPER_FRAGMENT_SHADER)
+   263→   263→    this.foregroundProgram = createProgram(gl, VERTEX_SHADER, FOREGROUND_FRAGMENT_SHADER)
+   264→   264→    this.highlightProgram = createProgram(gl, VERTEX_SHADER, HIGHLIGHT_FRAGMENT_SHADER)
+   265→   265→    this.tintProgram = createProgram(gl, VERTEX_SHADER, TINT_FRAGMENT_SHADER)
+   266→   266→    this.rimHighlightProgram = createProgram(gl, VERTEX_SHADER, RIM_HIGHLIGHT_FRAGMENT_SHADER)
+   267→   267→    this.highlightStrokeProgram = createProgram(gl, VERTEX_SHADER, HIGHLIGHT_STROKE_FRAGMENT_SHADER)
+   268→   268→    this.highlightCompositeProgram = createProgram(gl, VERTEX_SHADER, HIGHLIGHT_COMPOSITE_FRAGMENT_SHADER)
+   269→   269→    this.strokeMaskCompositeProgram = createProgram(gl, VERTEX_SHADER, STROKE_MASK_COMPOSITE_FRAGMENT_SHADER)
+   270→   270→    this.innerShadowMaskCompositeProgram = createProgram(gl, VERTEX_SHADER, INNER_SHADOW_MASK_COMPOSITE_FRAGMENT_SHADER)
+   271→   271→    this.plainRectProgram = createProgram(gl, VERTEX_SHADER, PLAIN_RECT_FRAGMENT_SHADER)
+   272→   272→    this.progressiveBlurProgram = createProgram(gl, VERTEX_SHADER, PROGRESSIVE_BLUR_FRAGMENT_SHADER)
+   273→   273→    this.copyProgram = createProgram(gl, VERTEX_SHADER, COPY_FRAGMENT_SHADER)
+   274→   274→    this.solidFillProgram = createProgram(gl, VERTEX_SHADER, SOLID_FILL_FRAGMENT_SHADER)
+   275→   275→    this.colorControlsProgram = createProgram(gl, VERTEX_SHADER, COLOR_CONTROLS_FRAGMENT_SHADER)
+   276→   276→    this.sceneTintProgram = createProgram(gl, VERTEX_SHADER, SCENE_TINT_FRAGMENT_SHADER)
+   277→   277→
+   278→   278→    // Fullscreen quad
+   279→   279→    this.quadBuffer = gl.createBuffer()!
+   280→   280→    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+   281→   281→    gl.bufferData(
+   282→   282→      gl.ARRAY_BUFFER,
+   283→   283→      new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]),
+   284→   284→      gl.STATIC_DRAW
+   285→   285→    )
+   286→   286→
+   287→   287→    this.aPosLocEl = gl.getAttribLocation(this.elementProgram, 'aPos')
+   288→   288→    this.aPosLocSh = gl.getAttribLocation(this.shadowProgram, 'aPos')
+   289→   289→    this.aPosLocWp = gl.getAttribLocation(this.wallpaperProgram, 'aPos')
+   290→   290→    this.aPosLocFg = gl.getAttribLocation(this.foregroundProgram, 'aPos')
+   291→   291→    this.aPosLocHl = gl.getAttribLocation(this.highlightProgram, 'aPos')
+   292→   292→    this.aPosLocTn = gl.getAttribLocation(this.tintProgram, 'aPos')
+   293→   293→    this.aPosLocRm = gl.getAttribLocation(this.rimHighlightProgram, 'aPos')
+   294→   294→    this.aPosLocHs = gl.getAttribLocation(this.highlightStrokeProgram, 'aPos')
+   295→   295→    this.aPosLocHc = gl.getAttribLocation(this.highlightCompositeProgram, 'aPos')
+   296→   296→    this.aPosLocSm = gl.getAttribLocation(this.strokeMaskCompositeProgram, 'aPos')
+   297→   297→    this.aPosLocIs = gl.getAttribLocation(this.innerShadowMaskCompositeProgram, 'aPos')
+   298→   298→    this.aPosLocPr = gl.getAttribLocation(this.plainRectProgram, 'aPos')
+   299→   299→    this.aPosLocPb = gl.getAttribLocation(this.progressiveBlurProgram, 'aPos')
+   300→   300→    this.aPosLocCp = gl.getAttribLocation(this.copyProgram, 'aPos')
+   301→   301→    this.aPosLocSf = gl.getAttribLocation(this.solidFillProgram, 'aPos')
+   302→   302→    this.aPosLocCc = gl.getAttribLocation(this.colorControlsProgram, 'aPos')
+   303→   303→    this.aPosLocSt = gl.getAttribLocation(this.sceneTintProgram, 'aPos')
+   304→   304→
+   305→   305→    // Offscreen 2D canvas for the foreground texture.
+   306→   306→    this.fgCanvas = typeof document !== 'undefined' ? document.createElement('canvas') : (null as any)
+   307→   307→    const fgCtx = this.fgCanvas?.getContext('2d', { alpha: true })
+   308→   308→    if (!fgCtx) throw new Error('2D canvas not supported')
+   309→   309→    this.fgCtx = fgCtx
+   310→   310→
+   311→   311→    // Stroke masks are created lazily in renderGlassPostPasses and cached by
+   312→   312→    // exact geometry. Always use HTMLCanvasElement (not OffscreenCanvas) —
+   313→   313→    // texImage2D with OffscreenCanvas has compatibility issues in some browsers.
+   314→   314→
+   315→   315→    this.cacheUniforms()
+   316→   316→  }
+   317→   317→
+   318→   318→  cacheUniforms() {
+   319→   319→    const gl = this.gl
+   320→   320→    const elNames = [
+   321→   321→      'uBackdrop', 'uWallpaperSampler', 'uTabsBackdropSampler', 'uCanvasSize', 'uWallpaperSize', 'uElementOffset', 'uElementSize',
+   322→   322→      'uCornerRadii', 'uRefractionHeight', 'uRefractionAmount', 'uDepthEffect',
+   323→   323→      'uChromaticAberration', 'uBlurRadius', 'uSaturation', 'uBrightness',
+   324→   324→      'uContrast', 'uTintColor', 'uSurfaceColor', 'uHighlightColor',
+   325→   325→      'uHighlightAngle', 'uHighlightFalloff', 'uHighlightAlpha', 'uHighlightMode',
+   326→   326→      'uHighlightStrokeWidth', 'uHighlightBlur',
+   327→   327→      'uContentScaleX', 'uContentScaleY',
+   328→   328→      'uUseToggleBackdrop', 'uUseSolidBackdrop', 'uSolidBackdropColor',
+   329→   329→      'uTrackColor', 'uTrackRect', 'uTrackCornerRadius',
+   330→   330→      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale',
+   331→   331→      'uIndicatorBackdrop', 'uContainerRect', 'uContainerCornerRadius', 'uIndicatorAccent',
+   332→   332→      'uInsetPx', 'uIndicatorPressProgress', 'uIndicatorPanelOffset', 'uDpr',
+   333→   333→      'uContainerCenter', 'uContainerScale',
+   334→   334→      'uTabContentTex0', 'uTabContentTex1', 'uTabContentTex2', 'uTabContentTex3',
+   335→   335→      'uTabContentTex4', 'uTabContentTex5', 'uTabContentTex6', 'uTabContentTex7',
+   336→   336→      'uTabContentRects[0]', 'uTabContentRects[1]', 'uTabContentRects[2]', 'uTabContentRects[3]',
+   337→   337→      'uTabContentRects[4]', 'uTabContentRects[5]', 'uTabContentRects[6]', 'uTabContentRects[7]',
+   338→   338→      'uTabContentCount', 'uTabsGlassLayer',
+   339→   339→      'uSdfTexSampler', 'uUseSdfTexture', 'uSdfTexSize', 'uSdfLightAngle', 'uEnterAlpha',
+   340→   340→      'uCornerStyle', 'uSkipColorControls',
+   341→   341→      'uUseMagnifier', 'uMagnifierZoom', 'uMagnifierOffsetY',
+   342→   342→      'uElementRotation',
+   343→   343→      'uContinuousSdf', 'uUseContinuousSdf', 'uContinuousSdfTexSize', 'uContinuousSdfElementSize',
+   344→   344→      'uInnerStrokeMask', 'uInnerStrokeMaskOffset', 'uInnerStrokeMaskSize',
+   345→   345→    ]
+   346→   346→    for (const n of elNames) this.uEl[n] = gl.getUniformLocation(this.elementProgram, n)
+   347→   347→    const shNames = [
+   348→   348→      'uCanvasSize', 'uElementOffset', 'uElementSize', 'uCornerRadii',
+   349→   349→      'uShadowRadius', 'uShadowOffset', 'uShadowColor',
+   350→   350→      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation',
+   351→   351→      'uCornerStyle',
+   352→   352→    ]
+   353→   353→    for (const n of shNames) this.uSh[n] = gl.getUniformLocation(this.shadowProgram, n)
+   354→   354→    const wpNames = ['uBackdrop', 'uCanvasSize', 'uWallpaperSize']
+   355→   355→    for (const n of wpNames) this.uWp[n] = gl.getUniformLocation(this.wallpaperProgram, n)
+   356→   356→    const fgNames = ['uTexture', 'uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uAlpha',
+   357→   357→      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uCornerStyle',
+   358→   358→      'uUseContinuousSdf', 'uContinuousSdf', 'uContinuousSdfTexSize', 'uContinuousSdfElementSize']
+   359→   359→    for (const n of fgNames) this.uFg[n] = gl.getUniformLocation(this.foregroundProgram, n)
+   360→   360→    const hlNames = ['uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uColor', 'uRadius', 'uPosition',
+   361→   361→      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation', 'uCornerStyle']
+   362→   362→    for (const n of hlNames) this.uHl[n] = gl.getUniformLocation(this.highlightProgram, n)
+   363→   363→    const tnNames = ['uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uColor',
+   364→   364→      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation', 'uCornerStyle']
+   365→   365→    for (const n of tnNames) this.uTn[n] = gl.getUniformLocation(this.tintProgram, n)
+   366→   366→    const rmNames = [
+   367→   367→      'uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii',
+   368→   368→      'uHighlightColor', 'uHighlightAngle', 'uHighlightFalloff',
+   369→   369→      'uHighlightAlpha', 'uHighlightMode', 'uHighlightStrokeWidth',
+   370→   370→      'uHighlightBlur',
+   371→   371→      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation',
+   372→   372→      'uCornerStyle',
+   373→   373→      'uUseContinuousSdf', 'uContinuousSdf', 'uContinuousSdfTexSize', 'uContinuousSdfElementSize',
+   374→   374→    ]
+   375→   375→    for (const n of rmNames) this.uRm[n] = gl.getUniformLocation(this.rimHighlightProgram, n)
+   376→   376→    // Highlight stroke pass (pass 1): renders the clipped stroke alpha mask.
+   377→   377→    const hsNames = [
+   378→   378→      'uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uHighlightStrokeWidth',
+   379→   379→      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation',
+   380→   380→      'uCornerStyle',
+   381→   381→      'uUseContinuousSdf', 'uContinuousSdf', 'uContinuousSdfTexSize', 'uContinuousSdfElementSize',
+   382→   382→    ]
+   383→   383→    for (const n of hsNames) this.uHs[n] = gl.getUniformLocation(this.highlightStrokeProgram, n)
+   384→   384→    // Highlight composite pass (pass 3): samples blurred mask, multiplies intensity+color.
+   385→   385→    const hcNames = [
+   386→   386→      'uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii',
+   387→   387→      'uBlurredMask', 'uMaskTexSize',
+   388→   388→      'uHighlightColor', 'uHighlightAngle', 'uHighlightFalloff', 'uHighlightAlpha', 'uHighlightMode',
+   389→   389→      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation', 'uCornerStyle',
+   390→   390→      'uUseContinuousSdf', 'uContinuousSdf', 'uContinuousSdfTexSize', 'uContinuousSdfElementSize',
+   391→   391→    ]
+   392→   392→    for (const n of hcNames) this.uHc[n] = gl.getUniformLocation(this.highlightCompositeProgram, n)
+   393→   393→    // Stroke mask composite (Canvas2D stroke mask approach)
+   394→   394→    const smNames = [
+   395→   395→      'uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii',
+   396→   396→      'uStrokeMask', 'uMaskOffset', 'uMaskSize',
+   397→   397→      'uHighlightColor', 'uHighlightAngle', 'uHighlightFalloff', 'uHighlightAlpha', 'uHighlightMode',
+   398→   398→      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation',
+   399→   399→    ]
+   400→   400→    for (const n of smNames) this.uSm[n] = gl.getUniformLocation(this.strokeMaskCompositeProgram, n)
+   401→   401→    // Inner shadow mask composite (Canvas2D ring mask approach)
+   402→   402→    const isNames = [
+   403→   403→      'uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii',
+   404→   404→      'uInnerShadowMask', 'uMaskOffset', 'uMaskSize',
+   405→   405→      'uInnerShadowColor', 'uInnerShadowAlpha',
+   406→   406→      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation',
+   407→   407→    ]
+   408→   408→    for (const n of isNames) this.uIs[n] = gl.getUniformLocation(this.innerShadowMaskCompositeProgram, n)
+   409→   409→    const prNames = ['uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uColor', 'uCornerStyle',
+   410→   410→      'uUseContinuousSdf', 'uContinuousSdf', 'uContinuousSdfTexSize', 'uContinuousSdfElementSize']
+   411→   411→    for (const n of prNames) this.uPr[n] = gl.getUniformLocation(this.plainRectProgram, n)
+   412→   412→    const pbNames = [
+   413→   413→      'uBackdrop', 'uCanvasSize', 'uWallpaperSize', 'uOffset', 'uSize',
+   414→   414→      'uBlurRadius', 'uTintColor', 'uTintIntensity',
+   415→   415→    ]
+   416→   416→    for (const n of pbNames) this.uPb[n] = gl.getUniformLocation(this.progressiveBlurProgram, n)
+   417→   417→    const cpNames = ['uTexture', 'uCanvasSize']
+   418→   418→    for (const n of cpNames) this.uCp[n] = gl.getUniformLocation(this.copyProgram, n)
+   419→   419→    const sfNames = ['uColor']
+   420→   420→    for (const n of sfNames) this.uSf[n] = gl.getUniformLocation(this.solidFillProgram, n)
+   421→   421→    const ccNames = ['uTexture', 'uTexSize', 'uBrightness', 'uContrast', 'uSaturation']
+   422→   422→    for (const n of ccNames) this.uCc[n] = gl.getUniformLocation(this.colorControlsProgram, n)
+   423→   423→    const stNames = ['uTexture', 'uCanvasSize', 'uTintColor']
+   424→   424→    for (const n of stNames) this.uSt[n] = gl.getUniformLocation(this.sceneTintProgram, n)
+   425→   425→  }
+   426→   426→
+   427→   427→  /** Lazy-compile horizontal + vertical blur programs for a 1D tap count. */
+   428→   428→  ensureBlurPrograms(tapCount: number): void {
+   429→   429→    if (this.blurPrograms.has(tapCount)) return
+   430→   430→    const gl = this.gl
+   431→   431→    const hFs = compileShader(gl, gl.FRAGMENT_SHADER, generateSeparableBlurShader(tapCount, 'horizontal'))
+   432→   432→    const vFs = compileShader(gl, gl.FRAGMENT_SHADER, generateSeparableBlurShader(tapCount, 'vertical'))
+   433→   433→    const mk = (fs: WebGLShader) => {
+   434→   434→      const vs = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER)
+   435→   435→      const p = gl.createProgram()!
+   436→   436→      gl.attachShader(p, vs)
+   437→   437→      gl.attachShader(p, fs)
+   438→   438→      gl.bindAttribLocation(p, 0, 'aPos')
+   439→   439→      gl.linkProgram(p)
+   440→   440→      gl.deleteShader(vs)
+   441→   441→      gl.deleteShader(fs)
+   442→   442→      if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+   443→   443→        const log = gl.getProgramInfoLog(p)
+   444→   444→        gl.deleteProgram(p)
+   445→   445→        throw new Error('Blur program link error (taps=' + tapCount + '): ' + log)
+   446→   446→      }
+   447→   447→      return p
+   448→   448→    }
+   449→   449→    const hProg = mk(hFs)
+   450→   450→    const vProg = mk(vFs)
+   451→   451→    const uH: Record<string, WebGLUniformLocation | null> = {
+   452→   452→      uTexture: gl.getUniformLocation(hProg, 'uTexture'),
+   453→   453→      uTexSize: gl.getUniformLocation(hProg, 'uTexSize'),
+   454→   454→      uRadius: gl.getUniformLocation(hProg, 'uRadius'),
+   455→   455→    }
+   456→   456→    const uV: Record<string, WebGLUniformLocation | null> = {
+   457→   457→      uTexture: gl.getUniformLocation(vProg, 'uTexture'),
+   458→   458→      uTexSize: gl.getUniformLocation(vProg, 'uTexSize'),
+   459→   459→      uRadius: gl.getUniformLocation(vProg, 'uRadius'),
+   460→   460→    }
+   461→   461→    this.blurPrograms.set(tapCount, { hProg, vProg, uH, uV, aPosH: 0, aPosV: 0 })
+   462→   462→  }
+   463→   463→
+   464→   464→  /** 2-pass blur a source texture by `radius` px. Reads srcTex, writes the
+   465→   465→   *  blurred result into blurFboB, returns blurFboBTex.
+   466→   466→   *  Saves/restores the currently-bound framebuffer.
+   467→   467→   *  Uses this.blurTapCap to cap 1D tap count (performance knob).
+   468→   468→   *  (blurDownsample is reserved for future use — currently always full-res.) */
+   469→   469→  blurTexture(srcTex: WebGLTexture, radius: number): WebGLTexture {
+   470→   470→    const gl = this.gl
+   471→   471→    const w = this.fboW
+   472→   472→    const h = this.fboH
+   473→   473→    // Compute tap count, capped by blurTapCap (performance knob).
+   474→   474→    let taps = computeBlur1DTapCount(radius)
+   475→   475→    taps = Math.min(taps, Math.max(1, this.blurTapCap | 0))
+   476→   476→    this.ensureBlurPrograms(taps)
+   477→   477→    const entry = this.blurPrograms.get(taps)!
+   478→   478→    const savedFb = gl.getParameter(gl.FRAMEBUFFER_BINDING)
+   479→   479→    gl.disable(gl.BLEND)
+   480→   480→
+   481→   481→    // Pass 1: horizontal — srcTex → blurFboA
+   482→   482→    gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurFboA)
+   483→   483→    gl.viewport(0, 0, w, h)
+   484→   484→    gl.useProgram(entry.hProg)
+   485→   485→    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+   486→   486→    gl.enableVertexAttribArray(entry.aPosH)
+   487→   487→    gl.vertexAttribPointer(entry.aPosH, 2, gl.FLOAT, false, 0, 0)
+   488→   488→    gl.activeTexture(gl.TEXTURE0)
+   489→   489→    gl.bindTexture(gl.TEXTURE_2D, srcTex)
+   490→   490→    gl.uniform1i(entry.uH['uTexture'], 0)
+   491→   491→    gl.uniform2f(entry.uH['uTexSize'], w, h)
+   492→   492→    gl.uniform1f(entry.uH['uRadius'], radius)
+   493→   493→    gl.drawArrays(gl.TRIANGLES, 0, 6)
+   494→   494→
+   495→   495→    // Pass 2: vertical — blurFboATex → blurFboB
+   496→   496→    gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurFboB)
+   497→   497→    gl.viewport(0, 0, w, h)
+   498→   498→    gl.useProgram(entry.vProg)
+   499→   499→    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+   500→   500→    gl.enableVertexAttribArray(entry.aPosV)
+   501→   501→    gl.vertexAttribPointer(entry.aPosV, 2, gl.FLOAT, false, 0, 0)
+   502→   502→    gl.activeTexture(gl.TEXTURE0)
+   503→   503→    gl.bindTexture(gl.TEXTURE_2D, this.blurFboATex!)
+   504→   504→    gl.uniform1i(entry.uV['uTexture'], 0)
+   505→   505→    gl.uniform2f(entry.uV['uTexSize'], w, h)
+   506→   506→    gl.uniform1f(entry.uV['uRadius'], radius)
+   507→   507→    gl.drawArrays(gl.TRIANGLES, 0, 6)
+   508→   508→
+   509→   509→    gl.bindFramebuffer(gl.FRAMEBUFFER, savedFb)
+   510→   510→    gl.viewport(0, 0, w, h)
+   511→   511→    return this.blurFboBTex!
+   512→   512→  }
+   513→   513→
+   514→   514→  /** Lazy-compile highlight blur programs (alpha-blurring, sigma semantics).
+   515→   515→   *  Separate from ensureBlurPrograms because the shader is different
+   516→   516→   *  (blurs alpha, no early-return, integer-σ-spaced taps). */
+   517→   517→  ensureHighlightBlurPrograms(tapCount: number): void {
+   518→   518→    if (this.highlightBlurPrograms.has(tapCount)) return
+   519→   519→    const gl = this.gl
+   520→   520→    const hFs = compileShader(gl, gl.FRAGMENT_SHADER, generateHighlightBlurShader(tapCount, 'horizontal'))
+   521→   521→    const vFs = compileShader(gl, gl.FRAGMENT_SHADER, generateHighlightBlurShader(tapCount, 'vertical'))
+   522→   522→    const mk = (fs: WebGLShader) => {
+   523→   523→      const vs = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER)
+   524→   524→      const p = gl.createProgram()!
+   525→   525→      gl.attachShader(p, vs)
+   526→   526→      gl.attachShader(p, fs)
+   527→   527→      gl.bindAttribLocation(p, 0, 'aPos')
+   528→   528→      gl.linkProgram(p)
+   529→   529→      gl.deleteShader(vs)
+   530→   530→      gl.deleteShader(fs)
+   531→   531→      if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+   532→   532→        const log = gl.getProgramInfoLog(p)
+   533→   533→        gl.deleteProgram(p)
+   534→   534→        throw new Error('Highlight blur program link error (taps=' + tapCount + '): ' + log)
+   535→   535→      }
+   536→   536→      return p
+   537→   537→    }
+   538→   538→    const hProg = mk(hFs)
+   539→   539→    const vProg = mk(vFs)
+   540→   540→    const uH: Record<string, WebGLUniformLocation | null> = {
+   541→   541→      uTexture: gl.getUniformLocation(hProg, 'uTexture'),
+   542→   542→      uTexSize: gl.getUniformLocation(hProg, 'uTexSize'),
+   543→   543→      uRadius: gl.getUniformLocation(hProg, 'uRadius'),
+   544→   544→    }
+   545→   545→    const uV: Record<string, WebGLUniformLocation | null> = {
+   546→   546→      uTexture: gl.getUniformLocation(vProg, 'uTexture'),
+   547→   547→      uTexSize: gl.getUniformLocation(vProg, 'uTexSize'),
+   548→   548→      uRadius: gl.getUniformLocation(vProg, 'uRadius'),
+   549→   549→    }
+   550→   550→    this.highlightBlurPrograms.set(tapCount, { hProg, vProg, uH, uV, aPosH: 0, aPosV: 0 })
+   551→   551→  }
+   552→   552→
+   553→   553→  /** 2-pass Gaussian blur on a highlight stroke MASK (alpha only).
+   554→   554→   *  Faithful to Android BlurMaskFilter(NORMAL, sigma):
+   555→   555→   *    - sigma = blurRadiusPx (the Android radius param IS sigma)
+   556→   556→   *    - convolves the mask's ALPHA with a Gaussian kernel
+   557→   557→   *    - sub-pixel sigma (0.25px) still blurs (no 0.5 early-return)
+   558→   558→   *  Reads srcTex (alpha mask), writes blurFboB, returns blurFboBTex.
+   559→   559→   *  Saves/restores the currently-bound framebuffer. */
+   560→   560→  blurHighlightMask(srcTex: WebGLTexture, sigmaPx: number): WebGLTexture {
+   561→   561→    const gl = this.gl
+   562→   562→    const w = this.fboW
+   563→   563→    const h = this.fboH
+   564→   564→    let taps = computeHighlightBlurTapCount(sigmaPx)
+   565→   565→    taps = Math.min(taps, Math.max(3, this.blurTapCap | 0))
+   566→   566→    this.ensureHighlightBlurPrograms(taps)
+   567→   567→    const entry = this.highlightBlurPrograms.get(taps)!
+   568→   568→    const savedFb = gl.getParameter(gl.FRAMEBUFFER_BINDING)
+   569→   569→    gl.disable(gl.BLEND)
+   570→   570→
+   571→   571→    // Pass 1: horizontal — srcTex → blurFboA
+   572→   572→    gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurFboA)
+   573→   573→    gl.viewport(0, 0, w, h)
+   574→   574→    gl.useProgram(entry.hProg)
+   575→   575→    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+   576→   576→    gl.enableVertexAttribArray(entry.aPosH)
+   577→   577→    gl.vertexAttribPointer(entry.aPosH, 2, gl.FLOAT, false, 0, 0)
+   578→   578→    gl.activeTexture(gl.TEXTURE0)
+   579→   579→    gl.bindTexture(gl.TEXTURE_2D, srcTex)
+   580→   580→    gl.uniform1i(entry.uH['uTexture'], 0)
+   581→   581→    gl.uniform2f(entry.uH['uTexSize'], w, h)
+   582→   582→    gl.uniform1f(entry.uH['uRadius'], sigmaPx)
+   583→   583→    gl.drawArrays(gl.TRIANGLES, 0, 6)
+   584→   584→
+   585→   585→    // Pass 2: vertical — blurFboATex → blurFboB
+   586→   586→    gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurFboB)
+   587→   587→    gl.viewport(0, 0, w, h)
+   588→   588→    gl.useProgram(entry.vProg)
+   589→   589→    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+   590→   590→    gl.enableVertexAttribArray(entry.aPosV)
+   591→   591→    gl.vertexAttribPointer(entry.aPosV, 2, gl.FLOAT, false, 0, 0)
+   592→   592→    gl.activeTexture(gl.TEXTURE0)
+   593→   593→    gl.bindTexture(gl.TEXTURE_2D, this.blurFboATex!)
+   594→   594→    gl.uniform1i(entry.uV['uTexture'], 0)
+   595→   595→    gl.uniform2f(entry.uV['uTexSize'], w, h)
+   596→   596→    gl.uniform1f(entry.uV['uRadius'], sigmaPx)
+   597→   597→    gl.drawArrays(gl.TRIANGLES, 0, 6)
+   598→   598→
+   599→   599→    gl.bindFramebuffer(gl.FRAMEBUFFER, savedFb)
+   600→   600→    gl.viewport(0, 0, w, h)
+   601→   601→    return this.blurFboBTex!
+   602→   602→  }
+   603→   603→
+   604→   604→  dispose() {
+   605→   605→    if (this.rafId !== null) cancelAnimationFrame(this.rafId)
+   606→   606→    this.rafId = null
+   607→   607→    if (this.animRafId !== null) cancelAnimationFrame(this.animRafId)
+   608→   608→    this.animRafId = null
+   609→   609→    const gl = this.gl
+   610→   610→    if (this.wallpaperTexture) gl.deleteTexture(this.wallpaperTexture)
+   611→   611→    for (const tex of this.fgTextures.values()) gl.deleteTexture(tex)
+   612→   612→    this.fgTextures.clear()
+   613→   613→    for (const entry of this.strokeMaskCache.values()) gl.deleteTexture(entry.tex)
+   614→   614→    this.strokeMaskCache.clear()
+   615→   615→    destroyCache(gl, this.innerShadowMaskCache)
+   616→   616→    if (this.fboA) gl.deleteFramebuffer(this.fboA)
+   617→   617→    if (this.fboATex) gl.deleteTexture(this.fboATex)
+   618→   618→    if (this.fboB) gl.deleteFramebuffer(this.fboB)
+   619→   619→    if (this.fboBTex) gl.deleteTexture(this.fboBTex)
+   620→   620→    this.fboA = this.fboB = null
+   621→   621→    this.fboATex = this.fboBTex = null
+   622→   622→    if (this.tabsBackdropFbo) gl.deleteFramebuffer(this.tabsBackdropFbo)
+   623→   623→    if (this.tabsBackdropTex) gl.deleteTexture(this.tabsBackdropTex)
+   624→   624→    this.tabsBackdropFbo = null
+   625→   625→    this.tabsBackdropTex = null
+   626→   626→    // GP element FBO + blur FBOs + programs
+   627→   627→    if (this.gpElementFbo) gl.deleteFramebuffer(this.gpElementFbo)
+   628→   628→    if (this.gpElementTex) gl.deleteTexture(this.gpElementTex)
+   629→   629→    if (this.blurFboA) gl.deleteFramebuffer(this.blurFboA)
+   630→   630→    if (this.blurFboATex) gl.deleteTexture(this.blurFboATex)
+   631→   631→    if (this.blurFboB) gl.deleteFramebuffer(this.blurFboB)
+   632→   632→    if (this.blurFboBTex) gl.deleteTexture(this.blurFboBTex)
+   633→   633→    this.gpElementFbo = this.blurFboA = this.blurFboB = null
+   634→   634→    this.gpElementTex = this.blurFboATex = this.blurFboBTex = null
+   635→   635→    if (this.highlightMaskFbo) gl.deleteFramebuffer(this.highlightMaskFbo)
+   636→   636→    if (this.highlightMaskTex) gl.deleteTexture(this.highlightMaskTex)
+   637→   637→    this.highlightMaskFbo = null
+   638→   638→    this.highlightMaskTex = null
+   639→   639→    if (this.dialogBackdropFbo) gl.deleteFramebuffer(this.dialogBackdropFbo)
+   640→   640→    if (this.dialogBackdropTex) gl.deleteTexture(this.dialogBackdropTex)
+   641→   641→    this.dialogBackdropFbo = null
+   642→   642→    this.dialogBackdropTex = null
+   643→   643→    this.dialogBackdropKey = null
+   644→   644→    for (const { hProg, vProg } of this.blurPrograms.values()) {
+   645→   645→      gl.deleteProgram(hProg)
+   646→   646→      gl.deleteProgram(vProg)
+   647→   647→    }
+   648→   648→    this.blurPrograms.clear()
+   649→   649→    for (const { hProg, vProg } of this.highlightBlurPrograms.values()) {
+   650→   650→      gl.deleteProgram(hProg)
+   651→   651→      gl.deleteProgram(vProg)
+   652→   652→    }
+   653→   653→    this.highlightBlurPrograms.clear()
+   654→   654→    if (this.sdfTexture) gl.deleteTexture(this.sdfTexture)
+   655→   655→    this.sdfTexture = null
+   656→   656→    for (const { tex } of this.continuousSdfPool.values()) gl.deleteTexture(tex)
+   657→   657→    this.continuousSdfPool.clear()
+   658→   658→    this.continuousSdfTexture = null
+   659→   659→    this.continuousSdfKey = null
+   660→   660→    gl.deleteProgram(this.elementProgram)
+   661→   661→    gl.deleteProgram(this.shadowProgram)
+   662→   662→    gl.deleteProgram(this.wallpaperProgram)
+   663→   663→    gl.deleteProgram(this.foregroundProgram)
+   664→   664→    gl.deleteProgram(this.highlightProgram)
+   665→   665→    gl.deleteProgram(this.tintProgram)
+   666→   666→    gl.deleteProgram(this.rimHighlightProgram)
+   667→   667→    gl.deleteProgram(this.highlightStrokeProgram)
+   668→   668→    gl.deleteProgram(this.highlightCompositeProgram)
+   669→   669→    gl.deleteProgram(this.strokeMaskCompositeProgram)
+   670→   670→    gl.deleteProgram(this.innerShadowMaskCompositeProgram)
+   671→   671→    gl.deleteProgram(this.plainRectProgram)
+   672→   672→    gl.deleteProgram(this.progressiveBlurProgram)
+   673→   673→    gl.deleteProgram(this.copyProgram)
+   674→   674→    gl.deleteProgram(this.solidFillProgram)
+   675→   675→    gl.deleteProgram(this.colorControlsProgram)
+   676→   676→    gl.deleteProgram(this.sceneTintProgram)
+   677→   677→    gl.deleteBuffer(this.quadBuffer)
+   678→   678→  }
+   679→   679→}
+   680→   680→
+   681→   681→// Install method bundles. Each methods-*.ts module exports a record of
+   682→   682→// functions and uses `declare module './index'` to add the corresponding
+   683→   683→// method signatures to the LiquidGlassRenderer interface.
+   684→   684→import { fboMethods } from './methods-fbo'
+   685→   685→import { wallpaperMethods } from './methods-wallpaper'
+   686→   686→import { scrollMethods } from './methods-scroll'
+   687→   687→import { toggleMethods } from './methods-toggle'
+   688→   688→import { tabsMethods } from './methods-tabs'
+   689→   689→import { elementMethods } from './methods-elements'
+   690→   690→import { animationMethods } from './methods-animation'
+   691→   691→import { rasterMethods } from './methods-raster'
+   692→   692→import { renderMethods } from './methods-render'
+   693→   693→import { glassRenderMethods } from './methods-render-glass'
+   694→   694→import { glassElementPassMethods } from './methods-render-glass-element-pass'
+   695→   695→import { glassPostPassMethods } from './methods-render-glass-post-passes'
+   696→   696→
+   697→   697→Object.assign(
+   698→   698→  LiquidGlassRenderer.prototype,
+   699→   699→  fboMethods,
+   700→   700→  wallpaperMethods,
+   701→   701→  scrollMethods,
+   702→   702→  toggleMethods,
+   703→   703→  tabsMethods,
+   704→   704→  elementMethods,
+   705→   705→  animationMethods,
+   706→   706→  rasterMethods,
+   707→   707→  renderMethods,
+   708→   708→  glassRenderMethods,
+   709→   709→  glassElementPassMethods,
+   710→   710→  glassPostPassMethods
+   711→   711→)
+   712→   712→
+   713→   713→// Re-export all public types so callers can `import type { GlassElementConfig, ... } from './renderer'`.
+   714→   714→export type {
+   715→   715→  GlassRect,
+   716→   716→  GlassHighlight,
+   717→   717→  GlassButtonConfig,
+   718→   718→  ElementKind,
+   719→   719→  PlainRectSpec,
+   720→   720→  ProgressiveBlurSpec,
+   721→   721→  TextSpec,
+   722→   722→  GlassElementConfig,
+   723→   723→  ElementState,
+   724→   724→  ToggleGroupState,
+   725→   725→} from './types'
+   726→   726→
