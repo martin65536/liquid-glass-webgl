@@ -218,7 +218,7 @@ export function buildBottomTabs(W: number, H: number, onBack: () => void, state:
         // Renderer modulates alpha by pressProgress.
         outerShadow: { radius: 24 * DP, alpha: 0.1, offsetX: 0, offsetY: (24 / 6) * DP, color: [0, 0, 0] },
         // InnerShadow(radius=8dp*progress, alpha=progress) — color=Black(0.15), offset=(0, radius).
-        innerShadow: { radius: 8 * DP, alpha: 0.15, offsetX: 0, offsetY: 8 * DP },
+        innerShadow: { radius: 8 * DP, alpha: 0.4, offsetX: 0, offsetY: 8 * DP }, // Boosted from Kotlin's 0.15 for visibility
         chromaticAberration: true,
       }
     )

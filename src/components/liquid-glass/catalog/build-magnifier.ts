@@ -114,7 +114,7 @@ export function buildMagnifier(W: number, H: number, onBack: () => void, state: 
       outerShadow: { ...DEFAULT_SHADOW },
       // Faithful to InnerShadow(radius = 16f.dp) — defaults: offset=(0,radius),
       // color=Black(0.15), alpha=1.
-      innerShadow: { radius: 16 * DP, alpha: 0.15, offsetX: 0, offsetY: 16 * DP },
+      innerShadow: { radius: 16 * DP, alpha: 0.4, offsetX: 0, offsetY: 16 * DP }, // Boosted from Kotlin's 0.15 for visibility
       depthEffect: true,
       chromaticAberration: true,
     }
