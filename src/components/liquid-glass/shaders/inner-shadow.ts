@@ -52,34 +52,39 @@ void main() {
     vec2 centeredOrig = centeredScreen / layerScale;
     vec2 centeredOrigRot = rotateBy(centeredOrig, -uElementRotation);
 
-    // Clip to element shape — hard discard for pixels outside.
-    // Faithful to InnerShadowModifier.kt's graphicsLayer clip which applies
-    // AFTER BlurMaskFilter: the blurred ring's outward spread is clipped away,
-    // but pixels AT the edge (sd ≈ 0) remain at full mask intensity.
-    // We use a HARD discard (no smoothstep clipAlpha) because multiplying by
-    // clipAlpha at the edge would reduce the inner shadow's peak intensity,
-    // creating a visible gap. The mask's own blur softness provides the
-    // edge transition, matching the original's clip-after-blur behavior.
+    // SDF for shape clip — faithful to InnerShadowModifier.kt's two
+    // clipOutline calls (ring generation + final drawLayer).
+    // Original uses Skia's geometric clip + AA (smooth sub-pixel transition).
+    // We replicate this with a 1px-wide smoothstep: full intensity at sd≤0,
+    // smoothly fading outward leakage over 1px (sd 0→1).
+    // This matches Skia's clipOutline AA behavior — NOT a hard discard.
     vec2 origHalfSize = uOriginalSize * 0.5;
     float sd = sdShape(centeredOrigRot, origHalfSize, uOriginalCornerRadius);
-    if (sd > 0.5) discard;
+
+    // Hard discard for pixels clearly outside (>1px) — these have zero
+    // mask content anyway, but discarding early avoids texture sampling.
+    if (sd > 1.0) discard;
+
+    // Smooth clipAlpha: 1.0 inside (sd ≤ 0), smooth fade across boundary
+    // (sd 0→1), 0.0 outside (sd ≥ 1). This matches Skia's clipOutline AA:
+    // pixels at the exact boundary (sd=0) retain FULL intensity — no gap.
+    // The 1px transition removes outward blur leakage smoothly.
+    float clipAlpha = 1.0 - smoothstep(0.0, 1.0, sd);
 
     // Map to mask UV: original-space coord → mask texture UV.
-    // The mask was drawn with translate(margin, margin), so mask (0,0) =
-    // element-local (-margin). Element-local coord 0..origSize maps to
-    // mask UV (0+margin)/maskSize .. (origSize+margin)/maskSize.
     vec2 maskTexCoord = centeredOrigRot + origHalfSize;  // 0..origSize (element-local)
     vec2 maskUv = (maskTexCoord + uMaskOffset) / uMaskSize;
+    // Early exit for UV out of bounds (no mask content there)
     if (maskUv.x < 0.0 || maskUv.x > 1.0 || maskUv.y < 0.0 || maskUv.y > 1.0) discard;
+
     float mask = texture2D(uInnerShadowMask, maskUv).a;
     if (mask < 0.001) discard;
 
-    // Premultiplied SrcOver composite: shadow color × mask × alpha.
-    // No clipAlpha multiplier — hard discard at sd>0.5 is sufficient.
-    // Output is premultiplied (rgb = color * alpha). Renderer uses
-    // gl.blendFunc(ONE, ONE_MINUS_SRC_ALPHA) — premultiplied SrcOver.
-    // Do NOT use (SRC_ALPHA, ONE_MINUS_SRC_ALPHA) — that squares the alpha.
-    float a = mask * uInnerShadowAlpha;
+    // Premultiplied SrcOver composite: shadow color × mask × shadowAlpha × clipAlpha.
+    // clipAlpha provides smooth shape-boundary transition (faithful to original's
+    // clipOutline AA). Output is premultiplied (rgb = color * alpha).
+    // Renderer uses gl.blendFunc(ONE, ONE_MINUS_SRC_ALPHA) — premultiplied SrcOver.
+    float a = mask * uInnerShadowAlpha * clipAlpha;
     gl_FragColor = vec4(uInnerShadowColor * a, a);
 }
 `
