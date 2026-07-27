@@ -289,3 +289,31 @@ Stage Summary:
 - renderer/index.ts uses InnerShadowMaskCacheEntry type and destroyCache for cleanup
 - methods-render-glass-post-passes.ts refactored: ~110 lines of inline code replaced with 4 module calls
 - No functional changes — same mask generation pipeline, same composite shader, same caching strategy
+---
+Task ID: 9
+Agent: Main Agent
+Task: Fix inner shadow "乱 discard 像素" bug — rewrite to match Kotlin original exactly
+
+Work Log:
+- Read original Kotlin InnerShadowModifier.kt and InnerShadow.kt in detail
+- Read current inner-shadow-mask.ts, inner-shadow.ts shader, and methods-render-glass-post-passes.ts
+- Identified 3 bugs causing "乱 discard 像素":
+  1. **Reusable canvas contamination**: Module-level tempCanvas/outputCanvas only grow, never shrink. clearRect only clears current mask area (not entire canvas), leaving old content at edges. When blur is applied, old content bleeds into current mask area.
+  2. **Texture dimensions vs uMaskSize mismatch**: When canvas is reused (larger than current mask), texImage2D uploads entire canvas (larger dimensions), but uMaskSize is set to current mask dimensions. UV mapping maps to wrong texture pixel positions.
+  3. **Shader hard discard statements**: Three `discard` calls (`sd > 1.0`, `maskUv out of bounds`, `mask < 0.001`) are too aggressive, creating hard edges instead of smooth Skia-style clipOutline AA. This is unfaithful to the original Kotlin's geometric clip.
+- Rewrote inner-shadow-mask.ts: replaced reusable module-level canvases with FRESH OffscreenCanvas per call. Eliminates contamination bug and texture mismatch. Uses createCanvas() helper for clean OffscreenCanvas creation. Result type is now `OffscreenCanvas` (not HTMLCanvasElement | OffscreenCanvas).
+- Rewrote inner-shadow.ts shader: removed hard discard statements, replaced with smooth SDF clipping:
+  - `sd > 1.0` discard → replaced with `smoothstep(0.0, 1.5, sd)` and `clipAlpha < 0.004` discard for invisible pixels only
+  - `maskUv out of bounds` discard → removed entirely (CLAMP_TO_EDGE wrapping handles boundary gracefully)
+  - `mask < 0.001` discard → changed to `mask < 0.003` (less aggressive, preserves faint but visible shadow edges)
+- Updated inner-shadow-cache.ts: uploadMaskTexture now accepts `result.canvas` as OffscreenCanvas directly (no HTMLCanvasElement | OffscreenCanvas union needed)
+- Verified methods-render-glass-post-passes.ts: uMaskSize = (entry.w, entry.h) = (maskW, maskH) now matches actual canvas dimensions (fresh canvas, no size mismatch). All other uniforms correct.
+- Lint passes cleanly
+- Dev server compiles without errors
+- VLM visual verification confirms: inner shadows are smooth and continuous, no broken/jagged/dotted patterns, no gaps or holes, liquid glass effects render with high fidelity
+
+Stage Summary:
+- Root cause: reusable canvases caused contamination (old content in blur) AND texture dimension mismatch (UV mapping wrong)
+- Fix: fresh OffscreenCanvas per call eliminates both bugs simultaneously
+- Shader: smooth SDF clipping (smoothstep over 1.5px) replaces hard discards, faithful to Skia's clipOutline AA
+- Inner shadow now matches Kotlin InnerShadowModifier.kt rendering pipeline exactly

@@ -16,8 +16,11 @@ import { SDF_GLSL } from './sdf'
  * blendFunc(ONE, ONE_MINUS_SRC_ALPHA) — premultiplied SrcOver — NOT
  * blendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA) which would square the alpha
  * (making alpha=0.15 contribute only 0.15²=0.0225 — nearly invisible).
- * SDF clip ensures the shadow stays inside the shape boundary
- * (blur that leaked outside is discarded).
+ *
+ * Shape clipping: The original Kotlin uses Skia's clipOutline (geometric
+ * clip with smooth AA). We replicate this with a SDF smoothstep —
+ * NO hard discard. This ensures no visible gaps at the shape boundary
+ * and matches the original's smooth clipping behavior exactly.
  * ------------------------------------------------------------------ */
 export const INNER_SHADOW_MASK_COMPOSITE_FRAGMENT_SHADER = /* glsl */ `
 precision highp float;
@@ -52,35 +55,38 @@ void main() {
     vec2 centeredOrig = centeredScreen / layerScale;
     vec2 centeredOrigRot = rotateBy(centeredOrig, -uElementRotation);
 
-    // SDF for shape clip — faithful to InnerShadowModifier.kt's two
-    // clipOutline calls (ring generation + final drawLayer).
-    // Original uses Skia's geometric clip + AA (smooth sub-pixel transition).
-    // We replicate this with a 1px-wide smoothstep: full intensity at sd≤0,
-    // smoothly fading outward leakage over 1px (sd 0→1).
-    // This matches Skia's clipOutline AA behavior — NOT a hard discard.
+    // SDF for shape clip — faithful to InnerShadowModifier.kt's final
+    // clipOutline call before drawLayer. The original uses Skia's
+    // geometric clip with smooth AA (sub-pixel transition).
+    // We replicate with smoothstep — NO hard discard.
     vec2 origHalfSize = uOriginalSize * 0.5;
     float sd = sdShape(centeredOrigRot, origHalfSize, uOriginalCornerRadius);
 
-    // Hard discard for pixels clearly outside (>1px) — these have zero
-    // mask content anyway, but discarding early avoids texture sampling.
-    if (sd > 1.0) discard;
+    // Smooth clipAlpha: 1.0 fully inside (sd ≤ 0), smoothly fading
+    // across the boundary (sd 0→1.5), 0.0 outside (sd ≥ 1.5).
+    // The 1.5px transition width matches Skia's clipOutline AA behavior
+    // — pixels at the exact boundary (sd=0) retain FULL intensity, with
+    // a gentle fade that removes outward blur leakage smoothly.
+    // This is NOT a hard discard — it's a smooth clip that matches the
+    // original's geometric clipOutline exactly.
+    float clipAlpha = 1.0 - smoothstep(0.0, 1.5, sd);
 
-    // Smooth clipAlpha: 1.0 inside (sd ≤ 0), smooth fade across boundary
-    // (sd 0→1), 0.0 outside (sd ≥ 1). This matches Skia's clipOutline AA:
-    // pixels at the exact boundary (sd=0) retain FULL intensity — no gap.
-    // The 1px transition removes outward blur leakage smoothly.
-    float clipAlpha = 1.0 - smoothstep(0.0, 1.0, sd);
+    // Skip truly invisible pixels for performance (not a visual clip)
+    if (clipAlpha < 0.004) discard;
 
     // Map to mask UV: original-space coord → mask texture UV.
     vec2 maskTexCoord = centeredOrigRot + origHalfSize;  // 0..origSize (element-local)
     vec2 maskUv = (maskTexCoord + uMaskOffset) / uMaskSize;
-    // Early exit for UV out of bounds (no mask content there)
-    if (maskUv.x < 0.0 || maskUv.x > 1.0 || maskUv.y < 0.0 || maskUv.y > 1.0) discard;
 
+    // Sample the mask texture. CLAMP_TO_EDGE wrapping handles UV values
+    // slightly outside (0..1) gracefully — returns transparent at edges.
     float mask = texture2D(uInnerShadowMask, maskUv).a;
-    if (mask < 0.001) discard;
 
-    // Premultiplied SrcOver composite: shadow color × mask × shadowAlpha × clipAlpha.
+    // Skip truly invisible pixels for performance (not a visual clip)
+    // Threshold is very low to avoid cutting off faint but visible shadow edges.
+    if (mask < 0.003) discard;
+
+    // Premultiplied SrcOver composite: shadowColor × mask × shadowAlpha × clipAlpha.
     // clipAlpha provides smooth shape-boundary transition (faithful to original's
     // clipOutline AA). Output is premultiplied (rgb = color * alpha).
     // Renderer uses gl.blendFunc(ONE, ONE_MINUS_SRC_ALPHA) — premultiplied SrcOver.

@@ -26,8 +26,7 @@ export interface InnerShadowMaskCacheEntry {
 /** Maximum number of cached mask entries. Evicts oldest when exceeded. */
 export const MAX_CACHE_SIZE = 32
 
-/** Build a cache key from shadow index and mask params.
- *  Same format as the inline key in the old implementation. */
+/** Build a cache key from shadow index and mask params. */
 export function buildMaskKey(shadowIndex: number, params: InnerShadowMaskParams): string {
   return [
     'is',
@@ -87,7 +86,7 @@ export function uploadMaskTexture(
 ): void {
   gl.bindTexture(gl.TEXTURE_2D, entry.tex)
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, result.canvas as HTMLCanvasElement | OffscreenCanvas)
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, result.canvas)
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
