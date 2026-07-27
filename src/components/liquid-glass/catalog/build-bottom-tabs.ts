@@ -219,9 +219,10 @@ export function buildBottomTabs(W: number, H: number, onBack: () => void, state:
         // At rest (progress=0): shadow alpha=0 → invisible. When pressed: Shadow.Default visible.
         // The renderer modulates this by state.togglePressProgress in renderGlassShadowPass.
         outerShadow: { ...DEFAULT_SHADOW },
-        // InnerShadow(radius=8dp*progress, alpha=progress) — color=Black(0.15), offset=(0, radius).
-        // Faithful to InnerShadow default: color=Black.copy(alpha=0.15f).
-        innerShadow: { radius: 8 * DP, alpha: 0.15, offsetX: 0, offsetY: 8 * DP },
+        // InnerShadow(radius=8dp*progress, alpha=progress) — offset=(0, radius).
+        // Kotlin default color.alpha=0.15, but visually too faint in our WebGL pipeline.
+        // Increased to 0.2 for better visibility (0.3 was too heavy per user feedback).
+        innerShadow: { radius: 8 * DP, alpha: 0.2, offsetX: 0, offsetY: 8 * DP },
         chromaticAberration: true,
       }
     )
