@@ -317,3 +317,63 @@ Stage Summary:
 - Fix: fresh OffscreenCanvas per call eliminates both bugs simultaneously
 - Shader: smooth SDF clipping (smoothstep over 1.5px) replaces hard discards, faithful to Skia's clipOutline AA
 - Inner shadow now matches Kotlin InnerShadowModifier.kt rendering pipeline exactly
+---
+Task ID: 7+8
+Agent: Sub Agent
+Task: Implement per-element FBO render flow for performance optimization
+
+Work Log:
+- Read worklog.md to understand previous work (9 prior tasks completed)
+- Read methods-render-glass.ts and methods-render-glass-element-pass.ts (current state)
+- Read methods-fbo.ts to verify per-element FBO infrastructure (ensureElementFBO, bindElementFBO, drawElFboComposite, cropAndBlurBackdrop) already exists
+- Verified uUsePerElementFbo, uSceneRectOffset, uSceneRectSize, uElFboSize uniform names already cached in index.ts elNames array
+- Modified methods-render-glass.ts — GlassRenderState interface: added 3 new fields (usePerElementFbo: boolean, sceneRectOffset: [number, number], sceneRectSize: [number, number])
+- Modified methods-render-glass.ts — renderGlassElement method:
+  - Added per-element FBO coordinate mapping variables after scissor setup (EL_FBO_MARGIN_CSS=2, sceneRectOffset, sceneRectSize computation, ensureElementFBO call)
+  - Added usePerElementFbo:true, sceneRectOffset, sceneRectSize to state object
+  - Added clear per-element FBO step after shadow pass (bindElementFBO + clearColor(0,0,0,0) + clear(COLOR_BUFFER_BIT))
+  - Replaced element pass section: now renders INTO per-element FBO instead of otherFbo
+    - For useSeparableBlur: replaced blurTexture with cropAndBlurBackdrop (capped-resolution blur)
+    - Both branches now bindElementFBO before renderGlassElementPass
+  - Added composite step: drawElFboComposite onto otherFbo after element pass
+  - Post passes (renderGlassPostPasses) still render into otherFbo — unchanged
+- Modified methods-render-glass-element-pass.ts:
+  - Added per-element FBO coordinate mapping uniforms before drawArrays call
+  - When state.usePerElementFbo=true: sets uUsePerElementFbo=1.0, uSceneRectOffset, uSceneRectSize, uElFboSize
+  - When state.usePerElementFbo=false: sets uUsePerElementFbo=0.0 (default safety)
+- Verified: Next.js build compiles successfully (no new TypeScript errors introduced)
+- Pre-existing TypeScript errors are all in other files (continuous-corners.ts, collect-device-info.ts) — unrelated to our changes
+
+Stage Summary:
+- Per-element FBO render flow fully implemented: element pass renders at capped resolution (MAX_ELEMENT_FBO_SIZE=1024) then composites onto scene FBO
+- Key performance win: shader processing is now O(1) regardless of zoom level — biggest optimization for the glass playground
+- cropAndBlurBackdrop replaces blurTexture for separable blur path, operating at O(elFboSize²) instead of O(sceneSize²)
+- All coordinate mapping uniforms wired through: shader receives sceneRectOffset/sceneRectSize/elFboSize to correctly map backdrop sampling from per-element FBO space to scene space
+- Shadow pass and post passes unchanged — they still render at full scene resolution (correct for edge effects)
+---
+---
+Task ID: 1-10
+Agent: main
+Task: Implement per-element FBO + capped resolution optimization for glass playground WebGL renderer
+
+Work Log:
+- Read and analyzed all 7+ relevant files in the liquid-glass renderer
+- Added EL_FBO_COMPOSITE_FRAGMENT_SHADER and BACKDROP_CROP_FRAGMENT_SHADER to scene-bg.ts
+- Added new shader exports to shaders/index.ts
+- Added uUsePerElementFbo, uSceneRectOffset, uSceneRectSize, uElFboSize uniforms to element-uniforms.ts
+- Modified element.ts shader coordinate mapping: when uUsePerElementFbo=1.0, maps per-element FBO coords to scene coords via uSceneRectOffset + fboCoord * (uSceneRectSize / uElFboSize)
+- Added ensureElementFBO, bindElementFBO, drawElFboComposite, cropAndBlurBackdrop methods to methods-fbo.ts with MAX_ELEMENT_FBO_SIZE=1024
+- Added per-element FBO fields (elFbo, elFboTex, backdropCropFbo, elBlurFboA/B) and new programs to renderer/index.ts
+- Modified GlassRenderState interface: added usePerElementFbo, sceneRectOffset, sceneRectSize fields
+- Modified renderGlassElement flow: element pass renders into per-element FBO (capped resolution), then composites onto scene FBO via drawElFboComposite
+- Modified renderGlassElementPass: sets uUsePerElementFbo, uSceneRectOffset, uSceneRectSize, uElFboSize uniforms
+- Cap inner-shadow-mask.ts OffscreenCanvas to MAX_MASK_CANVAS_SIZE=512 with effectiveSS scaling
+- Verified lint passes, page loads correctly, no runtime errors
+
+Stage Summary:
+- Per-element FBO optimization implemented: glass elements render into capped-resolution FBO (max 1024×1024 device px)
+- Blur operates on capped-resolution backdrop crop FBO instead of full scene — biggest performance win
+- Inner shadow mask canvas capped at 512×512 physical pixels
+- Makes rendering O(1) regardless of zoom level instead of O(n²)
+- Post passes (inner shadow, foreground, highlight) remain on full-screen scene FBO — no shader changes needed
+- Composite step draws per-element FBO onto scene via SrcOver blend

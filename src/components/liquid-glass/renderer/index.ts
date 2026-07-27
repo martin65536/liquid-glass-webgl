@@ -19,6 +19,8 @@ import {
   SOLID_FILL_FRAGMENT_SHADER,
   COLOR_CONTROLS_FRAGMENT_SHADER,
   SCENE_TINT_FRAGMENT_SHADER,
+  EL_FBO_COMPOSITE_FRAGMENT_SHADER,
+  BACKDROP_CROP_FRAGMENT_SHADER,
   generateSeparableBlurShader,
   computeBlur1DTapCount,
   generateHighlightBlurShader,
@@ -77,6 +79,10 @@ export class LiquidGlassRenderer {
   solidFillProgram: WebGLProgram
   colorControlsProgram: WebGLProgram
   sceneTintProgram: WebGLProgram
+  /** Per-element FBO composite program — composites elFbo onto scene FBO. */
+  elFboCompositeProgram: WebGLProgram
+  /** Backdrop crop program — crops scene texture into small FBO for capped blur. */
+  backdropCropProgram: WebGLProgram
   quadBuffer: WebGLBuffer
   wallpaperTexture: WebGLTexture | null = null
   wallpaperReady = false
@@ -149,6 +155,25 @@ export class LiquidGlassRenderer {
   dialogBackdropTex: WebGLTexture | null = null
   /** Cache key for dialogBackdropFbo (scrim+cc params) — skip re-render if unchanged. */
   dialogBackdropKey: string | null = null
+
+  // --- Per-element FBO infrastructure (capped resolution, O(1) at any zoom) ---
+  // The element pass renders into a small FBO at capped resolution instead of
+  // the full-screen scene FBO. This makes shader processing O(elFboSize²)
+  // regardless of zoom — the biggest performance win for the glass playground.
+  // The result is composited onto the scene FBO via drawElFboComposite.
+  elFbo: WebGLFramebuffer | null = null
+  elFboTex: WebGLTexture | null = null
+  elFboW = 0
+  elFboH = 0
+  // Backdrop crop FBO: for useSeparableBlur, crops the backdrop region into
+  // this small FBO before 2-pass blurring at capped resolution.
+  backdropCropFbo: WebGLFramebuffer | null = null
+  backdropCropTex: WebGLTexture | null = null
+  // Per-element blur FBOs (same size as elFbo — capped resolution blur).
+  elBlurFboA: WebGLFramebuffer | null = null
+  elBlurFboATex: WebGLTexture | null = null
+  elBlurFboB: WebGLFramebuffer | null = null
+  elBlurFboBTex: WebGLTexture | null = null
   /** Blur shader variants keyed by 1D tap count (H + V programs each). */
   blurPrograms = new Map<number, { hProg: WebGLProgram; vProg: WebGLProgram; uH: Record<string, WebGLUniformLocation | null>; uV: Record<string, WebGLUniformLocation | null>; aPosH: number; aPosV: number }>()
   /** Highlight blur programs — separate from blurPrograms because these blur
@@ -223,6 +248,8 @@ export class LiquidGlassRenderer {
   aPosLocSf: number
   aPosLocCc: number
   aPosLocSt: number
+  aPosLocEfC: number  // per-element FBO composite
+  aPosLocBc: number  // backdrop crop
 
   // Program uniform locations (cached)
   uEl: Record<string, WebGLUniformLocation | null> = {}
@@ -242,6 +269,8 @@ export class LiquidGlassRenderer {
   uSf: Record<string, WebGLUniformLocation | null> = {}
   uCc: Record<string, WebGLUniformLocation | null> = {}
   uSt: Record<string, WebGLUniformLocation | null> = {}
+  uEfC: Record<string, WebGLUniformLocation | null> = {}  // per-element FBO composite
+  uBc: Record<string, WebGLUniformLocation | null> = {}  // backdrop crop
 
   /** The pressed scale for bottom tabs indicator (78f/56f in Kotlin). */
   static readonly TAB_PRESSED_SCALE = 78 / 56
@@ -274,6 +303,8 @@ export class LiquidGlassRenderer {
     this.solidFillProgram = createProgram(gl, VERTEX_SHADER, SOLID_FILL_FRAGMENT_SHADER)
     this.colorControlsProgram = createProgram(gl, VERTEX_SHADER, COLOR_CONTROLS_FRAGMENT_SHADER)
     this.sceneTintProgram = createProgram(gl, VERTEX_SHADER, SCENE_TINT_FRAGMENT_SHADER)
+    this.elFboCompositeProgram = createProgram(gl, VERTEX_SHADER, EL_FBO_COMPOSITE_FRAGMENT_SHADER)
+    this.backdropCropProgram = createProgram(gl, VERTEX_SHADER, BACKDROP_CROP_FRAGMENT_SHADER)
 
     // Fullscreen quad
     this.quadBuffer = gl.createBuffer()!
@@ -301,6 +332,8 @@ export class LiquidGlassRenderer {
     this.aPosLocSf = gl.getAttribLocation(this.solidFillProgram, 'aPos')
     this.aPosLocCc = gl.getAttribLocation(this.colorControlsProgram, 'aPos')
     this.aPosLocSt = gl.getAttribLocation(this.sceneTintProgram, 'aPos')
+    this.aPosLocEfC = gl.getAttribLocation(this.elFboCompositeProgram, 'aPos')
+    this.aPosLocBc = gl.getAttribLocation(this.backdropCropProgram, 'aPos')
 
     // Offscreen 2D canvas for the foreground texture.
     this.fgCanvas = typeof document !== 'undefined' ? document.createElement('canvas') : (null as any)
@@ -342,6 +375,7 @@ export class LiquidGlassRenderer {
       'uElementRotation',
       'uContinuousSdf', 'uUseContinuousSdf', 'uContinuousSdfTexSize', 'uContinuousSdfElementSize',
       'uInnerStrokeMask', 'uInnerStrokeMaskOffset', 'uInnerStrokeMaskSize',
+      'uUsePerElementFbo', 'uSceneRectOffset', 'uSceneRectSize', 'uElFboSize',
     ]
     for (const n of elNames) this.uEl[n] = gl.getUniformLocation(this.elementProgram, n)
     const shNames = [
@@ -422,6 +456,12 @@ export class LiquidGlassRenderer {
     for (const n of ccNames) this.uCc[n] = gl.getUniformLocation(this.colorControlsProgram, n)
     const stNames = ['uTexture', 'uCanvasSize', 'uTintColor']
     for (const n of stNames) this.uSt[n] = gl.getUniformLocation(this.sceneTintProgram, n)
+    // Per-element FBO composite program
+    const efCNames = ['uTexture', 'uCanvasSize', 'uSceneRectOffset', 'uSceneRectSize']
+    for (const n of efCNames) this.uEfC[n] = gl.getUniformLocation(this.elFboCompositeProgram, n)
+    // Backdrop crop program
+    const bcNames = ['uSrcTexture', 'uSrcCanvasSize', 'uSceneRectOffset', 'uSceneRectSize', 'uFboSize']
+    for (const n of bcNames) this.uBc[n] = gl.getUniformLocation(this.backdropCropProgram, n)
   }
 
   /** Lazy-compile horizontal + vertical blur programs for a 1D tap count. */

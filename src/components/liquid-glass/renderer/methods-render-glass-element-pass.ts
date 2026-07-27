@@ -562,6 +562,20 @@ export const glassElementPassMethods = {
     // branch), matching the original's colorControls→blur order. Skip it here.
     gl.uniform1f(this.uEl['uSkipColorControls'], (el.backdropFbo && el.useSeparableBlur && el.blurRadius >= 0.5) ? 1.0 : 0.0)
 
+    // Per-element FBO coordinate mapping uniforms.
+    // When rendering into per-element FBO (usePerElementFbo=true), the shader
+    // needs to know the element region's offset and size in the full scene to
+    // correctly map backdrop sampling coordinates from per-element FBO space
+    // to scene space.
+    if (state.usePerElementFbo) {
+      gl.uniform1f(this.uEl['uUsePerElementFbo'], 1.0)
+      gl.uniform2f(this.uEl['uSceneRectOffset'], state.sceneRectOffset[0], state.sceneRectOffset[1])
+      gl.uniform2f(this.uEl['uSceneRectSize'], state.sceneRectSize[0], state.sceneRectSize[1])
+      gl.uniform2f(this.uEl['uElFboSize'], this.elFboW, this.elFboH)
+    } else {
+      gl.uniform1f(this.uEl['uUsePerElementFbo'], 0.0)
+    }
+
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 
     // Stash the computed highlight alpha so the rim highlight pass can
