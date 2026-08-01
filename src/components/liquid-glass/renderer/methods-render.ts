@@ -50,6 +50,12 @@ export const renderMethods = {
     // (e.g. from browser repaints) but no state actually changed.
     if (!this.needsRedraw) return
     this.needsRedraw = false
+    // --- DEBUG: count actual renders ---
+    if ((this as any)._debugRender) {
+      const d = (this as any)._debugRender as { last: number; count: number; lastStack: string }
+      d.last = performance.now() // reset timer so requestRender log is accurate
+    }
+    // --- END DEBUG ---
 
     if (!this.wallpaperReady && !this.backgroundColor) return
     const gl = this.gl

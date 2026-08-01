@@ -248,6 +248,9 @@ export class LiquidGlassRenderer {
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas
+    // DEBUG: expose renderer to window for console debugging
+    ;(canvas as any).__renderer = this
+    ;(typeof window !== 'undefined' && (window as any).__lgRenderer = this)
     const gl = canvas.getContext('webgl', {
       premultipliedAlpha: false,
       alpha: false,

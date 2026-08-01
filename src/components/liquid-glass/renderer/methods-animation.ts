@@ -28,6 +28,12 @@ export const animationMethods = {
    */
   startAnimation(this: LiquidGlassRenderer) {
     if (this.animRafId !== null) return
+    // --- DEBUG: trace who starts the animation loop ---
+    if ((this as any)._debugAnim) {
+      const stack = new Error().stack?.split('\n').slice(1, 4).join(' | ')
+      console.warn('[startAnimation] animation loop started by:', stack)
+    }
+    // --- END DEBUG ---
     let lastTime = performance.now()
     const tick = () => {
       const now = performance.now()
@@ -338,6 +344,22 @@ export const animationMethods = {
 
   requestRender(this: LiquidGlassRenderer) {
     this.needsRedraw = true
+    // --- DEBUG: trace who is triggering renders ---
+    if ((this as any)._debugRender) {
+      const stack = new Error().stack?.split('\n').slice(1, 4).join(' | ')
+      const now = performance.now()
+      const d = (this as any)._debugRender as { last: number; count: number; lastStack: string }
+      d.count++
+      if (now - d.last > 2000) {
+        console.warn(
+          `[requestRender] ${d.count} calls in ${((now - d.last) / 1000).toFixed(1)}s`,
+          `\n  caller: ${stack}`
+        )
+        d.count = 0
+        d.last = now
+      }
+    }
+    // --- END DEBUG ---
     if (this.rafId !== null) return
     this.rafId = requestAnimationFrame(() => {
       this.rafId = null
