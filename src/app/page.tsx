@@ -713,11 +713,14 @@ export default function Page() {
     destination === CatalogDestination.Home ||
     destination === CatalogDestination.Settings ||
     destination === CatalogDestination.About
-  const backgroundColor: [number, number, number] | null = useSolidBg
-    ? isLightTheme
-      ? [1, 1, 1]    // #FFFFFF
-      : [0, 0, 0]    // #000000
-    : null
+  // useMemo to avoid creating a new array on every render — the old inline
+  // [1,1,1]/[0,0,0] was a new reference each time, causing the useEffect
+  // with [backgroundColor] to fire on EVERY React re-render, which called
+  // setBackgroundColor() → requestRender() unnecessarily.
+  const backgroundColor: [number, number, number] | null = React.useMemo(() => {
+    if (!useSolidBg) return null
+    return isLightTheme ? [1, 1, 1] : [0, 0, 0]
+  }, [useSolidBg, isLightTheme])
 
   // Push toggle/slider targets to the renderer whenever the underlying
   // state changes (or when entering the corresponding destination).

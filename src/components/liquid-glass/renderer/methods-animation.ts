@@ -318,10 +318,18 @@ export const animationMethods = {
         this.scrollVelocity = 0
       }
 
-      this.requestRender()
+      // Only request a render if something actually changed this frame.
+      // Calling requestRender() unconditionally on every tick (including
+      // the final one where stillAnimating=false) causes the render rAF
+      // to fire on every animation frame, which keeps the GPU busy even
+      // when nothing visible changed. This was the root cause of the
+      // "continuous high power consumption" bug — the animation loop
+      // ran at 60fps and requested a full WebGL render on every frame.
       if (stillAnimating) {
+        this.requestRender()
         this.animRafId = requestAnimationFrame(tick)
       } else {
+        this.requestRender()
         this.animRafId = null
       }
     }

@@ -84,6 +84,13 @@ export const scrollMethods = {
     this: LiquidGlassRenderer,
     color: [number, number, number] | null
   ) {
+    // Skip if unchanged (both null or same values) — avoids unnecessary
+    // requestRender() calls when React re-renders with the same background.
+    if (this.backgroundColor === color) return
+    if (this.backgroundColor && color &&
+        this.backgroundColor[0] === color[0] &&
+        this.backgroundColor[1] === color[1] &&
+        this.backgroundColor[2] === color[2]) return
     this.backgroundColor = color
     this.requestRender()
   },
