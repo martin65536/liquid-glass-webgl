@@ -500,8 +500,11 @@ export const glassElementPassMethods = {
       gl.uniform1f(this.uEl['uHighlightMode'], el.highlight.mode)
       // HighlightModifier.kt clamps the stroke width to minDimension / 2 before
       // ceil()*2; blurRadius defaults to width / 2 unless explicitly provided.
+      // We use a tighter max (8% of minDim) to prevent the stroke from becoming
+      // disproportionately thick at low DPR where ceil() rounds up to a large
+      // fraction of the element. The original 50% cap is too generous.
       const elMinDimPx = Math.min(state.origW, state.origH) * this.dpr
-      const elWidthPx = Math.min(el.highlight.widthDp * this.dpr, elMinDimPx * 0.5)
+      const elWidthPx = Math.min(el.highlight.widthDp * this.dpr, elMinDimPx * 0.08)
       const elBlurPx = (el.highlight.blurRadiusDp ?? el.highlight.widthDp / 2) * this.dpr
       gl.uniform1f(this.uEl['uHighlightStrokeWidth'], Math.ceil(elWidthPx) * 2)
       gl.uniform1f(this.uEl['uHighlightBlur'], elBlurPx)

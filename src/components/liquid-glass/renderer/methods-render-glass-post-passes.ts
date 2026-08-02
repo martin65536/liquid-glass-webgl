@@ -353,9 +353,12 @@ export const glassPostPassMethods = {
       const finalAlpha = rimAlpha * state.enterAlpha * paintAlpha
       if (finalAlpha > 0.001) {
         // HighlightModifier.kt: ceil(width.toPx().coerceAtMost(minDimension / 2)) * 2
+        // We use a tighter max (8% of minDim) to prevent the stroke from becoming
+        // disproportionately thick at low DPR where ceil() rounds up to a large
+        // fraction of the element. The original 50% cap is too generous.
         const widthPx = Math.min(
           el.highlight.widthDp * this.dpr,
-          Math.min(origSizeX, origSizeY) * 0.5
+          Math.min(origSizeX, origSizeY) * 0.08
         )
         const strokeWidthDevice = Math.max(1, Math.ceil(widthPx) * 2)
         // Highlight data class: blurRadius defaults to width / 2. Honor it in the
