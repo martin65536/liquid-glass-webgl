@@ -66,6 +66,12 @@ const translations: Record<string, { zh: string; en: string }> = {
   settings_highlight_aa:     { zh: '高光抗锯齿', en: 'Highlight anti-aliasing' },
   settings_reset:           { zh: '重置', en: 'Reset' },
 
+  // Card category titles
+  settings_cat_rendering:   { zh: '渲染', en: 'Rendering' },
+  settings_cat_blur:        { zh: '模糊', en: 'Blur' },
+  settings_cat_interface:   { zh: '界面', en: 'Interface' },
+  settings_cat_performance: { zh: '性能', en: 'Performance' },
+
   // ---- About page ----
   about_title:              { zh: '关于', en: 'About' },
   about_author:             { zh: '由 Z.ai Agent 移植', en: 'Ported by Z.ai Agent' },
