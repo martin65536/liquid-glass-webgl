@@ -299,6 +299,9 @@ export function makeButton(
     showChevron: false,
     isInteractive: true,
     scroll,
+    // Most buttons sample the wallpaper directly (matching the original's
+    // LayerBackdrop). Ignored on solid-background pages (Home/Settings/About).
+    independentBackdrop: true,
   }
 }
 
@@ -501,6 +504,11 @@ export function makeGlassShape(
     isInteractive: false,
     scroll,
     innerShadow: opts.innerShadow ?? null,
+    // Most glass-shapes sample the wallpaper directly (matching the original's
+    // LayerBackdrop). Ignored on solid-background pages (Home/Settings/About).
+    // Override to false for elements that need the scene FBO (tab indicator,
+    // dialog card, magnifier, etc.).
+    independentBackdrop: true,
   }
 }
 

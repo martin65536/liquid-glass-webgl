@@ -115,6 +115,8 @@ export function buildDialog(
   // since no backdropFbo). blur→cc is mathematically equivalent to cc→blur
   // for inline blur (no intermediate clamp).
   card.useSeparableBlur = true
+  // Dialog card needs the scene FBO for its backdrop (wallpaper+scrim+cc).
+  card.independentBackdrop = false
   // Capsule shape: when state.capsuleShape is true, the card samples a
   // precomputed continuous-curvature SDF texture (generated from the
   // G2-continuous Bezier path) for its shape — pixel-perfect squircle

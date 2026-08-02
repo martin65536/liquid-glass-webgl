@@ -562,6 +562,20 @@ export const glassElementPassMethods = {
     // branch), matching the original's colorControls→blur order. Skip it here.
     gl.uniform1f(this.uEl['uSkipColorControls'], (el.backdropFbo && el.useSeparableBlur && el.blurRadius >= 0.5) ? 1.0 : 0.0)
 
+    // uSampleWallpaper: when 1.0, sampleBackdrop() uses the wallpaper texture
+    // (uWallpaperSampler via coverUv) instead of the scene FBO (uBackdrop).
+    // Used by elements with independentBackdrop=true (skip ping-pong blit) or
+    // sampleWallpaper=true (refract clean wallpaper over a scrim).
+    // uScrimColor: applied on top of the wallpaper sample to replicate the
+    // original's wallpaper+scrim composited LayerBackdrop.
+    const useSampleWallpaper = el.independentBackdrop || el.sampleWallpaper
+    gl.uniform1f(this.uEl['uSampleWallpaper'], useSampleWallpaper ? 1.0 : 0.0)
+    if (el.scrimColor) {
+      gl.uniform4f(this.uEl['uScrimColor'], el.scrimColor[0], el.scrimColor[1], el.scrimColor[2], el.scrimColor[3])
+    } else {
+      gl.uniform4f(this.uEl['uScrimColor'], 0, 0, 0, 0)
+    }
+
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 
     // Stash the computed highlight alpha so the rim highlight pass can

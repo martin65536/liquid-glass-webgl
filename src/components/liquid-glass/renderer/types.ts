@@ -492,6 +492,15 @@ export interface GlassElementConfig extends GlassButtonConfig {
    *  card for now. The renderer's loadContinuousSdf() must have been called
    *  for the element's (w, h, radius) before rendering — see methods-render.ts. */
   useContinuousSdf?: boolean
+  /** When true, the element's glass refraction samples the wallpaper directly
+   *  (via sampleWallpaperBlurred) instead of the scene FBO. This allows
+   *  SKIPPING the FBO ping-pong blit — the most expensive per-element
+   *  operation (~850K pixels fullscreen copy at DPR 1.5). The element
+   *  renders directly to curFbo with alpha blending, matching the original
+   *  Android app where most elements use LayerBackdrop (wallpaper) via
+   *  RenderEffect rather than compositing the scene. Ignored when the page
+   *  has a solid backgroundColor (renderer.backgroundColor !== null). */
+  independentBackdrop?: boolean
 }
 
 /* Per-element interaction state — mirrors InteractiveHighlight.kt. */

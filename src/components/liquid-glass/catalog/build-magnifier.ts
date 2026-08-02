@@ -120,6 +120,8 @@ export function buildMagnifier(W: number, H: number, onBack: () => void, state: 
     }
   )
   magGlass.isMagnifier = { zoom: 1.5, sampleOffsetY: 80 * DP }
+  // Magnifier needs the scene FBO (it samples the composited scene).
+  magGlass.independentBackdrop = false
   elements.push(magGlass)
 
   // Drag interaction — bound to BOTH the cursor and the glass (either can be

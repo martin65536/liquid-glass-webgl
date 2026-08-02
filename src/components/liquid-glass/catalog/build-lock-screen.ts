@@ -56,6 +56,9 @@ export function buildLockScreen(W: number, H: number, onBack: () => void, state:
     }
   )
   lsGlass.isSdfTexture = { refractionHeight: 48 * DP, lightAngle: 45 }
+  // SDF texture glass uses sampleWallpaperBlurred (already independent),
+  // but keep ping-pong for correctness — the SDF path is special.
+  lsGlass.independentBackdrop = false
   elements.push(lsGlass)
   // Drag — faithful to draggable2D { offset += delta }. The web drag delta
   // is cumulative (from press start), so offset = dragStartOffset + delta.

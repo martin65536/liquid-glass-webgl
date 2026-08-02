@@ -308,17 +308,32 @@ export const glassRenderMethods = {
     // ColorFilter.tint(SrcIn) on the 内层背景板 (hidden Row)'s content. No separate FBO
     // capture is needed.
 
+    // --- Independent backdrop optimization ---
+    // When independentBackdrop=true AND the page has a wallpaper (not a solid
+    // backgroundColor), the element's glass refraction samples the wallpaper
+    // directly (via uSampleWallpaper in the shader). This allows SKIPPING the
+    // FBO ping-pong blit — the most expensive per-element operation (~850K px
+    // fullscreen copy at DPR 1.5). The element renders directly to curFbo with
+    // alpha blending, matching the original Android app where most elements use
+    // LayerBackdrop (wallpaper) via RenderEffect rather than compositing the scene.
+    const independent = el.independentBackdrop && !this.backgroundColor
+
     // --- Step 1: Blit curFbo → otherFbo (FULLSCREEN — must copy the entire
     // scene so ping-pong preserves all previously-rendered elements. Scissor
     // cannot be used here because otherFbo's regions outside the current
     // element still need the correct scene content for subsequent elements
     // to sample from.) ---
-    this.bindFBO(otherFbo)
-    this.drawCopy(curTex)
-
-    // Re-enable blending after the copy (drawCopy disables it).
-    gl.enable(gl.BLEND)
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+    // SKIPPED for independent elements — they render directly to curFbo.
+    if (independent) {
+      this.bindFBO(curFbo)
+      // Blending is already enabled from the element loop setup.
+    } else {
+      this.bindFBO(otherFbo)
+      this.drawCopy(curTex)
+      // Re-enable blending after the copy (drawCopy disables it).
+      gl.enable(gl.BLEND)
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+    }
 
     // --- Scissor: limit drawing passes (shadow + element + highlight) to the
     // element's bounding box + margin. The blit above is fullscreen (needed
@@ -370,6 +385,11 @@ export const glassRenderMethods = {
     this.renderGlassShadowPass(state)
 
     // --- Step 2b: Element pass (refraction + vibrancy + tint) ---
+    // For independent elements: always use inline blur (the shader samples
+    // the wallpaper via uSampleWallpaper, so no separable blur on the scene
+    // FBO is needed). The inline Vogel disc blur on the wallpaper texture
+    // gives equivalent visual quality for typical blur radii (16-24px).
+    //
     // For useSeparableBlur elements: blur the BACKDROP first (via 2-pass
     // separable Gaussian on curTex), then render the element pass sampling
     // the blurred backdrop. This matches the original's RenderEffect chain
@@ -381,7 +401,7 @@ export const glassRenderMethods = {
     //
     // For normal elements: render the element pass directly to otherFbo
     // (sampling curTex) with inline 16-tap Vogel disc blur.
-    if (el.useSeparableBlur && el.blurRadius >= 0.5) {
+    if (!independent && el.useSeparableBlur && el.blurRadius >= 0.5) {
       const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr
       // For backdropFbo elements (dialog card), blur the dialogBackdropTex
       // (wallpaper+scrim+colorControls opaque layer) instead of the scene FBO.
@@ -409,7 +429,12 @@ export const glassRenderMethods = {
     // elements + the final blit to the default framebuffer) ---
     gl.disable(gl.SCISSOR_TEST)
 
-    // --- Step 3: Swap curFbo ↔ otherFbo ---
+    // --- Step 3: Swap curFbo ↔ otherFbo (dependent elements only) ---
+    // For independent elements, we rendered directly to curFbo — no swap.
+    // The element's glass output is already composited on the scene.
+    if (independent) {
+      return { curFbo, curTex, otherFbo, otherTex }
+    }
     // otherFbo now contains: previous scene + shadow + glass body +
     // press glow + white overlay + foreground + rim highlight. It
     // becomes the new "current scene" for subsequent elements to sample.

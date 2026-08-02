@@ -108,6 +108,8 @@ export function buildBottomTabs(W: number, H: number, onBack: () => void, state:
       }
     )
     containerEl.isBottomTabContainer = { groupId: idPrefix, tabsCount }
+    // Container needs the scene FBO for correct compositing with tab content.
+    containerEl.independentBackdrop = false
     elements.push(containerEl)
 
     // === Layer 2: Tab content (icons + labels) ===
@@ -228,6 +230,8 @@ export function buildBottomTabs(W: number, H: number, onBack: () => void, state:
     )
     // dragWidth = tabW (indicator slides one tab width per index unit).
     // dimColor = theme-aware (Black light / White dark) for onDrawSurface.
+    // Tab indicator needs the scene FBO (for CombinedBackdrop sampling).
+    indicatorEl.independentBackdrop = false
     indicatorEl.isBottomTabIndicator = {
       groupId: idPrefix,
       dragWidth: tabW,
