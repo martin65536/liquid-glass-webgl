@@ -564,11 +564,16 @@ export const glassElementPassMethods = {
 
     // uSampleWallpaper: when 1.0, sampleBackdrop() uses the wallpaper texture
     // (uWallpaperSampler via coverUv) instead of the scene FBO (uBackdrop).
-    // Used by elements with independentBackdrop=true (skip ping-pong blit) or
-    // sampleWallpaper=true (refract clean wallpaper over a scrim).
-    // uScrimColor: applied on top of the wallpaper sample to replicate the
-    // original's wallpaper+scrim composited LayerBackdrop.
-    const useSampleWallpaper = el.independentBackdrop || el.sampleWallpaper
+    // Only set when the element is actually on the independent path AND
+    // skipPingPong is active (currently disabled), or when sampleWallpaper=true
+    // (refract clean wallpaper over a scrim).
+    // IMPORTANT: must use state.independent (which accounts for backgroundColor
+    // and wallpaperTexture), NOT el.independentBackdrop (which is a static
+    // element property that doesn't know the page's background type).
+    // Since skipPingPong is currently disabled, independent elements still
+    // use the scene FBO, so uSampleWallpaper should only be true for
+    // explicit sampleWallpaper elements.
+    const useSampleWallpaper = el.sampleWallpaper
     gl.uniform1f(this.uEl['uSampleWallpaper'], useSampleWallpaper ? 1.0 : 0.0)
     if (el.scrimColor) {
       gl.uniform4f(this.uEl['uScrimColor'], el.scrimColor[0], el.scrimColor[1], el.scrimColor[2], el.scrimColor[3])

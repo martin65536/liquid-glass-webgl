@@ -36,6 +36,10 @@ export interface GlassRenderState {
   origCornerRadius: number
   // Element rotation in radians (graphicsLayer rotationZ). 0 for most.
   elementRotation: number
+  // Whether this element is using the independent backdrop path (skip ping-pong,
+  // sample wallpaper directly). Passed to the element pass so it can set
+  // uSampleWallpaper correctly.
+  independent: boolean
 }
 
 declare module './index' {
@@ -316,15 +320,22 @@ export const glassRenderMethods = {
     // fullscreen copy at DPR 1.5). The element renders directly to curFbo with
     // alpha blending, matching the original Android app where most elements use
     // LayerBackdrop (wallpaper) via RenderEffect rather than compositing the scene.
+    //
+    // TODO: The skip-ping-pong path is currently DISABLED because it causes
+    // visual issues (upside-down, stretching, missing effects). The
+    // independent flag is still computed and passed to the element pass so
+    // that uSampleWallpaper can be set correctly for the shader path that
+    // samples the wallpaper via coverUv (which is already working for toggle
+    // knobs and indicators). The ping-pong blit is always performed for now.
     const independent = !!(el.independentBackdrop && !this.backgroundColor && this.wallpaperTexture)
+    const skipPingPong = false // TODO: re-enable after fixing visual issues
 
     // --- Step 1: Blit curFbo → otherFbo (FULLSCREEN — must copy the entire
     // scene so ping-pong preserves all previously-rendered elements. Scissor
     // cannot be used here because otherFbo's regions outside the current
     // element still need the correct scene content for subsequent elements
     // to sample from.) ---
-    // SKIPPED for independent elements — they render directly to curFbo.
-    if (independent) {
+    if (skipPingPong) {
       this.bindFBO(curFbo)
       // Blending is already enabled from the element loop setup.
     } else {
@@ -379,6 +390,7 @@ export const glassRenderMethods = {
       origH: el.rect.h,
       origCornerRadius: el.cornerRadius,
       elementRotation: el.elementRotation ?? 0,
+      independent,
     }
 
     // --- Step 2a: Shadow pass (to otherFbo, on top of copied scene) ---
@@ -401,7 +413,7 @@ export const glassRenderMethods = {
     //
     // For normal elements: render the element pass directly to otherFbo
     // (sampling curTex) with inline 16-tap Vogel disc blur.
-    if (!independent && el.useSeparableBlur && el.blurRadius >= 0.5) {
+    if (el.useSeparableBlur && el.blurRadius >= 0.5) {
       const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr
       // For backdropFbo elements (dialog card), blur the dialogBackdropTex
       // (wallpaper+scrim+colorControls opaque layer) instead of the scene FBO.
@@ -418,15 +430,6 @@ export const glassRenderMethods = {
       // (the blurred backdrop) instead of the raw dialogBackdropTex.
       const passState = el.backdropFbo ? { ...state, el: { ...el, backdropFbo: false } } : state
       this.renderGlassElementPass(passState, blurredBackdrop)
-    } else if (independent) {
-      // For independent elements, we must NOT pass curTex (which is the color
-      // attachment of curFbo — the render target) to renderGlassElementPass,
-      // because that would create a WebGL read-write feedback loop (GL error 1282).
-      // The shader uses uSampleWallpaper=1.0 so it reads from uWallpaperSampler,
-      // but uBackdrop still needs a valid non-feedback texture bound. Pass the
-      // wallpaper texture — it's safe (not attached to the current FBO) and
-      // semantically correct (the shader ignores it anyway).
-      this.renderGlassElementPass(state, this.wallpaperTexture!)
     } else {
       this.renderGlassElementPass(state, curTex)
     }
@@ -438,12 +441,7 @@ export const glassRenderMethods = {
     // elements + the final blit to the default framebuffer) ---
     gl.disable(gl.SCISSOR_TEST)
 
-    // --- Step 3: Swap curFbo ↔ otherFbo (dependent elements only) ---
-    // For independent elements, we rendered directly to curFbo — no swap.
-    // The element's glass output is already composited on the scene.
-    if (independent) {
-      return { curFbo, curTex, otherFbo, otherTex }
-    }
+    // --- Step 3: Swap curFbo ↔ otherFbo ---
     // otherFbo now contains: previous scene + shadow + glass body +
     // press glow + white overlay + foreground + rim highlight. It
     // becomes the new "current scene" for subsequent elements to sample.
