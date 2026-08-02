@@ -213,5 +213,16 @@ export function buildCatalog(
       }
     }
   }
+  // Global highlight anti-aliasing: when disabled in Settings, set highlight.aa=false
+  // on all elements that have a highlight. When enabled (default), highlight.aa is
+  // left at its default (true), which uses Math.ceil() for full-pixel coverage.
+  // Applied AFTER all elements are created so none are missed.
+  if (!state.highlightAa) {
+    for (const el of result.elements) {
+      if (el.highlight) {
+        el.highlight.aa = false
+      }
+    }
+  }
   return result
 }

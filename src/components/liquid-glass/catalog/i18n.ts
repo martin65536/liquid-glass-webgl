@@ -62,6 +62,8 @@ const translations: Record<string, { zh: string; en: string }> = {
   settings_fps_title:        { zh: '性能', en: 'Performance' },
   settings_fps:              { zh: '显示帧率', en: 'Show FPS' },
   settings_perf_redetect:    { zh: '重新检测性能', en: 'Re-detect performance' },
+  settings_highlight_title:  { zh: '高光', en: 'Highlight' },
+  settings_highlight_aa:     { zh: '高光抗锯齿', en: 'Highlight anti-aliasing' },
   settings_reset:           { zh: '重置', en: 'Reset' },
 
   // ---- About page ----

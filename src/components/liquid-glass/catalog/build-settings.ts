@@ -362,6 +362,41 @@ export function buildSettings(
   }
   nextY += BUTTON_HEIGHT + 16
 
+  // --- Highlight section: anti-aliasing toggle ---
+  elements.push(
+    makeText(
+      'settings-highlight-title',
+      { x: pad, y: nextY, w: W - 2 * pad, h: 20 },
+      t('settings_highlight_title', locale),
+      { color: labelColor, fontSizePx: 16, fontWeight: 600, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
+    )
+  )
+  nextY += 20 + 8
+
+  const aaOnOff = state.highlightAa ? t('settings_on', locale) : t('settings_off', locale)
+  const aaLabelText = t('settings_highlight_aa', locale) + ': ' + aaOnOff
+  const aaBtnColor = state.highlightAa
+    ? ([0x00 / 255, 0x88 / 255, 0xff / 255, 1] as [number, number, number, number])
+    : ([0.5, 0.5, 0.5, 1] as [number, number, number, number])
+  const aaTextW = measureTextWidth(aaLabelText, TEXT_FONT_SIZE_PX)
+  const aaBtnW = Math.ceil(aaTextW + 2 * BUTTON_HORIZONTAL_PADDING)
+  const aaBtn = makeButton(
+    'settings-highlight-aa',
+    { x: pad, y: nextY, w: aaBtnW, h: BUTTON_HEIGHT },
+    {
+      label: aaLabelText,
+      tintColor: aaBtnColor,
+      surfaceColor: [0, 0, 0, 0],
+      labelColor: [1, 1, 1, 1],
+    },
+    true
+  )
+  elements.push(aaBtn)
+  interactions['settings-highlight-aa'] = {
+    onTap: () => setState((prev) => ({ highlightAa: !prev.highlightAa })),
+  }
+  nextY += BUTTON_HEIGHT + 16
+
   // --- Re-detect performance button ---
   // Always visible. When benchmark is running, shows "正在检测..." and is disabled.
   // When not running, shows "重新检测性能" and can be clicked to start.
@@ -412,7 +447,7 @@ export function buildSettings(
   elements.push(resetBtn)
   interactions['settings-reset'] = {
     onTap: () => {
-      setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 17, blurDownsample: 1, capsuleShape: true, hideOverlayButtons: false, locale: 'zh', pageTransition: true, liveDpr: null, liveTapCap: null, showFps: false, perfProgress: null, perfDone: false, perfResultDpr: 0, perfStatusText: '' })
+      setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 17, blurDownsample: 1, capsuleShape: true, hideOverlayButtons: false, locale: 'zh', pageTransition: true, liveDpr: null, liveTapCap: null, showFps: false, highlightAa: true, perfProgress: null, perfDone: false, perfResultDpr: 0, perfStatusText: '' })
       // Clear the auto-DPR perf cache so next visit re-detects
       try { window.localStorage.removeItem('liquid-glass-perf-dpr') } catch {}
       const d = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1

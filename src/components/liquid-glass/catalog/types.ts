@@ -522,6 +522,12 @@ export interface CatalogState {
   pageTransition: boolean
   // Settings — show FPS counter overlay. Default false.
   showFps: boolean
+  // Settings — highlight anti-aliasing. When true (default), the stroke width
+  // is rounded up via Math.ceil() to ensure full-pixel coverage, matching the
+  // original Kotlin formula. When false, the stroke width is kept at sub-pixel
+  // precision (Math.round / Math.max), producing a thinner highlight but with
+  // potential aliasing at low DPR.
+  highlightAa: boolean
   // Performance benchmark: null = not running, 'running' = in progress
   perfProgress: string | null
   // Performance benchmark: status text displayed on the benchmark page
@@ -590,6 +596,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   locale: 'zh',
   pageTransition: true,
   showFps: false,
+  highlightAa: true,
   perfProgress: null,
   perfStatusText: '',
   perfDone: false,
