@@ -667,6 +667,10 @@ export default function Page() {
   // Default 45° (matches UISensor.kt's initial value).
   React.useEffect(() => {
     if (typeof window === 'undefined' || !('DeviceMotionEvent' in window)) return
+    // Only listen for gravity angle on Control Center — it's the only page
+    // that uses it (el.useGravityAngle=true). Listening on all pages causes
+    // ~60 setGravityAngle calls/sec → 60 full WebGL renders/sec → high GPU.
+    if (destination !== CatalogDestination.ControlCenter) return
     let smoothed = 45
     const alpha = 0.5
     const handler = (e: DeviceMotionEvent) => {
@@ -675,13 +679,10 @@ export default function Page() {
       const x = acc.x
       const y = acc.y
       let target = Math.atan2(y, x) * 180 / Math.PI
-      // Shortest-path interpolation: wrap the delta to [-180, 180] so
-      // rotating through ±180° doesn't cause a 358° jump.
       let delta = target - smoothed
       while (delta > 180) delta -= 360
       while (delta < -180) delta += 360
       smoothed += delta * alpha
-      // Wrap smoothed to [-180, 180] to keep the value bounded.
       while (smoothed > 180) smoothed -= 360
       while (smoothed < -180) smoothed += 360
       const rad = smoothed * Math.PI / 180
@@ -689,7 +690,7 @@ export default function Page() {
     }
     window.addEventListener('devicemotion', handler)
     return () => window.removeEventListener('devicemotion', handler)
-  }, [rendererRef])
+  }, [rendererRef, destination])
 
   // Build the catalog for the current destination.
   // gravityAngle is NOT a dependency — it's pushed live to the renderer via
