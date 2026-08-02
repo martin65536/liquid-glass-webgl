@@ -243,7 +243,7 @@ export function makeLiquidSlider(
       blurRadius: 8 * DP,
       saturation: 1.0,
       surfaceColor: [0, 0, 0, 0],
-      highlight: { mode: 1, color: [1, 1, 1], angle: Math.PI / 4, falloff: 1.0, alpha: 1.0, widthDp: 0.5, blurRadiusDp: 0.25 },
+      highlight: { mode: 1, color: [1, 1, 1], angle: Math.PI / 4, falloff: 1.0, alpha: 1.0, widthDp: 0.5 / 1.5, blurRadiusDp: 0.25 / 1.5 },
       outerShadow: { radius: 4 * DP, alpha: 0.05, offsetX: 0, offsetY: (4 / 6) * DP, color: [0, 0, 0] },
       innerShadow: { radius: 4 * DP, alpha: 0.3, offsetX: 0, offsetY: 4 * DP }, // 0.15 was too faint; 0.3 matches visual intent
       chromaticAberration: true,

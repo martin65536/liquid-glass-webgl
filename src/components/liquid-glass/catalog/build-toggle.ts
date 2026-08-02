@@ -125,8 +125,8 @@ export function buildToggle(
     angle: Math.PI / 4, // 45° — AmbientHighlightShaderString default
     falloff: 1.0,
     alpha: 1.0, // Layer alpha (paint.color 0.38 is irrelevant — shader overrides it)
-    widthDp: 0.5, // Highlight.Ambient.width
-    blurRadiusDp: 0.25, // Highlight.Ambient.blurRadius
+    widthDp: 0.5 / 1.5, // ≈ 0.333dp (Highlight.Ambient.width / 1.5)
+    blurRadiusDp: 0.25 / 1.5, // ≈ 0.167dp (Highlight.Ambient.blurRadius / 1.5)
   }
   // Shadow(radius=4dp, color=Black.copy(alpha=0.05f))
   // Default offset = DpOffset(0, radius/6) = (0, 4/6 dp)
