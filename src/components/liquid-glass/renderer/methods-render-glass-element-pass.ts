@@ -177,10 +177,12 @@ export const glassElementPassMethods = {
         const knobCenterY = (sy + sh / 2) * this.dpr
 
         // Track's ORIGINAL screen center (FIXED, does not move with knob):
-        //   trackOriginalX/Y is the track's top-left in CSS px.
-        //   track center = trackOriginalX + trackW/2, trackOriginalY + trackH/2
+        //   trackOriginalX/Y is the track's top-left in CSS px (content coords).
+        //   Apply scroll offset to convert to viewport coords (same space as
+        //   knobCenterX/Y), so the CombinedBackdrop is correct when the page scrolls.
         const trackOrigX = el.isToggleKnob.trackOriginalX ?? el.rect.x
-        const trackOrigY = el.isToggleKnob.trackOriginalY ?? el.rect.y
+        const trackOrigY_raw = el.isToggleKnob.trackOriginalY ?? el.rect.y
+        const trackOrigY = el.scroll ? trackOrigY_raw - this.scrollY : trackOrigY_raw
         const trackOrigCenterX = (trackOrigX + el.isToggleKnob.trackW / 2) * this.dpr
         const trackOrigCenterY = (trackOrigY + el.isToggleKnob.trackH / 2) * this.dpr
 

@@ -608,10 +608,21 @@ export function makeSettingsToggle(
     },
     scroll,
   )
-  // Minimal isToggleKnob — no CombinedBackdrop, matches slider knob
+  // CombinedBackdrop — faithful to LiquidToggle.kt:
+  //   backdrop = rememberCombinedBackdrop(backdrop, scaled trackBackdrop)
+  // Settings toggles are on a solid-color card, so:
+  //   - outer backdrop = CanvasBackdrop (card color) → solidBackdropColor
+  //   - track color lerps between offColor and onColor by fraction
   knobEl.isToggleKnob = {
     groupId: id,
     dragWidth: TOGGLE_DRAG,
+    trackColorOff: palette.toggleTrackOff,
+    trackColorOn: [...palette.toggleAccent, 1] as [number, number, number, number],
+    trackW: TOGGLE_W,
+    trackH: TOGGLE_H,
+    trackOriginalX: trackX,
+    trackOriginalY: trackY,
+    solidBackdropColor: palette.toggleCardBg,
   }
   elements.push(knobEl)
 
