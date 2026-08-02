@@ -3,34 +3,31 @@ import type { ElementInteraction } from '../context'
 import type { GlassElementConfig, LiquidGlassRenderer } from '../renderer'
 import {
   BUTTON_HEIGHT,
-  BUTTON_HORIZONTAL_PADDING,
   DP,
   TEXT_FONT_SIZE_PX,
   type CatalogResult,
   type CatalogState,
   type ThemePalette,
-  measureTextWidth,
 } from './types'
 import {
   applyVerticalCenter,
   makeBackButton,
-  makeButton,
-  makeGlassShape,
   makeLiquidSlider,
+  makePlainRect,
   makeSettingsToggle,
   makeText,
 } from './helpers'
 import { t, type Locale } from './i18n'
 
 /* ------------------------------------------------------------------ *
- * SETTINGS — grouped into glass cards with hierarchy.
+ * SETTINGS — grouped into plain cards with hierarchy.
  *
- * Cards:
+ * Cards (plain-rect, like the Slider/Toggle demo pages):
  *   1. 渲染 (Rendering): DPR slider, Highlight AA, Capsule shape
  *   2. 模糊 (Blur): Global blur toggle, Tap cap slider
  *   3. 界面 (Interface): Hide overlay, Page transition, Language
- *   4. 性能 (Performance): Show FPS, Re-detect button
- *   5. Reset button (standalone)
+ *   4. 性能 (Performance): Show FPS, Re-detect
+ *   5. Reset text button (standalone, red)
  * ------------------------------------------------------------------ */
 
 // Card layout constants
@@ -40,6 +37,7 @@ const CARD_RADIUS = 24 * DP    // card corner radius
 const ITEM_GAP = 12 * DP       // gap between items within a card
 const SECTION_TITLE_H = 20     // card section title height
 const SECTION_TITLE_GAP = 8    // gap after section title
+const TEXT_BTN_H = 36 * DP     // text button row height
 
 export function buildSettings(
   W: number,
@@ -63,25 +61,19 @@ export function buildSettings(
   // Top padding: avoid overlap with fixed back/theme buttons (56dp height + 16dp margin)
   const topPad = 72 * DP
 
-  // Card background color — subtle translucent, theme-aware
-  const isLight = palette.homeTextHalo === 'dark'
-  const cardSurface: [number, number, number, number] = isLight
-    ? [1, 1, 1, 0.5]
-    : [0.12, 0.12, 0.12, 0.5]
+  // Card background color — solid, matches toggle/slider card pages
+  const cardBg: [number, number, number, number] = palette.toggleCardBg
 
-  // Card highlight — subtle, only on light theme
-  const cardHighlight = isLight
-    ? { mode: 0 as const, color: [1, 1, 1] as [number, number, number], angle: Math.PI / 4, falloff: 1.0, alpha: 0.15, widthDp: 0.5 }
-    : null
+  // Hint text color — lighter version of labelColor
+  const hintColor: [number, number, number, number] = [
+    labelColor[0], labelColor[1], labelColor[2], 0.5
+  ]
 
-  // Card shadow
-  const cardShadow = {
-    radius: 16 * DP,
-    alpha: 0.08,
-    offsetX: 0,
-    offsetY: (16 / 6) * DP,
-    color: [0, 0, 0] as [number, number, number],
-  }
+  // Blue accent color for text buttons
+  const blueColor: [number, number, number, number] = palette.homeSubtitleColor
+
+  // Red color for reset button
+  const redColor: [number, number, number, number] = [0xff / 255, 0x3b / 255, 0x30 / 255, 1]
 
   // Title
   elements.push(
@@ -123,22 +115,14 @@ export function buildSettings(
     const contentX = pad + CARD_PAD
     const contentW = W - 2 * pad - 2 * CARD_PAD
 
-    // Push card background with placeholder height (will be updated at end)
-    const cardBg = makeGlassShape(
+    // Push card background with placeholder height (updated at end)
+    const cardBgEl = makePlainRect(
       'settings-card-rendering-bg',
       { x: pad, y: cardStartY, w: W - 2 * pad, h: 100 },
-      {
-        cornerRadius: CARD_RADIUS,
-        refractionHeight: 6 * DP,
-        refractionAmount: -12 * DP,
-        blurRadius: 2 * DP,
-        saturation: 1.0,
-        surfaceColor: cardSurface,
-        highlight: cardHighlight,
-        outerShadow: cardShadow,
-      }
+      cardBg,
+      CARD_RADIUS,
     )
-    elements.push(cardBg)
+    elements.push(cardBgEl)
 
     // Section title
     nextY += CARD_PAD
@@ -174,7 +158,7 @@ export function buildSettings(
     Object.assign(interactions, dprSlider.interactions)
     nextY += 24 + 12
 
-    // DPR label
+    // DPR label (hint text — lighter)
     const displayDpr = state.liveDpr != null ? state.liveDpr : currentDpr
     const dprLabelText = `${t('settings_dpr_label', locale)}: ${displayDpr.toFixed(2)}  (${t('settings_dpr_desc', locale)} ${deviceDpr}, ${t('settings_range', locale)} ${minDpr.toFixed(1)}–${maxDpr.toFixed(2)})`
     elements.push(
@@ -182,7 +166,7 @@ export function buildSettings(
         'settings-dpr-label',
         { x: contentX, y: nextY, w: contentW, h: 16 },
         dprLabelText,
-        { color: labelColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
+        { color: hintColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
       )
     )
     nextY += 16 + ITEM_GAP
@@ -216,7 +200,7 @@ export function buildSettings(
     nextY += BUTTON_HEIGHT + CARD_PAD
 
     // Update card background height
-    cardBg.rect.h = nextY - cardStartY
+    cardBgEl.rect.h = nextY - cardStartY
     nextY += CARD_GAP
   }
 
@@ -228,21 +212,13 @@ export function buildSettings(
     const contentX = pad + CARD_PAD
     const contentW = W - 2 * pad - 2 * CARD_PAD
 
-    const cardBg = makeGlassShape(
+    const cardBgEl = makePlainRect(
       'settings-card-blur-bg',
       { x: pad, y: cardStartY, w: W - 2 * pad, h: 100 },
-      {
-        cornerRadius: CARD_RADIUS,
-        refractionHeight: 6 * DP,
-        refractionAmount: -12 * DP,
-        blurRadius: 2 * DP,
-        saturation: 1.0,
-        surfaceColor: cardSurface,
-        highlight: cardHighlight,
-        outerShadow: cardShadow,
-      }
+      cardBg,
+      CARD_RADIUS,
     )
-    elements.push(cardBg)
+    elements.push(cardBgEl)
 
     // Section title
     nextY += CARD_PAD
@@ -292,7 +268,7 @@ export function buildSettings(
     Object.assign(interactions, tapSlider.interactions)
     nextY += 24 + 4
 
-    // Tap cap label
+    // Tap cap label (hint text — lighter)
     const displayTapCap = state.liveTapCap != null ? state.liveTapCap : state.blurTapCap
     const tapCapLabelText = `${t('settings_tap_cap_label', locale)}: ${displayTapCap}  ${t('settings_tap_cap_hint', locale)}`
     elements.push(
@@ -300,13 +276,13 @@ export function buildSettings(
         'settings-blur-taps-label',
         { x: contentX, y: nextY, w: contentW, h: 16 },
         tapCapLabelText,
-        { color: labelColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
+        { color: hintColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
       )
     )
     nextY += 16 + CARD_PAD
 
     // Update card background height
-    cardBg.rect.h = nextY - cardStartY
+    cardBgEl.rect.h = nextY - cardStartY
     nextY += CARD_GAP
   }
 
@@ -318,21 +294,13 @@ export function buildSettings(
     const contentX = pad + CARD_PAD
     const contentW = W - 2 * pad - 2 * CARD_PAD
 
-    const cardBg = makeGlassShape(
+    const cardBgEl = makePlainRect(
       'settings-card-interface-bg',
       { x: pad, y: cardStartY, w: W - 2 * pad, h: 100 },
-      {
-        cornerRadius: CARD_RADIUS,
-        refractionHeight: 6 * DP,
-        refractionAmount: -12 * DP,
-        blurRadius: 2 * DP,
-        saturation: 1.0,
-        surfaceColor: cardSurface,
-        highlight: cardHighlight,
-        outerShadow: cardShadow,
-      }
+      cardBg,
+      CARD_RADIUS,
     )
-    elements.push(cardBg)
+    elements.push(cardBgEl)
 
     // Section title
     nextY += CARD_PAD
@@ -374,31 +342,24 @@ export function buildSettings(
     Object.assign(interactions, transToggle.interactions)
     nextY += BUTTON_HEIGHT + ITEM_GAP
 
-    // Language toggle button
+    // Language text button — like home page text items
     const langDisplay = locale === 'zh' ? t('settings_language_zh', locale) : t('settings_language_en', locale)
-    const langBtnColor = [0x00 / 255, 0x88 / 255, 0xff / 255, 1] as [number, number, number, number]
     const langLabelText = t('settings_language_title', locale) + ': ' + langDisplay
-    const langTextW = measureTextWidth(langLabelText, TEXT_FONT_SIZE_PX)
-    const langBtnW = Math.ceil(langTextW + 2 * BUTTON_HORIZONTAL_PADDING)
-    const langBtn = makeButton(
+    const langBtn = makeText(
       'settings-language-toggle',
-      { x: contentX, y: nextY, w: langBtnW, h: BUTTON_HEIGHT },
-      {
-        label: langLabelText,
-        tintColor: langBtnColor,
-        surfaceColor: [0, 0, 0, 0],
-        labelColor: [1, 1, 1, 1],
-      },
-      true
+      { x: contentX, y: nextY, w: contentW, h: TEXT_BTN_H },
+      langLabelText,
+      { color: blueColor, fontSizePx: 15, fontWeight: 500, align: 'left', paddingPx: 0, halo: palette.homeTextHalo, pressTintColor: labelColor }
     )
+    langBtn.isInteractive = true
     elements.push(langBtn)
     interactions['settings-language-toggle'] = {
       onTap: () => setState((prev) => ({ locale: prev.locale === 'zh' ? 'en' : 'zh' })),
     }
-    nextY += BUTTON_HEIGHT + CARD_PAD
+    nextY += TEXT_BTN_H + CARD_PAD
 
     // Update card background height
-    cardBg.rect.h = nextY - cardStartY
+    cardBgEl.rect.h = nextY - cardStartY
     nextY += CARD_GAP
   }
 
@@ -410,21 +371,13 @@ export function buildSettings(
     const contentX = pad + CARD_PAD
     const contentW = W - 2 * pad - 2 * CARD_PAD
 
-    const cardBg = makeGlassShape(
+    const cardBgEl = makePlainRect(
       'settings-card-performance-bg',
       { x: pad, y: cardStartY, w: W - 2 * pad, h: 100 },
-      {
-        cornerRadius: CARD_RADIUS,
-        refractionHeight: 6 * DP,
-        refractionAmount: -12 * DP,
-        blurRadius: 2 * DP,
-        saturation: 1.0,
-        surfaceColor: cardSurface,
-        highlight: cardHighlight,
-        outerShadow: cardShadow,
-      }
+      cardBg,
+      CARD_RADIUS,
     )
-    elements.push(cardBg)
+    elements.push(cardBgEl)
 
     // Section title
     nextY += CARD_PAD
@@ -452,22 +405,16 @@ export function buildSettings(
     Object.assign(interactions, fpsToggle.interactions)
     nextY += BUTTON_HEIGHT + ITEM_GAP
 
-    // Re-detect performance button
+    // Re-detect performance text button — like home page text items
     const perfIsRunning = state.perfProgress === 'running'
     const redetectLabel = perfIsRunning ? t('perf_detecting', locale) : t('settings_perf_redetect', locale)
-    const redetectTextW = measureTextWidth(redetectLabel, TEXT_FONT_SIZE_PX)
-    const redetectBtnW = Math.ceil(redetectTextW + 2 * BUTTON_HORIZONTAL_PADDING)
-    const redetectBtn = makeButton(
+    const redetectBtn = makeText(
       'settings-perf-redetect',
-      { x: contentX, y: nextY, w: redetectBtnW, h: BUTTON_HEIGHT },
-      {
-        label: redetectLabel,
-        tintColor: [0x00 / 255, 0x88 / 255, 0xff / 255, 1],
-        surfaceColor: [0, 0, 0, 0],
-        labelColor: [1, 1, 1, 1],
-      },
-      true
+      { x: contentX, y: nextY, w: contentW, h: TEXT_BTN_H },
+      redetectLabel,
+      { color: blueColor, fontSizePx: 15, fontWeight: 500, align: 'left', paddingPx: 0, halo: palette.homeTextHalo, pressTintColor: labelColor }
     )
+    redetectBtn.isInteractive = true
     elements.push(redetectBtn)
     interactions['settings-perf-redetect'] = {
       onTap: () => {
@@ -476,32 +423,25 @@ export function buildSettings(
         setState({ customDpr: 0, perfProgress: 'running', perfDone: false, perfResultDpr: 0, perfStatusText: '', perfGlassAngle: 0, perfProgressFrac: 0, perfProgressFracAnimated: 0, perfDeformMul: 1, perfExitProgress: 0, perfRoundTrigger: 1 })
       },
     }
-    nextY += BUTTON_HEIGHT + CARD_PAD
+    nextY += TEXT_BTN_H + CARD_PAD
 
     // Update card background height
-    cardBg.rect.h = nextY - cardStartY
+    cardBgEl.rect.h = nextY - cardStartY
     nextY += CARD_GAP
   }
 
   // ====================================================================
-  // Reset button (standalone, outside cards)
+  // Reset text button (standalone, red)
   // ====================================================================
   {
-    const ORANGE = [0xff / 255, 0x8d / 255, 0x28 / 255, 1] as [number, number, number, number]
     const resetLabel = t('settings_reset', locale)
-    const resetTextW = measureTextWidth(resetLabel, TEXT_FONT_SIZE_PX)
-    const resetW = Math.ceil(resetTextW + 2 * BUTTON_HORIZONTAL_PADDING)
-    const resetBtn = makeButton(
+    const resetBtn = makeText(
       'settings-reset',
-      { x: pad, y: nextY, w: resetW, h: BUTTON_HEIGHT },
-      {
-        label: resetLabel,
-        tintColor: ORANGE,
-        surfaceColor: [0, 0, 0, 0],
-        labelColor: [1, 1, 1, 1],
-      },
-      true
+      { x: pad + CARD_PAD, y: nextY, w: W - 2 * pad - 2 * CARD_PAD, h: TEXT_BTN_H },
+      resetLabel,
+      { color: redColor, fontSizePx: 15, fontWeight: 500, align: 'left', paddingPx: 0, halo: palette.homeTextHalo, pressTintColor: labelColor }
     )
+    resetBtn.isInteractive = true
     elements.push(resetBtn)
     interactions['settings-reset'] = {
       onTap: () => {
@@ -518,7 +458,7 @@ export function buildSettings(
   // Bottom padding: avoid overlap with fixed pick-image button (56dp height + 16dp margin)
   const bottomPad = 72 * DP
 
-  const contentHeight = nextY + BUTTON_HEIGHT + bottomPad
+  const contentHeight = nextY + TEXT_BTN_H + bottomPad
   // Use topPad as contentTop so applyVerticalCenter centers within the usable area
   const finalHeight = applyVerticalCenter(elements, topPad, contentHeight, H)
   return { elements, interactions, contentHeight: finalHeight }
