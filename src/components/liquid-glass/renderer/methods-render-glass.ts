@@ -316,7 +316,7 @@ export const glassRenderMethods = {
     // fullscreen copy at DPR 1.5). The element renders directly to curFbo with
     // alpha blending, matching the original Android app where most elements use
     // LayerBackdrop (wallpaper) via RenderEffect rather than compositing the scene.
-    const independent = el.independentBackdrop && !this.backgroundColor
+    const independent = !!(el.independentBackdrop && !this.backgroundColor && this.wallpaperTexture)
 
     // --- Step 1: Blit curFbo → otherFbo (FULLSCREEN — must copy the entire
     // scene so ping-pong preserves all previously-rendered elements. Scissor
@@ -418,6 +418,15 @@ export const glassRenderMethods = {
       // (the blurred backdrop) instead of the raw dialogBackdropTex.
       const passState = el.backdropFbo ? { ...state, el: { ...el, backdropFbo: false } } : state
       this.renderGlassElementPass(passState, blurredBackdrop)
+    } else if (independent) {
+      // For independent elements, we must NOT pass curTex (which is the color
+      // attachment of curFbo — the render target) to renderGlassElementPass,
+      // because that would create a WebGL read-write feedback loop (GL error 1282).
+      // The shader uses uSampleWallpaper=1.0 so it reads from uWallpaperSampler,
+      // but uBackdrop still needs a valid non-feedback texture bound. Pass the
+      // wallpaper texture — it's safe (not attached to the current FBO) and
+      // semantically correct (the shader ignores it anyway).
+      this.renderGlassElementPass(state, this.wallpaperTexture!)
     } else {
       this.renderGlassElementPass(state, curTex)
     }
