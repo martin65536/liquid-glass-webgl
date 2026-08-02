@@ -543,22 +543,21 @@ export function makeSettingsToggle(
   const TOGGLE_PADDING = 2 * DP
 
   // Layout: label on the left, toggle on the right
-  const labelW = rowRect.w - TOGGLE_W - 8 * DP // 8dp gap between label and toggle
   const trackX = rowRect.x + rowRect.w - TOGGLE_W
   const trackY = rowRect.y + (rowRect.h - TOGGLE_H) / 2
   const knobX = trackX + TOGGLE_PADDING
   const knobY = trackY + (TOGGLE_H - TOGGLE_KNOB_H) / 2
 
-  // Label
+  // Label — fills the full row width/height for press tint and hit area
   const labelColor = palette.backIconColor
-  elements.push(
-    makeText(
-      `${id}-label`,
-      { x: rowRect.x, y: rowRect.y, w: labelW, h: rowRect.h },
-      label,
-      { color: labelColor, fontSizePx: 15, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
-    )
+  const labelEl = makeText(
+    `${id}-label`,
+    { x: rowRect.x, y: rowRect.y, w: rowRect.w, h: rowRect.h },
+    label,
+    { color: labelColor, fontSizePx: 15, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo, pressTintColor: labelColor }
   )
+  labelEl.isInteractive = true
+  elements.push(labelEl)
 
   // Track
   const trackColorOff = palette.toggleTrackOff
@@ -618,22 +617,25 @@ export function makeSettingsToggle(
   }
   elements.push(knobEl)
 
-  // Interaction — tap to flip, drag to slide
+  // Interaction — drag to slide, tap to flip (matches demo toggle)
+  // Only call onToggle when the final fraction actually changes the state.
   const toggleInteract = makeDragInteractions({
     groupId: id, trackX: 0, dragW: TOGGLE_DRAG, rendererRef,
     onValueChange: (f) => {
       const finalOn = f >= 0.5
-      onToggle()
+      if (finalOn !== isOn) onToggle()
     },
     ...toggleDragBindings,
     snap: (f) => (f >= 0.5 ? 1 : 0),
     onTapJump: false,
   })
-  // Override onTap: toggle flip
+  // Override onTap: toggle flip (matches demo toggle behavior)
   toggleInteract.onTap = () => onToggle()
 
   interactions[`${id}-track`] = toggleInteract
   interactions[`${id}-knob`] = toggleInteract
+  // Label also triggers the same toggle interaction (full-row touch target)
+  interactions[`${id}-label`] = toggleInteract
 
   return { elements, interactions }
 }

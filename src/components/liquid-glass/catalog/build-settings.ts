@@ -158,17 +158,17 @@ export function buildSettings(
     Object.assign(interactions, dprSlider.interactions)
     nextY += 24 + 12
 
-    // DPR label (hint text — lighter)
+    // DPR label (hint text — lighter, interactive for press tint)
     const displayDpr = state.liveDpr != null ? state.liveDpr : currentDpr
     const dprLabelText = `${t('settings_dpr_label', locale)}: ${displayDpr.toFixed(2)}  (${t('settings_dpr_desc', locale)} ${deviceDpr}, ${t('settings_range', locale)} ${minDpr.toFixed(1)}–${maxDpr.toFixed(2)})`
-    elements.push(
-      makeText(
-        'settings-dpr-label',
-        { x: contentX, y: nextY, w: contentW, h: 16 },
-        dprLabelText,
-        { color: hintColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
-      )
+    const dprLabelEl = makeText(
+      'settings-dpr-label',
+      { x: contentX, y: nextY, w: contentW, h: 16 },
+      dprLabelText,
+      { color: hintColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo, pressTintColor: labelColor }
     )
+    dprLabelEl.isInteractive = true
+    elements.push(dprLabelEl)
     nextY += 16 + ITEM_GAP
 
     // Highlight AA toggle
@@ -268,17 +268,17 @@ export function buildSettings(
     Object.assign(interactions, tapSlider.interactions)
     nextY += 24 + 4
 
-    // Tap cap label (hint text — lighter)
+    // Tap cap label (hint text — lighter, interactive for press tint)
     const displayTapCap = state.liveTapCap != null ? state.liveTapCap : state.blurTapCap
     const tapCapLabelText = `${t('settings_tap_cap_label', locale)}: ${displayTapCap}  ${t('settings_tap_cap_hint', locale)}`
-    elements.push(
-      makeText(
-        'settings-blur-taps-label',
-        { x: contentX, y: nextY, w: contentW, h: 16 },
-        tapCapLabelText,
-        { color: hintColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
-      )
+    const tapCapLabelEl = makeText(
+      'settings-blur-taps-label',
+      { x: contentX, y: nextY, w: contentW, h: 16 },
+      tapCapLabelText,
+      { color: hintColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo, pressTintColor: labelColor }
     )
+    tapCapLabelEl.isInteractive = true
+    elements.push(tapCapLabelEl)
     nextY += 16 + CARD_PAD
 
     // Update card background height
