@@ -28,10 +28,10 @@ export const animationMethods = {
    */
   startAnimation(this: LiquidGlassRenderer) {
     if (this.animRafId !== null) return
-    // --- DEBUG: trace who starts the animation loop ---
-    if ((this as any)._debugAnim) {
-      const stack = new Error().stack?.split('\n').slice(1, 4).join(' | ')
-      console.warn('[startAnimation] animation loop started by:', stack)
+    // --- DEBUG: auto-enabled ---
+    {
+      const stack = new Error().stack?.split('\n').slice(1, 5).join('\n  ')
+      console.warn('[startAnimation] animation loop started\n  caller:\n  ' + stack)
     }
     // --- END DEBUG ---
     let lastTime = performance.now()
@@ -344,16 +344,18 @@ export const animationMethods = {
 
   requestRender(this: LiquidGlassRenderer) {
     this.needsRedraw = true
-    // --- DEBUG: trace who is triggering renders ---
-    if ((this as any)._debugRender) {
-      const stack = new Error().stack?.split('\n').slice(1, 4).join(' | ')
+    // --- DEBUG: auto-enabled, prints every 2s ---
+    {
       const now = performance.now()
-      const d = (this as any)._debugRender as { last: number; count: number; lastStack: string }
+      if (!(this as any)._dbgRR) {
+        (this as any)._dbgRR = { last: now, count: 0 }
+      }
+      const d = (this as any)._dbgRR as { last: number; count: number }
       d.count++
       if (now - d.last > 2000) {
+        const stack = new Error().stack?.split('\n').slice(1, 5).join('\n  ')
         console.warn(
-          `[requestRender] ${d.count} calls in ${((now - d.last) / 1000).toFixed(1)}s`,
-          `\n  caller: ${stack}`
+          `[requestRender] ${d.count} calls in ${((now - d.last) / 1000).toFixed(1)}s\n  caller:\n  ${stack}`
         )
         d.count = 0
         d.last = now
