@@ -99,7 +99,12 @@ export const scrollMethods = {
     this: LiquidGlassRenderer,
     angleRad: number
   ) {
-    if (this.gravityAngle === angleRad) return
+    // Threshold: skip sub-degree changes that are visually imperceptible.
+    // Without this, DeviceMotionEvent fires ~60/s and each tiny angle
+    // delta triggers a full WebGL render — the root cause of continuous
+    // high power consumption.
+    const THRESHOLD = 0.02 // ~1.1 degrees
+    if (Math.abs(this.gravityAngle - angleRad) < THRESHOLD) return
     this.gravityAngle = angleRad
     this.requestRender()
   },
