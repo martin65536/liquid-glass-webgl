@@ -75,6 +75,12 @@ export function buildSettings(
   // Red color for reset button
   const redColor: [number, number, number, number] = [0xff / 255, 0x3b / 255, 0x30 / 255, 1]
 
+  // Row width fills the full card width (pad → W-pad) so isInteractive
+  // press-tint covers the entire card span.  Text is padded via labelPad.
+  const rowX = pad
+  const rowW = W - 2 * pad
+  const labelPad = CARD_PAD   // inner padding for text inside the full-width row
+
   // Title
   elements.push(
     makeText(
@@ -159,41 +165,46 @@ export function buildSettings(
     nextY += 24 + 12
 
     // DPR label (hint text — lighter, interactive for press tint)
+    // Full card width, text padded
     const displayDpr = state.liveDpr != null ? state.liveDpr : currentDpr
     const dprLabelText = `${t('settings_dpr_label', locale)}: ${displayDpr.toFixed(2)}  (${t('settings_dpr_desc', locale)} ${deviceDpr}, ${t('settings_range', locale)} ${minDpr.toFixed(1)}–${maxDpr.toFixed(2)})`
     const dprLabelEl = makeText(
       'settings-dpr-label',
-      { x: contentX, y: nextY, w: contentW, h: 16 },
+      { x: rowX, y: nextY, w: rowW, h: 16 },
       dprLabelText,
-      { color: hintColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo, pressTintColor: labelColor }
+      { color: hintColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: labelPad, halo: palette.homeTextHalo, pressTintColor: labelColor }
     )
     dprLabelEl.isInteractive = true
     elements.push(dprLabelEl)
     nextY += 16 + ITEM_GAP
 
-    // Highlight AA toggle
+    // Highlight AA toggle — full card width row
     const aaToggle = makeSettingsToggle(
       'settings-highlight-aa',
-      { x: contentX, y: nextY, w: contentW, h: BUTTON_HEIGHT },
+      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT },
       t('settings_highlight_aa', locale),
       state.highlightAa,
       () => setState((prev) => ({ highlightAa: !prev.highlightAa })),
       palette,
       rendererRef,
+      true,
+      labelPad,
     )
     elements.push(...aaToggle.elements)
     Object.assign(interactions, aaToggle.interactions)
     nextY += BUTTON_HEIGHT + ITEM_GAP
 
-    // Capsule shape toggle
+    // Capsule shape toggle — full card width row
     const capsuleToggle = makeSettingsToggle(
       'settings-shape-capsule',
-      { x: contentX, y: nextY, w: contentW, h: BUTTON_HEIGHT },
+      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT },
       t('settings_capsule', locale),
       state.capsuleShape,
       () => setState((prev) => ({ capsuleShape: !prev.capsuleShape })),
       palette,
       rendererRef,
+      true,
+      labelPad,
     )
     elements.push(...capsuleToggle.elements)
     Object.assign(interactions, capsuleToggle.interactions)
@@ -232,15 +243,17 @@ export function buildSettings(
     )
     nextY += SECTION_TITLE_H + SECTION_TITLE_GAP
 
-    // Global blur toggle
+    // Global blur toggle — full card width row
     const blurToggle = makeSettingsToggle(
       'settings-blur-global',
-      { x: contentX, y: nextY, w: contentW, h: BUTTON_HEIGHT },
+      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT },
       t('settings_global', locale),
       state.globalSeparableBlur,
       () => setState((prev) => ({ globalSeparableBlur: !prev.globalSeparableBlur })),
       palette,
       rendererRef,
+      true,
+      labelPad,
     )
     elements.push(...blurToggle.elements)
     Object.assign(interactions, blurToggle.interactions)
@@ -269,13 +282,14 @@ export function buildSettings(
     nextY += 24 + 4
 
     // Tap cap label (hint text — lighter, interactive for press tint)
+    // Full card width, text padded
     const displayTapCap = state.liveTapCap != null ? state.liveTapCap : state.blurTapCap
     const tapCapLabelText = `${t('settings_tap_cap_label', locale)}: ${displayTapCap}  ${t('settings_tap_cap_hint', locale)}`
     const tapCapLabelEl = makeText(
       'settings-blur-taps-label',
-      { x: contentX, y: nextY, w: contentW, h: 16 },
+      { x: rowX, y: nextY, w: rowW, h: 16 },
       tapCapLabelText,
-      { color: hintColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo, pressTintColor: labelColor }
+      { color: hintColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: labelPad, halo: palette.homeTextHalo, pressTintColor: labelColor }
     )
     tapCapLabelEl.isInteractive = true
     elements.push(tapCapLabelEl)
@@ -314,42 +328,46 @@ export function buildSettings(
     )
     nextY += SECTION_TITLE_H + SECTION_TITLE_GAP
 
-    // Hide overlay buttons toggle
+    // Hide overlay buttons toggle — full card width row
     const overlayToggle = makeSettingsToggle(
       'settings-ui-hide-overlays',
-      { x: contentX, y: nextY, w: contentW, h: BUTTON_HEIGHT },
+      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT },
       t('settings_hide_overlay', locale),
       state.hideOverlayButtons,
       () => setState((prev) => ({ hideOverlayButtons: !prev.hideOverlayButtons })),
       palette,
       rendererRef,
+      true,
+      labelPad,
     )
     elements.push(...overlayToggle.elements)
     Object.assign(interactions, overlayToggle.interactions)
     nextY += BUTTON_HEIGHT + ITEM_GAP
 
-    // Page transition toggle
+    // Page transition toggle — full card width row
     const transToggle = makeSettingsToggle(
       'settings-transition-toggle',
-      { x: contentX, y: nextY, w: contentW, h: BUTTON_HEIGHT },
+      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT },
       t('settings_transition', locale),
       state.pageTransition,
       () => setState((prev) => ({ pageTransition: !prev.pageTransition })),
       palette,
       rendererRef,
+      true,
+      labelPad,
     )
     elements.push(...transToggle.elements)
     Object.assign(interactions, transToggle.interactions)
     nextY += BUTTON_HEIGHT + ITEM_GAP
 
-    // Language text button — like home page text items
+    // Language text button — full card width, text padded
     const langDisplay = locale === 'zh' ? t('settings_language_zh', locale) : t('settings_language_en', locale)
     const langLabelText = t('settings_language_title', locale) + ': ' + langDisplay
     const langBtn = makeText(
       'settings-language-toggle',
-      { x: contentX, y: nextY, w: contentW, h: TEXT_BTN_H },
+      { x: rowX, y: nextY, w: rowW, h: TEXT_BTN_H },
       langLabelText,
-      { color: blueColor, fontSizePx: 15, fontWeight: 500, align: 'left', paddingPx: 0, halo: palette.homeTextHalo, pressTintColor: labelColor }
+      { color: blueColor, fontSizePx: 15, fontWeight: 500, align: 'left', paddingPx: labelPad, halo: palette.homeTextHalo, pressTintColor: labelColor }
     )
     langBtn.isInteractive = true
     elements.push(langBtn)
@@ -391,28 +409,30 @@ export function buildSettings(
     )
     nextY += SECTION_TITLE_H + SECTION_TITLE_GAP
 
-    // Show FPS toggle
+    // Show FPS toggle — full card width row
     const fpsToggle = makeSettingsToggle(
       'settings-fps-toggle',
-      { x: contentX, y: nextY, w: contentW, h: BUTTON_HEIGHT },
+      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT },
       t('settings_fps', locale),
       state.showFps,
       () => setState((prev) => ({ showFps: !prev.showFps })),
       palette,
       rendererRef,
+      true,
+      labelPad,
     )
     elements.push(...fpsToggle.elements)
     Object.assign(interactions, fpsToggle.interactions)
     nextY += BUTTON_HEIGHT + ITEM_GAP
 
-    // Re-detect performance text button — like home page text items
+    // Re-detect performance text button — full card width, text padded
     const perfIsRunning = state.perfProgress === 'running'
     const redetectLabel = perfIsRunning ? t('perf_detecting', locale) : t('settings_perf_redetect', locale)
     const redetectBtn = makeText(
       'settings-perf-redetect',
-      { x: contentX, y: nextY, w: contentW, h: TEXT_BTN_H },
+      { x: rowX, y: nextY, w: rowW, h: TEXT_BTN_H },
       redetectLabel,
-      { color: blueColor, fontSizePx: 15, fontWeight: 500, align: 'left', paddingPx: 0, halo: palette.homeTextHalo, pressTintColor: labelColor }
+      { color: blueColor, fontSizePx: 15, fontWeight: 500, align: 'left', paddingPx: labelPad, halo: palette.homeTextHalo, pressTintColor: labelColor }
     )
     redetectBtn.isInteractive = true
     elements.push(redetectBtn)
@@ -431,15 +451,15 @@ export function buildSettings(
   }
 
   // ====================================================================
-  // Reset text button (standalone, red)
+  // Reset text button (standalone, red) — full card width, text padded
   // ====================================================================
   {
     const resetLabel = t('settings_reset', locale)
     const resetBtn = makeText(
       'settings-reset',
-      { x: pad + CARD_PAD, y: nextY, w: W - 2 * pad - 2 * CARD_PAD, h: TEXT_BTN_H },
+      { x: rowX, y: nextY, w: rowW, h: TEXT_BTN_H },
       resetLabel,
-      { color: redColor, fontSizePx: 15, fontWeight: 500, align: 'left', paddingPx: 0, halo: palette.homeTextHalo, pressTintColor: labelColor }
+      { color: redColor, fontSizePx: 15, fontWeight: 500, align: 'left', paddingPx: labelPad, halo: palette.homeTextHalo, pressTintColor: labelColor }
     )
     resetBtn.isInteractive = true
     elements.push(resetBtn)

@@ -530,6 +530,8 @@ export function makeSettingsToggle(
   palette: ThemePalette,
   rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> | null,
   scroll = true,
+  /** Padding inside the row (for label text alignment). Defaults to 0. */
+  labelPad = 0,
 ): { elements: GlassElementConfig[]; interactions: Record<string, ElementInteraction> } {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
@@ -542,8 +544,9 @@ export function makeSettingsToggle(
   const TOGGLE_DRAG = 20 * DP
   const TOGGLE_PADDING = 2 * DP
 
-  // Layout: label on the left, toggle on the right
-  const trackX = rowRect.x + rowRect.w - TOGGLE_W
+  // Layout: label fills the full row width/height for press tint and hit area.
+  // Toggle track is positioned inside the row (respecting labelPad on the right).
+  const trackX = rowRect.x + rowRect.w - TOGGLE_W - labelPad
   const trackY = rowRect.y + (rowRect.h - TOGGLE_H) / 2
   const knobX = trackX + TOGGLE_PADDING
   const knobY = trackY + (TOGGLE_H - TOGGLE_KNOB_H) / 2
@@ -554,7 +557,7 @@ export function makeSettingsToggle(
     `${id}-label`,
     { x: rowRect.x, y: rowRect.y, w: rowRect.w, h: rowRect.h },
     label,
-    { color: labelColor, fontSizePx: 15, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo, pressTintColor: labelColor }
+    { color: labelColor, fontSizePx: 15, fontWeight: 400, align: 'left', paddingPx: labelPad, halo: palette.homeTextHalo, pressTintColor: labelColor }
   )
   labelEl.isInteractive = true
   elements.push(labelEl)
@@ -576,7 +579,9 @@ export function makeSettingsToggle(
   }
   elements.push(trackEl)
 
-  // Knob — same glass effects as the full LiquidToggle knob
+  // Knob — same glass effects as the full LiquidToggle knob.
+  // No CombinedBackdrop props (solidBackdropColor, trackColorOff/On, etc.)
+  // — matches slider knob behavior so the backdrop scrolls correctly.
   const KNOB_HIGHLIGHT: GlassHighlight = {
     mode: 1,
     color: [1, 1, 1],
@@ -603,17 +608,10 @@ export function makeSettingsToggle(
     },
     scroll,
   )
+  // Minimal isToggleKnob — no CombinedBackdrop, matches slider knob
   knobEl.isToggleKnob = {
     groupId: id,
     dragWidth: TOGGLE_DRAG,
-    trackColorOff,
-    trackColorOn: [...accentColor, 1] as [number, number, number, number],
-    trackW: TOGGLE_W,
-    trackH: TOGGLE_H,
-    trackOriginalX: trackX,
-    trackOriginalY: trackY,
-    // Settings page has solid background — use the palette's solid backdrop color
-    solidBackdropColor: palette.toggleCardBg,
   }
   elements.push(knobEl)
 

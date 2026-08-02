@@ -720,8 +720,13 @@ export default function Page() {
   // setBackgroundColor() → requestRender() unnecessarily.
   const backgroundColor: [number, number, number] | null = React.useMemo(() => {
     if (!useSolidBg) return null
+    // Settings page uses a light gray background in light mode so cards
+    // (white) stand out.  Home & About keep pure white/black.
+    if (destination === CatalogDestination.Settings) {
+      return isLightTheme ? [0.94, 0.94, 0.96] : [0, 0, 0]
+    }
     return isLightTheme ? [1, 1, 1] : [0, 0, 0]
-  }, [useSolidBg, isLightTheme])
+  }, [useSolidBg, isLightTheme, destination])
 
   // Push toggle/slider targets to the renderer whenever the underlying
   // state changes (or when entering the corresponding destination).
