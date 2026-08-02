@@ -16,6 +16,7 @@ import {
   makeBackButton,
   makeButton,
   makeLiquidSlider,
+  makeSettingsToggle,
   makeText,
 } from './helpers'
 import { t, type Locale } from './i18n'
@@ -123,29 +124,18 @@ export function buildSettings(
   )
   nextY += 20 + 8
 
-  // Global toggle button — blue accent when ON, gray when OFF
-  const toggleOnOff = state.globalSeparableBlur ? t('settings_on', locale) : t('settings_off', locale)
-  const toggleBtnColor = state.globalSeparableBlur
-    ? ([0x00 / 255, 0x88 / 255, 0xff / 255, 1] as [number, number, number, number])
-    : ([0.5, 0.5, 0.5, 1] as [number, number, number, number])
-  const toggleLabelText = t('settings_global', locale) + ': ' + toggleOnOff
-  const toggleTextW = measureTextWidth(toggleLabelText, TEXT_FONT_SIZE_PX)
-  const toggleBtnW = Math.ceil(toggleTextW + 2 * BUTTON_HORIZONTAL_PADDING)
-  const toggleBtn = makeButton(
+  // Global toggle — liquid toggle switch
+  const blurToggle = makeSettingsToggle(
     'settings-blur-global',
-    { x: pad, y: nextY, w: toggleBtnW, h: BUTTON_HEIGHT },
-    {
-      label: toggleLabelText,
-      tintColor: toggleBtnColor,
-      surfaceColor: [0, 0, 0, 0],
-      labelColor: [1, 1, 1, 1],
-    },
-    true
+    { x: pad, y: nextY, w: W - 2 * pad, h: BUTTON_HEIGHT },
+    t('settings_global', locale),
+    state.globalSeparableBlur,
+    () => setState((prev) => ({ globalSeparableBlur: !prev.globalSeparableBlur })),
+    palette,
+    rendererRef,
   )
-  elements.push(toggleBtn)
-  interactions['settings-blur-global'] = {
-    onTap: () => setState((prev) => ({ globalSeparableBlur: !prev.globalSeparableBlur })),
-  }
+  elements.push(...blurToggle.elements)
+  Object.assign(interactions, blurToggle.interactions)
   nextY += BUTTON_HEIGHT + 12
 
   // Tap cap slider (1..33, step 2)
@@ -199,28 +189,17 @@ export function buildSettings(
   )
   nextY += 20 + 8
 
-  const capsuleOnOff = state.capsuleShape ? t('settings_on', locale) : t('settings_off', locale)
-  const capsuleLabelText = t('settings_capsule', locale) + ': ' + capsuleOnOff
-  const capsuleBtnColor = state.capsuleShape
-    ? ([0x00 / 255, 0x88 / 255, 0xff / 255, 1] as [number, number, number, number])
-    : ([0.5, 0.5, 0.5, 1] as [number, number, number, number])
-  const capsuleTextW = measureTextWidth(capsuleLabelText, TEXT_FONT_SIZE_PX)
-  const capsuleBtnW = Math.ceil(capsuleTextW + 2 * BUTTON_HORIZONTAL_PADDING)
-  const capsuleBtn = makeButton(
+  const capsuleToggle = makeSettingsToggle(
     'settings-shape-capsule',
-    { x: pad, y: nextY, w: capsuleBtnW, h: BUTTON_HEIGHT },
-    {
-      label: capsuleLabelText,
-      tintColor: capsuleBtnColor,
-      surfaceColor: [0, 0, 0, 0],
-      labelColor: [1, 1, 1, 1],
-    },
-    true
+    { x: pad, y: nextY, w: W - 2 * pad, h: BUTTON_HEIGHT },
+    t('settings_capsule', locale),
+    state.capsuleShape,
+    () => setState((prev) => ({ capsuleShape: !prev.capsuleShape })),
+    palette,
+    rendererRef,
   )
-  elements.push(capsuleBtn)
-  interactions['settings-shape-capsule'] = {
-    onTap: () => setState((prev) => ({ capsuleShape: !prev.capsuleShape })),
-  }
+  elements.push(...capsuleToggle.elements)
+  Object.assign(interactions, capsuleToggle.interactions)
   nextY += BUTTON_HEIGHT + 16
 
   // --- UI section: hide overlay buttons ---
@@ -234,28 +213,17 @@ export function buildSettings(
   )
   nextY += 20 + 8
 
-  const overlayOnOff = state.hideOverlayButtons ? t('settings_on', locale) : t('settings_off', locale)
-  const overlayLabelText = t('settings_hide_overlay', locale) + ': ' + overlayOnOff
-  const overlayBtnColor = state.hideOverlayButtons
-    ? ([0x00 / 255, 0x88 / 255, 0xff / 255, 1] as [number, number, number, number])
-    : ([0.5, 0.5, 0.5, 1] as [number, number, number, number])
-  const overlayTextW = measureTextWidth(overlayLabelText, TEXT_FONT_SIZE_PX)
-  const overlayBtnW = Math.ceil(overlayTextW + 2 * BUTTON_HORIZONTAL_PADDING)
-  const overlayBtn = makeButton(
+  const overlayToggle = makeSettingsToggle(
     'settings-ui-hide-overlays',
-    { x: pad, y: nextY, w: overlayBtnW, h: BUTTON_HEIGHT },
-    {
-      label: overlayLabelText,
-      tintColor: overlayBtnColor,
-      surfaceColor: [0, 0, 0, 0],
-      labelColor: [1, 1, 1, 1],
-    },
-    true
+    { x: pad, y: nextY, w: W - 2 * pad, h: BUTTON_HEIGHT },
+    t('settings_hide_overlay', locale),
+    state.hideOverlayButtons,
+    () => setState((prev) => ({ hideOverlayButtons: !prev.hideOverlayButtons })),
+    palette,
+    rendererRef,
   )
-  elements.push(overlayBtn)
-  interactions['settings-ui-hide-overlays'] = {
-    onTap: () => setState((prev) => ({ hideOverlayButtons: !prev.hideOverlayButtons })),
-  }
+  elements.push(...overlayToggle.elements)
+  Object.assign(interactions, overlayToggle.interactions)
   nextY += BUTTON_HEIGHT + 16
 
   // --- Language section ---
@@ -303,28 +271,17 @@ export function buildSettings(
   )
   nextY += 20 + 8
 
-  const transOnOff = state.pageTransition ? t('settings_on', locale) : t('settings_off', locale)
-  const transLabelText = t('settings_transition', locale) + ': ' + transOnOff
-  const transBtnColor = state.pageTransition
-    ? ([0x00 / 255, 0x88 / 255, 0xff / 255, 1] as [number, number, number, number])
-    : ([0.5, 0.5, 0.5, 1] as [number, number, number, number])
-  const transTextW = measureTextWidth(transLabelText, TEXT_FONT_SIZE_PX)
-  const transBtnW = Math.ceil(transTextW + 2 * BUTTON_HORIZONTAL_PADDING)
-  const transBtn = makeButton(
+  const transToggle = makeSettingsToggle(
     'settings-transition-toggle',
-    { x: pad, y: nextY, w: transBtnW, h: BUTTON_HEIGHT },
-    {
-      label: transLabelText,
-      tintColor: transBtnColor,
-      surfaceColor: [0, 0, 0, 0],
-      labelColor: [1, 1, 1, 1],
-    },
-    true
+    { x: pad, y: nextY, w: W - 2 * pad, h: BUTTON_HEIGHT },
+    t('settings_transition', locale),
+    state.pageTransition,
+    () => setState((prev) => ({ pageTransition: !prev.pageTransition })),
+    palette,
+    rendererRef,
   )
-  elements.push(transBtn)
-  interactions['settings-transition-toggle'] = {
-    onTap: () => setState((prev) => ({ pageTransition: !prev.pageTransition })),
-  }
+  elements.push(...transToggle.elements)
+  Object.assign(interactions, transToggle.interactions)
   nextY += BUTTON_HEIGHT + 16
 
   // --- Performance section: FPS counter ---
@@ -338,64 +295,18 @@ export function buildSettings(
   )
   nextY += 20 + 8
 
-  const fpsOnOff = state.showFps ? t('settings_on', locale) : t('settings_off', locale)
-  const fpsLabelText = t('settings_fps', locale) + ': ' + fpsOnOff
-  const fpsBtnColor = state.showFps
-    ? ([0x00 / 255, 0x88 / 255, 0xff / 255, 1] as [number, number, number, number])
-    : ([0.5, 0.5, 0.5, 1] as [number, number, number, number])
-  const fpsTextW = measureTextWidth(fpsLabelText, TEXT_FONT_SIZE_PX)
-  const fpsBtnW = Math.ceil(fpsTextW + 2 * BUTTON_HORIZONTAL_PADDING)
-  const fpsBtn = makeButton(
+  const fpsToggle = makeSettingsToggle(
     'settings-fps-toggle',
-    { x: pad, y: nextY, w: fpsBtnW, h: BUTTON_HEIGHT },
-    {
-      label: fpsLabelText,
-      tintColor: fpsBtnColor,
-      surfaceColor: [0, 0, 0, 0],
-      labelColor: [1, 1, 1, 1],
-    },
-    true
+    { x: pad, y: nextY, w: W - 2 * pad, h: BUTTON_HEIGHT },
+    t('settings_fps', locale),
+    state.showFps,
+    () => setState((prev) => ({ showFps: !prev.showFps })),
+    palette,
+    rendererRef,
   )
-  elements.push(fpsBtn)
-  interactions['settings-fps-toggle'] = {
-    onTap: () => setState((prev) => ({ showFps: !prev.showFps })),
-  }
-  nextY += BUTTON_HEIGHT + 16
-
-  // --- Highlight section: anti-aliasing toggle ---
-  elements.push(
-    makeText(
-      'settings-highlight-title',
-      { x: pad, y: nextY, w: W - 2 * pad, h: 20 },
-      t('settings_highlight_title', locale),
-      { color: labelColor, fontSizePx: 16, fontWeight: 600, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
-    )
-  )
-  nextY += 20 + 8
-
-  const aaOnOff = state.highlightAa ? t('settings_on', locale) : t('settings_off', locale)
-  const aaLabelText = t('settings_highlight_aa', locale) + ': ' + aaOnOff
-  const aaBtnColor = state.highlightAa
-    ? ([0x00 / 255, 0x88 / 255, 0xff / 255, 1] as [number, number, number, number])
-    : ([0.5, 0.5, 0.5, 1] as [number, number, number, number])
-  const aaTextW = measureTextWidth(aaLabelText, TEXT_FONT_SIZE_PX)
-  const aaBtnW = Math.ceil(aaTextW + 2 * BUTTON_HORIZONTAL_PADDING)
-  const aaBtn = makeButton(
-    'settings-highlight-aa',
-    { x: pad, y: nextY, w: aaBtnW, h: BUTTON_HEIGHT },
-    {
-      label: aaLabelText,
-      tintColor: aaBtnColor,
-      surfaceColor: [0, 0, 0, 0],
-      labelColor: [1, 1, 1, 1],
-    },
-    true
-  )
-  elements.push(aaBtn)
-  interactions['settings-highlight-aa'] = {
-    onTap: () => setState((prev) => ({ highlightAa: !prev.highlightAa })),
-  }
-  nextY += BUTTON_HEIGHT + 16
+  elements.push(...fpsToggle.elements)
+  Object.assign(interactions, fpsToggle.interactions)
+  nextY += BUTTON_HEIGHT + 12
 
   // --- Re-detect performance button ---
   // Always visible. When benchmark is running, shows "正在检测..." and is disabled.
@@ -426,6 +337,30 @@ export function buildSettings(
       setState({ customDpr: 0, perfProgress: 'running', perfDone: false, perfResultDpr: 0, perfStatusText: '', perfGlassAngle: 0, perfProgressFrac: 0, perfProgressFracAnimated: 0, perfDeformMul: 1, perfExitProgress: 0, perfRoundTrigger: 1 })
     },
   }
+  nextY += BUTTON_HEIGHT + 16
+
+  // --- Highlight section: anti-aliasing toggle ---
+  elements.push(
+    makeText(
+      'settings-highlight-title',
+      { x: pad, y: nextY, w: W - 2 * pad, h: 20 },
+      t('settings_highlight_title', locale),
+      { color: labelColor, fontSizePx: 16, fontWeight: 600, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
+    )
+  )
+  nextY += 20 + 8
+
+  const aaToggle = makeSettingsToggle(
+    'settings-highlight-aa',
+    { x: pad, y: nextY, w: W - 2 * pad, h: BUTTON_HEIGHT },
+    t('settings_highlight_aa', locale),
+    state.highlightAa,
+    () => setState((prev) => ({ highlightAa: !prev.highlightAa })),
+    palette,
+    rendererRef,
+  )
+  elements.push(...aaToggle.elements)
+  Object.assign(interactions, aaToggle.interactions)
   nextY += BUTTON_HEIGHT + 16
 
   // Reset button (orange)

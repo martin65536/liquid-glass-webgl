@@ -757,9 +757,16 @@ export default function Page() {
       targets['settings-dpr'] = Math.max(0, Math.min(1, (currentDpr - minDpr) / dprRange))
       // Tap cap slider: fraction = (blurTapCap - 1) / 32 (range 1..33)
       targets['settings-blur-taps'] = Math.max(0, Math.min(1, (state.blurTapCap - 1) / 32))
+      // Settings toggle switches
+      targets['settings-blur-global'] = state.globalSeparableBlur ? 1 : 0
+      targets['settings-shape-capsule'] = state.capsuleShape ? 1 : 0
+      targets['settings-ui-hide-overlays'] = state.hideOverlayButtons ? 1 : 0
+      targets['settings-transition-toggle'] = state.pageTransition ? 1 : 0
+      targets['settings-fps-toggle'] = state.showFps ? 1 : 0
+      targets['settings-highlight-aa'] = state.highlightAa ? 1 : 0
     }
     return targets
-  }, [destination, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration, state.customDpr, state.blurTapCap])
+  }, [destination, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration, state.customDpr, state.blurTapCap, state.globalSeparableBlur, state.capsuleShape, state.hideOverlayButtons, state.pageTransition, state.showFps, state.highlightAa])
 
   // Tab targets use a separate prop because they need setTabSelected
   // (which sets pressedScale=78/56, not toggle's 1.5).
