@@ -357,7 +357,12 @@ export const glassPostPassMethods = {
           el.highlight.widthDp * this.dpr,
           Math.min(origSizeX, origSizeY) * 0.5
         )
-        const strokeWidthDevice = Math.max(1, Math.ceil(widthPx) * 2)
+        // Anti-aliasing: when aa=true (default), ceil() rounds up to ensure
+        // full-pixel coverage (matching HighlightModifier.kt). When aa=false,
+        // Math.round() keeps sub-pixel precision, producing a thinner highlight.
+        const strokeWidthDevice = el.highlight.aa !== false
+          ? Math.max(1, Math.ceil(widthPx) * 2)
+          : Math.max(1, Math.round(widthPx) * 2)
         // Highlight data class: blurRadius defaults to width / 2. Honor it in the
         // Canvas2D mask as well (for the default 0.25dp this is sub-pixel, but it
         // keeps non-default highlights faithful too).

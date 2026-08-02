@@ -28,6 +28,12 @@ export interface GlassHighlight {
   /** Blur radius in dp. Faithful to Highlight.kt: blurRadius = width / 2.
    *  Defaults to widthDp / 2 if not specified. */
   blurRadiusDp?: number
+  /** Anti-aliasing: when true (default), the stroke width is rounded up
+   *  via Math.ceil() to ensure full-pixel coverage, matching the original
+   *  Kotlin formula. When false, the stroke width is kept at sub-pixel
+   *  precision (Math.round / Math.max), producing a thinner highlight
+   *  but with potential aliasing at low DPR. */
+  aa?: boolean
 }
 
 export interface GlassButtonConfig {
