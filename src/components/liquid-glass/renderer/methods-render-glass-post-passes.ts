@@ -360,7 +360,7 @@ export const glassPostPassMethods = {
           el.highlight.widthDp * this.dpr,
           Math.min(origSizeX, origSizeY) * 0.08
         )
-        const strokeWidthDevice = Math.max(1, Math.ceil(widthPx) * 2)
+        const strokeWidthDevice = Math.max(1, Math.round(widthPx) * 2)
         // Highlight data class: blurRadius defaults to width / 2. Honor it in the
         // Canvas2D mask as well (for the default 0.25dp this is sub-pixel, but it
         // keeps non-default highlights faithful too).

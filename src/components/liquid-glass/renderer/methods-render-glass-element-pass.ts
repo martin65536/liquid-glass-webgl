@@ -506,7 +506,7 @@ export const glassElementPassMethods = {
       const elMinDimPx = Math.min(state.origW, state.origH) * this.dpr
       const elWidthPx = Math.min(el.highlight.widthDp * this.dpr, elMinDimPx * 0.08)
       const elBlurPx = (el.highlight.blurRadiusDp ?? el.highlight.widthDp / 2) * this.dpr
-      gl.uniform1f(this.uEl['uHighlightStrokeWidth'], Math.ceil(elWidthPx) * 2)
+      gl.uniform1f(this.uEl['uHighlightStrokeWidth'], Math.max(1, elWidthPx) * 2)
       gl.uniform1f(this.uEl['uHighlightBlur'], elBlurPx)
     } else {
       gl.uniform1f(this.uEl['uHighlightAlpha'], 0)
