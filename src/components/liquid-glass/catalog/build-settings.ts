@@ -10,7 +10,6 @@ import {
   type ThemePalette,
 } from './types'
 import {
-  applyVerticalCenter,
   makeBackButton,
   makeLiquidSlider,
   makePlainRect,
@@ -475,11 +474,11 @@ export function buildSettings(
     }
   }
 
-  // Bottom padding: avoid overlap with fixed pick-image button (56dp height + 16dp margin)
-  const bottomPad = 72 * DP
+  // Bottom padding: safe area at the bottom of the scrollable content
+  const bottomPad = 24 * DP
 
   const contentHeight = nextY + TEXT_BTN_H + bottomPad
-  // Use topPad as contentTop so applyVerticalCenter centers within the usable area
-  const finalHeight = applyVerticalCenter(elements, topPad, contentHeight, H)
-  return { elements, interactions, contentHeight: finalHeight }
+  // Settings page: NO vertical centering — content starts from the top
+  // and is scrollable when it exceeds the viewport height.
+  return { elements, interactions, contentHeight }
 }

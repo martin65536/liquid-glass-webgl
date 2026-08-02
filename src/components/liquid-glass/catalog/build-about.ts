@@ -41,8 +41,8 @@ export function buildAbout(W: number, H: number, onBack: () => void, palette: Th
   const pad = 32 * DP
   // Top padding: avoid overlap with fixed back/theme buttons (56dp height + 16dp margin)
   const topPad = 72 * DP
-  // Bottom padding: avoid overlap with fixed pick-image button (56dp height + 16dp margin)
-  const bottomPad = 72 * DP
+  // Bottom padding: safe area at the bottom of the scrollable content
+  const bottomPad = 24 * DP
   let cursorY = topPad
 
   // ---- Section 1: About info (scrollable) ----

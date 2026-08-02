@@ -643,8 +643,13 @@ export function makeSettingsToggle(
 
   interactions[`${id}-track`] = toggleInteract
   interactions[`${id}-knob`] = toggleInteract
-  // Label also triggers the same toggle interaction (full-row touch target)
-  interactions[`${id}-label`] = toggleInteract
+  // Label uses a TAP-ONLY interaction (no onDrag) so that vertical
+  // drags on the label trigger scroll-takeover instead of being
+  // committed to drag. This is critical for the settings page where
+  // the user needs to scroll by touching toggle rows.
+  interactions[`${id}-label`] = {
+    onTap: () => onToggle(),
+  }
 
   return { elements, interactions }
 }

@@ -170,9 +170,10 @@ export function buildCatalog(
   // The original uses BasicText("Pick an image", TextStyle(White, 16f.sp)) —
   // a FIXED 16sp, NOT scaled from button height. Horizontal padding = 16dp
   // (button) + 8dp (text) per side = 48dp total.
-  // Only on non-Home pages.
-  // Hide pick-image on PerfBenchmark too
-  if (onPickImage && dest !== CatalogDestination.Home && !isPerfBenchmark) {
+  // Only on non-Home, non-Settings, non-About, non-PerfBenchmark pages.
+  // Settings and About use solid backgrounds — no wallpaper to change.
+  const isAbout = dest === CatalogDestination.About
+  if (onPickImage && dest !== CatalogDestination.Home && !isSettings && !isAbout && !isPerfBenchmark) {
     const pickLabel = t('pick_image', locale)
     const pickH = 56 * DP
     const pickFontPx = 16 // 16sp fixed (original: TextStyle(White, 16f.sp))
