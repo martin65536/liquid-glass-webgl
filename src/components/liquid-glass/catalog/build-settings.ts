@@ -37,6 +37,7 @@ const ITEM_GAP = 12 * DP       // gap between items within a card
 const SECTION_TITLE_H = 20     // card section title height
 const SECTION_TITLE_GAP = 8    // gap after section title
 const TEXT_BTN_H = 36 * DP     // text button row height
+const SLIDER_PAD = 8           // left/right padding for slider track inside card
 
 export function buildSettings(
   W: number,
@@ -141,13 +142,13 @@ export function buildSettings(
     )
     nextY += SECTION_TITLE_H + SECTION_TITLE_GAP
 
-    // DPR slider
+    // DPR slider — SLIDER_PAD left/right gap from content edge
     const sliderTrackY = nextY + (24 - 6) / 2
     const dprSlider = makeLiquidSlider(
       'settings-dpr',
-      contentX,
+      contentX + SLIDER_PAD,
       sliderTrackY,
-      contentW,
+      contentW - 2 * SLIDER_PAD,
       'settings-dpr',
       palette.sliderTrackOff,
       palette.sliderAccent,
@@ -164,23 +165,25 @@ export function buildSettings(
     nextY += 24 + 12
 
     // DPR label (hint text — lighter, interactive for press tint)
-    // Full card width, text padded
+    // Full card width, text padded. Height fills to the next item
+    // so the interactive highlight covers the full row area.
     const displayDpr = state.liveDpr != null ? state.liveDpr : currentDpr
     const dprLabelText = `${t('settings_dpr_label', locale)}: ${displayDpr.toFixed(2)}  (${t('settings_dpr_desc', locale)} ${deviceDpr}, ${t('settings_range', locale)} ${minDpr.toFixed(1)}–${maxDpr.toFixed(2)})`
+    const dprLabelH = 16 + ITEM_GAP  // 16px text + ITEM_GAP to fill the row
     const dprLabelEl = makeText(
       'settings-dpr-label',
-      { x: rowX, y: nextY, w: rowW, h: 16 },
+      { x: rowX, y: nextY, w: rowW, h: dprLabelH },
       dprLabelText,
       { color: hintColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: labelPad, halo: palette.homeTextHalo, pressTintColor: labelColor }
     )
     dprLabelEl.isInteractive = true
     elements.push(dprLabelEl)
-    nextY += 16 + ITEM_GAP
+    nextY += dprLabelH
 
-    // Highlight AA toggle — full card width row
+    // Highlight AA toggle — full card width row, height includes gap
     const aaToggle = makeSettingsToggle(
       'settings-highlight-aa',
-      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT },
+      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT + ITEM_GAP },
       t('settings_highlight_aa', locale),
       state.highlightAa,
       () => setState((prev) => ({ highlightAa: !prev.highlightAa })),
@@ -193,10 +196,10 @@ export function buildSettings(
     Object.assign(interactions, aaToggle.interactions)
     nextY += BUTTON_HEIGHT + ITEM_GAP
 
-    // Capsule shape toggle — full card width row
+    // Capsule shape toggle — full card width row, height includes bottom pad
     const capsuleToggle = makeSettingsToggle(
       'settings-shape-capsule',
-      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT },
+      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT + CARD_PAD },
       t('settings_capsule', locale),
       state.capsuleShape,
       () => setState((prev) => ({ capsuleShape: !prev.capsuleShape })),
@@ -242,10 +245,10 @@ export function buildSettings(
     )
     nextY += SECTION_TITLE_H + SECTION_TITLE_GAP
 
-    // Global blur toggle — full card width row
+    // Global blur toggle — full card width row, height includes gap
     const blurToggle = makeSettingsToggle(
       'settings-blur-global',
-      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT },
+      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT + ITEM_GAP },
       t('settings_global', locale),
       state.globalSeparableBlur,
       () => setState((prev) => ({ globalSeparableBlur: !prev.globalSeparableBlur })),
@@ -258,13 +261,13 @@ export function buildSettings(
     Object.assign(interactions, blurToggle.interactions)
     nextY += BUTTON_HEIGHT + ITEM_GAP
 
-    // Tap cap slider
+    // Tap cap slider — 8px left/right gap from content edge
     const tapTrackY = nextY + (24 - 6) / 2
     const tapSlider = makeLiquidSlider(
       'settings-blur-taps',
-      contentX,
+      contentX + SLIDER_PAD,
       tapTrackY,
-      contentW,
+      contentW - 2 * SLIDER_PAD,
       'settings-blur-taps',
       palette.sliderTrackOff,
       palette.sliderAccent,
@@ -281,18 +284,20 @@ export function buildSettings(
     nextY += 24 + 4
 
     // Tap cap label (hint text — lighter, interactive for press tint)
-    // Full card width, text padded
+    // Full card width, text padded. Height fills to the card bottom
+    // so the interactive highlight covers the full row area.
     const displayTapCap = state.liveTapCap != null ? state.liveTapCap : state.blurTapCap
     const tapCapLabelText = `${t('settings_tap_cap_label', locale)}: ${displayTapCap}  ${t('settings_tap_cap_hint', locale)}`
+    const tapCapLabelH = 16 + CARD_PAD  // 16px text + CARD_PAD to fill the row
     const tapCapLabelEl = makeText(
       'settings-blur-taps-label',
-      { x: rowX, y: nextY, w: rowW, h: 16 },
+      { x: rowX, y: nextY, w: rowW, h: tapCapLabelH },
       tapCapLabelText,
       { color: hintColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: labelPad, halo: palette.homeTextHalo, pressTintColor: labelColor }
     )
     tapCapLabelEl.isInteractive = true
     elements.push(tapCapLabelEl)
-    nextY += 16 + CARD_PAD
+    nextY += tapCapLabelH
 
     // Update card background height
     cardBgEl.rect.h = nextY - cardStartY
@@ -327,10 +332,10 @@ export function buildSettings(
     )
     nextY += SECTION_TITLE_H + SECTION_TITLE_GAP
 
-    // Hide overlay buttons toggle — full card width row
+    // Hide overlay buttons toggle — full card width row, height includes gap
     const overlayToggle = makeSettingsToggle(
       'settings-ui-hide-overlays',
-      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT },
+      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT + ITEM_GAP },
       t('settings_hide_overlay', locale),
       state.hideOverlayButtons,
       () => setState((prev) => ({ hideOverlayButtons: !prev.hideOverlayButtons })),
@@ -343,10 +348,10 @@ export function buildSettings(
     Object.assign(interactions, overlayToggle.interactions)
     nextY += BUTTON_HEIGHT + ITEM_GAP
 
-    // Page transition toggle — full card width row
+    // Page transition toggle — full card width row, height includes gap
     const transToggle = makeSettingsToggle(
       'settings-transition-toggle',
-      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT },
+      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT + ITEM_GAP },
       t('settings_transition', locale),
       state.pageTransition,
       () => setState((prev) => ({ pageTransition: !prev.pageTransition })),
@@ -359,12 +364,12 @@ export function buildSettings(
     Object.assign(interactions, transToggle.interactions)
     nextY += BUTTON_HEIGHT + ITEM_GAP
 
-    // Language text button — full card width, text padded
+    // Language text button — full card width, text padded, height includes bottom pad
     const langDisplay = locale === 'zh' ? t('settings_language_zh', locale) : t('settings_language_en', locale)
     const langLabelText = t('settings_language_title', locale) + ': ' + langDisplay
     const langBtn = makeText(
       'settings-language-toggle',
-      { x: rowX, y: nextY, w: rowW, h: TEXT_BTN_H },
+      { x: rowX, y: nextY, w: rowW, h: TEXT_BTN_H + CARD_PAD },
       langLabelText,
       { color: blueColor, fontSizePx: 15, fontWeight: 500, align: 'left', paddingPx: labelPad, halo: palette.homeTextHalo, pressTintColor: labelColor }
     )
@@ -408,10 +413,10 @@ export function buildSettings(
     )
     nextY += SECTION_TITLE_H + SECTION_TITLE_GAP
 
-    // Show FPS toggle — full card width row
+    // Show FPS toggle — full card width row, height includes gap
     const fpsToggle = makeSettingsToggle(
       'settings-fps-toggle',
-      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT },
+      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT + ITEM_GAP },
       t('settings_fps', locale),
       state.showFps,
       () => setState((prev) => ({ showFps: !prev.showFps })),
@@ -424,12 +429,12 @@ export function buildSettings(
     Object.assign(interactions, fpsToggle.interactions)
     nextY += BUTTON_HEIGHT + ITEM_GAP
 
-    // Re-detect performance text button — full card width, text padded
+    // Re-detect performance text button — full card width, text padded, height includes bottom pad
     const perfIsRunning = state.perfProgress === 'running'
     const redetectLabel = perfIsRunning ? t('perf_detecting', locale) : t('settings_perf_redetect', locale)
     const redetectBtn = makeText(
       'settings-perf-redetect',
-      { x: rowX, y: nextY, w: rowW, h: TEXT_BTN_H },
+      { x: rowX, y: nextY, w: rowW, h: TEXT_BTN_H + CARD_PAD },
       redetectLabel,
       { color: blueColor, fontSizePx: 15, fontWeight: 500, align: 'left', paddingPx: labelPad, halo: palette.homeTextHalo, pressTintColor: labelColor }
     )
