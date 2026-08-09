@@ -68,6 +68,9 @@ export function PerfMonitorOverlay({ rendererRef, visible, rafFps }: Props) {
   React.useEffect(() => { pausedRef.current = paused }, [paused])
 
   // --- Poll the renderer's PerfMonitor every POLL_MS ---
+  // PAUSED while the tab is hidden: setInterval keeps firing (throttled) in
+  // background tabs, and polling the renderer + re-rendering the overlay is
+  // pure waste when nobody is looking. Resumes on visibilitychange.
   React.useEffect(() => {
     if (!visible) {
       setSnapshot(null)
@@ -80,8 +83,23 @@ export function PerfMonitorOverlay({ rendererRef, visible, rafFps }: Props) {
       }
     }
     tick() // immediate first sample
-    const id = window.setInterval(tick, POLL_MS)
-    return () => window.clearInterval(id)
+    let id: number | null = window.setInterval(tick, POLL_MS)
+    const onVisibility = () => {
+      if (document.hidden) {
+        if (id !== null) { window.clearInterval(id); id = null }
+      } else if (id === null) {
+        tick() // refresh immediately on resume
+        id = window.setInterval(tick, POLL_MS)
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    if (document.hidden) { // already hidden on mount
+      if (id !== null) { window.clearInterval(id); id = null }
+    }
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      if (id !== null) window.clearInterval(id)
+    }
   }, [visible, rendererRef])
 
   // --- Dragging ---
@@ -196,6 +214,25 @@ export function PerfMonitorOverlay({ rendererRef, visible, rafFps }: Props) {
           </button>
         </span>
       </div>
+
+      {snapshot?.isSoftwareRenderer && (
+        <div
+          style={{
+            padding: '6px 10px',
+            background: 'rgba(255, 140, 0, 0.18)',
+            borderBottom: '1px solid rgba(255, 140, 0, 0.4)',
+            color: '#ffb347',
+            font: '11px ui-monospace, monospace',
+            lineHeight: 1.35,
+          }}
+          title="The WebGL context is backed by a CPU software rasterizer (e.g. SwiftShader). Every draw call runs on the CPU, and the browser's GPU process is a heavy CPU process that stays alive as long as the canvas exists. Shader toggles cannot fix this — only fewer renders, lower DPR, or enabling hardware acceleration can."
+        >
+          <strong>SOFTWARE RENDERER (CPU raster)</strong>
+          <div style={{ opacity: 0.85, marginTop: 2 }}>
+            Every draw call burns CPU. Shader toggles won't lower idle power — the context itself is the cost. Lower DPR or enable HW accel.
+          </div>
+        </div>
+      )}
 
       {snapshot ? (
         <Body snapshot={snapshot} rafFps={rafFps} rendererRef={rendererRef} paused={paused} />

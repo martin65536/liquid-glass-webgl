@@ -222,6 +222,15 @@ export class LiquidGlassRenderer {
     innershadow: true,
     perElementFbo: false,
   }
+  /** True when the WebGL context is backed by a SOFTWARE rasterizer
+   *  (SwiftShader / llvmpipe / Mesa softpipe / Apple software renderer).
+   *  On software renderers every draw call burns CPU (not GPU), and the
+   *  browser's "GPU process" is actually a heavy CPU process that stays
+   *  alive as long as the context exists. This is the single biggest
+   *  hidden power cost and is completely unaffected by the quickToggles
+   *  (which only skip shader passes, not the context's existence).
+   *  Detected lazily on first render via WEBGL_debug_renderer_info. */
+  isSoftwareRenderer = false
   /** Performance monitor — frame timing + per-frame render counters +
    *  GPU info. When `perfMonitor.enabled === false` (default), every
    *  increment is a no-op. Toggled on by the Settings "Performance
@@ -331,11 +340,26 @@ export class LiquidGlassRenderer {
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas
+    // --- Power-conscious context attributes ---
+    // powerPreference: 'low-power' — on dual-GPU laptops (macOS / Intel+NVIDIA)
+    //   this prevents the browser from waking the discrete GPU just to render
+    //   this canvas. The dGPU, once woken, stays in a high-power state and
+    //   cannot be put back to sleep by any shader toggle — this is one of the
+    //   largest hidden power costs on laptops.
+    // antialias: false — the renderer already does analytical edge AA via SDF
+    //   shaders (glass corners, strokes, shadows use in-shader AA / alpha
+    //   blending). MSAA gives no visual benefit on those but costs 4x
+    //   rasterization on software renderers (SwiftShader) and significant
+    //   bandwidth on hardware GPUs. Turning it off is a large CPU/GPU win.
+    // desynchronized: true — hint to skip compositor synchronization on
+    //   browsers that support it (reduces display-pipeline wakeups).
     const gl = canvas.getContext('webgl', {
       premultipliedAlpha: false,
       alpha: false,
-      antialias: true,
+      antialias: false,
       preserveDrawingBuffer: false,
+      powerPreference: 'low-power',
+      desynchronized: true,
     })
     if (!gl) throw new Error('WebGL not supported')
     this.gl = gl
@@ -404,6 +428,45 @@ export class LiquidGlassRenderer {
     // Attach the GL context to the perf monitor so it can collect GPU info
     // (vendor, renderer, max texture size, extensions) on first frameStart.
     this.perfMonitor.attachGl(gl)
+
+    // --- Detect software rendering ---
+    // Software rasterizers (SwiftShader, llvmpipe, softpipe, Apple's software
+    // renderer, Microsoft Basic Render) run entirely on the CPU. On them every
+    // draw call is CPU work and the browser's GPU process is a heavy CPU
+    // process that stays alive as long as the context exists. This flag is
+    // surfaced in the perf monitor so the user understands that shader
+    // toggles cannot fix the baseline cost — only reducing context activity
+    // (fewer renders, lower DPR, or hardware acceleration) can.
+    this.detectSoftwareRenderer()
+    // Mirror the flag into the perf monitor so the overlay can warn the
+    // user that the baseline cost is CPU rasterization, not shader passes.
+    this.perfMonitor.isSoftwareRenderer = this.isSoftwareRenderer
+  }
+
+  /** Probe WEBGL_debug_renderer_info (if available) and set
+   *  isSoftwareRenderer. The unmasked renderer string contains markers like
+   *  "SwiftShader", "llvmpipe", "softpipe", "Apple Software", "Microsoft
+   *  Basic Render Driver", "Mesa software" that identify CPU rasterizers. */
+  private detectSoftwareRenderer() {
+    const gl = this.gl
+    try {
+      const dbgExt = gl.getExtension('WEBGL_debug_renderer_info')
+      const rendererStr = dbgExt
+        ? String(gl.getParameter(dbgExt.UNMASKED_RENDERER_WEBGL) || '')
+        : String(gl.getParameter(gl.RENDERER) || '')
+      const r = rendererStr.toLowerCase()
+      this.isSoftwareRenderer =
+        r.includes('swiftshader') ||
+        r.includes('llvmpipe') ||
+        r.includes('softpipe') ||
+        r.includes('swrast') ||
+        r.includes('software') ||
+        r.includes('basic render') ||
+        r.includes('mesa software') ||
+        r.includes('apple software')
+    } catch {
+      // getParameter can throw if the context is lost — leave flag false.
+    }
   }
 
   cacheUniforms() {

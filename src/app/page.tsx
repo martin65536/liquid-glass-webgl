@@ -111,10 +111,14 @@ export default function Page() {
     }, 3000)
     return () => clearInterval(timer)
   }, [])
-  // FPS counter: always active on PerfBenchmark page or when showFps is on
+  // FPS counter: always active on PerfBenchmark page or when showFps is on.
+  // SUPPRESSED when the full performance monitor is open — the overlay already
+  // shows FPS (via its own 250ms poll), so running a separate 60fps rAF here
+  // is pure waste: it keeps the browser compositor + display pipeline awake
+  // at 60Hz for no benefit, which is itself a power cost during investigation.
   const perfRunning = destination === CatalogDestination.PerfBenchmark && state.perfProgress === 'running'
   React.useEffect(() => {
-    if ((!state.showFps && !perfRunning) || !rendererReady) return
+    if ((!state.showFps && !perfRunning) || !rendererReady || state.showPerfMonitor) return
     fpsFrames.current = 0
     fpsLastTime.current = performance.now()
     const measure = () => {
@@ -130,7 +134,7 @@ export default function Page() {
     }
     let rafId = requestAnimationFrame(measure)
     return () => cancelAnimationFrame(rafId)
-  }, [state.showFps, perfRunning, rendererReady])
+  }, [state.showFps, perfRunning, rendererReady, state.showPerfMonitor])
 
   // --- Device info collection: record hardware/canvas/DPR info to Supabase ---
   // Submit device info AFTER each performance measurement completes, not before.

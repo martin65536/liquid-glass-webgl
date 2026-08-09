@@ -57,6 +57,8 @@ export interface PerfSnapshot {
   gpuRenderer: string
   maxTextureSize: number
   extensionCount: number
+  // --- Renderer capability flags (set by the renderer) ---
+  isSoftwareRenderer: boolean   // true → CPU rasterizer (SwiftShader/llvmpipe/etc)
   // --- Canvas info (updated each snapshot) ---
   canvasCssW: number
   canvasCssH: number
@@ -115,6 +117,10 @@ export class PerfMonitor {
   private gpuRenderer = ''
   private maxTextureSize = 0
   private extensionCount = 0
+  /** Set by the renderer after probing WEBGL_debug_renderer_info.
+   *  Surfaced in the snapshot so the overlay can warn the user that the
+   *  baseline cost is CPU rasterization (not shader passes). */
+  isSoftwareRenderer = false
 
   // --- Canvas info (pushed by the renderer each frame) ---
   canvasCssW = 0
@@ -265,6 +271,7 @@ export class PerfMonitor {
       gpuRenderer: this.gpuRenderer,
       maxTextureSize: this.maxTextureSize,
       extensionCount: this.extensionCount,
+      isSoftwareRenderer: this.isSoftwareRenderer,
       canvasCssW: this.canvasCssW,
       canvasCssH: this.canvasCssH,
       canvasDevW: this.canvasDevW,

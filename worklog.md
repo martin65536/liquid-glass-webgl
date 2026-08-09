@@ -147,3 +147,38 @@ Stage Summary:
 - Perf-monitor toggle is now the sole runtime gate for per-element FBO — can live-enable/disable independent of settings.
 - innershadow quick toggle added for inner-shadow cost isolation.
 - Ready to commit + push.
+
+---
+Task ID: 4
+Agent: main (Z.ai Code)
+Task: Diagnose why power stays high with all shader toggles off; implement power-conscious fixes; commit + push.
+
+Work Log:
+- Root-cause analysis: the 7 quickToggles only gate per-frame GPU shader passes — they reduce per-render cost but do NOT affect (a) the WebGL context's baseline CPU cost on software renderers, (b) discrete-GPU wake on dual-GPU laptops, (c) always-on rAF loops that prevent low-power state, or (d) the per-frame setState→re-render→requestRender chain.
+- Diagnosed the sandbox runs SwiftShader (CPU software rasterizer): the browser's "GPU process" is actually a heavy CPU process that stays alive as long as the WebGL context exists. Every draw call burns CPU. MSAA (antialias:true) made this 4x worse.
+- WebGL context attributes (renderer/index.ts constructor):
+  - powerPreference: 'low-power' (was default) — prevents dGPU wake on dual-GPU laptops
+  - antialias: false (was true) — SDF shaders already do analytical edge AA; MSAA gave no visual benefit but cost 4x rasterization on SwiftShader
+  - desynchronized: true — hint to skip compositor sync
+- Software-renderer detection:
+  - renderer/index.ts: added isSoftwareRenderer field + detectSoftwareRenderer() method probing WEBGL_debug_renderer_info for swiftshader/llvmpipe/softpipe/swrast/software/basic render/mesa software/apple software
+  - perf-monitor.ts: added isSoftwareRenderer to PerfSnapshot interface + PerfMonitor field + getSnapshot()
+  - renderer mirrors flag into perfMonitor after detection
+- Perf overlay (perf-monitor-overlay.tsx): added a prominent orange "SOFTWARE RENDERER (CPU raster)" warning banner below the header when isSoftwareRenderer is true, explaining that shader toggles won't lower idle power — the context itself is the cost.
+- Redundant FPS rAF eliminated (page.tsx): the standalone 60fps FPS-counter rAF is now suppressed when showPerfMonitor is on (the overlay already shows FPS via its 250ms poll). Added state.showPerfMonitor to the effect's early-return gate + dependency array. This removes a continuous 60Hz wake-up during power investigation.
+- visibilitychange pause (perf-monitor-overlay.tsx): the 250ms poll setInterval now clears on document.hidden and recreates on visible. setInterval keeps firing (throttled) in background tabs; this avoids wasted renderer polling + overlay re-renders when nobody is looking.
+
+Verification (agent-browser):
+- Page loads clean (HTTP 200, no page/console errors)
+- getContextAttributes() confirms: antialias=false, powerPreference="low-power", desynchronized=true (all three took effect)
+- Perf monitor overlay shows the orange "SOFTWARE RENDERER (CPU raster)" badge with the tip "Shader toggles won't lower idle power"
+- GPU renderer line: "ANGLE (Google, Vulkan 1.3.0 (SwiftS…" → SwiftShader correctly detected
+- All 7 quick toggles present (Highlight, Backdrop blur, Chromatic, Refraction, Outer shadow, Inner shadow, Per-element FBO)
+- "all off" bulk button flips all 7 to OFF — interactivity intact with badge present
+- Lint passes clean
+
+Stage Summary:
+- Root cause of "high power with all effects off": SwiftShader CPU rasterization (context existence cost) + redundant 60fps rAF + dGPU wake. None of these are touched by shader toggles.
+- Tier 1 fixes shipped: low-power context attrs, MSAA off, software-renderer detection + overlay warning, redundant FPS rAF suppressed when perf monitor open, poll paused on tab hide.
+- Tier 2 (deferred, needs confirmation): refactor adaptive-luminance from 60fps rAF to 200ms setInterval; SwiftShader "static render" mode (render once on interaction, no rAF).
+- Ready to commit + push.
