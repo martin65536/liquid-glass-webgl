@@ -113,6 +113,18 @@ export function buildSettings(
   const tapSnapFrac = (f: number) => Math.max(0, Math.min(1, Math.round(f * tapStepCount) / tapStepCount))
   const tapFracToTaps = (f: number) => minTaps + Math.round(f * tapRange)
 
+  // --- Downsample slider setup (shared across card 2) ---
+  // Continuous (stepless): left = low quality (ds=4, 16× faster),
+  // right = high quality (ds=1, full-res). ds is a float 1.0–4.0.
+  const minDs = 1
+  const maxDs = 4
+  const dsRange = maxDs - minDs
+  // fraction 0 = left = low quality (ds=maxDs), fraction 1 = right = high quality (ds=minDs)
+  const dsInitFrac = Math.max(0, Math.min(1, (maxDs - state.blurDownsample) / dsRange))
+  const dsFracToDs = (f: number) => maxDs - f * dsRange
+  // No snap — stepless. Just clamp to [0,1].
+  const dsClampFrac = (f: number) => Math.max(0, Math.min(1, f))
+
   // ====================================================================
   // CARD 1: 渲染 (Rendering)
   // ====================================================================
@@ -317,28 +329,41 @@ export function buildSettings(
     elements.push(tapCapLabelEl)
     nextY += tapCapLabelH
 
-    // Blur downsample — click to cycle 1× → 2× → 4× → 1×.
-    // 1× = full-res (slowest, best quality), 2× = half-res (4× faster),
-    // 4× = quarter-res (16× faster, visible quality loss).
-    const dsText = locale === 'en'
-      ? `Downsample: ${state.blurDownsample}×  (tap to cycle — ${state.blurDownsample === 1 ? 'full res' : state.blurDownsample === 2 ? '4× faster' : '16× faster'})`
-      : `降采样: ${state.blurDownsample}×  (点击切换 — ${state.blurDownsample === 1 ? '全分辨率' : state.blurDownsample === 2 ? '提速 4 倍' : '提速 16 倍'})`
+    // Blur downsample slider — continuous: left = low quality (faster),
+    // right = high quality (full-res). Stepless float ds 1.0–4.0.
+    const dsTrackY = nextY + (24 - 6) / 2
+    const dsSlider = makeLiquidSlider(
+      'settings-blur-downsample',
+      contentX + SLIDER_PAD,
+      dsTrackY,
+      contentW - 2 * SLIDER_PAD,
+      'settings-blur-downsample',
+      palette.sliderTrackOff,
+      palette.sliderAccent,
+      rendererRef,
+      (f) => { setState({ blurDownsample: dsFracToDs(f), liveBlurDownsample: null }) },
+      true,
+      false,
+      dsInitFrac,
+      dsClampFrac,
+      (f) => { setState({ liveBlurDownsample: dsFracToDs(f) }) },
+    )
+    elements.push(...dsSlider.elements)
+    Object.assign(interactions, dsSlider.interactions)
+    nextY += 24 + 4
+
+    // Downsample label (hint text — lighter, interactive for press tint)
+    const displayDs = state.liveBlurDownsample != null ? state.liveBlurDownsample : state.blurDownsample
+    const dsLabelText = `${t('settings_downsample_label', locale)}: ${displayDs.toFixed(1)}×  ${t('settings_downsample_hint', locale)}`
     const dsLabelH = 16 + CARD_PAD
     const dsLabelEl = makeText(
-      'settings-blur-downsample',
+      'settings-blur-downsample-label',
       { x: rowX, y: nextY, w: rowW, h: dsLabelH },
-      dsText,
+      dsLabelText,
       { color: hintColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: labelPad, halo: palette.homeTextHalo, pressTintColor: labelColor }
     )
     dsLabelEl.isInteractive = true
     elements.push(dsLabelEl)
-    interactions['settings-blur-downsample'] = {
-      onTap: () => {
-        const cur = state.blurDownsample
-        const next = cur >= 4 ? 1 : cur * 2
-        setState({ blurDownsample: next })
-      },
-    }
     nextY += dsLabelH
 
     // Update card background height
@@ -529,12 +554,14 @@ export function buildSettings(
     elements.push(resetBtn)
     interactions['settings-reset'] = {
       onTap: () => {
-        setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 17, blurDownsample: 2, capsuleShape: true, hideOverlayButtons: false, locale: 'zh', pageTransition: true, liveDpr: null, liveTapCap: null, showFps: false, showPerfMonitor: false, highlightAa: true, usePerElementFbo: false, perfProgress: null, perfDone: false, perfResultDpr: 0, perfStatusText: '' })
+        setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 17, blurDownsample: 2, capsuleShape: true, hideOverlayButtons: false, locale: 'zh', pageTransition: true, liveDpr: null, liveTapCap: null, liveBlurDownsample: null, showFps: false, showPerfMonitor: false, highlightAa: true, usePerElementFbo: false, perfProgress: null, perfDone: false, perfResultDpr: 0, perfStatusText: '' })
         try { window.localStorage.removeItem('liquid-glass-perf-dpr') } catch {}
         const d = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
         const dprFrac = (d - 0.5) / Math.max(0.0001, d - 0.5)
         rendererRef?.current?.setToggleTarget('settings-dpr', dprFrac)
         rendererRef?.current?.setToggleTarget('settings-blur-taps', (17 - 1) / 32)
+        // Downsample default = 2× → fraction = (4-2)/3 = 2/3
+        rendererRef?.current?.setToggleTarget('settings-blur-downsample', (4 - 2) / 3)
       },
     }
   }

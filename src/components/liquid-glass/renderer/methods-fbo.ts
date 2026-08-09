@@ -103,7 +103,7 @@ export const fboMethods = {
     if (this.dsBlurFboATex) gl.deleteTexture(this.dsBlurFboATex)
     if (this.dsBlurFboB) gl.deleteFramebuffer(this.dsBlurFboB)
     if (this.dsBlurFboBTex) gl.deleteTexture(this.dsBlurFboBTex)
-    const ds = Math.max(1, this.blurDownsample | 0)
+    const ds = Math.max(1, this.blurDownsample)
     const blurW = Math.max(1, Math.floor(w / ds))
     const blurH = Math.max(1, Math.floor(h / ds))
     const ge = this.createFBO(w, h)

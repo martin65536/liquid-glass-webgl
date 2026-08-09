@@ -188,12 +188,12 @@ export class LiquidGlassRenderer {
   /** Max 1D taps per blur pass (1..33). Lower = faster, Higher = better quality.
    *  Set from CatalogState.blurTapCap. Default 17. */
   blurTapCap = 17
-  /** Blur downsample factor (1=full-res, 2=half-res, 4=quarter). Higher = much
-   *  faster but slightly lower quality. Set from CatalogState.blurDownsample.
-   *  The downsampled blur FBOs (dsBlurFboA/dsBlurFboB) are sized
-   *  floor(fboW/ds) × floor(fboH/ds). blurTexture scales `radius` by 1/ds so
-   *  the visual blur radius is preserved (half-res pixels are twice as wide →
-   *  radius/2 px covers the same screen distance). */
+  /** Blur downsample factor (float, 1=full-res high quality, up to 4=quarter-res
+   *  low quality). Higher = much faster but slightly lower quality. Set from
+   *  CatalogState.blurDownsample. The downsampled blur FBOs (dsBlurFboA/
+   *  dsBlurFboB) are sized floor(fboW/ds) × floor(fboH/ds). blurTexture scales
+   *  `radius` by 1/ds so the visual blur radius is preserved (half-res pixels
+   *  are twice as wide → radius/2 px covers the same screen distance). */
   blurDownsample = 1
   /** Actual device-px size of dsBlurFboA/dsBlurFboB (= floor(fboW/blurDownsample)).
    *  Set by resizeFBOs. blurTexture/blurHighlightMask viewport + uTexSize use
@@ -684,11 +684,19 @@ export class LiquidGlassRenderer {
    *  upsamples back to full-res), so no caller changes needed. */
   blurTexture(srcTex: WebGLTexture, radius: number): WebGLTexture {
     const gl = this.gl
-    const ds = Math.max(1, this.blurDownsample | 0)
+    const ds = Math.max(1, this.blurDownsample)
     const w = this.dsBlurFboW || this.fboW
     const h = this.dsBlurFboH || this.fboH
     // Scale radius to the downsampled space (1/ds). Visual radius preserved.
-    const dsRadius = radius / ds
+    // CLAMP: when ds > 1, ensure dsRadius >= 0.6 so the blur shader always
+    // runs (its early-return threshold is uRadius < 0.5). Without this clamp,
+    // a small blur radius (e.g. during press-scale when layerScale < 1 shrinks
+    // blurRadiusPx) produces dsRadius < 0.5 → the shader does a direct texture
+    // copy → the half-res dsBlurFboB is displayed at full-res as a pixelated
+    // "mosaic" for the few frames the press animation spends at low radius.
+    // 0.6 is safely above 0.5 and gives a 3-tap kernel (pixel spread ±1.8px
+    // in downsampled space) that smooths the bilinear upsampling.
+    const dsRadius = ds > 1 ? Math.max(0.6, radius / ds) : radius
     // Compute tap count, capped by blurTapCap (performance knob).
     let taps = computeBlur1DTapCount(dsRadius)
     taps = Math.min(taps, Math.max(1, this.blurTapCap | 0))
@@ -795,11 +803,15 @@ export class LiquidGlassRenderer {
    *  Saves/restores the currently-bound framebuffer. */
   blurHighlightMask(srcTex: WebGLTexture, sigmaPx: number): WebGLTexture {
     const gl = this.gl
-    const ds = Math.max(1, this.blurDownsample | 0)
+    const ds = Math.max(1, this.blurDownsample)
     const w = this.dsBlurFboW || this.fboW
     const h = this.dsBlurFboH || this.fboH
     // Scale sigma to downsampled space (visual radius preserved).
-    const dsSigma = sigmaPx / ds
+    // CLAMP: same rationale as blurTexture — ensure the blur always runs to
+    // smooth the upsampling. The highlight shader's threshold is 0.01 (much
+    // lower than the glass blur's 0.5), but we still clamp for safety so a
+    // near-zero sigma during press-scale never produces a raw half-res copy.
+    const dsSigma = ds > 1 ? Math.max(0.05, sigmaPx / ds) : sigmaPx
     let taps = computeHighlightBlurTapCount(dsSigma)
     taps = Math.min(taps, Math.max(3, this.blurTapCap | 0))
     this.ensureHighlightBlurPrograms(taps)

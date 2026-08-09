@@ -491,3 +491,30 @@ Stage Summary:
 - 真正的降采样 bug 根因：blurTexture 在调用方 scissor（全分辨率坐标）开启时 bind 半分辨率 dsBlurFbo，坐标系不匹配导致只写一小块。修复：blurTexture 内部 disable scissor。
 - 新增 "Show blur regions" 调试 overlay：青色虚线框标注每个 blur 调用的元素 rect + ds + radius + fbo 尺寸。
 - 性能监视器高度改用 visualViewport.height，解决移动端浏览器顶栏遮挡问题。
+
+---
+Task ID: 2
+Agent: main (Z.ai Code)
+Task: Change blur downsample from 3-tier click-cycle (1×/2×/4×) to a continuous stepless slider (left=low quality, right=high quality), and fix the press-scale mosaic bug (blur fails when element scales < 1 during press, showing mosaic for a few frames).
+
+Work Log:
+- Analyzed root cause of mosaic bug: blurTexture computes dsRadius = radius/ds. When element is pressed (layerScale < 1), blurRadiusPx shrinks. If dsRadius < 0.5, the separable-blur shader's early-return (`if (uRadius < 0.5) { gl_FragColor = texture2D(uTexture, uv); return; }`) triggers a direct texture copy — the half-res dsBlurFboB texture is displayed at full-res with no blur smoothing → pixelated "mosaic" for the few frames the press animation spends at low radius.
+- Fix: in blurTexture, when ds > 1, clamp dsRadius to Math.max(0.6, radius/ds). 0.6 is safely above the shader's 0.5 threshold, guaranteeing the blur always runs (3-tap kernel, ±1.8px spread in downsampled space) to smooth the bilinear upsampling. Same clamp applied to blurHighlightMask (Math.max(0.05, sigmaPx/ds)) for consistency.
+- Changed blurDownsample from integer (1/2/4 via `| 0` truncation) to float (1.0–4.0 continuous):
+  - types.ts: added liveBlurDownsample: number | null to CatalogState + DEFAULT_CATALOG_STATE; updated blurDownsample comment
+  - i18n.ts: added settings_downsample_label + settings_downsample_hint strings (zh/en)
+  - context.tsx: removed `| 0` from both blurDownsample assignments (init + useEffect), clamped to [1,4] via Math.max(1, Math.min(4, ...))
+  - renderer/index.ts: removed `| 0` from blurTexture + blurHighlightMask; updated field comment
+  - renderer/methods-fbo.ts: removed `| 0` from resizeFBOs ds computation
+  - renderer/methods-render-glass.ts: removed `| 0` from debug blur region push (2 occurrences)
+  - build-settings.ts: replaced click-to-cycle text button with makeLiquidSlider (continuous, no snap); added dsInitFrac/dsFracToDs/dsClampFrac setup; live update via liveBlurDownsample (display only, no FBO rebuild during drag); commit on release triggers FBO rebuild
+  - build-settings.ts reset button: added liveBlurDownsample: null + setToggleTarget('settings-blur-downsample', 2/3) for default ds=2
+  - page.tsx: updated loadPersistedSettings to clamp blurDownsample to [1,4] and default to 2 (matching DEFAULT_CATALOG_STATE)
+- Slider mapping: fraction 0 = left = low quality (ds=4), fraction 1 = right = high quality (ds=1). ds = 4 - fraction*3. Display shows ds.toFixed(1)×.
+- Ran `bun run lint` — passed with no errors. Dev server compiles cleanly.
+
+Stage Summary:
+- blurDownsample is now a continuous float slider (1.0×–4.0×) instead of 3-tier click cycle
+- Press-scale mosaic bug fixed by clamping dsRadius to 0.6 minimum when ds > 1, ensuring the blur shader always runs to smooth the upscaled half-res texture
+- All `| 0` integer truncations removed from blurDownsample code paths
+- Files changed: types.ts, i18n.ts, context.tsx, renderer/index.ts, renderer/methods-fbo.ts, renderer/methods-render-glass.ts, catalog/build-settings.ts, app/page.tsx

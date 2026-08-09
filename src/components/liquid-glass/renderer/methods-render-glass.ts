@@ -550,7 +550,7 @@ export const glassRenderMethods = {
         this.debugBlurRegions.push({
           x: sx, y: sy, w: sw, h: sh,
           radius: blurRadiusPx,
-          ds: Math.max(1, this.blurDownsample | 0),
+          ds: Math.max(1, this.blurDownsample),
           blurW: this.dsBlurFboW, blurH: this.dsBlurFboH,
         })
       }
@@ -775,7 +775,7 @@ export const glassRenderMethods = {
         this.debugBlurRegions.push({
           x: sx, y: sy, w: sw, h: sh,
           radius: blurRadiusPx,
-          ds: Math.max(1, this.blurDownsample | 0),
+          ds: Math.max(1, this.blurDownsample),
           blurW: this.dsBlurFboW, blurH: this.dsBlurFboH,
         })
       }

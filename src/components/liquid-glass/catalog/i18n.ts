@@ -50,6 +50,8 @@ const translations: Record<string, { zh: string; en: string }> = {
   settings_off:             { zh: '关', en: 'OFF' },
   settings_tap_cap_label:   { zh: '采样上限', en: 'Tap cap' },
   settings_tap_cap_hint:    { zh: '(1=最快, 33=最高质量)', en: '(1=fast, 33=best quality)' },
+  settings_downsample_label: { zh: '降采样', en: 'Downsample' },
+  settings_downsample_hint:  { zh: '(左=提速/低画质, 右=全画质)', en: '(left=faster, right=full quality)' },
   settings_shape_title:     { zh: '形状', en: 'Shape' },
   settings_capsule:         { zh: '胶囊形', en: 'Capsule' },
   settings_ui_title:        { zh: '界面', en: 'UI' },

@@ -499,7 +499,9 @@ export interface CatalogState {
   globalSeparableBlur: boolean
   // Settings — blur tap cap (1..33, max 1D taps per separable pass)
   blurTapCap: number
-  // Settings — blur downsample factor (1=full-res, 2/4=downsampled)
+  // Settings — blur downsample factor (float, 1=full-res high quality,
+  // up to 4=quarter-res low quality). Continuous slider: left=low quality,
+  // right=high quality. The blur FBOs are sized floor(fboW/ds) × floor(fboH/ds).
   blurDownsample: number
   // Settings — corner style: true = continuous (squircle, faithful to original
   // Capsule's ContinuousCurvature), false = circular (standard arc).
@@ -512,6 +514,7 @@ export interface CatalogState {
   // Settings — live (drag-in-progress) display values for slider labels
   liveDpr: number | null
   liveTapCap: number | null
+  liveBlurDownsample: number | null
   // Settings — hide the overlay exit (back) and theme toggle buttons on all
   // non-Home pages. Default false (buttons visible). When true, the back
   // button is still reachable via the browser back button / Esc.
@@ -608,6 +611,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   capsuleShape: true,
   liveDpr: null,
   liveTapCap: null,
+  liveBlurDownsample: null,
   hideOverlayButtons: false,
   locale: 'zh',
   pageTransition: true,
