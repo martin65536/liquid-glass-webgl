@@ -765,6 +765,17 @@ export class LiquidGlassRenderer {
     gl.uniform1f(entry.uV['uRadius'], dsRadius)
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 
+    // Generate mipmaps on dsBlurFboBTex so the element pass can upsample with
+    // trilinear (LINEAR_MIPMAP_LINEAR) filtering. Without this, a 4×/8×
+    // upscale from half-res to full-res uses only 2×2 bilinear → visible
+    // blocking/jaggies on the blurred backdrop. Mipmaps let the GPU pick the
+    // appropriate level for smooth interpolation. Only needed when ds > 1
+    // (full-res blur has no upscale so mipmaps are pointless overhead).
+    if (ds > 1) {
+      gl.bindTexture(gl.TEXTURE_2D, this.dsBlurFboBTex!)
+      gl.generateMipmap(gl.TEXTURE_2D)
+    }
+
     gl.bindFramebuffer(gl.FRAMEBUFFER, savedFb)
     gl.viewport(0, 0, this.fboW, this.fboH)
     if (savedScissor) gl.enable(gl.SCISSOR_TEST)
@@ -866,6 +877,14 @@ export class LiquidGlassRenderer {
     gl.uniform2f(entry.uV['uTexSize'], w, h)
     gl.uniform1f(entry.uV['uRadius'], dsSigma)
     gl.drawArrays(gl.TRIANGLES, 0, 6)
+
+    // Generate mipmaps on dsBlurFboBTex for smooth trilinear upscaling (same
+    // rationale as blurTexture — the highlight composite samples this half-res
+    // texture at full-res UVs).
+    if (ds > 1) {
+      gl.bindTexture(gl.TEXTURE_2D, this.dsBlurFboBTex!)
+      gl.generateMipmap(gl.TEXTURE_2D)
+    }
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, savedFb)
     gl.viewport(0, 0, this.fboW, this.fboH)

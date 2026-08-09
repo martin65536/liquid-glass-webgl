@@ -592,3 +592,27 @@ Stage Summary:
 - All defaults = 4, clamps = [1,8], effectiveDs = max(1, min(rawDs×dpr, 64))
 - DPR adaptation preserved: blurFbo = CSS/rawDs regardless of DPR
 - Files changed: renderer/index.ts, renderer/methods-fbo.ts, catalog/types.ts, catalog/build-settings.ts, context.tsx, app/page.tsx
+
+---
+Task ID: 6
+Agent: main (Z.ai Code)
+Task: Fix downsample slider not initializing at correct position; add anti-aliasing to blur sampling.
+
+Work Log:
+Issue 1 — slider initial position:
+- Root cause: the settings-blur-downsample slider group was missing from the toggleTargets memo in page.tsx. Other sliders (settings-dpr, settings-blur-taps) had entries there which set the renderer's initial knob fraction; downsample was absent so the knob stayed at fraction=0 (far left) until interacted with.
+- Fix: added targets['settings-blur-downsample'] = (8 - state.blurDownsample) / 7 to the Settings branch of the toggleTargets useMemo, and added state.blurDownsample to the deps array.
+
+Issue 2 — blur AA (blocking/jaggies on downsampled blur):
+- Root cause: dsBlurFboBTex (the half-res final blur output) was sampled by the element pass at full-res UVs with plain LINEAR (2×2 bilinear) filtering. For a 4×/8× upscale (ds=4, effectiveDs=8), 2×2 bilinear only interpolates between 4 adjacent half-res texels → visible blocking and stair-stepping on the blurred backdrop, especially on edges/text.
+- Fix: mipmap-based trilinear upscaling.
+  - resizeFBOs (methods-fbo.ts): set dsBlurFboBTex MIN_FILTER = LINEAR_MIPMAP_LINEAR (MAG stays LINEAR — magnification never uses mip levels). dsBlurFboATex stays LINEAR (it's an intermediate sampled 1:1 by pass 2, no upscale).
+  - blurTexture (index.ts): after pass 2 completes, if ds > 1, call gl.generateMipmap(dsBlurFboBTex). The GPU generates the mipmap chain; the element pass then samples with trilinear filtering → smooth interpolation at any upscale ratio.
+  - blurHighlightMask (index.ts): same generateMipmap call after pass 2 (the highlight composite also upsamples dsBlurFboBTex).
+- Only runs when ds > 1 (full-res blur has no upscale, mipmaps would be pointless overhead).
+- Lint passed, dev server compiles cleanly.
+
+Stage Summary:
+- Downsample slider now initializes at the correct position (fraction = (8-blurDownsample)/7, e.g. default 4 → 0.571)
+- Blur backdrop now uses trilinear (LINEAR_MIPMAP_LINEAR) upscaling via per-frame gl.generateMipmap on dsBlurFboBTex → no more blocking/jaggies on downsampled blur
+- Files changed: app/page.tsx (toggleTargets), renderer/methods-fbo.ts (MIN_FILTER), renderer/index.ts (generateMipmap in blurTexture + blurHighlightMask)

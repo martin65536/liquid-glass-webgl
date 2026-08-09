@@ -130,6 +130,16 @@ export const fboMethods = {
     this.dsBlurFboBTex = dbb.tex
     this.dsBlurFboW = blurW
     this.dsBlurFboH = blurH
+    // Set dsBlurFboBTex (the final blur output sampled by the element pass) to
+    // use mipmapped min filtering. The element pass samples this half-res
+    // texture at full-res UVs — with plain LINEAR, a 4×/8× upscale shows
+    // visible blocking/jaggies. Mipmaps let the GPU pick the right level for
+    // trilinear filtering, giving smooth upscaling. dsBlurFboATex is an
+    // intermediate (only sampled 1:1 by pass 2) so it stays LINEAR.
+    // generateMipmap is called per-frame in blurTexture after pass 2 completes.
+    gl.bindTexture(gl.TEXTURE_2D, dbb.tex)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
     // Highlight mask FBO (3-pass faithful highlight: stroke mask → blur → composite).
     if (this.highlightMaskFbo) gl.deleteFramebuffer(this.highlightMaskFbo)
     if (this.highlightMaskTex) gl.deleteTexture(this.highlightMaskTex)

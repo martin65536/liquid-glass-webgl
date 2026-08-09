@@ -772,6 +772,9 @@ export default function Page() {
       targets['settings-dpr'] = Math.max(0, Math.min(1, (currentDpr - minDpr) / dprRange))
       // Tap cap slider: fraction = (blurTapCap - 1) / 32 (range 1..33)
       targets['settings-blur-taps'] = Math.max(0, Math.min(1, (state.blurTapCap - 1) / 32))
+      // Downsample slider: fraction = (maxDs - blurDownsample) / (maxDs - minDs)
+      // range 1..8, left=low quality (ds=8), right=high quality (ds=1)
+      targets['settings-blur-downsample'] = Math.max(0, Math.min(1, (8 - state.blurDownsample) / 7))
       // Settings toggle switches
       targets['settings-blur-global'] = state.globalSeparableBlur ? 1 : 0
       targets['settings-shape-capsule'] = state.capsuleShape ? 1 : 0
@@ -783,7 +786,7 @@ export default function Page() {
       targets['settings-perf-monitor-toggle'] = state.showPerfMonitor ? 1 : 0
     }
     return targets
-  }, [destination, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration, state.customDpr, state.blurTapCap, state.globalSeparableBlur, state.capsuleShape, state.hideOverlayButtons, state.pageTransition, state.showFps, state.highlightAa, state.usePerElementFbo, state.showPerfMonitor])
+  }, [destination, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration, state.customDpr, state.blurTapCap, state.blurDownsample, state.globalSeparableBlur, state.capsuleShape, state.hideOverlayButtons, state.pageTransition, state.showFps, state.highlightAa, state.usePerElementFbo, state.showPerfMonitor])
 
   // Tab targets use a separate prop because they need setTabSelected
   // (which sets pressedScale=78/56, not toggle's 1.5).
