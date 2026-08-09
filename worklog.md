@@ -377,3 +377,25 @@ Stage Summary:
 - Makes rendering O(1) regardless of zoom level instead of O(n²)
 - Post passes (inner shadow, foreground, highlight) remain on full-screen scene FBO — no shader changes needed
 - Composite step draws per-element FBO onto scene via SrcOver blend
+
+---
+Task ID: 1
+Agent: main (Z.ai Code)
+Task: Clone liquid-glass-webgl repo into the working root, integrate its code into the main Next.js project (overwrite page.tsx/layout.tsx/globals.css, copy liquid-glass component + assets + lib files, install supabase dep), delete the original cloned directory, ensure the main project git is the liquid-glass-webgl repo with correct upstream, then commit & push. Preserve .zscripts etc. Do not change .gitignore.
+
+Work Log:
+- Inspected main project state: Next.js 16 scaffold on port 3000, git had local "Initial commit" only (no remote).
+- Cloned https://github.com/martin65536/liquid-glass-webgl.git (token-auth) into /home/z/my-project/liquid-glass-webgl.
+- Analyzed cloned repo: same Z.ai scaffold + src/components/liquid-glass/ (WebGL renderer, catalog, shaders), liquid-glass page.tsx/layout.tsx/globals.css, src/lib/collect-device-info.ts + supabase.ts, public/wallpaper + clock_sdf.webp + preview png, extra dep @supabase/supabase-js. Prisma schema identical; .gitignore identical.
+- rsync'd all cloned repo files (excluding .git, dev.log, .next, node_modules) into main project root, overwriting page.tsx/layout.tsx/globals.css and adding the liquid-glass component tree, lib files, public assets, README, LICENSE, tool-results, agent-ctx, worklog.md.
+- Ran `bun install` -> installed @supabase/supabase-js@2.110.8 (+ 8 packages).
+- Replaced main project .git with the cloned repo's .git so the root git IS the liquid-glass-webgl repo (full history, origin remote with token, main -> origin/main upstream at 17bc839).
+- Deleted the liquid-glass-webgl directory. Verified .zscripts, skills, upload, download, mini-services preserved.
+- `bun run lint` -> clean, no errors.
+- Dev server restarted (detected next.config.ts touch), `GET / 200 in 3.4s (compile 3.3s)` — page compiles & renders, no fatal errors.
+
+Stage Summary:
+- liquid-glass-webgl fully integrated into the main project; preview at / shows the liquid-glass catalog.
+- Root git is now the liquid-glass-webgl repo: branch main tracks origin/main (17bc839), remote uses the provided PAT for push.
+- Only working-tree additions vs HEAD: two sandbox helper scripts (.zscripts/database-runtime-build.sh, tests/database-runtime-build.sh) — kept per instruction not to delete seemingly-unimportant files.
+- .gitignore unchanged. Ready for commit + push to origin/main.
