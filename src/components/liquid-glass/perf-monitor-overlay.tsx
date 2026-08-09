@@ -67,6 +67,36 @@ export function PerfMonitorOverlay({ rendererRef, visible, rafFps }: Props) {
   const pausedRef = React.useRef(false)
   React.useEffect(() => { pausedRef.current = paused }, [paused])
 
+  // --- Viewport height tracking (mobile browser chrome fix) ---
+  // On mobile browsers, 100vh includes the address bar / toolbar, so a panel
+  // with maxHeight: calc(100vh - 16px) overflows below the visible area and the
+  // bottom buttons get clipped. visualViewport.height excludes the browser UI
+  // and updates dynamically when the bar shows/hides. We track it here and use
+  // it for maxHeight + drag clamping so the panel always fits the visible area.
+  const [vpHeight, setVpHeight] = React.useState(() =>
+    typeof window !== 'undefined'
+      ? (window.visualViewport?.height ?? window.innerHeight)
+      : 800
+  )
+  React.useEffect(() => {
+    const update = () =>
+      setVpHeight(window.visualViewport?.height ?? window.innerHeight)
+    update()
+    const vv = window.visualViewport
+    if (vv) {
+      vv.addEventListener('resize', update)
+      vv.addEventListener('scroll', update)
+    }
+    window.addEventListener('resize', update)
+    return () => {
+      if (vv) {
+        vv.removeEventListener('resize', update)
+        vv.removeEventListener('scroll', update)
+      }
+      window.removeEventListener('resize', update)
+    }
+  }, [])
+
   // --- Poll the renderer's PerfMonitor every POLL_MS ---
   // PAUSED while the tab is hidden: setInterval keeps firing (throttled) in
   // background tabs, and polling the renderer + re-rendering the overlay is
@@ -117,9 +147,9 @@ export function PerfMonitorOverlay({ rendererRef, visible, rafFps }: Props) {
     if (!d) return
     const nx = d.origX + (e.clientX - d.startX)
     const ny = d.origY + (e.clientY - d.startY)
-    // Clamp to viewport
-    const maxX = window.innerWidth - 80 // keep at least 80px visible
-    const maxY = window.innerHeight - 40
+    // Clamp to the visible viewport (visualViewport excludes mobile browser UI).
+    const maxX = (window.visualViewport?.width ?? window.innerWidth) - 80 // keep at least 80px visible
+    const maxY = vpHeight - 40
     setPos({ x: Math.max(0, Math.min(maxX, nx)), y: Math.max(0, Math.min(maxY, ny)) })
   }
   const onHeaderPointerUp = (e: React.PointerEvent) => {
@@ -169,8 +199,10 @@ export function PerfMonitorOverlay({ rendererRef, visible, rafFps }: Props) {
         zIndex: 50,
         pointerEvents: 'auto',
         width: 320,
-        // Cap height to viewport with margin; body scrolls if it overflows.
-        maxHeight: 'calc(100vh - 16px)',
+        // Cap height to the VISIBLE viewport (visualViewport.height excludes
+        // mobile browser chrome — address bar, toolbar). Falls back to
+        // window.innerHeight when visualViewport is unavailable.
+        maxHeight: vpHeight - 16,
         display: 'flex',
         flexDirection: 'column',
         background: 'rgba(0,0,0,0.82)',
@@ -270,9 +302,10 @@ const btnStyle: React.CSSProperties = {
 }
 
 // Scrollable body container: flex-1 so it fills the panel's remaining height
-// (panel has maxHeight = calc(100vh - 16px)) and scrolls vertically when the
-// content (chart + sections + toggles + buttons) overflows. Custom scrollbar
-// styling keeps it unobtrusive on the dark panel.
+// (panel maxHeight = vpHeight - 16, where vpHeight tracks visualViewport so
+// mobile browser chrome is excluded) and scrolls vertically when the content
+// (chart + sections + toggles + buttons) overflows. Custom scrollbar styling
+// keeps it unobtrusive on the dark panel.
 const scrollBodyStyle: React.CSSProperties = {
   flex: 1,
   minHeight: 0, // critical: lets flex child shrink below content height
@@ -501,12 +534,16 @@ function QuickToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
  */
 function DebugToggles({ rendererRef }: { rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> }) {
   const [showBbox, setShowBbox] = React.useState(false)
+  const [showBlur, setShowBlur] = React.useState(false)
 
-  // Read the renderer's actual flag on mount (it may have been seeded from
-  // the showPefBboxOverlay prop by context.tsx).
+  // Read the renderer's actual flags on mount (they may have been seeded from
+  // props by context.tsx, or toggled by a previous overlay instance).
   React.useEffect(() => {
     const r = rendererRef.current
-    if (r) setShowBbox(r.showPefBbox)
+    if (r) {
+      setShowBbox(r.showPefBbox)
+      setShowBlur(r.showBlurDebug)
+    }
   }, [rendererRef])
 
   const flipBbox = () => {
@@ -519,6 +556,16 @@ function DebugToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
     }
   }
 
+  const flipBlur = () => {
+    const next = !showBlur
+    setShowBlur(next)
+    const r = rendererRef.current
+    if (r) {
+      r.showBlurDebug = next
+      r.requestRender()
+    }
+  }
+
   return (
     <div style={{ padding: '6px 10px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
       <div style={{ font: 'bold 10px ui-monospace, monospace', color: '#aaa', marginBottom: 4, letterSpacing: 0.5 }}>
@@ -527,28 +574,43 @@ function DebugToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
       <button
         onClick={flipBbox}
         title="Draw each glass element's PEF bbox on the canvas (green=PEF, red=ping-pong)"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          width: '100%',
-          background: showBbox ? 'rgba(80,200,120,0.12)' : 'rgba(120,120,120,0.08)',
-          border: `1px solid ${showBbox ? 'rgba(80,200,120,0.4)' : 'rgba(120,120,120,0.25)'}`,
-          color: '#e8e8e8',
-          font: '11px ui-monospace, monospace',
-          padding: '3px 8px',
-          borderRadius: 4,
-          cursor: 'pointer',
-          textAlign: 'left',
-        }}
+        style={debugBtnStyle(showBbox)}
       >
         <span>Show PEF bbox</span>
         <span style={{ color: showBbox ? '#6f6' : '#888', fontWeight: 700, fontSize: 10 }}>
           {showBbox ? 'ON' : 'OFF'}
         </span>
       </button>
+      <button
+        onClick={flipBlur}
+        title="Draw each backdrop-blur call's element rect + ds/radius/fbo size on the canvas (cyan dashed). Use to diagnose downsample coverage bugs."
+        style={debugBtnStyle(showBlur)}
+      >
+        <span>Show blur regions</span>
+        <span style={{ color: showBlur ? '#6cf' : '#888', fontWeight: 700, fontSize: 10 }}>
+          {showBlur ? 'ON' : 'OFF'}
+        </span>
+      </button>
     </div>
   )
+}
+
+function debugBtnStyle(on: boolean): React.CSSProperties {
+  return {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    background: on ? 'rgba(80,200,255,0.12)' : 'rgba(120,120,120,0.08)',
+    border: `1px solid ${on ? 'rgba(80,200,255,0.4)' : 'rgba(120,120,120,0.25)'}`,
+    color: '#e8e8e8',
+    font: '11px ui-monospace, monospace',
+    padding: '3px 8px',
+    borderRadius: 4,
+    cursor: 'pointer',
+    textAlign: 'left',
+    marginBottom: 2,
+  }
 }
 
 /* --- FPS history line chart --- */

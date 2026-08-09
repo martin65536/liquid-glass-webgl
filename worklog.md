@@ -445,3 +445,49 @@ Verification:
 Stage Summary:
 - 根因是 FBO 复用冲突：blurFboA/B 同时承担"blur 内部缓冲（可降采样）"和"dialog colorControls 临时缓冲（必须全分辨率）"两种职责，降采样破坏了后者。
 - 修复方式是职责分离：blurFboA/B 回归全分辨率 scratch，新增 dsBlurFboA/B 专做半分辨率 blur。downsample 性能收益保留，dialog backdrop 渲染正确性恢复。
+
+---
+Task ID: blur-downsample-fix-2 + perf-monitor-debug
+Agent: main (Z.ai Code)
+Task: (1) 降采样 bug 还没修好——用户报告"还是不行"。(2) 性能监视器加调试选项画 blur 区域。(3) 性能监视器最大高度没考虑手机浏览器顶栏。
+
+Root cause (真正的 bug):
+- 上一轮修了 blurFboA/B 复用冲突（dialog colorControls ping-pong），但漏了另一个更隐蔽的问题：**blurTexture 在 scissor 开启时被调用**。
+- renderGlassElement 的两个路径（PEF + ping-pong）都在 blurTexture 之前 `gl.enable(gl.SCISSOR_TEST)` + `gl.scissor(bbox)`，scissor 坐标是全分辨率 device px（元素 bbox）。
+- blurTexture 内部 bind dsBlurFboA/B（半分辨率），但没 disable scissor。scissor 用全分辨率坐标裁剪半分辨率 FBO → 坐标系不匹配 → 只有 scissor 矩形与半分辨率 FBO 重叠的一小块被写入，其他区域保持透明。
+- ds=1 时 blurFbo 全分辨率，scissor 坐标匹配，所以"没事"。ds=2 时 dsBlurFbo 半分辨率，scissor 全分辨率坐标导致错位 → "有时只有一小块正常，其他一片透明"。
+- 用户说的"有时"取决于元素位置：元素在画面左下角时 scissor 矩形刚好覆盖 dsBlurFbo 的有效区域所以正常；元素在中间或右上时 scissor 矩形超出 dsBlurFbo 范围 → 只写一小块或全透明。
+
+Fix (核心):
+- blurTexture + blurHighlightMask 内部 save/disable/restore gl.SCISSOR_TEST。
+- blur 需要写入整个 dsBlurFbo（全屏 blur），不应被调用方的元素 bbox scissor 限制。
+- save/restore 保证调用方的 scissor 状态在 blurTexture 返回后不变（调用方后续的 element pass 仍受 scissor 保护）。
+
+Feature: Show blur regions 调试选项
+- renderer 加 `showBlurDebug` flag + `debugBlurRegions: Array<{x,y,w,h,radius,ds,blurW,blurH}>`。
+- render 开始清空；renderGlassElement 两个路径 blurTexture 调用后 push 元素 rect + radius + ds + dsBlurFbo 尺寸。
+- context.tsx overlay rAF 画框：青色虚线矩形 + 标注 `#i ds=N r=RR fbo=WxH`。
+- perf-monitor-overlay DebugToggles 加 "Show blur regions" toggle（青色 ON/OFF）。
+- 用途：开启后能看到每个 blur 调用的元素位置 + 降采样倍数 + blur FBO 尺寸，直接验证 ds 是否生效、coverage 是否完整。
+
+Fix: 移动端浏览器顶栏高度
+- perf-monitor-overlay 之前用 `maxHeight: 'calc(100vh - 16px)'`，移动端 100vh 包含地址栏 → 面板底部按钮被顶栏遮挡。
+- 改用 visualViewport API：追踪 `window.visualViewport.height`（排除浏览器 UI），动态更新 maxHeight + 拖拽 clamp。
+- visualViewport resize/scroll 事件监听地址栏显示/隐藏时的尺寸变化。
+- fallback：visualViewport 不可用时回退到 window.innerHeight。
+
+Files changed:
+- src/components/liquid-glass/renderer/index.ts: blurTexture + blurHighlightMask 加 scissor save/disable/restore；加 showBlurDebug + debugBlurRegions 字段。
+- src/components/liquid-glass/renderer/methods-render.ts: render 开始清空 debugBlurRegions。
+- src/components/liquid-glass/renderer/methods-render-glass.ts: ping-pong + PEF 两路径 blurTexture 调用后记录 debugBlurRegions。
+- src/components/liquid-glass/context.tsx: overlay 画 blur regions 青色虚线框 + 标注。
+- src/components/liquid-glass/perf-monitor-overlay.tsx: visualViewport 高度追踪 + 拖拽 clamp 用 vpHeight；DebugToggles 加 "Show blur regions" toggle + debugBtnStyle 抽取。
+
+Verification:
+- lint 干净。
+- dev.log 编译成功，无运行时错误。
+
+Stage Summary:
+- 真正的降采样 bug 根因：blurTexture 在调用方 scissor（全分辨率坐标）开启时 bind 半分辨率 dsBlurFbo，坐标系不匹配导致只写一小块。修复：blurTexture 内部 disable scissor。
+- 新增 "Show blur regions" 调试 overlay：青色虚线框标注每个 blur 调用的元素 rect + ds + radius + fbo 尺寸。
+- 性能监视器高度改用 visualViewport.height，解决移动端浏览器顶栏遮挡问题。

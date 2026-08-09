@@ -359,6 +359,22 @@ export function LiquidGlassCanvas({
               ctx.fillText(String(i), b.x + 3, b.y + 11)
             }
           }
+          if (renderer.showBlurDebug) {
+            const regions = renderer.debugBlurRegions
+            for (let i = 0; i < regions.length; i++) {
+              const r = regions[i]
+              // Cyan dashed rect = element whose backdrop was blurred.
+              ctx.strokeStyle = 'rgba(80, 200, 255, 0.95)'
+              ctx.lineWidth = 1.5
+              ctx.setLineDash([5, 3])
+              ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1)
+              ctx.setLineDash([])
+              ctx.fillStyle = 'rgba(80, 200, 255, 0.95)'
+              ctx.font = 'bold 10px ui-monospace, monospace'
+              const label = `#${i} ds=${r.ds} r=${(r.radius / (renderer.dpr || 1)).toFixed(1)} fbo=${r.blurW}×${r.blurH}`
+              ctx.fillText(label, r.x + 3, r.y + 11)
+            }
+          }
         }
       }
       raf = requestAnimationFrame(draw)

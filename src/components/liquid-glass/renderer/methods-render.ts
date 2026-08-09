@@ -64,6 +64,7 @@ export const renderMethods = {
     // Debug: clear the PEF bbox list at the start of each render. The PEF
     // path pushes to it during the element loop; the overlay reads it after.
     if (this.showPefBbox) this.debugPefBboxes.length = 0
+    if (this.showBlurDebug) this.debugBlurRegions.length = 0
 
     if (!this.wallpaperReady && !this.backgroundColor) {
       this.perfMonitor.frameEnd()

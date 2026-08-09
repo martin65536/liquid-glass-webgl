@@ -269,6 +269,14 @@ export class LiquidGlassRenderer {
    *  when this flag is true. */
   showPefBbox = false
   debugPefBboxes: { x: number; y: number; w: number; h: number; fbo: boolean }[] = []
+  /** Debug: when true, the renderer collects each blurTexture call's element
+   *  rect (CSS px, top-left origin) + radius + downsample into
+   *  `debugBlurRegions` during render. The React overlay reads this to draw
+   *  rectangles marking where backdrop blur was computed. Useful for diagnosing
+   *  downsample / scissor / coverage bugs. Cleared at the start of every render;
+   *  only populated when this flag is true. */
+  showBlurDebug = false
+  debugBlurRegions: { x: number; y: number; w: number; h: number; radius: number; ds: number; blurW: number; blurH: number }[] = []
   /** Performance monitor — frame timing + per-frame render counters +
    *  GPU info. When `perfMonitor.enabled === false` (default), every
    *  increment is a no-op. Toggled on by the Settings "Performance
@@ -687,6 +695,16 @@ export class LiquidGlassRenderer {
     this.ensureBlurPrograms(taps)
     const entry = this.blurPrograms.get(taps)!
     const savedFb = gl.getParameter(gl.FRAMEBUFFER_BINDING)
+    // CRITICAL: disable scissor during the blur passes. The caller (PEF +
+    // ping-pong paths) enables scissor with FULL-RES device-px coords for the
+    // element's bbox. But dsBlurFboA/B are half-res — the full-res scissor rect
+    // applied to a half-res FBO clips to the wrong region (only a corner gets
+    // written, the rest stays transparent). This was the root cause of the
+    // "only a small block is normal, the rest is transparent" downsample bug.
+    // ds=1 happened to work because blurFbo was full-res so the scissor coords
+    // matched. Save/restore so the caller's scissor state is unchanged on exit.
+    const savedScissor = gl.isEnabled(gl.SCISSOR_TEST)
+    gl.disable(gl.SCISSOR_TEST)
     gl.disable(gl.BLEND)
 
     // Pass 1: horizontal — srcTex → dsBlurFboA (half-res)
@@ -725,6 +743,7 @@ export class LiquidGlassRenderer {
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, savedFb)
     gl.viewport(0, 0, this.fboW, this.fboH)
+    if (savedScissor) gl.enable(gl.SCISSOR_TEST)
     return this.dsBlurFboBTex!
   }
 
@@ -786,6 +805,10 @@ export class LiquidGlassRenderer {
     this.ensureHighlightBlurPrograms(taps)
     const entry = this.highlightBlurPrograms.get(taps)!
     const savedFb = gl.getParameter(gl.FRAMEBUFFER_BINDING)
+    // Disable scissor — same reason as blurTexture (caller's full-res scissor
+    // coords don't match the half-res dsBlurFbo coordinate space).
+    const savedScissor = gl.isEnabled(gl.SCISSOR_TEST)
+    gl.disable(gl.SCISSOR_TEST)
     gl.disable(gl.BLEND)
 
     // Pass 1: horizontal — srcTex → dsBlurFboA (half-res)
@@ -818,6 +841,7 @@ export class LiquidGlassRenderer {
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, savedFb)
     gl.viewport(0, 0, this.fboW, this.fboH)
+    if (savedScissor) gl.enable(gl.SCISSOR_TEST)
     return this.dsBlurFboBTex!
   }
 

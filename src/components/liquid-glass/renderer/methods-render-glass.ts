@@ -546,6 +546,14 @@ export const glassRenderMethods = {
         backdropSrc = curTex
       }
       const blurredBackdrop = this.blurTexture(backdropSrc, blurRadiusPx)
+      if (this.showBlurDebug) {
+        this.debugBlurRegions.push({
+          x: sx, y: sy, w: sw, h: sh,
+          radius: blurRadiusPx,
+          ds: Math.max(1, this.blurDownsample | 0),
+          blurW: this.dsBlurFboW, blurH: this.dsBlurFboH,
+        })
+      }
       this.perfMonitor.incBlurPass()
       this.perfMonitor.incDrawCall(2) // 2-pass Gaussian (H + V)
       // blurTexture disables BLEND — re-enable it so renderGlassElementPass
@@ -763,6 +771,14 @@ export const glassRenderMethods = {
         backdropSrc = curTex
       }
       backdropTex = this.blurTexture(backdropSrc, blurRadiusPx)
+      if (this.showBlurDebug) {
+        this.debugBlurRegions.push({
+          x: sx, y: sy, w: sw, h: sh,
+          radius: blurRadiusPx,
+          ds: Math.max(1, this.blurDownsample | 0),
+          blurW: this.dsBlurFboW, blurH: this.dsBlurFboH,
+        })
+      }
       this.perfMonitor.incBlurPass()
       this.perfMonitor.incDrawCall(2) // 2-pass Gaussian (H + V)
       // blurTexture disables BLEND — re-enable it so the element pass
