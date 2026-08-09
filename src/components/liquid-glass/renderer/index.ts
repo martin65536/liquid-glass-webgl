@@ -186,8 +186,8 @@ export class LiquidGlassRenderer {
    *  Elements with useGravityAngle=true read this at render time. */
   gravityAngle = 45 * Math.PI / 180
   /** Max 1D taps per blur pass (1..33). Lower = faster, Higher = better quality.
-   *  Set from CatalogState.blurTapCap. Default 17. */
-  blurTapCap = 17
+   *  Set from CatalogState.blurTapCap. Default 9. */
+  blurTapCap = 9
   /** Blur downsample factor (float, 1=full-res high quality, up to 4=quarter-res
    *  low quality). Higher = much faster but slightly lower quality. Set from
    *  CatalogState.blurDownsample. The downsampled blur FBOs (dsBlurFboA/
@@ -200,10 +200,12 @@ export class LiquidGlassRenderer {
    *  THIS (not fboW/fboH) so the blur renders into the downsampled FBO. */
   dsBlurFboW = 0
   dsBlurFboH = 0
-  /** DPR-adapted effective downsample factor = blurDownsample × dpr, clamped
-   *  to [1, 8]. Set by resizeFBOs. blurTexture/blurHighlightMask use THIS
-   *  (not the raw blurDownsample) to scale radius — otherwise radius/ds and
-   *  the blur FBO size (which uses effectiveDs) mismatch → wrong visual radius.
+  /** DPR-adapted effective downsample factor = blurDownsample × dpr, with a
+   *  MINIMUM clamp of 8 (perf-priority: blur FBO is always at least 8×
+   *  downsampled relative to device pixels). Set by resizeFBOs.
+   *  blurTexture/blurHighlightMask use THIS (not the raw blurDownsample) to
+   *  scale radius — otherwise radius/ds and the blur FBO size (which uses
+   *  effectiveDs) mismatch → wrong visual radius.
    *
    *  Why adapt to DPR: blurDownsample is the user's quality choice relative
    *  to CSS (display) pixels. On a DPR=2 device, fboW = CSS×2, so raw ds=2
@@ -211,8 +213,14 @@ export class LiquidGlassRenderer {
    *  loss). To make the same slider position produce the same VISUAL quality
    *  across devices, the blur FBO must be sized relative to CSS pixels:
    *  effectiveDs = rawDs × dpr → blurFbo = fboW / (rawDs×dpr) = CSS / rawDs.
-   *  Now ds=2 always gives blurFbo = CSS/2 regardless of DPR. */
-  effectiveBlurDownsample = 1
+   *  Now ds=2 always gives blurFbo = CSS/2 regardless of DPR.
+   *
+   *  MIN clamp 8: the blur is a low-frequency effect (Gaussian-smoothed
+   *  backdrop) so aggressive downsampling is visually acceptable and gives
+   *  a large perf win (8× → 64× fewer fragment invocations). The slider
+   *  still lets the user pick rawDs 1–4 for fine control; the clamp ensures
+   *  the effectiveDs never drops below 8 even on DPR=1. */
+  effectiveBlurDownsample = 8
   /** Corner style: 0 = circular, 1 = continuous (squircle). Set from
    *  CatalogState.capsuleShape. Default 1 (Continuous, matching original). */
   cornerStyle = 1

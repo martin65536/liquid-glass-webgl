@@ -106,10 +106,12 @@ export const fboMethods = {
     // DPR-adapted effective downsample: the user's blurDownsample is a quality
     // choice relative to CSS (display) pixels. On a DPR=N device, fboW = CSS×N,
     // so we multiply ds by dpr to keep blurFbo = CSS/rawDs regardless of DPR.
-    // Clamped to [1, 8]: floor(1) guarantees ≥1px; 8 caps the smallest blurFbo
-    // (rawDs=4 × DPR=3 = 12 → clamped to 8 → blurFbo = fboW/8, still usable).
+    // MIN clamp 8: the blur is a low-frequency effect, so aggressive downsampling
+    // is visually acceptable and gives a large perf win (8× → 64× fewer fragments).
+    // The slider (rawDs 1–4) gives fine control; this clamp guarantees effectiveDs
+    // never drops below 8 even on DPR=1 (rawDs=1 → 1×1=1 → clamped to 8).
     const rawDs = Math.max(1, this.blurDownsample)
-    const ds = Math.max(1, Math.min(rawDs * (this.dpr || 1), 8))
+    const ds = Math.max(8, rawDs * (this.dpr || 1))
     this.effectiveBlurDownsample = ds
     const blurW = Math.max(1, Math.floor(w / ds))
     const blurH = Math.max(1, Math.floor(h / ds))
