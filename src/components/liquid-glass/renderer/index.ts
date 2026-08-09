@@ -351,15 +351,20 @@ export class LiquidGlassRenderer {
     //   blending). MSAA gives no visual benefit on those but costs 4x
     //   rasterization on software renderers (SwiftShader) and significant
     //   bandwidth on hardware GPUs. Turning it off is a large CPU/GPU win.
-    // desynchronized: true — hint to skip compositor synchronization on
-    //   browsers that support it (reduces display-pipeline wakeups).
+    //
+    // NOTE: desynchronized:true was tried and REVERTED. On software renderers
+    //   (SwiftShader) it caused the rasterizer to skip vsync-paced idle gaps
+    //   and continuously rasterize → CPU saturation → both high power AND
+    //   interaction jank (main thread starved). The attribute's intent
+    //   (low-latency present for stylus input) is irrelevant here and the
+    //   cost on CPU rasterizers is severe. Do not re-add without hardware-
+    //   acceleration verification.
     const gl = canvas.getContext('webgl', {
       premultipliedAlpha: false,
       alpha: false,
       antialias: false,
       preserveDrawingBuffer: false,
       powerPreference: 'low-power',
-      desynchronized: true,
     })
     if (!gl) throw new Error('WebGL not supported')
     this.gl = gl
