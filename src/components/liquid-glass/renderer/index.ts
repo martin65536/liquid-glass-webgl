@@ -195,11 +195,24 @@ export class LiquidGlassRenderer {
    *  `radius` by 1/ds so the visual blur radius is preserved (half-res pixels
    *  are twice as wide → radius/2 px covers the same screen distance). */
   blurDownsample = 1
-  /** Actual device-px size of dsBlurFboA/dsBlurFboB (= floor(fboW/blurDownsample)).
+  /** Actual device-px size of dsBlurFboA/dsBlurFboB (= floor(fboW/effectiveBlurDownsample)).
    *  Set by resizeFBOs. blurTexture/blurHighlightMask viewport + uTexSize use
    *  THIS (not fboW/fboH) so the blur renders into the downsampled FBO. */
   dsBlurFboW = 0
   dsBlurFboH = 0
+  /** DPR-adapted effective downsample factor = blurDownsample × dpr, clamped
+   *  to [1, 8]. Set by resizeFBOs. blurTexture/blurHighlightMask use THIS
+   *  (not the raw blurDownsample) to scale radius — otherwise radius/ds and
+   *  the blur FBO size (which uses effectiveDs) mismatch → wrong visual radius.
+   *
+   *  Why adapt to DPR: blurDownsample is the user's quality choice relative
+   *  to CSS (display) pixels. On a DPR=2 device, fboW = CSS×2, so raw ds=2
+   *  would produce blurFbo = CSS (already full display res — no actual quality
+   *  loss). To make the same slider position produce the same VISUAL quality
+   *  across devices, the blur FBO must be sized relative to CSS pixels:
+   *  effectiveDs = rawDs × dpr → blurFbo = fboW / (rawDs×dpr) = CSS / rawDs.
+   *  Now ds=2 always gives blurFbo = CSS/2 regardless of DPR. */
+  effectiveBlurDownsample = 1
   /** Corner style: 0 = circular, 1 = continuous (squircle). Set from
    *  CatalogState.capsuleShape. Default 1 (Continuous, matching original). */
   cornerStyle = 1
@@ -684,7 +697,7 @@ export class LiquidGlassRenderer {
    *  upsamples back to full-res), so no caller changes needed. */
   blurTexture(srcTex: WebGLTexture, radius: number): WebGLTexture {
     const gl = this.gl
-    const ds = Math.max(1, this.blurDownsample)
+    const ds = this.effectiveBlurDownsample
     const w = this.dsBlurFboW || this.fboW
     const h = this.dsBlurFboH || this.fboH
     // Scale radius to the downsampled space (1/ds). Visual radius preserved.
@@ -803,7 +816,7 @@ export class LiquidGlassRenderer {
    *  Saves/restores the currently-bound framebuffer. */
   blurHighlightMask(srcTex: WebGLTexture, sigmaPx: number): WebGLTexture {
     const gl = this.gl
-    const ds = Math.max(1, this.blurDownsample)
+    const ds = this.effectiveBlurDownsample
     const w = this.dsBlurFboW || this.fboW
     const h = this.dsBlurFboH || this.fboH
     // Scale sigma to downsampled space (visual radius preserved).

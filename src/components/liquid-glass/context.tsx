@@ -262,6 +262,9 @@ export function LiquidGlassCanvas({
   }, [backgroundColor])
 
   // Apply DPR override when it changes (Settings page slider).
+  // Also force-rebuilds the blur FBOs because effectiveBlurDownsample
+  // (= blurDownsample × dpr) depends on dpr — without force, resizeFBOs
+  // early-returns when canvas device-px size is unchanged.
   React.useEffect(() => {
     const renderer = rendererRefInternal.current
     if (!renderer || dpr == null) return
@@ -269,6 +272,8 @@ export function LiquidGlassCanvas({
     renderer.dpr = dpr > 0 ? Math.max(0.5, Math.min(deviceDpr, dpr)) : deviceDpr
     const r = containerRef.current?.getBoundingClientRect()
     if (r) renderer.resize(r.width, r.height)
+    renderer.resizeFBOs(renderer.fboW, renderer.fboH, true)
+    renderer.requestRender()
   }, [dpr])
 
   // Apply blur tap cap when it changes (Settings page slider).

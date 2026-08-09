@@ -518,3 +518,26 @@ Stage Summary:
 - Press-scale mosaic bug fixed by clamping dsRadius to 0.6 minimum when ds > 1, ensuring the blur shader always runs to smooth the upscaled half-res texture
 - All `| 0` integer truncations removed from blurDownsample code paths
 - Files changed: types.ts, i18n.ts, context.tsx, renderer/index.ts, renderer/methods-fbo.ts, renderer/methods-render-glass.ts, catalog/build-settings.ts, app/page.tsx
+
+---
+Task ID: 3
+Agent: main (Z.ai Code)
+Task: Adapt blur downsample to different DPR — the actual blur FBO pixel count was not scaled by dpr, so the same slider position produced different visual quality on different DPR devices.
+
+Work Log:
+- Root issue: blurDownsample (ds) was applied to fboW (device pixels = CSS×dpr). On DPR=2, raw ds=2 → blurFbo = CSS×2/2 = CSS (full display res, no quality loss). On DPR=1, raw ds=2 → blurFbo = CSS/2 (visible quality loss). Same slider, inconsistent quality.
+- Fix: introduced effectiveBlurDownsample = rawDs × dpr (clamped [1,8]), computed in resizeFBOs. blurFbo = fboW / effectiveDs = CSS×dpr / (rawDs×dpr) = CSS/rawDs — now consistent across devices regardless of DPR.
+- Changes:
+  - renderer/index.ts: added effectiveBlurDownsample field (default 1) with doc explaining DPR adaptation rationale
+  - renderer/methods-fbo.ts: resizeFBOs computes ds = max(1, min(rawDs×dpr, 8)), stores into effectiveBlurDownsample, sizes dsBlurFboA/B with it
+  - renderer/index.ts blurTexture: uses this.effectiveBlurDownsample (was Math.max(1,this.blurDownsample)) so dsRadius matches the actual blur FBO size — otherwise radius/ds and blurFbo size mismatch → wrong visual radius
+  - renderer/index.ts blurHighlightMask: same change
+  - renderer/methods-render-glass.ts: debug blur region push uses this.effectiveBlurDownsample (2 occurrences)
+  - context.tsx: DPR useEffect now force-rebuilds blur FBOs (resizeFBOs force=true) because effectiveBlurDownsample depends on dpr — without force, resizeFBOs early-returns when canvas device-px size is unchanged, leaving stale effectiveDs
+- Clamp upper bound 8: prevents blurFbo from being too small on high DPR (rawDs=4 × DPR=3 = 12 → clamped 8). Lower bound 1 guarantees ≥1px.
+- Lint passed, dev server compiles cleanly.
+
+Stage Summary:
+- blurDownsample is now DPR-adapted: blurFbo resolution is relative to CSS pixels, so the same slider position yields consistent visual quality across DPR=1/2/3 devices
+- effectiveBlurDownsample field centralizes the computed value; blurTexture/blurHighlightMask/debug all read it (no per-call multiplication, no mismatch risk)
+- Files changed: renderer/index.ts, renderer/methods-fbo.ts, renderer/methods-render-glass.ts, context.tsx

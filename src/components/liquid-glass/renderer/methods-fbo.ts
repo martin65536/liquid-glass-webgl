@@ -103,7 +103,14 @@ export const fboMethods = {
     if (this.dsBlurFboATex) gl.deleteTexture(this.dsBlurFboATex)
     if (this.dsBlurFboB) gl.deleteFramebuffer(this.dsBlurFboB)
     if (this.dsBlurFboBTex) gl.deleteTexture(this.dsBlurFboBTex)
-    const ds = Math.max(1, this.blurDownsample)
+    // DPR-adapted effective downsample: the user's blurDownsample is a quality
+    // choice relative to CSS (display) pixels. On a DPR=N device, fboW = CSS×N,
+    // so we multiply ds by dpr to keep blurFbo = CSS/rawDs regardless of DPR.
+    // Clamped to [1, 8]: floor(1) guarantees ≥1px; 8 caps the smallest blurFbo
+    // (rawDs=4 × DPR=3 = 12 → clamped to 8 → blurFbo = fboW/8, still usable).
+    const rawDs = Math.max(1, this.blurDownsample)
+    const ds = Math.max(1, Math.min(rawDs * (this.dpr || 1), 8))
+    this.effectiveBlurDownsample = ds
     const blurW = Math.max(1, Math.floor(w / ds))
     const blurH = Math.max(1, Math.floor(h / ds))
     const ge = this.createFBO(w, h)
