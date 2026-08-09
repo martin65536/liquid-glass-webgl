@@ -67,6 +67,10 @@ export interface LiquidGlassCanvasProps {
   blurTapCap?: number
   /** Corner style: 0 = circular, 1 = continuous (squircle). */
   cornerStyle?: number
+  /** Per-element FBO optimization toggle. When true (default), each glass
+   *  element renders into a small bbox-sized FBO instead of a fullscreen
+   *  ping-pong blit — the biggest per-element cost saver. Pure optimization. */
+  usePerElementFbo?: boolean
 }
 
 export interface ElementInteraction {
@@ -144,6 +148,7 @@ export function LiquidGlassCanvas({
   dpr,
   blurTapCap,
   cornerStyle,
+  usePerElementFbo,
 }: LiquidGlassCanvasProps) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
   const containerRef = React.useRef<HTMLDivElement>(null)
@@ -203,6 +208,7 @@ export function LiquidGlassCanvas({
     // Apply blur tap cap (Settings slider) so 2-pass separable blur uses it.
     if (blurTapCap != null) renderer.blurTapCap = Math.max(1, Math.min(33, blurTapCap | 0))
     if (cornerStyle != null) renderer.cornerStyle = cornerStyle
+    if (usePerElementFbo != null) renderer.usePerElementFbo = usePerElementFbo
     resize()
     const ro = new ResizeObserver(resize)
     ro.observe(containerRef.current)
@@ -257,6 +263,14 @@ export function LiquidGlassCanvas({
     renderer.cornerStyle = cornerStyle
     renderer.requestRender()
   }, [cornerStyle])
+
+  // Apply per-element FBO optimization toggle when it changes (Settings page).
+  React.useEffect(() => {
+    const renderer = rendererRefInternal.current
+    if (!renderer || usePerElementFbo == null) return
+    renderer.usePerElementFbo = usePerElementFbo
+    renderer.requestRender()
+  }, [usePerElementFbo])
 
   // Push the latest element list to the renderer.
   React.useEffect(() => {

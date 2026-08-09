@@ -72,6 +72,86 @@ void main() {
 `
 
 /* ------------------------------------------------------------------ *
+ * EL_FBO_CROP_FRAGMENT_SHADER — copy a rectangular region of a fullscreen
+ * source texture into a small destination FBO (same size as the region).
+ * Used by cropAndBlurBackdrop: the caller binds the small backdropCropFbo,
+ * sets scissor to the region, then this shader samples the corresponding
+ * texels from the fullscreen scene FBO texture.
+ *
+ * uSrcOffset = region top-left in the SOURCE texture, top-left origin,
+ *   device px. (The source is a fullscreen FBO texture rendered with
+ *   gl_FragCoord bottom-left origin, so we flip Y when sampling.)
+ * uSrcSize   = fullscreen source texture size in device px.
+ * uDstSize   = destination (small) FBO size = region size, device px.
+ *
+ * UV mapping: gl_FragCoord ranges over [0..uDstSize] (bottom-left origin).
+ *   localTopLeft = (gl_FragCoord.x, uDstSize.y - gl_FragCoord.y)  // top-left
+ *   srcTopLeft   = uSrcOffset + localTopLeft
+ *   srcUv        = (srcTopLeft.x / uSrcSize.x, 1 - srcTopLeft.y / uSrcSize.y)
+ * ------------------------------------------------------------------ */
+export const EL_FBO_CROP_FRAGMENT_SHADER = /* glsl */ `
+precision highp float;
+
+uniform sampler2D uTexture;
+uniform vec2 uSrcOffset;   // region top-left in source texture (top-left origin, device px)
+uniform vec2 uSrcSize;     // fullscreen source texture size (device px)
+uniform vec2 uDstSize;     // destination (small) FBO size = region size (device px)
+
+void main() {
+    vec2 localTopLeft = vec2(gl_FragCoord.x, uDstSize.y - gl_FragCoord.y);
+    vec2 srcTopLeft = uSrcOffset + localTopLeft;
+    vec2 uv = vec2(srcTopLeft.x / uSrcSize.x, 1.0 - srcTopLeft.y / uSrcSize.y);
+    gl_FragColor = texture2D(uTexture, uv);
+}
+`
+
+/* ------------------------------------------------------------------ *
+ * EL_FBO_COMPOSITE_FRAGMENT_SHADER — draw a small per-element FBO texture
+ * into a rectangular region of the (fullscreen) scene FBO. Used by the
+ * per-element FBO optimization to composite an element's rendered glass body
+ * back onto the accumulation target (curFbo) at the element's bbox position.
+ *
+ * The source texture is the element FBO (size uSrcSize, in device px). The
+ * destination rectangle is uDstRect = (x, y, w, h) in device px, top-left
+ * origin, where the element sits in the scene. Only pixels inside uDstRect
+ * are written (caller also sets scissor to uDstRect for safety).
+ *
+ * UV mapping: gl_FragCoord is in device px of the bound (fullscreen) FBO.
+ *   - If gl_FragCoord is outside uDstRect, discard.
+ *   - Otherwise map to source UV: (gl_FragCoord - dstOrigin) / uSrcSize,
+ *     with Y flipped because WebGL framebuffer origin is bottom-left while
+ *     the element FBO was rendered in the same bottom-left convention, so
+ *     no flip is needed — the source texel row aligns directly. Actually
+ *     both FBOs use gl_FragCoord bottom-left origin, so the source row y
+ *     maps as (dstTopInBl - gl_FragCoord.y ... ) — handled below.
+ * ------------------------------------------------------------------ */
+export const EL_FBO_COMPOSITE_FRAGMENT_SHADER = /* glsl */ `
+precision highp float;
+
+uniform sampler2D uTexture;
+uniform vec2 uCanvasSize;   // bound FBO size in device px
+uniform vec4 uDstRect;      // (x, y, w, h) top-left origin, device px
+uniform vec2 uSrcSize;      // source texture size in device px
+
+void main() {
+    // gl_FragCoord: bottom-left origin, device px of the bound FBO.
+    // Convert to top-left origin to compare with uDstRect.
+    vec2 fragTopLeft = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
+    if (fragTopLeft.x < uDstRect.x || fragTopLeft.x >= uDstRect.x + uDstRect.z ||
+        fragTopLeft.y < uDstRect.y || fragTopLeft.y >= uDstRect.y + uDstRect.w) {
+        discard;
+    }
+    // Map to source UV. Source texture was rendered with gl_FragCoord (bottom-left).
+    // The destination top-left corner corresponds to source top-left.
+    // Source uv: x = localX / srcW, y = 1 - localY/srcH (flip Y since texture
+    // rows are bottom-up but our localY is top-down from dstRect.y).
+    vec2 local = fragTopLeft - uDstRect.xy;
+    vec2 uv = vec2(local.x / uSrcSize.x, 1.0 - local.y / uSrcSize.y);
+    gl_FragColor = texture2D(uTexture, uv);
+}
+`
+
+/* ------------------------------------------------------------------ *
  * COLOR_CONTROLS_FRAGMENT_SHADER — fullscreen colorControls (brightness/
  * contrast/saturation) pass. Used to apply colorControls to a backdrop FBO
  * BEFORE the 2-pass blur, matching the original's colorControls→blur→lens

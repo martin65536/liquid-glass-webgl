@@ -101,6 +101,16 @@ uniform float uUseSdfTexture;       // 0 or 1
 uniform vec2  uSdfTexSize;          // texture natural dimensions (px)
 uniform float uSdfLightAngle;       // bevel light angle (degrees)
 uniform float uEnterAlpha;          // global element alpha (enterProgress, 0..1)
+// --- Per-element FBO optimization ---
+// When uUsePerElementFbo > 0.5, the element is being rendered into a small
+// bbox-sized FBO (NOT the fullscreen scene FBO). In that case gl_FragCoord
+// ranges over [0..uElFboSize], so screenCoord must be reconstructed as
+// uSceneRectOffset + (gl_FragCoord with Y flipped by uElFboSize.y) to map
+// back into the full-canvas top-left-origin coordinate space that the rest
+// of the shader (sampleBackdrop, coverUv, SDF, etc.) expects.
+uniform float uUsePerElementFbo;    // 0 or 1
+uniform vec2  uSceneRectOffset;     // element bbox top-left in canvas px (top-left origin, device px)
+uniform vec2  uElFboSize;           // per-element FBO size in device px
 // When 1.0, skip applyColorControls in the element shader (colorControls was
 // already applied as a fullscreen pass BEFORE the 2-pass blur on the backdrop
 // FBO, matching the original's colorControls→blur→lens order). Used by

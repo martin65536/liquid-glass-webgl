@@ -64,6 +64,7 @@ const translations: Record<string, { zh: string; en: string }> = {
   settings_perf_redetect:    { zh: '重新检测性能', en: 'Re-detect performance' },
   settings_highlight_title:  { zh: '高光', en: 'Highlight' },
   settings_highlight_aa:     { zh: '高光抗锯齿', en: 'Highlight anti-aliasing' },
+  settings_per_element_fbo:  { zh: '逐元素 FBO', en: 'Per-element FBO' },
   settings_reset:           { zh: '重置', en: 'Reset' },
 
   // Card category titles

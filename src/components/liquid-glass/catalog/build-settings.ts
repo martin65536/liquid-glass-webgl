@@ -196,6 +196,24 @@ export function buildSettings(
     Object.assign(interactions, aaToggle.interactions)
     nextY += BUTTON_HEIGHT + ITEM_GAP
 
+    // Per-element FBO toggle — renders each glass element into a small
+    // bbox-sized FBO instead of a fullscreen ping-pong blit. Biggest
+    // per-element optimization; pure perf, no visual change expected.
+    const peFboToggle = makeSettingsToggle(
+      'settings-per-element-fbo',
+      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT + ITEM_GAP },
+      t('settings_per_element_fbo', locale),
+      state.usePerElementFbo,
+      () => setState((prev) => ({ usePerElementFbo: !prev.usePerElementFbo })),
+      palette,
+      rendererRef,
+      true,
+      labelPad,
+    )
+    elements.push(...peFboToggle.elements)
+    Object.assign(interactions, peFboToggle.interactions)
+    nextY += BUTTON_HEIGHT + ITEM_GAP
+
     // Capsule shape toggle — full card width row, height includes bottom pad
     const capsuleToggle = makeSettingsToggle(
       'settings-shape-capsule',
@@ -469,7 +487,7 @@ export function buildSettings(
     elements.push(resetBtn)
     interactions['settings-reset'] = {
       onTap: () => {
-        setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 17, blurDownsample: 1, capsuleShape: true, hideOverlayButtons: false, locale: 'zh', pageTransition: true, liveDpr: null, liveTapCap: null, showFps: false, highlightAa: true, perfProgress: null, perfDone: false, perfResultDpr: 0, perfStatusText: '' })
+        setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 17, blurDownsample: 1, capsuleShape: true, hideOverlayButtons: false, locale: 'zh', pageTransition: true, liveDpr: null, liveTapCap: null, showFps: false, highlightAa: true, usePerElementFbo: true, perfProgress: null, perfDone: false, perfResultDpr: 0, perfStatusText: '' })
         try { window.localStorage.removeItem('liquid-glass-perf-dpr') } catch {}
         const d = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
         const dprFrac = (d - 0.5) / Math.max(0.0001, d - 0.5)

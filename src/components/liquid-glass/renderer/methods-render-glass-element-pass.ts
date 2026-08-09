@@ -74,6 +74,14 @@ export const glassElementPassMethods = {
     // Element rotation (graphicsLayer rotationZ) — 0 for most elements; the
     // Glass Playground square uses this for 2-finger rotation.
     gl.uniform1f(this.uEl['uElementRotation'], el.elementRotation ?? 0)
+    // Per-element FBO uniforms — tell the shader whether gl_FragCoord ranges
+    // over the small element FBO (and if so, the offset + size to reconstruct
+    // the full-canvas screenCoord).
+    gl.uniform1f(this.uEl['uUsePerElementFbo'], state.usePerElementFbo ? 1.0 : 0.0)
+    if (state.usePerElementFbo) {
+      gl.uniform2f(this.uEl['uSceneRectOffset'], state.sceneRectOffsetX, state.sceneRectOffsetY)
+      gl.uniform2f(this.uEl['uElFboSize'], state.elFboW, state.elFboH)
+    }
 
     // Toggle knobs: animate refraction/blur/highlight/inner-shadow with
     // pressProgress to faithfully match LiquidToggle.kt / LiquidSlider.kt:

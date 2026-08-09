@@ -528,6 +528,16 @@ export interface CatalogState {
   // precision (Math.round / Math.max), producing a thinner highlight but with
   // potential aliasing at low DPR.
   highlightAa: boolean
+  // Settings — per-element FBO optimization. When true (default), each glass
+  // element renders into a small bbox-sized FBO (capped at 1024 device px)
+  // instead of doing a fullscreen ping-pong blit. This avoids the ~850K-px
+  // fullscreen copy per element — the biggest per-element cost. The backdrop
+  // (curFbo) is scissor-cropped into a small texture, the element renders on a
+  // small FBO, then composites back via a small scissor blit. curFbo is never
+  // swapped — it stays the fixed accumulation target. Pure optimization, no
+  // expected visual change. Kept as a toggle so it can be disabled if any
+  // element shows a visual regression.
+  usePerElementFbo: boolean
   // Performance benchmark: null = not running, 'running' = in progress
   perfProgress: string | null
   // Performance benchmark: status text displayed on the benchmark page
@@ -597,6 +607,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   pageTransition: true,
   showFps: false,
   highlightAa: true,
+  usePerElementFbo: true,
   perfProgress: null,
   perfStatusText: '',
   perfDone: false,

@@ -40,6 +40,17 @@ export interface GlassRenderState {
   // sample wallpaper directly). Passed to the element pass so it can set
   // uSampleWallpaper correctly.
   independent: boolean
+  // Per-element FBO: when true, the element is being rendered into a small
+  // bbox-sized FBO. The element pass sets uUsePerElementFbo=1 + uSceneRectOffset
+  // + uElFboSize so the shader reconstructs screenCoord correctly.
+  usePerElementFbo: boolean
+  // Element bbox top-left in canvas px (top-left origin, DEVICE px) — the
+  // scene-space offset of the per-element FBO's origin.
+  sceneRectOffsetX: number
+  sceneRectOffsetY: number
+  // Per-element FBO size in device px.
+  elFboW: number
+  elFboH: number
 }
 
 declare module './index' {
@@ -58,6 +69,30 @@ declare module './index' {
       otherTex: WebGLTexture
     }
     renderGlassShadowPass(state: GlassRenderState): void
+    /** Per-element FBO render path — renders the element into a small bbox-sized
+     *  FBO instead of the fullscreen ping-pong blit. See methods-render-glass.ts. */
+    renderGlassElementPerFbo(
+      el: GlassElementConfig,
+      st: ElementState | undefined,
+      curFbo: WebGLFramebuffer,
+      curTex: WebGLTexture,
+      otherFbo: WebGLFramebuffer,
+      otherTex: WebGLTexture,
+      computed: {
+        sx: number; sy: number; sw: number; sh: number
+        radii: [number, number, number, number]
+        scaleX: number; scaleY: number
+        isButton: boolean; p: number
+        togglePressProgress: number
+        independent: boolean
+        translationX: number; translationY: number
+      }
+    ): {
+      curFbo: WebGLFramebuffer
+      curTex: WebGLTexture
+      otherFbo: WebGLFramebuffer
+      otherTex: WebGLTexture
+    }
     // renderGlassElementPass and renderGlassPostPasses are declared in
     // their respective modules (methods-render-glass-element-pass.ts
     // and methods-render-glass-post-passes.ts).
@@ -330,6 +365,26 @@ export const glassRenderMethods = {
     const independent = !!(el.independentBackdrop && !this.backgroundColor && this.wallpaperTexture)
     const skipPingPong = false // TODO: re-enable after fixing visual issues
 
+    // --- Per-element FBO optimization (Settings toggle, default ON) ---
+    // Instead of the fullscreen ping-pong blit (Step 1 below), render the
+    // element into a small bbox-sized FBO. The backdrop is scissor-cropped
+    // into a small texture, the element pass samples that, then composites
+    // back onto curFbo at the element's bbox. curFbo is NEVER swapped — it
+    // stays the fixed accumulation target, so all previously-rendered
+    // elements remain available for subsequent elements to sample.
+    //
+    // Excluded elements (kept on the legacy ping-pong path for correctness):
+    //  - backdropFbo elements (dialog card): they sample the pre-rendered
+    //    dialogBackdropTex, not the scene FBO — the crop would be wrong.
+    //  - SDF-texture elements (LockScreen): use a separate glass path.
+    // These fall through to the legacy path below.
+    if (this.usePerElementFbo && !el.backdropFbo && !el.useSdfTexture && !skipPingPong) {
+      return this.renderGlassElementPerFbo(el, st, curFbo, curTex, otherFbo, otherTex, {
+        sx, sy, sw, sh, radii, scaleX, scaleY, isButton, p, togglePressProgress,
+        independent, translationX, translationY,
+      })
+    }
+
     // --- Step 1: Blit curFbo → otherFbo (FULLSCREEN — must copy the entire
     // scene so ping-pong preserves all previously-rendered elements. Scissor
     // cannot be used here because otherFbo's regions outside the current
@@ -391,28 +446,19 @@ export const glassRenderMethods = {
       origCornerRadius: el.cornerRadius,
       elementRotation: el.elementRotation ?? 0,
       independent,
+      // Per-element FBO fields — populated below if the per-element path is
+      // taken; left at defaults (usePerElementFbo=false) for the legacy path.
+      usePerElementFbo: false,
+      sceneRectOffsetX: 0,
+      sceneRectOffsetY: 0,
+      elFboW: 0,
+      elFboH: 0,
     }
 
     // --- Step 2a: Shadow pass (to otherFbo, on top of copied scene) ---
     this.renderGlassShadowPass(state)
 
     // --- Step 2b: Element pass (refraction + vibrancy + tint) ---
-    // For independent elements: always use inline blur (the shader samples
-    // the wallpaper via uSampleWallpaper, so no separable blur on the scene
-    // FBO is needed). The inline Vogel disc blur on the wallpaper texture
-    // gives equivalent visual quality for typical blur radii (16-24px).
-    //
-    // For useSeparableBlur elements: blur the BACKDROP first (via 2-pass
-    // separable Gaussian on curTex), then render the element pass sampling
-    // the blurred backdrop. This matches the original's RenderEffect chain
-    // createChainEffect(blur, lens): blur is applied to the backdrop BEFORE
-    // the SDF/refraction shader, not to the glass output afterwards.
-    // The element pass renders directly to otherFbo (like inline blur),
-    // with inlineBlurRadius=0 (handled in renderGlassElementPass) since the
-    // backdrop is already blurred.
-    //
-    // For normal elements: render the element pass directly to otherFbo
-    // (sampling curTex) with inline 16-tap Vogel disc blur.
     if (el.useSeparableBlur && el.blurRadius >= 0.5) {
       const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr
       // For backdropFbo elements (dialog card), blur the dialogBackdropTex
@@ -451,6 +497,138 @@ export const glassRenderMethods = {
       otherFbo: curFbo,
       otherTex: curTex,
     }
+  },
+
+  /** Per-element FBO render path. Renders the glass element into a small
+   *  bbox-sized FBO (capped at MAX_ELEMENT_FBO_SIZE) instead of the fullscreen
+   *  ping-pong blit. Steps:
+   *    1. Shadow pass → curFbo (scissor to bbox, same as legacy).
+   *    2. Crop the element's bbox region from curTex into backdropCropFbo
+   *       (optionally 2-pass blur for useSeparableBlur elements).
+   *    3. Render the element pass into elFbo (sampling the cropped backdrop).
+   *    4. Composite elFbo back onto curFbo at the bbox (scissor + SrcOver).
+   *    5. Post passes (press glow, foreground, highlight) → curFbo (scissor).
+   *  curFbo is never swapped — it stays the fixed accumulation target. */
+  renderGlassElementPerFbo(
+    this: LiquidGlassRenderer,
+    el: GlassElementConfig,
+    st: ElementState | undefined,
+    curFbo: WebGLFramebuffer,
+    curTex: WebGLTexture,
+    otherFbo: WebGLFramebuffer,
+    otherTex: WebGLTexture,
+    computed: {
+      sx: number; sy: number; sw: number; sh: number
+      radii: [number, number, number, number]
+      scaleX: number; scaleY: number
+      isButton: boolean; p: number
+      togglePressProgress: number
+      independent: boolean
+      translationX: number; translationY: number
+    }
+  ): {
+    curFbo: WebGLFramebuffer
+    curTex: WebGLTexture
+    otherFbo: WebGLFramebuffer
+    otherTex: WebGLTexture
+  } {
+    const gl = this.gl
+    const { sx, sy, sw, sh, radii, scaleX, scaleY, isButton, p, togglePressProgress, independent } = computed
+
+    // --- Bbox in device px (top-left origin), clamped to the canvas ---
+    // Same MARGIN as the legacy path (shadow + highlight + press scale room).
+    const MARGIN_CSS = 60
+    const bx0 = Math.max(0, Math.round((sx - MARGIN_CSS) * this.dpr))
+    const by0Top = Math.max(0, Math.round((sy - MARGIN_CSS) * this.dpr))
+    const bx1 = Math.min(this.fboW, Math.round((sx + sw + MARGIN_CSS) * this.dpr))
+    const by1Top = Math.min(this.fboH, Math.round((sy + sh + MARGIN_CSS) * this.dpr))
+    const bboxW = Math.max(1, bx1 - bx0)
+    const bboxH = Math.max(1, by1Top - by0Top)
+    // Bottom-left origin Y for scissor (WebGL scissor uses BL origin).
+    const bboxScissorY = Math.max(0, this.fboH - by1Top)
+
+    // --- Ensure the per-element FBOs exist at bboxW×bboxH (capped) ---
+    const { w: elFboW, h: elFboH } = this.ensureElementFBO(bboxW, bboxH)
+
+    // --- Build the GlassRenderState (same as the legacy path) ---
+    const state: GlassRenderState = {
+      el, st, isButton, p, sx, sy, sw, sh, radii, togglePressProgress,
+      elHighlightAlpha: (el.isToggleKnob || el.isBottomTabIndicator) ? 0 : (el.highlight ? el.highlight.alpha : 0),
+      enterAlpha: el.enterProgress != null ? (() => {
+        const sp = el.enterSafeProgress != null
+          ? Math.max(0, Math.min(1, el.enterSafeProgress))
+          : Math.max(0, Math.min(1, el.enterProgress!))
+        return easeIn(sp)
+      })() : 1,
+      layerScaleX: scaleX,
+      layerScaleY: scaleY,
+      layerScale: Math.min(scaleX, scaleY),
+      origW: el.rect.w,
+      origH: el.rect.h,
+      origCornerRadius: el.cornerRadius,
+      elementRotation: el.elementRotation ?? 0,
+      independent,
+      // Per-element FBO: the element pass renders into elFbo. screenCoord is
+      // reconstructed as uSceneRectOffset + localCoord. The offset is the
+      // element's bbox top-left in scene device px (top-left origin).
+      usePerElementFbo: true,
+      sceneRectOffsetX: bx0,
+      sceneRectOffsetY: by0Top,
+      elFboW,
+      elFboH,
+    }
+
+    // --- Step 1: Shadow pass → curFbo (scissor to bbox) ---
+    this.bindFBO(curFbo)
+    gl.enable(gl.SCISSOR_TEST)
+    gl.scissor(bx0, bboxScissorY, bboxW, bboxH)
+    gl.enable(gl.BLEND)
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+    this.renderGlassShadowPass(state)
+
+    // --- Step 2: Crop + (optional) blur backdrop ---
+    // Crop the bbox region of curTex into backdropCropFbo. If useSeparableBlur,
+    // also run the 2-pass Gaussian on the cropped texture (operates on the
+    // small FBO — much cheaper than blurring the fullscreen scene).
+    let backdropTex: WebGLTexture
+    if (el.useSeparableBlur && el.blurRadius >= 0.5) {
+      const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr
+      backdropTex = this.cropAndBlurBackdrop(curTex, bx0, by0Top, bboxW, bboxH, blurRadiusPx)
+    } else {
+      backdropTex = this.cropAndBlurBackdrop(curTex, bx0, by0Top, bboxW, bboxH, 0)
+    }
+
+    // --- Step 3: Render element pass → elFbo (transparent, then glass body) ---
+    // Clear elFbo to transparent first (the element shader discards outside
+    // the glass shape, leaving only the glass body's RGBA).
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.elFbo)
+    gl.viewport(0, 0, elFboW, elFboH)
+    gl.disable(gl.SCISSOR_TEST)
+    gl.clearColor(0, 0, 0, 0)
+    gl.clear(gl.COLOR_BUFFER_BIT)
+    gl.enable(gl.BLEND)
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+    // Render the element pass sampling the cropped backdrop. For
+    // useSeparableBlur elements, the backdrop is already blurred → the
+    // element pass should use inlineBlurRadius=0. renderGlassElementPass
+    // handles this when uSkipColorControls / useSeparableBlur is set on el.
+    // We pass the (possibly blurred) backdropTex as curTex.
+    this.renderGlassElementPass(state, backdropTex)
+
+    // --- Step 4: Composite elFbo → curFbo at the bbox (SrcOver) ---
+    this.bindFBO(curFbo)
+    gl.enable(gl.SCISSOR_TEST)
+    gl.scissor(bx0, bboxScissorY, bboxW, bboxH)
+    this.drawElFboComposite(this.elFboTex!, elFboW, elFboH, bx0, by0Top, bboxW, bboxH)
+
+    // --- Step 5: Post passes (press glow, white overlay, foreground, rim
+    // highlight) → curFbo (scissor to bbox, same as legacy) ---
+    this.renderGlassPostPasses(state)
+
+    gl.disable(gl.SCISSOR_TEST)
+
+    // --- No swap: curFbo remains the accumulation target ---
+    return { curFbo, curTex, otherFbo, otherTex }
   },
 
   renderGlassShadowPass(this: LiquidGlassRenderer, state: GlassRenderState) {

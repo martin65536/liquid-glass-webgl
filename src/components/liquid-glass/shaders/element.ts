@@ -43,7 +43,15 @@ ${utilsGlsl}
 
 void main() {
     // gl_FragCoord origin is bottom-left in WebGL; flip to top-left.
-    vec2 screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
+    // Per-element FBO path: gl_FragCoord ranges over the small element FBO
+    // (size uElFboSize), so we offset by uSceneRectOffset to reconstruct the
+    // full-canvas top-left-origin coordinate the rest of the shader expects.
+    vec2 screenCoord;
+    if (uUsePerElementFbo > 0.5) {
+        screenCoord = uSceneRectOffset + vec2(gl_FragCoord.x, uElFboSize.y - gl_FragCoord.y);
+    } else {
+        screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
+    }
     // Content scale (non-uniform): when < 1.0, compress the backdrop UV toward
     // the element center. Faithful to LiquidToggle.kt / LiquidSlider.kt:
     //   scale(scaleX, scaleY) { drawBackdrop() }

@@ -19,6 +19,8 @@ import {
   SOLID_FILL_FRAGMENT_SHADER,
   COLOR_CONTROLS_FRAGMENT_SHADER,
   SCENE_TINT_FRAGMENT_SHADER,
+  EL_FBO_COMPOSITE_FRAGMENT_SHADER,
+  EL_FBO_CROP_FRAGMENT_SHADER,
   generateSeparableBlurShader,
   computeBlur1DTapCount,
   generateHighlightBlurShader,
@@ -77,6 +79,8 @@ export class LiquidGlassRenderer {
   solidFillProgram: WebGLProgram
   colorControlsProgram: WebGLProgram
   sceneTintProgram: WebGLProgram
+  elFboCompositeProgram: WebGLProgram
+  elFboCropProgram: WebGLProgram
   quadBuffer: WebGLBuffer
   wallpaperTexture: WebGLTexture | null = null
   wallpaperReady = false
@@ -168,6 +172,34 @@ export class LiquidGlassRenderer {
   /** Corner style: 0 = circular, 1 = continuous (squircle). Set from
    *  CatalogState.capsuleShape. Default 1 (Continuous, matching original). */
   cornerStyle = 1
+  /** Per-element FBO optimization toggle (Settings). When true (default),
+   *  each glass element renders into a small bbox-sized FBO instead of a
+   *  fullscreen ping-pong blit. See methods-render-glass.ts. */
+  usePerElementFbo = true
+  // --- Per-element FBO infrastructure (used when usePerElementFbo=true) ---
+  // MAX_ELEMENT_FBO_SIZE caps the per-element FBO dimensions in device px.
+  // Elements larger than this render at reduced resolution (LINEAR upsampled
+  // on composite) — acceptable for large cards; avoids huge FBOs.
+  static readonly MAX_ELEMENT_FBO_SIZE = 1024
+  // elFbo: the element's glass body is rendered here (transparent; the element
+  // shader's discard leaves only the glass shape). Capped to bbox×MAX size.
+  // Lazily (re)created by ensureElementFBO when the element's device-px bbox
+  // size changes.
+  elFbo: WebGLFramebuffer | null = null
+  elFboTex: WebGLTexture | null = null
+  elFboW = 0
+  elFboH = 0
+  // backdropCropFbo: a scissor-cropped copy of curFbo covering the element's
+  // bbox (+ blur margin). The element pass samples THIS (small) texture for
+  // refraction/blur instead of doing a fullscreen blit.
+  backdropCropFbo: WebGLFramebuffer | null = null
+  backdropCropTex: WebGLTexture | null = null
+  // elBlurFboA/B: ping-pong for the 2-pass separable Gaussian on the cropped
+  // backdrop (when useSeparableBlur). Same capped size as elFbo.
+  elBlurFboA: WebGLFramebuffer | null = null
+  elBlurFboATex: WebGLTexture | null = null
+  elBlurFboB: WebGLFramebuffer | null = null
+  elBlurFboBTex: WebGLTexture | null = null
 
   // SDF texture (clock_sdf) for LockScreen glass
   sdfTexture: WebGLTexture | null = null
@@ -223,6 +255,8 @@ export class LiquidGlassRenderer {
   aPosLocSf: number
   aPosLocCc: number
   aPosLocSt: number
+  aPosLocEf: number
+  aPosLocEc: number
 
   // Program uniform locations (cached)
   uEl: Record<string, WebGLUniformLocation | null> = {}
@@ -242,6 +276,8 @@ export class LiquidGlassRenderer {
   uSf: Record<string, WebGLUniformLocation | null> = {}
   uCc: Record<string, WebGLUniformLocation | null> = {}
   uSt: Record<string, WebGLUniformLocation | null> = {}
+  uEf: Record<string, WebGLUniformLocation | null> = {}
+  uEc: Record<string, WebGLUniformLocation | null> = {}
 
   /** The pressed scale for bottom tabs indicator (78f/56f in Kotlin). */
   static readonly TAB_PRESSED_SCALE = 78 / 56
@@ -274,6 +310,8 @@ export class LiquidGlassRenderer {
     this.solidFillProgram = createProgram(gl, VERTEX_SHADER, SOLID_FILL_FRAGMENT_SHADER)
     this.colorControlsProgram = createProgram(gl, VERTEX_SHADER, COLOR_CONTROLS_FRAGMENT_SHADER)
     this.sceneTintProgram = createProgram(gl, VERTEX_SHADER, SCENE_TINT_FRAGMENT_SHADER)
+    this.elFboCompositeProgram = createProgram(gl, VERTEX_SHADER, EL_FBO_COMPOSITE_FRAGMENT_SHADER)
+    this.elFboCropProgram = createProgram(gl, VERTEX_SHADER, EL_FBO_CROP_FRAGMENT_SHADER)
 
     // Fullscreen quad
     this.quadBuffer = gl.createBuffer()!
@@ -301,6 +339,8 @@ export class LiquidGlassRenderer {
     this.aPosLocSf = gl.getAttribLocation(this.solidFillProgram, 'aPos')
     this.aPosLocCc = gl.getAttribLocation(this.colorControlsProgram, 'aPos')
     this.aPosLocSt = gl.getAttribLocation(this.sceneTintProgram, 'aPos')
+    this.aPosLocEf = gl.getAttribLocation(this.elFboCompositeProgram, 'aPos')
+    this.aPosLocEc = gl.getAttribLocation(this.elFboCropProgram, 'aPos')
 
     // Offscreen 2D canvas for the foreground texture.
     this.fgCanvas = typeof document !== 'undefined' ? document.createElement('canvas') : (null as any)
@@ -337,6 +377,7 @@ export class LiquidGlassRenderer {
       'uTabContentRects[4]', 'uTabContentRects[5]', 'uTabContentRects[6]', 'uTabContentRects[7]',
       'uTabContentCount', 'uTabsGlassLayer',
       'uSdfTexSampler', 'uUseSdfTexture', 'uSdfTexSize', 'uSdfLightAngle', 'uEnterAlpha',
+      'uUsePerElementFbo', 'uSceneRectOffset', 'uElFboSize',
       'uCornerStyle', 'uSkipColorControls',
       'uUseMagnifier', 'uMagnifierZoom', 'uMagnifierOffsetY',
       'uElementRotation',
@@ -422,6 +463,10 @@ export class LiquidGlassRenderer {
     for (const n of ccNames) this.uCc[n] = gl.getUniformLocation(this.colorControlsProgram, n)
     const stNames = ['uTexture', 'uCanvasSize', 'uTintColor']
     for (const n of stNames) this.uSt[n] = gl.getUniformLocation(this.sceneTintProgram, n)
+    const efNames = ['uTexture', 'uCanvasSize', 'uDstRect', 'uSrcSize']
+    for (const n of efNames) this.uEf[n] = gl.getUniformLocation(this.elFboCompositeProgram, n)
+    const ecNames = ['uTexture', 'uSrcOffset', 'uSrcSize', 'uDstSize']
+    for (const n of ecNames) this.uEc[n] = gl.getUniformLocation(this.elFboCropProgram, n)
   }
 
   /** Lazy-compile horizontal + vertical blur programs for a 1D tap count. */
@@ -641,6 +686,22 @@ export class LiquidGlassRenderer {
     this.dialogBackdropFbo = null
     this.dialogBackdropTex = null
     this.dialogBackdropKey = null
+    // Per-element FBOs (elFbo + backdrop crop + el blur ping-pong)
+    if (this.elFbo) gl.deleteFramebuffer(this.elFbo)
+    if (this.elFboTex) gl.deleteTexture(this.elFboTex)
+    this.elFbo = null
+    this.elFboTex = null
+    this.elFboW = this.elFboH = 0
+    if (this.backdropCropFbo) gl.deleteFramebuffer(this.backdropCropFbo)
+    if (this.backdropCropTex) gl.deleteTexture(this.backdropCropTex)
+    this.backdropCropFbo = null
+    this.backdropCropTex = null
+    if (this.elBlurFboA) gl.deleteFramebuffer(this.elBlurFboA)
+    if (this.elBlurFboATex) gl.deleteTexture(this.elBlurFboATex)
+    if (this.elBlurFboB) gl.deleteFramebuffer(this.elBlurFboB)
+    if (this.elBlurFboBTex) gl.deleteTexture(this.elBlurFboBTex)
+    this.elBlurFboA = this.elBlurFboB = null
+    this.elBlurFboATex = this.elBlurFboBTex = null
     for (const { hProg, vProg } of this.blurPrograms.values()) {
       gl.deleteProgram(hProg)
       gl.deleteProgram(vProg)
@@ -674,6 +735,8 @@ export class LiquidGlassRenderer {
     gl.deleteProgram(this.solidFillProgram)
     gl.deleteProgram(this.colorControlsProgram)
     gl.deleteProgram(this.sceneTintProgram)
+    gl.deleteProgram(this.elFboCompositeProgram)
+    gl.deleteProgram(this.elFboCropProgram)
     gl.deleteBuffer(this.quadBuffer)
   }
 }

@@ -72,6 +72,7 @@ export default function Page() {
         locale: (parsed.locale === 'zh' || parsed.locale === 'en') ? parsed.locale : 'zh',
         pageTransition: typeof parsed.pageTransition === 'boolean' ? parsed.pageTransition : true,
         showFps: typeof parsed.showFps === 'boolean' ? parsed.showFps : false,
+        usePerElementFbo: typeof parsed.usePerElementFbo === 'boolean' ? parsed.usePerElementFbo : true,
       }
     } catch { return {} }
   }
@@ -501,7 +502,7 @@ export default function Page() {
              p.blurTapCap !== undefined || p.blurDownsample !== undefined ||
              p.capsuleShape !== undefined || p.hideOverlayButtons !== undefined ||
              p.locale !== undefined || p.pageTransition !== undefined ||
-             p.showFps !== undefined)) {
+             p.showFps !== undefined || p.usePerElementFbo !== undefined)) {
           try {
             window.localStorage.setItem(SETTINGS_KEY, JSON.stringify({
               customDpr: next.customDpr,
@@ -513,6 +514,7 @@ export default function Page() {
               locale: next.locale,
               pageTransition: next.pageTransition,
               showFps: next.showFps,
+              usePerElementFbo: next.usePerElementFbo,
             }))
           } catch { /* ignore quota errors */ }
         }
@@ -769,9 +771,10 @@ export default function Page() {
       targets['settings-transition-toggle'] = state.pageTransition ? 1 : 0
       targets['settings-fps-toggle'] = state.showFps ? 1 : 0
       targets['settings-highlight-aa'] = state.highlightAa ? 1 : 0
+      targets['settings-per-element-fbo'] = state.usePerElementFbo ? 1 : 0
     }
     return targets
-  }, [destination, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration, state.customDpr, state.blurTapCap, state.globalSeparableBlur, state.capsuleShape, state.hideOverlayButtons, state.pageTransition, state.showFps, state.highlightAa])
+  }, [destination, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration, state.customDpr, state.blurTapCap, state.globalSeparableBlur, state.capsuleShape, state.hideOverlayButtons, state.pageTransition, state.showFps, state.highlightAa, state.usePerElementFbo])
 
   // Tab targets use a separate prop because they need setTabSelected
   // (which sets pressedScale=78/56, not toggle's 1.5).
@@ -994,6 +997,7 @@ export default function Page() {
           rendererRef={rendererRef}
           dpr={state.customDpr}
           blurTapCap={state.blurTapCap}
+          usePerElementFbo={state.usePerElementFbo}
           className="w-full h-full"
           onReady={() => setRendererReady(true)}
         />
