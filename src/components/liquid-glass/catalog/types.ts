@@ -604,7 +604,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   customDpr: 0,
   globalSeparableBlur: true,
   blurTapCap: 17,
-  blurDownsample: 1,
+  blurDownsample: 2,
   capsuleShape: true,
   liveDpr: null,
   liveTapCap: null,

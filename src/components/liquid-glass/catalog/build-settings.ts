@@ -317,6 +317,30 @@ export function buildSettings(
     elements.push(tapCapLabelEl)
     nextY += tapCapLabelH
 
+    // Blur downsample — click to cycle 1× → 2× → 4× → 1×.
+    // 1× = full-res (slowest, best quality), 2× = half-res (4× faster),
+    // 4× = quarter-res (16× faster, visible quality loss).
+    const dsText = locale === 'en'
+      ? `Downsample: ${state.blurDownsample}×  (tap to cycle — ${state.blurDownsample === 1 ? 'full res' : state.blurDownsample === 2 ? '4× faster' : '16× faster'})`
+      : `降采样: ${state.blurDownsample}×  (点击切换 — ${state.blurDownsample === 1 ? '全分辨率' : state.blurDownsample === 2 ? '提速 4 倍' : '提速 16 倍'})`
+    const dsLabelH = 16 + CARD_PAD
+    const dsLabelEl = makeText(
+      'settings-blur-downsample',
+      { x: rowX, y: nextY, w: rowW, h: dsLabelH },
+      dsText,
+      { color: hintColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: labelPad, halo: palette.homeTextHalo, pressTintColor: labelColor }
+    )
+    dsLabelEl.isInteractive = true
+    elements.push(dsLabelEl)
+    interactions['settings-blur-downsample'] = {
+      onTap: () => {
+        const cur = state.blurDownsample
+        const next = cur >= 4 ? 1 : cur * 2
+        setState({ blurDownsample: next })
+      },
+    }
+    nextY += dsLabelH
+
     // Update card background height
     cardBgEl.rect.h = nextY - cardStartY
     nextY += CARD_GAP
@@ -505,7 +529,7 @@ export function buildSettings(
     elements.push(resetBtn)
     interactions['settings-reset'] = {
       onTap: () => {
-        setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 17, blurDownsample: 1, capsuleShape: true, hideOverlayButtons: false, locale: 'zh', pageTransition: true, liveDpr: null, liveTapCap: null, showFps: false, showPerfMonitor: false, highlightAa: true, usePerElementFbo: false, perfProgress: null, perfDone: false, perfResultDpr: 0, perfStatusText: '' })
+        setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 17, blurDownsample: 2, capsuleShape: true, hideOverlayButtons: false, locale: 'zh', pageTransition: true, liveDpr: null, liveTapCap: null, showFps: false, showPerfMonitor: false, highlightAa: true, usePerElementFbo: false, perfProgress: null, perfDone: false, perfResultDpr: 0, perfStatusText: '' })
         try { window.localStorage.removeItem('liquid-glass-perf-dpr') } catch {}
         const d = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
         const dprFrac = (d - 0.5) / Math.max(0.0001, d - 0.5)

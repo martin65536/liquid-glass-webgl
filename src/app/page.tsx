@@ -1006,6 +1006,7 @@ export default function Page() {
           rendererRef={rendererRef}
           dpr={state.customDpr}
           blurTapCap={state.blurTapCap}
+          blurDownsample={state.blurDownsample}
           usePerElementFbo={state.usePerElementFbo}
           perfMonitorEnabled={state.showPerfMonitor}
           className="w-full h-full"

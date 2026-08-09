@@ -65,6 +65,10 @@ export interface LiquidGlassCanvasProps {
    *  Small blur radii automatically use fewer taps (computeBlur1DTapCount);
    *  this caps the MAXIMUM. */
   blurTapCap?: number
+  /** Blur FBO downsample factor (1=full-res, 2=half-res, 4=quarter). Cuts
+   *  blur fragment invocations by ds². Applied on renderer init + when it
+   *  changes (triggers blur FBO rebuild). */
+  blurDownsample?: number
   /** Corner style: 0 = circular, 1 = continuous (squircle). */
   cornerStyle?: number
   /** Per-element FBO optimization toggle. When true (default), each glass
@@ -156,6 +160,7 @@ export function LiquidGlassCanvas({
   className,
   dpr,
   blurTapCap,
+  blurDownsample,
   cornerStyle,
   showPefBboxOverlay = false,
   usePerElementFbo,
@@ -219,6 +224,9 @@ export function LiquidGlassCanvas({
     }
     // Apply blur tap cap (Settings slider) so 2-pass separable blur uses it.
     if (blurTapCap != null) renderer.blurTapCap = Math.max(1, Math.min(33, blurTapCap | 0))
+    // Apply blur downsample (Settings slider). Must be set BEFORE resizeFBOs
+    // so the blur FBOs are created at the downsampled size on first init.
+    if (blurDownsample != null) renderer.blurDownsample = Math.max(1, blurDownsample | 0)
     if (cornerStyle != null) renderer.cornerStyle = cornerStyle
     if (usePerElementFbo != null) renderer.usePerElementFbo = usePerElementFbo
     if (perfMonitorEnabled != null) renderer.perfMonitor.enabled = perfMonitorEnabled
@@ -269,6 +277,17 @@ export function LiquidGlassCanvas({
     if (!renderer || blurTapCap == null) return
     renderer.blurTapCap = Math.max(1, Math.min(33, blurTapCap | 0))
   }, [blurTapCap])
+
+  // Apply blur downsample when it changes (Settings slider). Rebuilds the
+  // blur FBOs at the new downsampled size (force=true bypasses the
+  // fboW/fboH early-return in resizeFBOs).
+  React.useEffect(() => {
+    const renderer = rendererRefInternal.current
+    if (!renderer || blurDownsample == null) return
+    renderer.blurDownsample = Math.max(1, blurDownsample | 0)
+    renderer.resizeFBOs(renderer.fboW, renderer.fboH, true)
+    renderer.requestRender()
+  }, [blurDownsample])
 
   // Apply corner style when it changes (Settings page toggle).
   React.useEffect(() => {

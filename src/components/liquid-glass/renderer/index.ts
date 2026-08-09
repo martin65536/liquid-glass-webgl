@@ -177,8 +177,17 @@ export class LiquidGlassRenderer {
    *  Set from CatalogState.blurTapCap. Default 17. */
   blurTapCap = 17
   /** Blur downsample factor (1=full-res, 2=half-res, 4=quarter). Higher = much
-   *  faster but slightly lower quality. Set from CatalogState.blurDownsample. */
+   *  faster but slightly lower quality. Set from CatalogState.blurDownsample.
+   *  The blur FBOs (blurFboA/blurFboB) are sized floor(fboW/ds) × floor(fboH/ds).
+   *  blurTexture scales `radius` by 1/ds so the visual blur radius is preserved
+   *  (half-res pixels are twice as wide → radius/2 px covers the same screen
+   *  distance). */
   blurDownsample = 1
+  /** Actual device-px size of blurFboA/blurFboB (= floor(fboW/blurDownsample)).
+   *  Set by resizeFBOs. blurTexture/blurHighlightMask viewport + uTexSize use
+   *  THIS (not fboW/fboH) so the blur renders into the downsampled FBO. */
+  blurFboW = 0
+  blurFboH = 0
   /** Corner style: 0 = circular, 1 = continuous (squircle). Set from
    *  CatalogState.capsuleShape. Default 1 (Continuous, matching original). */
   cornerStyle = 1
@@ -646,13 +655,23 @@ export class LiquidGlassRenderer {
    *  blurred result into blurFboB, returns blurFboBTex.
    *  Saves/restores the currently-bound framebuffer.
    *  Uses this.blurTapCap to cap 1D tap count (performance knob).
-   *  (blurDownsample is reserved for future use — currently always full-res.) */
+   *  (blurDownsample is reserved for future use — currently always full-res.)
+   *
+   *  Downsample: the blur FBOs are sized floor(fboW/ds) × floor(fboH/ds).
+   *  `radius` is scaled by 1/ds (half-res pixels are twice as wide, so
+   *  radius/ds px covers the same screen distance). This preserves the
+   *  visual blur radius while cutting fragment invocations by ds². The
+   *  element pass samples blurFboBTex with UV 0-1 (LINEAR filtering
+   *  upsamples back to full-res), so no caller changes needed. */
   blurTexture(srcTex: WebGLTexture, radius: number): WebGLTexture {
     const gl = this.gl
-    const w = this.fboW
-    const h = this.fboH
+    const ds = Math.max(1, this.blurDownsample | 0)
+    const w = this.blurFboW || this.fboW
+    const h = this.blurFboH || this.fboH
+    // Scale radius to the downsampled space (1/ds). Visual radius preserved.
+    const dsRadius = radius / ds
     // Compute tap count, capped by blurTapCap (performance knob).
-    let taps = computeBlur1DTapCount(radius)
+    let taps = computeBlur1DTapCount(dsRadius)
     taps = Math.min(taps, Math.max(1, this.blurTapCap | 0))
     this.ensureBlurPrograms(taps)
     const entry = this.blurPrograms.get(taps)!
@@ -670,7 +689,7 @@ export class LiquidGlassRenderer {
     gl.bindTexture(gl.TEXTURE_2D, srcTex)
     gl.uniform1i(entry.uH['uTexture'], 0)
     gl.uniform2f(entry.uH['uTexSize'], w, h)
-    gl.uniform1f(entry.uH['uRadius'], radius)
+    gl.uniform1f(entry.uH['uRadius'], dsRadius)
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 
     // Pass 2: vertical — blurFboATex → blurFboB
@@ -684,11 +703,11 @@ export class LiquidGlassRenderer {
     gl.bindTexture(gl.TEXTURE_2D, this.blurFboATex!)
     gl.uniform1i(entry.uV['uTexture'], 0)
     gl.uniform2f(entry.uV['uTexSize'], w, h)
-    gl.uniform1f(entry.uV['uRadius'], radius)
+    gl.uniform1f(entry.uV['uRadius'], dsRadius)
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, savedFb)
-    gl.viewport(0, 0, w, h)
+    gl.viewport(0, 0, this.fboW, this.fboH)
     return this.blurFboBTex!
   }
 
@@ -740,9 +759,12 @@ export class LiquidGlassRenderer {
    *  Saves/restores the currently-bound framebuffer. */
   blurHighlightMask(srcTex: WebGLTexture, sigmaPx: number): WebGLTexture {
     const gl = this.gl
-    const w = this.fboW
-    const h = this.fboH
-    let taps = computeHighlightBlurTapCount(sigmaPx)
+    const ds = Math.max(1, this.blurDownsample | 0)
+    const w = this.blurFboW || this.fboW
+    const h = this.blurFboH || this.fboH
+    // Scale sigma to downsampled space (visual radius preserved).
+    const dsSigma = sigmaPx / ds
+    let taps = computeHighlightBlurTapCount(dsSigma)
     taps = Math.min(taps, Math.max(3, this.blurTapCap | 0))
     this.ensureHighlightBlurPrograms(taps)
     const entry = this.highlightBlurPrograms.get(taps)!
@@ -760,7 +782,7 @@ export class LiquidGlassRenderer {
     gl.bindTexture(gl.TEXTURE_2D, srcTex)
     gl.uniform1i(entry.uH['uTexture'], 0)
     gl.uniform2f(entry.uH['uTexSize'], w, h)
-    gl.uniform1f(entry.uH['uRadius'], sigmaPx)
+    gl.uniform1f(entry.uH['uRadius'], dsSigma)
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 
     // Pass 2: vertical — blurFboATex → blurFboB
@@ -774,11 +796,11 @@ export class LiquidGlassRenderer {
     gl.bindTexture(gl.TEXTURE_2D, this.blurFboATex!)
     gl.uniform1i(entry.uV['uTexture'], 0)
     gl.uniform2f(entry.uV['uTexSize'], w, h)
-    gl.uniform1f(entry.uV['uRadius'], sigmaPx)
+    gl.uniform1f(entry.uV['uRadius'], dsSigma)
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, savedFb)
-    gl.viewport(0, 0, w, h)
+    gl.viewport(0, 0, this.fboW, this.fboH)
     return this.blurFboBTex!
   }
 

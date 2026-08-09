@@ -388,3 +388,27 @@ Stage Summary:
 - blurTexture now scissor-bounded: 2N full-screen blurs → 2N bbox-sized blurs. Biggest win for multi-glass scenes (perf benchmark 16 glasses, control center 14 glasses, dialog card).
 - Card culling fixed: parent card bg and child elements cull at the same scroll position. No more floating children without bg.
 - Lint clean, dev log clean (no compile errors).
+
+---
+Task ID: blur-downsample
+Agent: main (Z.ai Code)
+Task: 实现 blurDownsample 真正生效——blur FBO 按比例缩小，减少 fragment invocations。之前 blurDownsample 字段存在但标注 "reserved"，从未使用。
+
+Work Log:
+- index.ts: 加 blurFboW/blurFboH 字段（= floor(fboW/blurDownsample)）。blurTexture + blurHighlightMask 改用 blurFboW/H 做 viewport + uTexSize。radius 按 1/ds 缩放（半分辨率像素宽度翻倍，radius/ds 覆盖相同屏幕距离，视觉模糊半径不变）。
+- methods-fbo.ts: resizeFBOs 加 force 参数。blurFboA/blurFboB 用 floor(w/ds) × floor(h/ds) 创建，设 blurFboW/H。force=true 绕过 fboW/fboH early-return（blurDownsample 变化时需重建 blur FBO，但 scene FBO 尺寸没变）。
+- context.tsx: LiquidGlassCanvasProps 加 blurDownsample prop。init 时在 resizeFBOs 前设 renderer.blurDownsample（首次创建就用缩放尺寸）。useEffect 监听 blurDownsample 变化 → 设值 + resizeFBOs(force=true) + requestRender。
+- page.tsx: 传 blurDownsample={state.blurDownsample}。
+- catalog/types.ts: 默认 blurDownsample 1→2（立刻见效，4× blur fragment 减少）。
+- build-settings.ts: 模糊卡片加"降采样"可点击文本行，点击循环 1×→2×→4×→1×。显示当前值 + 提速倍数提示。reset 按钮默认值改 2。
+
+Verification:
+- lint 干净，dev log 无编译错误。
+- Home 页渲染正常，blur 效果可见，downsample 2× 默认生效无崩溃。
+- Settings 页模糊卡片显示"降采样: 2× (点击切换 — 提速 4 倍)"控件。
+- 点击降采样行触发值切换（循环逻辑 cur>=4?1:cur*2 生效）。
+
+Stage Summary:
+- blurDownsample 真正生效：blur FBO 尺寸 = floor(fboW/ds) × floor(fboH/ds)。默认 2× = blur fragment invocations 降 4×。设置页可调 1/2/4×。
+- radius 按 1/ds 缩放保持视觉模糊半径不变（半分辨率下 radius/2 px = 全分辨率 radius px 的屏幕距离）。
+- blurTexture + blurHighlightMask 都用 downsample 尺寸。highlight sigma 极小（0.25/1.5dp），downsample 后 taps 保持 ≥3，视觉影响可接受。
