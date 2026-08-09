@@ -112,6 +112,13 @@ export const fboMethods = {
     this.dialogBackdropFbo = db.fb
     this.dialogBackdropTex = db.tex
     this.dialogBackdropKey = null
+    // Background-only FBO (wallpaper + non-glass elements; glass samples
+    // this when the isolateBackdrop quick-toggle is on).
+    if (this.bgOnlyFbo) gl.deleteFramebuffer(this.bgOnlyFbo)
+    if (this.bgOnlyTex) gl.deleteTexture(this.bgOnlyTex)
+    const bg = this.createFBO(w, h)
+    this.bgOnlyFbo = bg.fb
+    this.bgOnlyTex = bg.tex
     this.fboW = w
     this.fboH = h
   },

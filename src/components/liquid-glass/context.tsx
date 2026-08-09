@@ -75,6 +75,11 @@ export interface LiquidGlassCanvasProps {
    *  enabled (frame timing + per-frame render counters + GPU info). The
    *  React overlay (rendered by the parent) polls the snapshot. */
   perfMonitorEnabled?: boolean
+  /** Debug: when true, an overlay canvas draws each glass element's PEF
+   *  bbox (green = PEF, red = ping-pong) on top of the WebGL canvas. Mirrors
+   *  `renderer.showPefBbox`. Use for visualizing the per-element FBO regions
+   *  during performance tuning. */
+  showPefBboxOverlay?: boolean
 }
 
 export interface ElementInteraction {
@@ -152,11 +157,13 @@ export function LiquidGlassCanvas({
   dpr,
   blurTapCap,
   cornerStyle,
+  showPefBboxOverlay = false,
   usePerElementFbo,
   perfMonitorEnabled,
 }: LiquidGlassCanvasProps) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
   const containerRef = React.useRef<HTMLDivElement>(null)
+  const overlayCanvasRef = React.useRef<HTMLCanvasElement>(null)
   const rendererRefInternal = React.useRef<LiquidGlassRenderer | null>(null)
   // Keep refs to the latest state so pointer handlers can read them
   // without being re-created on every change.
@@ -215,6 +222,7 @@ export function LiquidGlassCanvas({
     if (cornerStyle != null) renderer.cornerStyle = cornerStyle
     if (usePerElementFbo != null) renderer.usePerElementFbo = usePerElementFbo
     if (perfMonitorEnabled != null) renderer.perfMonitor.enabled = perfMonitorEnabled
+    renderer.showPefBbox = showPefBboxOverlay
     resize()
     const ro = new ResizeObserver(resize)
     ro.observe(containerRef.current)
@@ -294,6 +302,51 @@ export function LiquidGlassCanvas({
     renderer.perfMonitor.enabled = perfMonitorEnabled
     if (perfMonitorEnabled) renderer.perfMonitor.reset()
   }, [perfMonitorEnabled])
+
+  // --- Debug: PEF bbox overlay ---
+  // A rAF loop that reads renderer.debugPefBboxes (populated during render
+  // when renderer.showPefBbox is true) and draws rectangles on the 2D overlay
+  // canvas. Green = PEF path, red = ping-pong path. The overlay canvas is
+  // pointer-events:none so it doesn't block interaction.
+  // The loop always runs (cheap when showPefBbox is off — just clears), so
+  // the perf-monitor overlay can toggle renderer.showPefBbox directly without
+  // going through React props.
+  React.useEffect(() => {
+    const renderer = rendererRefInternal.current
+    if (!renderer) return
+    let raf = 0
+    const draw = () => {
+      const oc = overlayCanvasRef.current
+      const mc = canvasRef.current
+      if (oc && mc && renderer) {
+        const cssW = mc.clientWidth
+        const cssH = mc.clientHeight
+        if (oc.width !== cssW || oc.height !== cssH) {
+          oc.width = cssW
+          oc.height = cssH
+        }
+        const ctx = oc.getContext('2d')
+        if (ctx) {
+          ctx.clearRect(0, 0, oc.width, oc.height)
+          if (renderer.showPefBbox) {
+            const boxes = renderer.debugPefBboxes
+            for (let i = 0; i < boxes.length; i++) {
+              const b = boxes[i]
+              ctx.strokeStyle = b.fbo ? 'rgba(80, 220, 120, 0.95)' : 'rgba(240, 90, 90, 0.95)'
+              ctx.lineWidth = 1.5
+              ctx.strokeRect(b.x + 0.5, b.y + 0.5, b.w - 1, b.h - 1)
+              ctx.fillStyle = b.fbo ? 'rgba(80, 220, 120, 0.95)' : 'rgba(240, 90, 90, 0.95)'
+              ctx.font = 'bold 10px ui-monospace, monospace'
+              ctx.fillText(String(i), b.x + 3, b.y + 11)
+            }
+          }
+        }
+      }
+      raf = requestAnimationFrame(draw)
+    }
+    raf = requestAnimationFrame(draw)
+    return () => cancelAnimationFrame(raf)
+  }, [])
 
   // Push the latest element list to the renderer.
   React.useEffect(() => {
@@ -839,6 +892,16 @@ export function LiquidGlassCanvas({
           height: '100%',
           cursor: 'pointer',
           touchAction: 'none',
+        }}
+      />
+      <canvas
+        ref={overlayCanvasRef}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          pointerEvents: 'none',
         }}
       />
     </div>

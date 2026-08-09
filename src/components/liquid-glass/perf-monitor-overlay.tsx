@@ -329,6 +329,7 @@ function Body({
         <Row label="Max texture" value={String(snapshot.maxTextureSize)} hint={`exts ${snapshot.extensionCount}`} />
       </Section>
       <QuickToggles rendererRef={rendererRef} />
+      <DebugToggles rendererRef={rendererRef} />
       <div style={{ display: 'flex', gap: 6, padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
         <button
           style={{ ...btnStyle, flex: 1 }}
@@ -365,17 +366,19 @@ const QUICK_TOGGLE_KEYS = [
   'outerShadow',
   'innershadow',
   'perElementFbo',
+  'isolateBackdrop',
 ] as const
 type QuickToggleKey = typeof QUICK_TOGGLE_KEYS[number]
 
 const QUICK_TOGGLE_LABELS: Record<QuickToggleKey, { label: string; hint: string }> = {
-  highlight:      { label: 'Highlight',        hint: 'rim + stroke mask + 3-pass blur' },
-  backdropBlur:   { label: 'Backdrop blur',    hint: '2-pass Gaussian on backdrop' },
-  chromatic:      { label: 'Chromatic',        hint: 'RGB channel split samples' },
-  refraction:     { label: 'Refraction',       hint: 'lens distortion offset' },
-  outerShadow:    { label: 'Outer shadow',     hint: 'drop-shadow pass' },
-  innershadow:    { label: 'Inner shadow',     hint: 'inner shadow ring-mask composite' },
-  perElementFbo:  { label: 'Per-element FBO',  hint: 'small FBO vs fullscreen blit' },
+  highlight:        { label: 'Highlight',        hint: 'rim + stroke mask + 3-pass blur' },
+  backdropBlur:     { label: 'Backdrop blur',    hint: '2-pass Gaussian on backdrop' },
+  chromatic:        { label: 'Chromatic',        hint: 'RGB channel split samples' },
+  refraction:       { label: 'Refraction',       hint: 'lens distortion offset' },
+  outerShadow:      { label: 'Outer shadow',     hint: 'drop-shadow pass' },
+  innershadow:      { label: 'Inner shadow',     hint: 'inner shadow ring-mask composite' },
+  perElementFbo:    { label: 'Per-element FBO',  hint: 'small FBO vs fullscreen blit' },
+  isolateBackdrop:  { label: 'Isolate backdrop', hint: 'glass samples wallpaper only, not other glass' },
 }
 
 function QuickToggles({ rendererRef }: { rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> }) {
@@ -391,6 +394,7 @@ function QuickToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
     outerShadow: true,
     innershadow: true,
     perElementFbo: false,
+    isolateBackdrop: false,
   })
 
   // On mount, read the renderer's actual quickToggles state (it may have
@@ -406,6 +410,7 @@ function QuickToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
       outerShadow: r.quickToggles.outerShadow,
       innershadow: r.quickToggles.innershadow,
       perElementFbo: r.quickToggles.perElementFbo,
+      isolateBackdrop: r.quickToggles.isolateBackdrop,
     })
   }, [rendererRef])
 
@@ -428,6 +433,7 @@ function QuickToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
       outerShadow: v,
       innershadow: v,
       perElementFbo: v,
+      isolateBackdrop: v,
     }
     setFlags(next)
     const r = rendererRef.current
@@ -439,6 +445,7 @@ function QuickToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
       r.quickToggles.outerShadow = v
       r.quickToggles.innershadow = v
       r.quickToggles.perElementFbo = v
+      r.quickToggles.isolateBackdrop = v
       r.requestRender()
     }
   }
@@ -483,6 +490,63 @@ function QuickToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
           </span>
         </button>
       ))}
+    </div>
+  )
+}
+
+/* --- Debug visualization toggles ---
+ * Unlike QuickToggles (which gate shader passes for power A/B), these are
+ * debug overlays drawn on top of the canvas. They read/write flags directly
+ * on the renderer; the LiquidGlassCanvas's overlay rAF loop picks them up.
+ */
+function DebugToggles({ rendererRef }: { rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> }) {
+  const [showBbox, setShowBbox] = React.useState(false)
+
+  // Read the renderer's actual flag on mount (it may have been seeded from
+  // the showPefBboxOverlay prop by context.tsx).
+  React.useEffect(() => {
+    const r = rendererRef.current
+    if (r) setShowBbox(r.showPefBbox)
+  }, [rendererRef])
+
+  const flipBbox = () => {
+    const next = !showBbox
+    setShowBbox(next)
+    const r = rendererRef.current
+    if (r) {
+      r.showPefBbox = next
+      r.requestRender()
+    }
+  }
+
+  return (
+    <div style={{ padding: '6px 10px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+      <div style={{ font: 'bold 10px ui-monospace, monospace', color: '#aaa', marginBottom: 4, letterSpacing: 0.5 }}>
+        DEBUG OVERLAYS
+      </div>
+      <button
+        onClick={flipBbox}
+        title="Draw each glass element's PEF bbox on the canvas (green=PEF, red=ping-pong)"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          width: '100%',
+          background: showBbox ? 'rgba(80,200,120,0.12)' : 'rgba(120,120,120,0.08)',
+          border: `1px solid ${showBbox ? 'rgba(80,200,120,0.4)' : 'rgba(120,120,120,0.25)'}`,
+          color: '#e8e8e8',
+          font: '11px ui-monospace, monospace',
+          padding: '3px 8px',
+          borderRadius: 4,
+          cursor: 'pointer',
+          textAlign: 'left',
+        }}
+      >
+        <span>Show PEF bbox</span>
+        <span style={{ color: showBbox ? '#6f6' : '#888', fontWeight: 700, fontSize: 10 }}>
+          {showBbox ? 'ON' : 'OFF'}
+        </span>
+      </button>
     </div>
   )
 }

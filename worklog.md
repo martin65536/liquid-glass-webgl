@@ -303,3 +303,37 @@ Stage Summary:
 - 三个页面 VLM 验证无视觉 regression。
 - Draw calls 收益：控制中心 14 glass 节省 14 个 fullscreen blit。
 - Ready to commit + push.
+
+---
+Task ID: 9
+Agent: main (Z.ai Code)
+Task: 性能调试加一个"显示 PEF 范围"选项；加一个"玻璃只采样背景不采样别的玻璃"开关。
+
+Work Log:
+
+功能 A — PEF bbox 可视化：
+- renderer/index.ts: 加 `showPefBbox: boolean` + `debugPefBboxes: {x,y,w,h,fbo}[]` 字段。
+- methods-render.ts render(): 每帧开头 if (showPefBbox) 清空 debugPefBboxes。
+- methods-render-glass.ts: PEF 路径 + ping-pong 路径都 push bbox（CSS px, top-left origin）。PEF 路径 fbo=true（绿色），ping-pong 路径 fbo=false（红色）。
+- context.tsx: 加 overlayCanvasRef + 一个 2D canvas（pointer-events:none, position:absolute inset:0）。rAF 循环读 renderer.debugPefBboxes 画框（绿=PEF, 红=ping-pong）+ 元素索引标签。rAF 始终运行（showPefBbox=false 时只 clear，成本极低）。加 showPefBboxOverlay prop 作为初始 seed。
+- perf-monitor-overlay.tsx: 新增 DebugToggles 组件（独立于 QuickToggles，在 "DEBUG OVERLAYS" section 下）。"Show PEF bbox" 按钮直接设 renderer.showPefBbox + requestRender。onMount 读 renderer 实际状态同步 UI。
+
+功能 B — 玻璃只采样背景（isolateBackdrop）：
+- renderer/index.ts: quickToggles 加 `isolateBackdrop: false`（默认关）。加 bgOnlyFbo + bgOnlyTex 字段。
+- methods-fbo.ts resizeFBOs: 创建 bgOnlyFbo（同 canvas 尺寸，跟主 FBO 一起 resize）。destroy 里清理。
+- methods-render.ts render(): renderBackground + sceneBlur 后，如果 isolateBackdrop，把 fboATex copy 到 bgOnlyFbo（seed = wallpaper）。元素循环里，非玻璃元素渲染到 curFbo 后，如果 isolate，也画一份到 bgOnlyFbo（两个循环：主循环 + renderOnTop 循环都处理）。
+- methods-render-glass.ts: PEF 路径 Step 2 + ping-pong 路径 Step 2b 的 backdropSrc 选择改为三选一：backdropFbo 元素用 dialogBackdropTex → isolate 时用 bgOnlyTex → 否则 curTex。无 blur 分支也加 isolate 判断（用 bgOnlyTex 替代 curTex）。
+- perf-monitor-overlay.tsx: QUICK_TOGGLE_KEYS + LABELS + state 初始化 + useEffect + setAll 都加 isolateBackdrop。label="Isolate backdrop", hint="glass samples wallpaper only, not other glass"。
+
+Verification (agent-browser + VLM):
+- 功能 A: 导航到控制中心，开启 "Show PEF bbox"。VLM 确认 13 个绿色矩形框画在 glass tiles 上（对应 13 个 glass 元素，全 PEF，0 ping-pong）。数字与 perf monitor "Glass 14 FBO 14 ping-pong 0" 一致（VLM 计数 13 vs 渲染计数 14，差异是 VLM 漏数了一个）。
+- 功能 B: 在控制中心对比 isolateBackdrop ON vs OFF。VLM 确认：
+  - OFF: "glass tiles exhibit mutual refraction... mix of wallpaper colors and blurred distorted shapes of adjacent tiles... dense, layered look"
+  - ON: "refraction is isolated to background only... glass tiles no longer see or refract each other... cleaner, more uniform... flatter because loses depth cue of refracting nearby objects"
+  - 准确描述了预期效果。
+- lint 干净，dev log 无错误。
+
+Stage Summary:
+- 功能 A（PEF bbox 可视化）：perf monitor 加 "DEBUG OVERLAYS" section，含 "Show PEF bbox" toggle。开启后 overlay canvas 在每个 glass 元素上画框（绿=PEF, 红=ping-pong）+ 索引标签。用于可视化 PEF 覆盖范围。
+- 功能 B（isolateBackdrop）：quickToggles 加 "Isolate backdrop" 开关。开启后玻璃只采样 wallpaper+非玻璃 UI，不折射其他玻璃。实现方式：维护 bgOnlyFbo（wallpaper + 非玻璃元素副本），玻璃采样时用 bgOnlyTex 替代 curTex。
+- 两个功能都 VLM 验证通过。Ready to commit + push.

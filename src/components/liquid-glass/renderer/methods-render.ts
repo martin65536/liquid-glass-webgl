@@ -61,6 +61,10 @@ export const renderMethods = {
     this.perfMonitor.deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
     this.perfMonitor.frameStart()
 
+    // Debug: clear the PEF bbox list at the start of each render. The PEF
+    // path pushes to it during the element loop; the overlay reads it after.
+    if (this.showPefBbox) this.debugPefBboxes.length = 0
+
     if (!this.wallpaperReady && !this.backgroundColor) {
       this.perfMonitor.frameEnd()
       return
@@ -121,6 +125,21 @@ export const renderMethods = {
     gl.enable(gl.BLEND)
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
+    // --- Isolate backdrop: snapshot the wallpaper into bgOnlyFbo ---
+    // When the isolateBackdrop quick-toggle is on, glass elements sample
+    // bgOnlyFbo (wallpaper + non-glass UI) instead of curTex (which also
+    // contains other glass). This snapshot seeds bgOnlyFbo with the
+    // wallpaper; non-glass elements rendered below also composite into it.
+    const isolate = this.quickToggles.isolateBackdrop
+    if (isolate && this.bgOnlyFbo && this.bgOnlyTex) {
+      this.bindFBO(this.bgOnlyFbo)
+      this.gl.viewport(0, 0, this.fboW, this.fboH)
+      this.drawCopy(this.fboATex!)
+      // drawCopy disables blend; re-enable for subsequent non-glass draws.
+      this.gl.enable(this.gl.BLEND)
+      this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA)
+    }
+
     // Cull + iterate. We render elements in DECLARED ORDER (no Wave 1 /
     // Wave 2 split) because the FBO ping-pong makes z-ordering faithful:
     // each element composites on top of everything declared before it.
@@ -166,7 +185,14 @@ export const renderMethods = {
       const st = this.buttonStates.get(el.id)
 
       // --- Non-glass elements: render directly to current FBO ---
-      if (this.renderNonGlassElement(el, r, st, curFbo)) continue
+      if (this.renderNonGlassElement(el, r, st, curFbo)) {
+        // Isolate backdrop: also composite non-glass elements into bgOnlyFbo
+        // so glass elements sampling bgOnlyFbo see the non-glass UI.
+        if (isolate && this.bgOnlyFbo) {
+          this.renderNonGlassElement(el, r, st, this.bgOnlyFbo)
+        }
+        continue
+      }
 
       // --- Backdrop FBO: render wallpaper+scrim+colorControls into
       // dialogBackdropFbo (cached) for backdropFbo elements. ---
@@ -225,7 +251,12 @@ export const renderMethods = {
       const st = this.buttonStates.get(el.id)
 
       // Non-glass renderOnTop elements (scrim/dim) render directly on curFbo.
-      if (this.renderNonGlassElement(el, r, st, curFbo)) continue
+      if (this.renderNonGlassElement(el, r, st, curFbo)) {
+        if (isolate && this.bgOnlyFbo) {
+          this.renderNonGlassElement(el, r, st, this.bgOnlyFbo)
+        }
+        continue
+      }
 
       // Glass renderOnTop elements (back button / theme toggle): normal
       // ping-pong. The blit copies curTex (which now contains the scrim) to

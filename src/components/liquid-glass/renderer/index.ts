@@ -154,6 +154,15 @@ export class LiquidGlassRenderer {
   dialogBackdropTex: WebGLTexture | null = null
   /** Cache key for dialogBackdropFbo (scrim+cc params) — skip re-render if unchanged. */
   dialogBackdropKey: string | null = null
+  /** "Background-only" FBO — a parallel scene buffer that contains ONLY
+   *  wallpaper + non-glass elements (never glass). When the
+   *  `isolateBackdrop` quick-toggle is on, glass elements sample THIS
+   *  texture instead of curTex, so they don't refract other glass — only
+   *  the wallpaper + non-glass UI behind them. Lazily created in
+   *  renderGlassElement when isolateBackdrop is first enabled; resized
+   *  with the main FBOs. */
+  bgOnlyFbo: WebGLFramebuffer | null = null
+  bgOnlyTex: WebGLTexture | null = null
   /** Blur shader variants keyed by 1D tap count (H + V programs each). */
   blurPrograms = new Map<number, { hProg: WebGLProgram; vProg: WebGLProgram; uH: Record<string, WebGLUniformLocation | null>; uV: Record<string, WebGLUniformLocation | null>; aPosH: number; aPosV: number }>()
   /** Highlight blur programs — separate from blurPrograms because these blur
@@ -221,6 +230,7 @@ export class LiquidGlassRenderer {
     outerShadow: true,
     innershadow: true,
     perElementFbo: false,
+    isolateBackdrop: false,
   }
   /** True when the WebGL context is backed by a SOFTWARE rasterizer
    *  (SwiftShader / llvmpipe / Mesa softpipe / Apple software renderer).
@@ -231,6 +241,13 @@ export class LiquidGlassRenderer {
    *  (which only skip shader passes, not the context's existence).
    *  Detected lazily on first render via WEBGL_debug_renderer_info. */
   isSoftwareRenderer = false
+  /** Debug: when true, the renderer collects each glass element's PEF
+   *  bbox (CSS px, top-left origin) into `debugPefBboxes` during render.
+   *  The React overlay reads this array to draw visible rectangles over
+   *  the canvas. Cleared at the start of every render; only populated
+   *  when this flag is true. */
+  showPefBbox = false
+  debugPefBboxes: { x: number; y: number; w: number; h: number; fbo: boolean }[] = []
   /** Performance monitor — frame timing + per-frame render counters +
    *  GPU info. When `perfMonitor.enabled === false` (default), every
    *  increment is a no-op. Toggled on by the Settings "Performance
@@ -805,6 +822,10 @@ export class LiquidGlassRenderer {
     this.dialogBackdropFbo = null
     this.dialogBackdropTex = null
     this.dialogBackdropKey = null
+    if (this.bgOnlyFbo) gl.deleteFramebuffer(this.bgOnlyFbo)
+    if (this.bgOnlyTex) gl.deleteTexture(this.bgOnlyTex)
+    this.bgOnlyFbo = null
+    this.bgOnlyTex = null
     // Per-element FBOs (elFbo + backdrop crop + el blur ping-pong)
     if (this.elFbo) gl.deleteFramebuffer(this.elFbo)
     if (this.elFboTex) gl.deleteTexture(this.elFboTex)

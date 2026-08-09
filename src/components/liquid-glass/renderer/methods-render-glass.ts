@@ -426,6 +426,20 @@ export const glassRenderMethods = {
     gl.enable(gl.SCISSOR_TEST)
     gl.scissor(scissorX, scissorY, scissorW, scissorH)
 
+    // Debug: record this element's bbox (ping-pong path, fbo=false) so the
+    // overlay can visualize it when PEF is off too.
+    if (this.showPefBbox) {
+      const pxX = scissorX / this.dpr
+      const pxY = (this.fboH - scissorY - scissorH) / this.dpr
+      this.debugPefBboxes.push({
+        x: pxX,
+        y: pxY,
+        w: scissorW / this.dpr,
+        h: scissorH / this.dpr,
+        fbo: false,
+      })
+    }
+
     const state: GlassRenderState = {
       el, st, isButton, p, sx, sy, sw, sh, radii, togglePressProgress,
       // For toggle knobs + bottom-tab indicators, the highlight alpha is
@@ -471,9 +485,17 @@ export const glassRenderMethods = {
     // --- Step 2b: Element pass (refraction + vibrancy + tint) ---
     if (el.useSeparableBlur && el.blurRadius >= 0.5 && this.quickToggles.backdropBlur) {
       const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr
-      // For backdropFbo elements (dialog card), blur the dialogBackdropTex
-      // (wallpaper+scrim+colorControls opaque layer) instead of the scene FBO.
-      const backdropSrc = (el.backdropFbo && this.dialogBackdropTex) ? this.dialogBackdropTex : curTex
+      // Isolate backdrop: sample bgOnlyTex (wallpaper + non-glass UI) instead
+      // of curTex (which includes other glass). backdropFbo elements keep
+      // their own dialogBackdropTex (it's already wallpaper-only).
+      let backdropSrc: WebGLTexture
+      if (el.backdropFbo && this.dialogBackdropTex) {
+        backdropSrc = this.dialogBackdropTex
+      } else if (this.quickToggles.isolateBackdrop && this.bgOnlyTex) {
+        backdropSrc = this.bgOnlyTex
+      } else {
+        backdropSrc = curTex
+      }
       const blurredBackdrop = this.blurTexture(backdropSrc, blurRadiusPx)
       this.perfMonitor.incBlurPass()
       this.perfMonitor.incDrawCall(2) // 2-pass Gaussian (H + V)
@@ -489,7 +511,9 @@ export const glassRenderMethods = {
       const passState = el.backdropFbo ? { ...state, el: { ...el, backdropFbo: false } } : state
       this.renderGlassElementPass(passState, blurredBackdrop)
     } else {
-      this.renderGlassElementPass(state, curTex)
+      // No blur: backdrop is sampled directly. Isolate → bgOnlyTex.
+      const backdropTex = (this.quickToggles.isolateBackdrop && this.bgOnlyTex && !el.backdropFbo) ? this.bgOnlyTex : curTex
+      this.renderGlassElementPass(state, backdropTex)
     }
 
     // --- Steps 2c–2f: Press glow, white overlay, foreground, rim highlight ---
@@ -564,6 +588,18 @@ export const glassRenderMethods = {
     // Bottom-left origin Y for scissor (WebGL scissor uses BL origin).
     const bboxScissorY = Math.max(0, this.fboH - by1Top)
 
+    // Debug: record this element's PEF bbox (in CSS px, top-left origin)
+    // so the React overlay can draw a visible rectangle over the canvas.
+    if (this.showPefBbox) {
+      this.debugPefBboxes.push({
+        x: bx0 / this.dpr,
+        y: by0Top / this.dpr,
+        w: bboxW / this.dpr,
+        h: bboxH / this.dpr,
+        fbo: true,
+      })
+    }
+
     // --- Ensure the per-element FBOs exist at bboxW×bboxH (capped) ---
     const { w: elFboW, h: elFboH } = this.ensureElementFBO(bboxW, bboxH)
 
@@ -630,7 +666,17 @@ export const glassRenderMethods = {
     let passState = state
     if (el.useSeparableBlur && el.blurRadius >= 0.5 && this.quickToggles.backdropBlur) {
       const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr
-      const backdropSrc = (el.backdropFbo && this.dialogBackdropTex) ? this.dialogBackdropTex : curTex
+      // Isolate backdrop: sample bgOnlyTex (wallpaper + non-glass UI) instead
+      // of curTex (which includes other glass). backdropFbo elements keep
+      // their own dialogBackdropTex (it's already wallpaper-only).
+      let backdropSrc: WebGLTexture
+      if (el.backdropFbo && this.dialogBackdropTex) {
+        backdropSrc = this.dialogBackdropTex
+      } else if (this.quickToggles.isolateBackdrop && this.bgOnlyTex) {
+        backdropSrc = this.bgOnlyTex
+      } else {
+        backdropSrc = curTex
+      }
       backdropTex = this.blurTexture(backdropSrc, blurRadiusPx)
       this.perfMonitor.incBlurPass()
       this.perfMonitor.incDrawCall(2) // 2-pass Gaussian (H + V), fullscreen
@@ -642,7 +688,12 @@ export const glassRenderMethods = {
         passState = { ...state, el: { ...el, backdropFbo: false } }
       }
     } else {
-      backdropTex = curTex
+      // No blur: backdrop is sampled directly. Isolate → bgOnlyTex.
+      if (this.quickToggles.isolateBackdrop && this.bgOnlyTex && !el.backdropFbo) {
+        backdropTex = this.bgOnlyTex
+      } else {
+        backdropTex = curTex
+      }
     }
 
     // --- Step 3: Render element pass → elFbo (transparent, then glass body) ---
