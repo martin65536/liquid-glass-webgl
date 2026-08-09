@@ -337,3 +337,36 @@ Stage Summary:
 - 功能 A（PEF bbox 可视化）：perf monitor 加 "DEBUG OVERLAYS" section，含 "Show PEF bbox" toggle。开启后 overlay canvas 在每个 glass 元素上画框（绿=PEF, 红=ping-pong）+ 索引标签。用于可视化 PEF 覆盖范围。
 - 功能 B（isolateBackdrop）：quickToggles 加 "Isolate backdrop" 开关。开启后玻璃只采样 wallpaper+非玻璃 UI，不折射其他玻璃。实现方式：维护 bgOnlyFbo（wallpaper + 非玻璃元素副本），玻璃采样时用 bgOnlyTex 替代 curTex。
 - 两个功能都 VLM 验证通过。Ready to commit + push.
+
+---
+Task ID: 10
+Agent: main (Z.ai Code)
+Task: 动态计算 PEF 盒大小（考虑阴影）—— 当前固定 60 CSS px margin 是实际需要的 2-3 倍。然后 commit + push。
+
+Work Log:
+- Root cause: `MARGIN_CSS = 60` was a one-size-fits-all safe value covering outer shadow (~24dp) + highlight blur (~2px) + press scale + toggle drag. But press scale + toggle drag are already baked into `sw/sh` (the on-screen rect), so the margin ONLY needs to cover the outer-shadow extent (the one effect that extends beyond the glass shape) + a tiny AA/highlight-blur floor. For elements with small/no shadow, 60px margin was ~2-3× the actual reach.
+- Worse: in the PEF path, the elFbo was sized to the FULL bbox (element + 2×60px margin). The element shader discards every fragment outside the glass SDF, so all those margin pixels were wasted rasterization (full SDF + refraction + chromatic setup, then discard). For a 56×56 glass element, elFbo was 176×176 (31000 px) vs the 56×56 (3140 px) actually needed → ~10× over-rasterization.
+- New helper `computeScissorMarginCss(el, layerScale, toggles)` (methods-render-glass.ts):
+  - Shadow reach = `(outerShadow.radius + max(|offsetX|,|offsetY|)) × layerScale` (the shadow shader uses σ=radius/3 with 3σ cutoff in ORIGINAL px, then graphicsLayer scales the shadow layer by layerScale → on-screen reach beyond element edge).
+  - +2px rounding headroom. Floor 3 CSS px (highlight blur + SDF AA) when no shadow or outerShadow toggle off.
+  - Returns the dynamic CSS-px margin for the curFbo scissor bbox (shadow + post passes).
+- PEF path decoupling (the big win): the elFbo rect is now SEPARATE from the scissor bbox.
+  - elFbo rect = glass shape + `elFboMarginCss = (ELFBO_PAD_DEVICE+1)/dpr` (≈3px CSS pad for SDF AA + rounding) — just enough for the glass body + anti-aliasing edge. The element shader `discard`s outside the glass SDF, so the elFbo only needs to cover the shape.
+  - scissor bbox = element + dynamic shadow margin — for the shadow pass + post passes drawn to curFbo (shadow extends beyond the shape; post passes are SDF-clipped to the shape so the shadow margin is harmless headroom).
+  - sceneRectOffset = elFbo rect top-left (hugs the glass shape, not the shadow bbox).
+  - Step 1 (shadow): scissor = scissor bbox. Step 3 (element pass): viewport = elFbo. Step 4 (composite): scissor = elFbo rect (tight — elFboTex is transparent outside glass, wider scissor only rasterizes no-op blends). Step 5 (post): scissor back to scissor bbox.
+- Ping-pong path: replaced fixed `MARGIN_CSS = 60` with `computeScissorMarginCss(...)` — same dynamic margin for its scissor.
+- debugPefBboxes: PEF path now records the tight elFbo rect (the actual PEF box), so the overlay visualizes how small the per-element FBO really is. Ping-pong records its scissor bbox (unchanged).
+- Removed stale doc comment about MAX_ELEMENT_FBO_SIZE fallback (deleted in Task 8).
+
+Verification (agent-browser + VLM):
+- Home page (1 glass): elFbo rect = 68×68 CSS px (glass shape ~56×56 + 6px pad each side). Old fixed-margin bbox would be 176×176 → ~6.7× fewer elFbo pixels. Overlay pixel readout: 848 green stroke pixels (the box outline).
+- Control center (14 glass): all 14 on PEF (fbo=true). Tight boxes, e.g. 152×152 tile → 164×164 elFbo (old 272×272, ~2.75× fewer px); 68×68 tile → 80×80 elFbo (old 188×188, ~5.5× fewer px); 112×56 wide element → 124×68 elFbo (old 232×176, ~4.8× fewer px). VLM: "green rectangles are tight around the glass tiles, appearing only slightly larger than the tiles themselves". VLM compare PEF on/off: "No visible differences... no clipping, missing content, or stretched edges". Draw calls 22 (PEF) vs 36 (ping-pong) — 14 fullscreen blits saved.
+- Dialog page (6 glass incl. backdropFbo card): all 6 on PEF. Dialog card 340×276 → elFbo 352×288 (old 460×396, ~1.8× fewer px — less dramatic for large elements but still a win). VLM compare PEF on/off: "dialog card, shape, shadow, scrim, refraction, blur, and buttons are visually identical". Draw calls 15 vs 21 — 6 blits saved.
+- Lint clean. Dev log: transient parse errors during hot-reload edits resolved; final compiles clean (200 responses).
+
+Stage Summary:
+- PEF elFbo now hugs the glass shape (+~3px AA pad) instead of the shadow bbox. For typical 56-68px glass tiles this is a 5-7× reduction in per-element fragment invocations on the expensive element pass (SDF + refraction + chromatic 7-tap). Large tiles see ~2-3× reduction. Dialog backdropFbo card ~1.8×.
+- Scissor margin is now dynamic: `(shadowRadius + |offset|)×layerScale + 2` (floor 3px), replacing the fixed 60 CSS px. Ping-pong path benefits too.
+- Visual correctness preserved (VLM-verified on home, control center, dialog). No fallback, no regression.
+- Ready to commit + push.

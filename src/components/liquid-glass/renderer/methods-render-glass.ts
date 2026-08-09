@@ -3,6 +3,53 @@ import type { GlassElementConfig, ElementState } from './types'
 import { DP } from './spring'
 import { easeIn } from './gl-utils'
 
+/** Per-frame quick-toggle flags (a structural subset of
+ *  `LiquidGlassRenderer.quickToggles`). Passed to computeScissorMarginCss so
+ *  the helper can skip the shadow extent when the outer-shadow pass is
+ *  toggled off (no shadow will be drawn → no margin needed for it). */
+export interface ScissorMarginToggles {
+  outerShadow: boolean
+}
+
+/** Compute the dynamic scissor margin (in CSS px) for a glass element.
+ *
+ *  The margin defines how far beyond the element's on-screen rect the
+ *  curFbo passes (shadow + post passes) are allowed to write. It is driven
+ *  by the OUTER-SHADOW extent, which is the only effect that extends
+ *  meaningfully beyond the glass shape:
+ *
+ *    shadow shader:  σ = radius/3 (ORIGINAL px), 3σ cutoff  →  reach = radius
+ *    shadow offset:  applied in original space, then graphicsLayer scales the
+ *                    whole shadow layer by layerScale  →  offset_screen = offset·layerScale
+ *    total on-screen reach beyond element edge:
+ *                    (radius + max(|offsetX|, |offsetY|)) · layerScale
+ *
+ *  Post passes (press glow, white overlay, foreground, rim highlight) are
+ *  SDF-/clip-clipped to the glass shape, so they add at most a couple px
+ *  (highlight blur + AA rounding). A small floor (3 CSS px) covers that.
+ *
+ *  When `outerShadow` is toggled off, the shadow pass is skipped entirely,
+ *  so only the floor is used — this is the case where the old fixed 60 CSS px
+ *  was most wasteful (60 px margin for ~3 px of actual reach). */
+export function computeScissorMarginCss(
+  el: GlassElementConfig,
+  layerScale: number,
+  toggles: ScissorMarginToggles
+): number {
+  // Floor: highlight blur (≤ ~widthDp, default 0.25dp → sub-px) + SDF AA
+  // rounding + a little headroom for sub-pixel positions. 3 CSS px is plenty
+  // when there's no shadow.
+  const FLOOR_CSS = 3
+  if (!el.outerShadow || el.outerShadow.radius <= 0.5 || !toggles.outerShadow) {
+    return FLOOR_CSS
+  }
+  const radius = el.outerShadow.radius
+  const maxOffset = Math.max(Math.abs(el.outerShadow.offsetX), Math.abs(el.outerShadow.offsetY))
+  const shadowReachCss = (radius + maxOffset) * layerScale
+  return Math.max(FLOOR_CSS, shadowReachCss + 2) // +2 px rounding headroom
+}
+
+
 /** Shared state between renderGlassElement and its sub-passes.
  *  Rect/radius values are in CSS px (same units as the original code —
  *  each pass multiplies by `dpr` when setting GL uniforms). */
@@ -412,13 +459,15 @@ export const glassRenderMethods = {
     }
 
     // --- Scissor: limit drawing passes (shadow + element + highlight) to the
-    // element's bounding box + margin. The blit above is fullscreen (needed
-    // for ping-pong correctness), but the actual element rendering only
-    // affects a small region. Scissor skips fragment shader execution for
-    // pixels far outside the element — the single biggest perf win.
-    // Margin covers: outer shadow (~24dp), highlight blur (~2px), press scale
-    // (up to 1.5x), toggle drag offset. 60 CSS px is safe.
-    const MARGIN_CSS = 60
+    // element's bounding box + dynamic margin. The blit above is fullscreen
+    // (needed for ping-pong correctness), but the actual element rendering
+    // only affects a small region. Scissor skips fragment shader execution
+    // for pixels far outside the element — the single biggest perf win.
+    // Margin is computed from the actual outer-shadow extent (radius + offset,
+    // scaled by layerScale) + a small floor for highlight blur / AA. This
+    // replaces the old fixed 60 CSS px, which was ~2-3× larger than needed
+    // for most elements.
+    const MARGIN_CSS = computeScissorMarginCss(el, Math.min(scaleX, scaleY), this.quickToggles)
     const scissorX = Math.max(0, Math.round((sx - MARGIN_CSS) * this.dpr))
     const scissorY = Math.max(0, Math.round((this.cssHeight - (sy + sh + MARGIN_CSS)) * this.dpr))
     const scissorW = Math.min(this.fboW - scissorX, Math.round((sw + 2 * MARGIN_CSS) * this.dpr))
@@ -536,20 +585,25 @@ export const glassRenderMethods = {
   },
 
   /** Per-element FBO render path. Renders the glass element into a small
-   *  bbox-sized FBO (capped at MAX_ELEMENT_FBO_SIZE) instead of the fullscreen
-   *  ping-pong blit. Steps:
-   *    1. Shadow pass → curFbo (scissor to bbox, same as legacy).
+   *  elFbo (just big enough for the glass shape + AA pad) instead of the
+   *  fullscreen ping-pong blit. Steps:
+   *    1. Shadow pass → curFbo (scissor to the SHADOW bbox = element +
+   *       dynamic shadow extent; the shadow is the only thing that extends
+   *       beyond the glass shape).
    *    2. (Optional) 2-pass blur on the FULLSCREEN curTex → blurFboB.
    *       The sampling source stays fullscreen so the shader's non-local
    *       reads (refraction / chromatic / blur kernel) hit real neighbors,
    *       identical to the ping-pong path.
-   *    3. Render the element pass into elFbo (sampling the fullscreen backdrop;
-   *       screenCoord is reconstructed from gl_FragCoord via uSceneRectOffset).
-   *    4. Composite elFbo back onto curFbo at the bbox (scissor + SrcOver).
-   *    5. Post passes (press glow, foreground, highlight) → curFbo (scissor).
-   *  curFbo is never swapped — it stays the fixed accumulation target.
-   *  Elements whose bbox exceeds MAX_ELEMENT_FBO_SIZE fall back to ping-pong
-   *  (see the entry guard in renderGlassElement). */
+   *    3. Render the element pass into elFbo (sized to the GLASS shape + a
+   *       couple px AA pad, NOT the shadow bbox — the element shader
+   *       discards outside the glass SDF, so extra margin would only waste
+   *       rasterization; screenCoord is reconstructed from gl_FragCoord via
+   *       uSceneRectOffset).
+   *    4. Composite elFbo back onto curFbo at the elFbo rect (scissor + SrcOver).
+   *    5. Post passes (press glow, foreground, highlight) → curFbo (scissor
+   *       to the shadow bbox; post passes are SDF-clipped to the shape so
+   *       the extra shadow margin is harmless).
+   *  curFbo is never swapped — it stays the fixed accumulation target. */
   renderGlassElementPerFbo(
     this: LiquidGlassRenderer,
     el: GlassElementConfig,
@@ -575,33 +629,63 @@ export const glassRenderMethods = {
   } {
     const gl = this.gl
     const { sx, sy, sw, sh, radii, scaleX, scaleY, isButton, p, togglePressProgress, independent } = computed
+    const layerScale = Math.min(scaleX, scaleY)
 
-    // --- Bbox in device px (top-left origin), clamped to the canvas ---
-    // Same MARGIN as the legacy path (shadow + highlight + press scale room).
-    const MARGIN_CSS = 60
-    const bx0 = Math.max(0, Math.round((sx - MARGIN_CSS) * this.dpr))
-    const by0Top = Math.max(0, Math.round((sy - MARGIN_CSS) * this.dpr))
-    const bx1 = Math.min(this.fboW, Math.round((sx + sw + MARGIN_CSS) * this.dpr))
-    const by1Top = Math.min(this.fboH, Math.round((sy + sh + MARGIN_CSS) * this.dpr))
+    // --- Two decoupled rectangles (the key PEF size optimization) ---
+    // The elFbo only needs to cover the GLASS SHAPE (+ a couple px AA pad):
+    // the element shader discards every fragment outside the glass SDF, so
+    // any extra margin there is pure wasted rasterization. The shadow pass
+    // draws to curFbo (not elFbo), so the shadow extent only governs the
+    // curFbo SCISSOR, not the elFbo size. Decoupling them lets a 60×60 glass
+    // with a 24dp shadow use a ~64×64 elFbo instead of the old ~108×108
+    // (60 + 2×24) — roughly 3× fewer fragment invocations on the element pass.
+    //
+    // scissorMargin: how far beyond the element rect the curFbo passes
+    // (shadow + post) can write. Driven by the outer-shadow extent: the
+    // shadow shader uses σ = radius/3 (original px) with a 3σ cutoff, then
+    // graphicsLayer scales the whole shadow layer by layerScale, so the
+    // on-screen reach beyond the element edge is (radius + |offset|) * layerScale.
+    // A small floor covers highlight blur + AA rounding when there's no shadow.
+    const scissorMarginCss = computeScissorMarginCss(el, layerScale, this.quickToggles)
+    // elFboMargin: tiny pad around the glass shape for SDF anti-aliasing
+    // (smoothstep over ~1 original px → ~layerScale screen px) + rounding.
+    const ELFBO_PAD_DEVICE = 2
+    const elFboMarginCss = (ELFBO_PAD_DEVICE + 1) / this.dpr
+
+    // Shadow/scissor bbox in device px (top-left origin), clamped to canvas.
+    const bx0 = Math.max(0, Math.round((sx - scissorMarginCss) * this.dpr))
+    const by0Top = Math.max(0, Math.round((sy - scissorMarginCss) * this.dpr))
+    const bx1 = Math.min(this.fboW, Math.round((sx + sw + scissorMarginCss) * this.dpr))
+    const by1Top = Math.min(this.fboH, Math.round((sy + sh + scissorMarginCss) * this.dpr))
     const bboxW = Math.max(1, bx1 - bx0)
     const bboxH = Math.max(1, by1Top - by0Top)
     // Bottom-left origin Y for scissor (WebGL scissor uses BL origin).
     const bboxScissorY = Math.max(0, this.fboH - by1Top)
 
-    // Debug: record this element's PEF bbox (in CSS px, top-left origin)
-    // so the React overlay can draw a visible rectangle over the canvas.
+    // elFbo rect in device px (top-left origin), clamped to canvas. This is
+    // tighter than the scissor bbox — just the glass shape + AA pad.
+    const ex0 = Math.max(0, Math.round((sx - elFboMarginCss) * this.dpr))
+    const ey0Top = Math.max(0, Math.round((sy - elFboMarginCss) * this.dpr))
+    const ex1 = Math.min(this.fboW, Math.round((sx + sw + elFboMarginCss) * this.dpr))
+    const ey1Top = Math.min(this.fboH, Math.round((sy + sh + elFboMarginCss) * this.dpr))
+    const elFboRectW = Math.max(1, ex1 - ex0)
+    const elFboRectH = Math.max(1, ey1Top - ey0Top)
+    const elFboScissorY = Math.max(0, this.fboH - ey1Top)
+
+    // Debug: record the actual elFbo rect (the tight PEF box) so the overlay
+    // visualizes how small the per-element FBO really is.
     if (this.showPefBbox) {
       this.debugPefBboxes.push({
-        x: bx0 / this.dpr,
-        y: by0Top / this.dpr,
-        w: bboxW / this.dpr,
-        h: bboxH / this.dpr,
+        x: ex0 / this.dpr,
+        y: ey0Top / this.dpr,
+        w: elFboRectW / this.dpr,
+        h: elFboRectH / this.dpr,
         fbo: true,
       })
     }
 
-    // --- Ensure the per-element FBOs exist at bboxW×bboxH (capped) ---
-    const { w: elFboW, h: elFboH } = this.ensureElementFBO(bboxW, bboxH)
+    // --- Ensure the per-element FBOs exist at elFboRectW×elFboRectH ---
+    const { w: elFboW, h: elFboH } = this.ensureElementFBO(elFboRectW, elFboRectH)
 
     // --- Build the GlassRenderState (same as the legacy path) ---
     const state: GlassRenderState = {
@@ -623,10 +707,11 @@ export const glassRenderMethods = {
       independent,
       // Per-element FBO: the element pass renders into elFbo. screenCoord is
       // reconstructed as uSceneRectOffset + localCoord. The offset is the
-      // element's bbox top-left in scene device px (top-left origin).
+      // elFbo rect's top-left in scene device px (top-left origin) — the rect
+      // hugs the glass shape (+AA pad), NOT the shadow bbox.
       usePerElementFbo: true,
-      sceneRectOffsetX: bx0,
-      sceneRectOffsetY: by0Top,
+      sceneRectOffsetX: ex0,
+      sceneRectOffsetY: ey0Top,
       elFboW,
       elFboH,
     }
@@ -714,14 +799,19 @@ export const glassRenderMethods = {
     // chromatic dispersion, blur kernel) hit real neighbor content.
     this.renderGlassElementPass(passState, backdropTex)
 
-    // --- Step 4: Composite elFbo → curFbo at the bbox (SrcOver) ---
+    // --- Step 4: Composite elFbo → curFbo at the elFbo rect (SrcOver) ---
+    // Scissor to the tight elFbo rect (not the shadow bbox): elFboTex is
+    // transparent outside the glass shape, so a wider scissor would only
+    // rasterize no-op blends.
     this.bindFBO(curFbo)
     gl.enable(gl.SCISSOR_TEST)
-    gl.scissor(bx0, bboxScissorY, bboxW, bboxH)
-    this.drawElFboComposite(this.elFboTex!, elFboW, elFboH, bx0, by0Top, bboxW, bboxH)
+    gl.scissor(ex0, elFboScissorY, elFboRectW, elFboRectH)
+    this.drawElFboComposite(this.elFboTex!, elFboW, elFboH, ex0, ey0Top, elFboRectW, elFboRectH)
 
     // --- Step 5: Post passes (press glow, white overlay, foreground, rim
-    // highlight) → curFbo (scissor to bbox, same as legacy) ---
+    // highlight) → curFbo (scissor back to the shadow bbox; post passes are
+    // SDF-clipped to the shape so the shadow margin is harmless headroom) ---
+    gl.scissor(bx0, bboxScissorY, bboxW, bboxH)
     this.renderGlassPostPasses(state)
 
     gl.disable(gl.SCISSOR_TEST)
