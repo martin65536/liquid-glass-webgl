@@ -51,7 +51,20 @@ export const renderMethods = {
     if (!this.needsRedraw) return
     this.needsRedraw = false
 
-    if (!this.wallpaperReady && !this.backgroundColor) return
+    // --- PerfMonitor: start frame timing + reset per-frame counters ---
+    // Push canvas info first so the snapshot includes it.
+    this.perfMonitor.canvasCssW = this.cssWidth
+    this.perfMonitor.canvasCssH = this.cssHeight
+    this.perfMonitor.canvasDevW = this.canvas.width
+    this.perfMonitor.canvasDevH = this.canvas.height
+    this.perfMonitor.dpr = this.dpr
+    this.perfMonitor.deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+    this.perfMonitor.frameStart()
+
+    if (!this.wallpaperReady && !this.backgroundColor) {
+      this.perfMonitor.frameEnd()
+      return
+    }
     const gl = this.gl
     // Ensure FBOs exist (created lazily on first render after resize).
     this.resizeFBOs(this.canvas.width, this.canvas.height)
@@ -68,11 +81,14 @@ export const renderMethods = {
     // elements will sample from fboA.texture to compute refraction of
     // the actual colors behind them (track color, card background, etc).
     this.renderBackground()
+    this.perfMonitor.incDrawCall() // wallpaper pass = 1 draw call
 
     if (this.buttonConfigs.length === 0) {
       // No elements — blit fboA to the default framebuffer and done.
       this.bindFBO(null)
       this.drawCopy(this.fboATex!)
+      this.perfMonitor.incDrawCall() // final blit
+      this.perfMonitor.frameEnd()
       return
     }
 
@@ -97,6 +113,8 @@ export const renderMethods = {
       // bound). Rebind explicitly + copy blurred result back into fboA.
       this.bindFBO(this.fboA!)
       this.drawCopy(blurred)
+      this.perfMonitor.incBlurPass()
+      this.perfMonitor.incDrawCall(2) // blur = 2 passes + 1 copy
     }
 
     // Enable blending for the remaining passes.
@@ -224,6 +242,10 @@ export const renderMethods = {
     // --- Final: blit curFbo → default framebuffer (visible canvas) ---
     this.bindFBO(null)
     this.drawCopy(curTex)
+    this.perfMonitor.incDrawCall() // final blit
+
+    // --- PerfMonitor: end frame timing + capture counters ---
+    this.perfMonitor.frameEnd()
   },
 
   /** Helper to set SDF uniforms (canvasSize + offset + size + cornerRadii)
@@ -434,6 +456,8 @@ export const renderMethods = {
         gl.uniform1f(this.uPr['uUseContinuousSdf'], 0.0)
       }
       gl.drawArrays(gl.TRIANGLES, 0, 6)
+      this.perfMonitor.incNonGlass()
+      this.perfMonitor.incDrawCall()
       return true
     }
 
@@ -460,6 +484,8 @@ export const renderMethods = {
       gl.uniform4f(this.uPb['uTintColor'], tc[0], tc[1], tc[2], tc[3])
       gl.uniform1f(this.uPb['uTintIntensity'], el.progressiveBlur.tintIntensity)
       gl.drawArrays(gl.TRIANGLES, 0, 6)
+      this.perfMonitor.incNonGlass()
+      this.perfMonitor.incDrawCall()
       return true
     }
 
@@ -568,6 +594,8 @@ export const renderMethods = {
         gl.drawArrays(gl.TRIANGLES, 0, 6)
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
       }
+      this.perfMonitor.incNonGlass()
+      this.perfMonitor.incDrawCall()
       return true
     }
 

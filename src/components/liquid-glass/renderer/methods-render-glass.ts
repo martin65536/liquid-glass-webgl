@@ -379,6 +379,8 @@ export const glassRenderMethods = {
     //  - SDF-texture elements (LockScreen): use a separate glass path.
     // These fall through to the legacy path below.
     if (this.usePerElementFbo && !el.backdropFbo && !el.useSdfTexture && !skipPingPong) {
+      this.perfMonitor.incGlassElement()
+      this.perfMonitor.incPerElementFbo()
       return this.renderGlassElementPerFbo(el, st, curFbo, curTex, otherFbo, otherTex, {
         sx, sy, sw, sh, radii, scaleX, scaleY, isButton, p, togglePressProgress,
         independent, translationX, translationY,
@@ -390,12 +392,18 @@ export const glassRenderMethods = {
     // cannot be used here because otherFbo's regions outside the current
     // element still need the correct scene content for subsequent elements
     // to sample from.) ---
+    // PERF: this fullscreen blit is the biggest per-element cost the
+    // per-element FBO optimization replaces. Count it so the perf monitor
+    // can show how many elements are still on the legacy ping-pong path.
+    this.perfMonitor.incGlassElement()
+    this.perfMonitor.incPingPong()
     if (skipPingPong) {
       this.bindFBO(curFbo)
       // Blending is already enabled from the element loop setup.
     } else {
       this.bindFBO(otherFbo)
       this.drawCopy(curTex)
+      this.perfMonitor.incDrawCall() // fullscreen blit
       // Re-enable blending after the copy (drawCopy disables it).
       gl.enable(gl.BLEND)
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
@@ -465,6 +473,8 @@ export const glassRenderMethods = {
       // (wallpaper+scrim+colorControls opaque layer) instead of the scene FBO.
       const backdropSrc = (el.backdropFbo && this.dialogBackdropTex) ? this.dialogBackdropTex : curTex
       const blurredBackdrop = this.blurTexture(backdropSrc, blurRadiusPx)
+      this.perfMonitor.incBlurPass()
+      this.perfMonitor.incDrawCall(2) // 2-pass Gaussian (H + V)
       // blurTexture disables BLEND — re-enable it so renderGlassElementPass
       // composites the glass onto otherFbo with alpha blending.
       this.gl.enable(this.gl.BLEND)
@@ -598,6 +608,7 @@ export const glassRenderMethods = {
     if (el.useSeparableBlur && el.blurRadius >= 0.5) {
       const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr
       backdropTex = this.cropAndBlurBackdrop(curTex, bx0, by0Top, bboxW, bboxH, blurRadiusPx)
+      this.perfMonitor.incBlurPass()
     } else {
       backdropTex = this.cropAndBlurBackdrop(curTex, bx0, by0Top, bboxW, bboxH, 0)
     }

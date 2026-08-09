@@ -34,6 +34,7 @@ import type {
   ElementState,
   ToggleGroupState,
 } from './types'
+import { PerfMonitor } from './perf-monitor'
 
 /* ------------------------------------------------------------------ *
  * LiquidGlassRenderer
@@ -176,6 +177,11 @@ export class LiquidGlassRenderer {
    *  each glass element renders into a small bbox-sized FBO instead of a
    *  fullscreen ping-pong blit. See methods-render-glass.ts. */
   usePerElementFbo = true
+  /** Performance monitor — frame timing + per-frame render counters +
+   *  GPU info. When `perfMonitor.enabled === false` (default), every
+   *  increment is a no-op. Toggled on by the Settings "Performance
+   *  monitor" switch via the perfMonitorEnabled prop in context.tsx. */
+  perfMonitor = new PerfMonitor()
   // --- Per-element FBO infrastructure (used when usePerElementFbo=true) ---
   // elFbo: the element's glass body is rendered here (transparent; the element
   // shader's discard leaves only the glass shape). Capped to 1024 device px.
@@ -349,6 +355,10 @@ export class LiquidGlassRenderer {
     // texImage2D with OffscreenCanvas has compatibility issues in some browsers.
 
     this.cacheUniforms()
+
+    // Attach the GL context to the perf monitor so it can collect GPU info
+    // (vendor, renderer, max texture size, extensions) on first frameStart.
+    this.perfMonitor.attachGl(gl)
   }
 
   cacheUniforms() {

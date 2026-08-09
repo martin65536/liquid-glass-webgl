@@ -1,0 +1,384 @@
+'use client'
+
+import * as React from 'react'
+import type { LiquidGlassRenderer } from './renderer'
+import type { PerfSnapshot } from './renderer/perf-monitor'
+
+/* ------------------------------------------------------------------ *
+ * PerfMonitorOverlay
+ *
+ * A feature-rich performance monitor overlay rendered as React DOM
+ * (NOT inside the WebGL canvas — measuring inside the measured system
+ * would skew the numbers). Renders on top of the canvas at the top-right
+ * corner, draggable by the header, collapsible to a small badge.
+ *
+ * Layout (expanded):
+ *   ┌──────────────────────────────────────┐
+ *   │ ⬛ Performance Monitor      — □ ✕    │  header (drag handle + buttons)
+ *   ├──────────────────────────────────────┤
+ *   │ ▒▒▒▒ FPS history chart ▒▒▒▒▒▒▒▒▒▒▒  │  120-sample rolling line graph
+ *   │ 60 ─────────────────────────────     │  (green = good, yellow = jank,
+ *   │ 30 ─────────────────────────────     │   red = severe jank)
+ *   │  0 ─────────────────────────────     │
+ *   ├──────────────────────────────────────┤
+ *   │ FPS:     60.0  avg 58.3  jank: 2/0   │  timing row
+ *   │ Frame:   16.7ms  avg 17.2ms          │
+ *   │          min 15.1ms  max 34.5ms      │
+ *   ├──────────────────────────────────────┤
+ *   │ Render (last frame):                 │  per-frame counters
+ *   │   draw calls: 24                     │
+ *   │   glass: 12 (FBO 10, ping-pong 2)    │
+ *   │   non-glass: 8   blur passes: 2      │
+ *   ├──────────────────────────────────────┤
+ *   │ Canvas:  420×900 css  630×1350 dev   │  canvas info
+ *   │ DPR: 1.50 (device 2.00)              │
+ *   │ Pixels/frame: 850K                   │
+ *   ├──────────────────────────────────────┤
+ *   │ GPU:ANGLE Intel...                   │  static GPU info
+ *   │ Max tex: 16384  Ext: 32              │
+ *   ├──────────────────────────────────────┤
+ *   │ [Reset]                  [Pause]     │  action buttons
+ *   └──────────────────────────────────────┘
+ *
+ * Polling: 250ms via setInterval (NOT rAF). This deliberately decouples
+ * the overlay's refresh from the renderer's frame loop so the measurement
+ * is not disturbed.
+ *
+ * Pointer events: the wrapper has pointer-events:none so the canvas
+ * remains interactive; only the panel itself has pointer-events:auto.
+ * ------------------------------------------------------------------ */
+
+interface Props {
+  rendererRef: React.MutableRefObject<LiquidGlassRenderer | null>
+  visible: boolean
+  /** Optional: rAF-based FPS (from page.tsx's existing counter) to show
+   *  alongside the rendered FPS for comparison. */
+  rafFps?: number
+}
+
+const POLL_MS = 250
+
+export function PerfMonitorOverlay({ rendererRef, visible, rafFps }: Props) {
+  const [snapshot, setSnapshot] = React.useState<PerfSnapshot | null>(null)
+  const [collapsed, setCollapsed] = React.useState(false)
+  const [paused, setPaused] = React.useState(false)
+  // Panel position (top-right corner by default). Dragging updates this.
+  const [pos, setPos] = React.useState({ x: -1, y: 8 }) // x=-1 means "right-align"
+  const pausedRef = React.useRef(false)
+  React.useEffect(() => { pausedRef.current = paused }, [paused])
+
+  // --- Poll the renderer's PerfMonitor every POLL_MS ---
+  React.useEffect(() => {
+    if (!visible) {
+      setSnapshot(null)
+      return
+    }
+    const tick = () => {
+      if (!pausedRef.current) {
+        const r = rendererRef.current
+        if (r) setSnapshot(r.perfMonitor.getSnapshot())
+      }
+    }
+    tick() // immediate first sample
+    const id = window.setInterval(tick, POLL_MS)
+    return () => window.clearInterval(id)
+  }, [visible, rendererRef])
+
+  // --- Dragging ---
+  const dragRef = React.useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null)
+  const onHeaderPointerDown = (e: React.PointerEvent) => {
+    const panel = (e.currentTarget as HTMLElement).parentElement!
+    const rect = panel.getBoundingClientRect()
+    // Convert x=-1 (right-align) to an explicit pixel position before dragging.
+    const startX = pos.x < 0 ? rect.left : pos.x
+    dragRef.current = { startX: e.clientX, startY: e.clientY, origX: startX, origY: pos.y }
+    panel.setPointerCapture(e.pointerId)
+  }
+  const onHeaderPointerMove = (e: React.PointerEvent) => {
+    const d = dragRef.current
+    if (!d) return
+    const nx = d.origX + (e.clientX - d.startX)
+    const ny = d.origY + (e.clientY - d.startY)
+    // Clamp to viewport
+    const maxX = window.innerWidth - 80 // keep at least 80px visible
+    const maxY = window.innerHeight - 40
+    setPos({ x: Math.max(0, Math.min(maxX, nx)), y: Math.max(0, Math.min(maxY, ny)) })
+  }
+  const onHeaderPointerUp = (e: React.PointerEvent) => {
+    dragRef.current = null
+    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId) } catch {}
+  }
+
+  if (!visible) return null
+
+  // --- Position style ---
+  const style: React.CSSProperties = pos.x < 0
+    ? { top: pos.y, right: 8 }
+    : { top: pos.y, left: pos.x }
+
+  // --- Collapsed badge ---
+  if (collapsed) {
+    return (
+      <div
+        style={{
+          position: 'fixed',
+          ...style,
+          zIndex: 50,
+          pointerEvents: 'auto',
+          background: 'rgba(0,0,0,0.78)',
+          color: '#0f0',
+          font: 'bold 12px ui-monospace, "SF Mono", Menlo, monospace',
+          padding: '6px 10px',
+          borderRadius: 6,
+          cursor: 'pointer',
+          userSelect: 'none',
+          boxShadow: '0 4px 14px rgba(0,0,0,0.4)',
+          border: '1px solid rgba(0,255,0,0.3)',
+        }}
+        onClick={() => setCollapsed(false)}
+        title="Expand performance monitor"
+      >
+        {snapshot ? `${snapshot.fps.toFixed(0)} fps` : '… fps'}
+      </div>
+    )
+  }
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        ...style,
+        zIndex: 50,
+        pointerEvents: 'auto',
+        width: 320,
+        background: 'rgba(0,0,0,0.82)',
+        color: '#e8e8e8',
+        font: '12px ui-monospace, "SF Mono", Menlo, monospace',
+        borderRadius: 8,
+        boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+        border: '1px solid rgba(255,255,255,0.15)',
+        overflow: 'hidden',
+        userSelect: 'none',
+      }}
+    >
+      {/* Header — drag handle + buttons */}
+      <div
+        onPointerDown={onHeaderPointerDown}
+        onPointerMove={onHeaderPointerMove}
+        onPointerUp={onHeaderPointerUp}
+        onPointerCancel={onHeaderPointerUp}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '6px 10px',
+          background: 'rgba(255,255,255,0.06)',
+          cursor: 'move',
+          borderBottom: '1px solid rgba(255,255,255,0.1)',
+          touchAction: 'none',
+        }}
+      >
+        <span style={{ fontWeight: 700, color: '#0f0' }}>Performance Monitor</span>
+        <span style={{ display: 'flex', gap: 6 }}>
+          <button
+            onClick={(e) => { e.stopPropagation(); setPaused((p) => !p) }}
+            style={btnStyle}
+            title={paused ? 'Resume sampling' : 'Pause sampling'}
+          >
+            {paused ? '▶' : '⏸'}
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); setCollapsed(true) }}
+            style={btnStyle}
+            title="Collapse"
+          >
+            ▁
+          </button>
+        </span>
+      </div>
+
+      {snapshot ? (
+        <Body snapshot={snapshot} rafFps={rafFps} rendererRef={rendererRef} paused={paused} />
+      ) : (
+        <div style={{ padding: 12, color: '#888' }}>Waiting for samples…</div>
+      )}
+    </div>
+  )
+}
+
+const btnStyle: React.CSSProperties = {
+  background: 'rgba(255,255,255,0.08)',
+  border: '1px solid rgba(255,255,255,0.2)',
+  color: '#e8e8e8',
+  font: '11px ui-monospace, monospace',
+  padding: '2px 6px',
+  borderRadius: 4,
+  cursor: 'pointer',
+  lineHeight: 1,
+}
+
+/* --- Body (chart + stats) --- */
+function Body({
+  snapshot,
+  rafFps,
+  rendererRef,
+  paused,
+}: {
+  snapshot: PerfSnapshot
+  rafFps?: number
+  rendererRef: React.MutableRefObject<LiquidGlassRenderer | null>
+  paused: boolean
+}) {
+  return (
+    <>
+      <FpsChart history={snapshot.history} />
+      <Section title="Timing">
+        <Row label="FPS" value={fmtFps(snapshot.fps)} hint={`avg ${fmtFps(snapshot.avgFps)}`} />
+        {rafFps != null && <Row label="rAF FPS" value={String(rafFps)} hint="(animation frame rate)" />}
+        <Row label="Frame" value={`${snapshot.frameTimeMs.toFixed(2)} ms`} hint={`avg ${snapshot.avgFrameTimeMs.toFixed(2)} ms`} />
+        <Row label="min/max" value={`${snapshot.minFrameTimeMs.toFixed(2)} / ${snapshot.maxFrameTimeMs.toFixed(2)} ms`} />
+        <Row
+          label="Jank"
+          value={`>16.7: ${snapshot.jank16Count}  >33.3: ${snapshot.jank33Count}`}
+          hint={`total ${snapshot.totalFrames} frames`}
+        />
+      </Section>
+      <Section title="Render (last frame)">
+        <Row label="Draw calls" value={String(snapshot.drawCalls)} />
+        <Row
+          label="Glass"
+          value={String(snapshot.glassElements)}
+          hint={`FBO ${snapshot.perElementFboCount} · ping-pong ${snapshot.pingPongCount}`}
+        />
+        <Row label="Non-glass" value={String(snapshot.nonGlassElements)} />
+        <Row label="Blur passes" value={String(snapshot.blurPasses)} />
+      </Section>
+      <Section title="Canvas">
+        <Row label="CSS" value={`${snapshot.canvasCssW}×${snapshot.canvasCssH}`} />
+        <Row label="Device" value={`${snapshot.canvasDevW}×${snapshot.canvasDevH}`} />
+        <Row label="DPR" value={snapshot.dpr.toFixed(2)} hint={`device ${snapshot.deviceDpr.toFixed(2)}`} />
+        <Row label="Pixels/frame" value={fmtK(snapshot.pixelsPerFrame)} />
+      </Section>
+      <Section title="GPU">
+        <Row label="Renderer" value={truncate(snapshot.gpuRenderer || '—', 36)} />
+        <Row label="Vendor" value={truncate(snapshot.gpuVendor || '—', 36)} />
+        <Row label="Max texture" value={String(snapshot.maxTextureSize)} hint={`exts ${snapshot.extensionCount}`} />
+      </Section>
+      <div style={{ display: 'flex', gap: 6, padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+        <button
+          style={{ ...btnStyle, flex: 1 }}
+          onClick={() => rendererRef.current?.perfMonitor.reset()}
+        >
+          Reset stats
+        </button>
+        {paused && (
+          <div style={{ ...btnStyle, flex: 1, textAlign: 'center', background: 'rgba(255,200,0,0.15)', borderColor: 'rgba(255,200,0,0.4)', color: '#fc8' }}>
+            ⏸ Paused
+          </div>
+        )}
+      </div>
+    </>
+  )
+}
+
+/* --- FPS history line chart --- */
+function FpsChart({ history }: { history: number[] }) {
+  const canvasRef = React.useRef<HTMLCanvasElement>(null)
+  React.useEffect(() => {
+    const c = canvasRef.current
+    if (!c) return
+    const ctx = c.getContext('2d')
+    if (!ctx) return
+    const W = c.width
+    const H = c.height
+    ctx.clearRect(0, 0, W, H)
+    // Background grid
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)'
+    ctx.lineWidth = 1
+    for (const fps of [60, 30, 15]) {
+      const y = H - (fps / 80) * H
+      ctx.beginPath()
+      ctx.moveTo(0, y)
+      ctx.lineTo(W, y)
+      ctx.stroke()
+      ctx.fillStyle = 'rgba(255,255,255,0.25)'
+      ctx.font = '9px ui-monospace, monospace'
+      ctx.fillText(`${fps}`, 2, y - 2)
+    }
+    if (history.length === 0) return
+    // Plot frame time → fps, capped at 80.
+    // X: oldest → newest across W.
+    const n = history.length
+    const stepX = W / Math.max(1, n - 1)
+    // Line
+    ctx.lineWidth = 1.5
+    ctx.beginPath()
+    for (let i = 0; i < n; i++) {
+      const ft = history[i]
+      const fps = ft > 0 ? Math.min(80, 1000 / ft) : 0
+      const x = i * stepX
+      const y = H - (fps / 80) * H
+      if (i === 0) ctx.moveTo(x, y)
+      else ctx.lineTo(x, y)
+    }
+    // Color: green if avg >= 55, yellow if >= 30, red otherwise.
+    const avg = history.reduce((a, b) => a + b, 0) / n
+    const avgFps = avg > 0 ? 1000 / avg : 0
+    ctx.strokeStyle = avgFps >= 55 ? '#4f4' : avgFps >= 30 ? '#fc4' : '#f44'
+    ctx.stroke()
+    // Fill under line
+    ctx.lineTo(W, H)
+    ctx.lineTo(0, H)
+    ctx.closePath()
+    ctx.fillStyle = avgFps >= 55 ? 'rgba(64,255,64,0.12)' : avgFps >= 30 ? 'rgba(255,200,64,0.12)' : 'rgba(255,64,64,0.12)'
+    ctx.fill()
+  }, [history])
+  return (
+    <canvas
+      ref={canvasRef}
+      width={300}
+      height={64}
+      style={{ display: 'block', width: '100%', height: 64, background: 'rgba(0,0,0,0.4)' }}
+    />
+  )
+}
+
+/* --- Small layout helpers --- */
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div style={{ padding: '6px 10px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+      <div style={{ color: '#888', fontSize: 10, marginBottom: 3, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+        {title}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function Row({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '1px 0' }}>
+      <span style={{ color: '#aaa' }}>{label}</span>
+      <span style={{ color: '#e8e8e8' }}>
+        {value}
+        {hint && <span style={{ color: '#666', marginLeft: 6, fontSize: 10 }}> {hint}</span>}
+      </span>
+    </div>
+  )
+}
+
+/* --- Number formatters --- */
+function fmtFps(fps: number): string {
+  if (!isFinite(fps) || fps <= 0) return '0.0'
+  return fps.toFixed(1)
+}
+
+function fmtK(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
+  return String(n)
+}
+
+function truncate(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max - 1) + '…' : s
+}

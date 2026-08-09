@@ -61,6 +61,7 @@ const translations: Record<string, { zh: string; en: string }> = {
   settings_transition:       { zh: '过渡动画', en: 'Transitions' },
   settings_fps_title:        { zh: '性能', en: 'Performance' },
   settings_fps:              { zh: '显示帧率', en: 'Show FPS' },
+  settings_perf_monitor:     { zh: '性能监测工具', en: 'Performance monitor' },
   settings_perf_redetect:    { zh: '重新检测性能', en: 'Re-detect performance' },
   settings_highlight_title:  { zh: '高光', en: 'Highlight' },
   settings_highlight_aa:     { zh: '高光抗锯齿', en: 'Highlight anti-aliasing' },

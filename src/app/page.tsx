@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { LiquidGlassCanvas } from '@/components/liquid-glass/context'
+import { PerfMonitorOverlay } from '@/components/liquid-glass/perf-monitor-overlay'
 import {
   buildCatalog,
   CatalogDestination,
@@ -73,6 +74,7 @@ export default function Page() {
         pageTransition: typeof parsed.pageTransition === 'boolean' ? parsed.pageTransition : true,
         showFps: typeof parsed.showFps === 'boolean' ? parsed.showFps : false,
         usePerElementFbo: typeof parsed.usePerElementFbo === 'boolean' ? parsed.usePerElementFbo : true,
+        showPerfMonitor: typeof parsed.showPerfMonitor === 'boolean' ? parsed.showPerfMonitor : false,
       }
     } catch { return {} }
   }
@@ -502,7 +504,8 @@ export default function Page() {
              p.blurTapCap !== undefined || p.blurDownsample !== undefined ||
              p.capsuleShape !== undefined || p.hideOverlayButtons !== undefined ||
              p.locale !== undefined || p.pageTransition !== undefined ||
-             p.showFps !== undefined || p.usePerElementFbo !== undefined)) {
+             p.showFps !== undefined || p.usePerElementFbo !== undefined ||
+             p.showPerfMonitor !== undefined)) {
           try {
             window.localStorage.setItem(SETTINGS_KEY, JSON.stringify({
               customDpr: next.customDpr,
@@ -515,6 +518,7 @@ export default function Page() {
               pageTransition: next.pageTransition,
               showFps: next.showFps,
               usePerElementFbo: next.usePerElementFbo,
+              showPerfMonitor: next.showPerfMonitor,
             }))
           } catch { /* ignore quota errors */ }
         }
@@ -772,9 +776,10 @@ export default function Page() {
       targets['settings-fps-toggle'] = state.showFps ? 1 : 0
       targets['settings-highlight-aa'] = state.highlightAa ? 1 : 0
       targets['settings-per-element-fbo'] = state.usePerElementFbo ? 1 : 0
+      targets['settings-perf-monitor-toggle'] = state.showPerfMonitor ? 1 : 0
     }
     return targets
-  }, [destination, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration, state.customDpr, state.blurTapCap, state.globalSeparableBlur, state.capsuleShape, state.hideOverlayButtons, state.pageTransition, state.showFps, state.highlightAa, state.usePerElementFbo])
+  }, [destination, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration, state.customDpr, state.blurTapCap, state.globalSeparableBlur, state.capsuleShape, state.hideOverlayButtons, state.pageTransition, state.showFps, state.highlightAa, state.usePerElementFbo, state.showPerfMonitor])
 
   // Tab targets use a separate prop because they need setTabSelected
   // (which sets pressedScale=78/56, not toggle's 1.5).
@@ -998,11 +1003,14 @@ export default function Page() {
           dpr={state.customDpr}
           blurTapCap={state.blurTapCap}
           usePerElementFbo={state.usePerElementFbo}
+          perfMonitorEnabled={state.showPerfMonitor}
           className="w-full h-full"
           onReady={() => setRendererReady(true)}
         />
-        {/* FPS overlay — always shown on PerfBenchmark during test, or when showFps is enabled */}
-        {(state.showFps || perfRunning) && rendererReady && (
+        {/* FPS overlay — always shown on PerfBenchmark during test, or when
+            showFps is enabled. Suppressed when the full performance monitor
+            is open (it shows FPS + much more, no need for the tiny badge). */}
+        {(state.showFps || perfRunning) && rendererReady && !state.showPerfMonitor && (
           <div
             style={{
               position: 'absolute',
@@ -1019,6 +1027,16 @@ export default function Page() {
           >
             FPS: {fpsDisplay}
           </div>
+        )}
+        {/* Performance monitor overlay — draggable, collapsible panel with
+            FPS chart, frame timing, draw-call counters, GPU info. Polls the
+            renderer's PerfMonitor every 250ms via setInterval (NOT rAF). */}
+        {rendererReady && (
+          <PerfMonitorOverlay
+            rendererRef={rendererRef}
+            visible={state.showPerfMonitor}
+            rafFps={fpsDisplay}
+          />
         )}
         {/* Progress bar is now rendered in the canvas (plain-rect elements) */}
         {/* Hidden file input for "Pick an image" — triggered by the canvas button */}

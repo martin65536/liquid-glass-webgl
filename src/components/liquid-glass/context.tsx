@@ -71,6 +71,10 @@ export interface LiquidGlassCanvasProps {
    *  element renders into a small bbox-sized FBO instead of a fullscreen
    *  ping-pong blit — the biggest per-element cost saver. Pure optimization. */
   usePerElementFbo?: boolean
+  /** Performance monitor toggle. When true, the renderer's PerfMonitor is
+   *  enabled (frame timing + per-frame render counters + GPU info). The
+   *  React overlay (rendered by the parent) polls the snapshot. */
+  perfMonitorEnabled?: boolean
 }
 
 export interface ElementInteraction {
@@ -149,6 +153,7 @@ export function LiquidGlassCanvas({
   blurTapCap,
   cornerStyle,
   usePerElementFbo,
+  perfMonitorEnabled,
 }: LiquidGlassCanvasProps) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
   const containerRef = React.useRef<HTMLDivElement>(null)
@@ -209,6 +214,7 @@ export function LiquidGlassCanvas({
     if (blurTapCap != null) renderer.blurTapCap = Math.max(1, Math.min(33, blurTapCap | 0))
     if (cornerStyle != null) renderer.cornerStyle = cornerStyle
     if (usePerElementFbo != null) renderer.usePerElementFbo = usePerElementFbo
+    if (perfMonitorEnabled != null) renderer.perfMonitor.enabled = perfMonitorEnabled
     resize()
     const ro = new ResizeObserver(resize)
     ro.observe(containerRef.current)
@@ -271,6 +277,17 @@ export function LiquidGlassCanvas({
     renderer.usePerElementFbo = usePerElementFbo
     renderer.requestRender()
   }, [usePerElementFbo])
+
+  // Apply perf-monitor enable toggle when it changes (Settings page).
+  // When turning ON, reset accumulated stats so the overlay starts fresh.
+  // When turning OFF, the renderer's inc* methods become no-ops (the boolean
+  // check inside PerfMonitor handles this — no React-side work needed).
+  React.useEffect(() => {
+    const renderer = rendererRefInternal.current
+    if (!renderer || perfMonitorEnabled == null) return
+    renderer.perfMonitor.enabled = perfMonitorEnabled
+    if (perfMonitorEnabled) renderer.perfMonitor.reset()
+  }, [perfMonitorEnabled])
 
   // Push the latest element list to the renderer.
   React.useEffect(() => {

@@ -522,6 +522,12 @@ export interface CatalogState {
   pageTransition: boolean
   // Settings — show FPS counter overlay. Default false.
   showFps: boolean
+  // Settings — show the feature-rich performance monitor overlay (frame
+  // timing, draw-call counters, per-element FBO vs ping-pong usage, blur
+  // passes, GPU info, FPS history chart). When enabled, the renderer also
+  // turns on its internal instrumentation (PerfMonitor.enabled = true) so
+  // the counters are populated. Default false.
+  showPerfMonitor: boolean
   // Settings — highlight anti-aliasing. When true (default), the stroke width
   // is rounded up via Math.ceil() to ensure full-pixel coverage, matching the
   // original Kotlin formula. When false, the stroke width is kept at sub-pixel
@@ -606,6 +612,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   locale: 'zh',
   pageTransition: true,
   showFps: false,
+  showPerfMonitor: false,
   highlightAa: true,
   usePerElementFbo: true,
   perfProgress: null,

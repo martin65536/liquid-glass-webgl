@@ -447,6 +447,24 @@ export function buildSettings(
     Object.assign(interactions, fpsToggle.interactions)
     nextY += BUTTON_HEIGHT + ITEM_GAP
 
+    // Performance monitor toggle — feature-rich overlay (frame timing,
+    // draw-call counters, per-element FBO vs ping-pong usage, blur passes,
+    // GPU info, FPS history chart). Enables renderer instrumentation too.
+    const perfMonToggle = makeSettingsToggle(
+      'settings-perf-monitor-toggle',
+      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT + ITEM_GAP },
+      t('settings_perf_monitor', locale),
+      state.showPerfMonitor,
+      () => setState((prev) => ({ showPerfMonitor: !prev.showPerfMonitor })),
+      palette,
+      rendererRef,
+      true,
+      labelPad,
+    )
+    elements.push(...perfMonToggle.elements)
+    Object.assign(interactions, perfMonToggle.interactions)
+    nextY += BUTTON_HEIGHT + ITEM_GAP
+
     // Re-detect performance text button — full card width, text padded, height includes bottom pad
     const perfIsRunning = state.perfProgress === 'running'
     const redetectLabel = perfIsRunning ? t('perf_detecting', locale) : t('settings_perf_redetect', locale)
@@ -487,7 +505,7 @@ export function buildSettings(
     elements.push(resetBtn)
     interactions['settings-reset'] = {
       onTap: () => {
-        setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 17, blurDownsample: 1, capsuleShape: true, hideOverlayButtons: false, locale: 'zh', pageTransition: true, liveDpr: null, liveTapCap: null, showFps: false, highlightAa: true, usePerElementFbo: true, perfProgress: null, perfDone: false, perfResultDpr: 0, perfStatusText: '' })
+        setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 17, blurDownsample: 1, capsuleShape: true, hideOverlayButtons: false, locale: 'zh', pageTransition: true, liveDpr: null, liveTapCap: null, showFps: false, showPerfMonitor: false, highlightAa: true, usePerElementFbo: true, perfProgress: null, perfDone: false, perfResultDpr: 0, perfStatusText: '' })
         try { window.localStorage.removeItem('liquid-glass-perf-dpr') } catch {}
         const d = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
         const dprFrac = (d - 0.5) / Math.max(0.0001, d - 0.5)
