@@ -153,9 +153,21 @@ export const renderMethods = {
     // cause of the long-standing "elements disappear before sliding off
     // screen" bug.
     const scrollY = this.scrollY
+    // Base cull margin: covers outer shadows (~24dp), press/toggle scale
+    // (up to 1.5x), and foreground halo blur.
     const CULL_MARGIN = 120
-    const viewportTop = -CULL_MARGIN
-    const viewportBottom = this.cssHeight + CULL_MARGIN
+
+    // Per-element cull margin: max(CULL_MARGIN, el.rect.h). This keeps tall
+    // elements (e.g. settings card backgrounds, h=200-300px) visible until
+    // they are FULLY off-screen + CULL_MARGIN. Without this, a card background
+    // (h=300) would cull when its top reaches -120 (y+h < -120 → y+300<-120
+    // → y<-420... actually y+h<-120 means the element's BOTTOM is above -120),
+    // but its child elements (small h, positioned at the bottom of the card)
+    // would still be on-screen → children render without their card bg.
+    // Using el.rect.h as the margin ensures parent + child cull at the same
+    // scroll position (child's y+h culls when child fully passes -120, which
+    // is always AFTER the card bg fully passes -120+h_card).
+    const cullMarginFor = (el: GlassElementConfig) => Math.max(CULL_MARGIN, el.rect.h)
 
     // Helper to compute the element's effective rect (with scroll offset).
     const effRect = (el: GlassElementConfig) => {
@@ -179,7 +191,8 @@ export const renderMethods = {
 
       // Compute the element's effective y in VIEWPORT coords (after scroll).
       const y = el.scroll ? el.rect.y - scrollY : el.rect.y
-      if (y + el.rect.h < viewportTop || y > viewportBottom) continue
+      const margin = cullMarginFor(el)
+      if (y + el.rect.h < -margin || y > this.cssHeight + margin) continue
 
       const r = effRect(el)
       const st = this.buttonStates.get(el.id)
@@ -246,7 +259,8 @@ export const renderMethods = {
     for (const el of this.buttonConfigs) {
       if (!el.renderOnTop) continue
       const y = el.scroll ? el.rect.y - scrollY : el.rect.y
-      if (y + el.rect.h < viewportTop || y > viewportBottom) continue
+      const margin = cullMarginFor(el)
+      if (y + el.rect.h < -margin || y > this.cssHeight + margin) continue
       const r = effRect(el)
       const st = this.buttonStates.get(el.id)
 

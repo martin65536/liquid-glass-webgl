@@ -370,3 +370,21 @@ Stage Summary:
 - Scissor margin is now dynamic: `(shadowRadius + |offset|)×layerScale + 2` (floor 3px), replacing the fixed 60 CSS px. Ping-pong path benefits too.
 - Visual correctness preserved (VLM-verified on home, control center, dialog). No fallback, no regression.
 - Ready to commit + push.
+
+---
+Task ID: blur-scissor + cull-margin
+Agent: main (Z.ai Code)
+Task: Fix two perf/correctness issues: (1) blurTexture was full-screen even in PEF path — the dominant cost when many glass elements each trigger a blur. (2) Settings cards disappeared before sliding off screen due to fixed CULL_MARGIN=120 being too small for tall card backgrounds.
+
+Work Log:
+- Added optional `bbox` parameter to `blurTexture(srcTex, radius, bbox?)` in index.ts. When provided, H and V passes use gl.scissor to rasterize only the bbox region (H pass expands by radius so V pass edge samples are valid). Sampling stays fullscreen for correctness.
+- Updated PEF path (renderGlassElementPerFbo) to pass blur bbox = elFbo rect + blurRadius + refractionAmount pad (device px, BL origin). Fragment invocations drop from fboW×fboH to ~elFboRectW×elFboRectH per blur pass.
+- Updated ping-pong path (renderGlassElement) to pass blur bbox = element scissor bbox (MARGIN_CSS-based). Same scissor region already used for element rasterization.
+- Replaced fixed CULL_MARGIN viewport cull with per-element `cullMarginFor(el) = max(120, el.rect.h)`. Tall card backgrounds (h=200-300) now stay rendered until fully off-screen + margin, matching when their child elements (small h, at bottom of card) cull. Fixes "card bg disappears but children still render" gap.
+- Applied to both first-pass (line 194) and renderOnTop second-pass (line 262) cull checks.
+- Removed unused viewportTop/viewportBottom locals.
+
+Stage Summary:
+- blurTexture now scissor-bounded: 2N full-screen blurs → 2N bbox-sized blurs. Biggest win for multi-glass scenes (perf benchmark 16 glasses, control center 14 glasses, dialog card).
+- Card culling fixed: parent card bg and child elements cull at the same scroll position. No more floating children without bg.
+- Lint clean, dev log clean (no compile errors).

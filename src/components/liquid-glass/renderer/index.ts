@@ -646,8 +646,21 @@ export class LiquidGlassRenderer {
    *  blurred result into blurFboB, returns blurFboBTex.
    *  Saves/restores the currently-bound framebuffer.
    *  Uses this.blurTapCap to cap 1D tap count (performance knob).
-   *  (blurDownsample is reserved for future use — currently always full-res.) */
-  blurTexture(srcTex: WebGLTexture, radius: number): WebGLTexture {
+   *  (blurDownsample is reserved for future use — currently always full-res.)
+   *
+   *  Optional `bbox` (device px, bottom-left origin x/y/w/h): when provided,
+   *  both H and V passes use gl.scissor to rasterize ONLY the bbox region.
+   *  Sampling is still fullscreen (correctness preserved), but fragment
+   *  invocations drop from fboW×fboH to bboxW×bboxH — the biggest win when
+   *  many small glass elements each need their own blur. The H pass's
+   *  scissor is expanded by `radius` on each side so the V pass's edge
+   *  samples read valid H-pass output (not stale data from the previous
+   *  frame). bbox outside the canvas is clamped. */
+  blurTexture(
+    srcTex: WebGLTexture,
+    radius: number,
+    bbox?: { x: number; y: number; w: number; h: number }
+  ): WebGLTexture {
     const gl = this.gl
     const w = this.fboW
     const h = this.fboH
@@ -659,9 +672,36 @@ export class LiquidGlassRenderer {
     const savedFb = gl.getParameter(gl.FRAMEBUFFER_BINDING)
     gl.disable(gl.BLEND)
 
+    // --- Compute scissor regions (device px, BL origin) ---
+    // H pass scissor = bbox expanded by radius on all sides (so V pass edge
+    //   samples read valid H output). Clamped to canvas.
+    // V pass scissor = bbox as-is (element pass only reads bbox range).
+    // When no bbox: no scissor, full-screen rasterization (legacy path).
+    let useScissor = false
+    let hScissor: [number, number, number, number] = [0, 0, w, h]
+    let vScissor: [number, number, number, number] = [0, 0, w, h]
+    if (bbox && bbox.w > 0 && bbox.h > 0) {
+      const rad = Math.ceil(radius)
+      const hx0 = Math.max(0, Math.floor(bbox.x - rad))
+      const hy0 = Math.max(0, Math.floor(bbox.y - rad))
+      const hx1 = Math.min(w, Math.ceil(bbox.x + bbox.w + rad))
+      const hy1 = Math.min(h, Math.ceil(bbox.y + bbox.h + rad))
+      hScissor = [hx0, hy0, hx1 - hx0, hy1 - hy0]
+      const vx0 = Math.max(0, Math.floor(bbox.x))
+      const vy0 = Math.max(0, Math.floor(bbox.y))
+      const vx1 = Math.min(w, Math.ceil(bbox.x + bbox.w))
+      const vy1 = Math.min(h, Math.ceil(bbox.y + bbox.h))
+      vScissor = [vx0, vy0, vx1 - vx0, vy1 - vy0]
+      useScissor = true
+    }
+
     // Pass 1: horizontal — srcTex → blurFboA
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurFboA)
     gl.viewport(0, 0, w, h)
+    if (useScissor) {
+      gl.enable(gl.SCISSOR_TEST)
+      gl.scissor(hScissor[0], hScissor[1], hScissor[2], hScissor[3])
+    }
     gl.useProgram(entry.hProg)
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
     gl.enableVertexAttribArray(entry.aPosH)
@@ -676,6 +716,9 @@ export class LiquidGlassRenderer {
     // Pass 2: vertical — blurFboATex → blurFboB
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurFboB)
     gl.viewport(0, 0, w, h)
+    if (useScissor) {
+      gl.scissor(vScissor[0], vScissor[1], vScissor[2], vScissor[3])
+    }
     gl.useProgram(entry.vProg)
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
     gl.enableVertexAttribArray(entry.aPosV)
@@ -687,6 +730,9 @@ export class LiquidGlassRenderer {
     gl.uniform1f(entry.uV['uRadius'], radius)
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 
+    if (useScissor) {
+      gl.disable(gl.SCISSOR_TEST)
+    }
     gl.bindFramebuffer(gl.FRAMEBUFFER, savedFb)
     gl.viewport(0, 0, w, h)
     return this.blurFboBTex!
