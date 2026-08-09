@@ -614,7 +614,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   showFps: false,
   showPerfMonitor: false,
   highlightAa: true,
-  usePerElementFbo: true,
+  usePerElementFbo: false,
   perfProgress: null,
   perfStatusText: '',
   perfDone: false,

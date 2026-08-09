@@ -290,7 +290,8 @@ function Body({
  * Layout per row:  [ label ............ ON/OFF ]
  *   - click anywhere on the row flips the toggle
  *   - state is held in React state and mirrored to renderer.quickToggles
- *   - NOT persisted: resets to all-true on page reload
+ *   - NOT persisted: perElementFbo resets to match settings default (false);
+ *     all others reset to true on page reload
  */
 const QUICK_TOGGLE_KEYS = [
   'highlight',
@@ -298,30 +299,51 @@ const QUICK_TOGGLE_KEYS = [
   'chromatic',
   'refraction',
   'outerShadow',
+  'innershadow',
   'perElementFbo',
 ] as const
 type QuickToggleKey = typeof QUICK_TOGGLE_KEYS[number]
 
 const QUICK_TOGGLE_LABELS: Record<QuickToggleKey, { label: string; hint: string }> = {
-  highlight:    { label: 'Highlight',    hint: 'rim + stroke mask + 3-pass blur' },
-  backdropBlur: { label: 'Backdrop blur', hint: '2-pass Gaussian on backdrop' },
-  chromatic:    { label: 'Chromatic',    hint: 'RGB channel split samples' },
-  refraction:   { label: 'Refraction',   hint: 'lens distortion offset' },
-  outerShadow:  { label: 'Outer shadow', hint: 'drop-shadow pass' },
-  perElementFbo:{ label: 'Per-element FBO', hint: 'small FBO vs fullscreen blit' },
+  highlight:      { label: 'Highlight',        hint: 'rim + stroke mask + 3-pass blur' },
+  backdropBlur:   { label: 'Backdrop blur',    hint: '2-pass Gaussian on backdrop' },
+  chromatic:      { label: 'Chromatic',        hint: 'RGB channel split samples' },
+  refraction:     { label: 'Refraction',       hint: 'lens distortion offset' },
+  outerShadow:    { label: 'Outer shadow',     hint: 'drop-shadow pass' },
+  innershadow:    { label: 'Inner shadow',     hint: 'inner shadow ring-mask composite' },
+  perElementFbo:  { label: 'Per-element FBO',  hint: 'small FBO vs fullscreen blit' },
 }
 
 function QuickToggles({ rendererRef }: { rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> }) {
   // Mirror the renderer's quickToggles into local React state so flips
   // re-render the panel. Initialize from the renderer on first mount.
+  // NOTE: perElementFbo defaults to false (matches the settings default);
+  // the context.tsx sync effect seeds it from settings on mount.
   const [flags, setFlags] = React.useState<Record<QuickToggleKey, boolean>>({
     highlight: true,
     backdropBlur: true,
     chromatic: true,
     refraction: true,
     outerShadow: true,
-    perElementFbo: true,
+    innershadow: true,
+    perElementFbo: false,
   })
+
+  // On mount, read the renderer's actual quickToggles state (it may have
+  // been seeded from settings by context.tsx before this overlay mounted).
+  React.useEffect(() => {
+    const r = rendererRef.current
+    if (!r) return
+    setFlags({
+      highlight: r.quickToggles.highlight,
+      backdropBlur: r.quickToggles.backdropBlur,
+      chromatic: r.quickToggles.chromatic,
+      refraction: r.quickToggles.refraction,
+      outerShadow: r.quickToggles.outerShadow,
+      innershadow: r.quickToggles.innershadow,
+      perElementFbo: r.quickToggles.perElementFbo,
+    })
+  }, [rendererRef])
 
   const flip = (key: QuickToggleKey) => {
     const next = !flags[key]
@@ -340,6 +362,7 @@ function QuickToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
       chromatic: v,
       refraction: v,
       outerShadow: v,
+      innershadow: v,
       perElementFbo: v,
     }
     setFlags(next)
@@ -350,6 +373,7 @@ function QuickToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
       r.quickToggles.chromatic = v
       r.quickToggles.refraction = v
       r.quickToggles.outerShadow = v
+      r.quickToggles.innershadow = v
       r.quickToggles.perElementFbo = v
       r.requestRender()
     }

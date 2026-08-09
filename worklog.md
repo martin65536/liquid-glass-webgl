@@ -114,3 +114,36 @@ Stage Summary:
 - All emojis replaced with text equivalents in entry tips and perf monitor.
 - New "Quick power-save" section in perf monitor with 6 live toggles for isolating heavy GPU path costs during power-consumption investigation.
 - Ready to commit + push.
+
+---
+Task ID: 3
+Agent: main (Z.ai Code)
+Task: Default per-element FBO to OFF, fix FPS calculation (was showing thousands), add innershadow quick-toggle, then commit + push.
+
+Work Log:
+- **FPS bug root cause**: perf-monitor.ts `frameEnd()` measured `dt = now - lastFrameStart` = RENDER DURATION (sub-ms for fast renders → 1000/0.2 = 5000 FPS). Fixed to measure INTERVAL between consecutive `frameEnd()` calls (= true frame-to-frame time, ≈16.67ms = 60fps). Added `prevFrameEndTime` field; gap frames (>500ms idle interval) are skipped in the ring buffer but still counted in totalFrames + counters captured.
+- **Per-element FBO default OFF**:
+  - renderer/index.ts: `usePerElementFbo = false` (was true)
+  - catalog/types.ts: `DEFAULT_CATALOG_STATE.usePerElementFbo = false`
+  - build-settings.ts: reset-to-defaults `usePerElementFbo: false`
+  - page.tsx: localStorage fallback `false` (was true)
+- **Sole gate refactor**: changed render path gate from `this.usePerElementFbo && this.quickToggles.perElementFbo` to just `this.quickToggles.perElementFbo`. This makes the perf-monitor toggle the sole runtime controller — it can live-enable per-element FBO even when settings is off. context.tsx now syncs `renderer.quickToggles.perElementFbo = usePerElementFbo` on mount + when settings changes (seeds initial value; perf-monitor toggle overrides live until next settings change).
+- **innershadow quick toggle**:
+  - renderer/index.ts: added `innershadow: true` to quickToggles
+  - methods-render-glass-post-passes.ts: gated `if (el.innerShadow && this.quickToggles.innershadow)`
+  - perf-monitor-overlay.tsx: added 'innershadow' to QUICK_TOGGLE_KEYS + labels; added useEffect to read renderer's actual quickToggles on mount (so perElementFbo shows correct initial state from settings sync)
+- Verified via agent-browser:
+  - Per-element FBO toggle defaults to OFF (settings + perf monitor both show OFF)
+  - FPS now shows ~5.9 (actual frame interval ~168ms) instead of thousands
+  - "Glass 1 (FBO 0 · ping-pong 1)" with default OFF → "Glass 1 (FBO 1 · ping-pong 0)" after toggling ON in perf monitor (live override works)
+  - Inner shadow toggle present + flips ON↔OFF correctly
+  - All 7 quick toggles present: Highlight, Backdrop blur, Chromatic, Refraction, Outer shadow, Inner shadow, Per-element FBO
+  - No console/page errors
+- Lint passes; dev server compiles cleanly.
+
+Stage Summary:
+- FPS calculation fixed (interval-based, not duration-based).
+- Per-element FBO defaults to OFF everywhere (renderer, CatalogState, localStorage fallback, reset).
+- Perf-monitor toggle is now the sole runtime gate for per-element FBO — can live-enable/disable independent of settings.
+- innershadow quick toggle added for inner-shadow cost isolation.
+- Ready to commit + push.

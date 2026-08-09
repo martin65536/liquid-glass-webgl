@@ -378,7 +378,7 @@ export const glassRenderMethods = {
     //    dialogBackdropTex, not the scene FBO — the crop would be wrong.
     //  - SDF-texture elements (LockScreen): use a separate glass path.
     // These fall through to the legacy path below.
-    if (this.usePerElementFbo && this.quickToggles.perElementFbo && !el.backdropFbo && !el.useSdfTexture && !skipPingPong) {
+    if (this.quickToggles.perElementFbo && !el.backdropFbo && !el.useSdfTexture && !skipPingPong) {
       this.perfMonitor.incGlassElement()
       this.perfMonitor.incPerElementFbo()
       return this.renderGlassElementPerFbo(el, st, curFbo, curTex, otherFbo, otherTex, {

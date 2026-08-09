@@ -173,10 +173,14 @@ export class LiquidGlassRenderer {
   /** Corner style: 0 = circular, 1 = continuous (squircle). Set from
    *  CatalogState.capsuleShape. Default 1 (Continuous, matching original). */
   cornerStyle = 1
-  /** Per-element FBO optimization toggle (Settings). When true (default),
-   *  each glass element renders into a small bbox-sized FBO instead of a
-   *  fullscreen ping-pong blit. See methods-render-glass.ts. */
-  usePerElementFbo = true
+  /** Per-element FBO optimization toggle (Settings). When true, each glass
+   *  element renders into a small bbox-sized FBO instead of a fullscreen
+   *  ping-pong blit. See methods-render-glass.ts.
+   *  NOTE: this field is seeded from CatalogState.usePerElementFbo and also
+   *  mirrored into quickToggles.perElementFbo (the live runtime gate) by
+   *  context.tsx. The render path checks quickToggles.perElementFbo, not
+   *  this field, so the perf-monitor toggle can override it live. */
+  usePerElementFbo = false
   /** Quick power-saving toggles — exposed live via the performance monitor
    *  overlay (NOT persisted to settings). Each flag gates a specific heavy
    *  GPU path so the user can isolate cost during a power-consumption
@@ -184,30 +188,39 @@ export class LiquidGlassRenderer {
    *  for every element on the next frame (requestRender is called by the
    *  overlay when a flag flips so needsRedraw is set).
    *
-   *  - highlight:    skip the Canvas2D mask + 3-pass highlight composite
-   *                  (rim/stroke/blur). This is one of the most expensive
-   *                  per-element paths due to per-frame Canvas2D rasterization.
-   *  - backdropBlur: skip the 2-pass separable Gaussian on the backdrop
-   *                  (useSeparableBlur elements with blurRadius >= 0.5).
-   *                  Saves 2 fullscreen-equivalent blur passes per element.
-   *  - chromatic:    force uChromaticAberration=0 in the element pass
-   *                  (removes the extra RGB-channel texture samples).
-   *  - refraction:   force uRefractionHeight=0 and uRefractionAmount=0
-   *                  (the lens distortion offset disappears, glass becomes
-   *                  a flat tinted layer — much cheaper shader math).
-   *  - outerShadow:  skip the outer drop-shadow pass entirely.
-   *  - perElementFbo: gate the per-element FBO path. When false, all glass
-   *                  elements fall back to the legacy fullscreen ping-pong
-   *                  blit. Useful for A/B comparing power cost.
+   *  - highlight:     skip the Canvas2D mask + 3-pass highlight composite
+   *                   (rim/stroke/blur). This is one of the most expensive
+   *                   per-element paths due to per-frame Canvas2D rasterization.
+   *  - backdropBlur:  skip the 2-pass separable Gaussian on the backdrop
+   *                   (useSeparableBlur elements with blurRadius >= 0.5).
+   *                   Saves 2 fullscreen-equivalent blur passes per element.
+   *  - chromatic:     force uChromaticAberration=0 in the element pass
+   *                   (removes the extra RGB-channel texture samples).
+   *  - refraction:    force uRefractionHeight=0 and uRefractionAmount=0
+   *                   (the lens distortion offset disappears, glass becomes
+   *                   a flat tinted layer — much cheaper shader math).
+   *  - outerShadow:   skip the outer drop-shadow pass entirely.
+   *  - innershadow:   skip the inner shadow pass (Canvas2D ring-mask
+   *                   generation + composite). The mask is cached, but the
+   *                   composite draw still costs a fullscreen-equivalent pass.
+   *  - perElementFbo: sole runtime gate for the per-element FBO path.
+   *                   Seeded from CatalogState.usePerElementFbo (settings)
+   *                   via context.tsx on mount + when settings changes.
+   *                   The perf-monitor toggle can override it live — when
+   *                   false, all glass elements fall back to the legacy
+   *                   fullscreen ping-pong blit. Default false (matches the
+   *                   settings default).
    *
-   *  All flags default to `true` (full quality, no overrides). */
+   *  All flags default to `true` (full quality) EXCEPT perElementFbo which
+   *  defaults to `false` to match the settings default. */
   quickToggles = {
     highlight: true,
     backdropBlur: true,
     chromatic: true,
     refraction: true,
     outerShadow: true,
-    perElementFbo: true,
+    innershadow: true,
+    perElementFbo: false,
   }
   /** Performance monitor — frame timing + per-frame render counters +
    *  GPU info. When `perfMonitor.enabled === false` (default), every

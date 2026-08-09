@@ -271,10 +271,16 @@ export function LiquidGlassCanvas({
   }, [cornerStyle])
 
   // Apply per-element FBO optimization toggle when it changes (Settings page).
+  // This syncs BOTH the legacy `usePerElementFbo` field (kept for compat) and
+  // the live runtime gate `quickToggles.perElementFbo` (the one the render
+  // path actually checks). The perf-monitor overlay's toggle can override
+  // quickToggles.perElementFbo live; when the Settings value changes, this
+  // effect re-seeds it.
   React.useEffect(() => {
     const renderer = rendererRefInternal.current
     if (!renderer || usePerElementFbo == null) return
     renderer.usePerElementFbo = usePerElementFbo
+    renderer.quickToggles.perElementFbo = usePerElementFbo
     renderer.requestRender()
   }, [usePerElementFbo])
 

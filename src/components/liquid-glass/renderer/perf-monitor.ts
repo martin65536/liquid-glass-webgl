@@ -4,10 +4,12 @@
  * Three layers of stats:
  *
  *   1. Frame timing: every render() call wraps with frameStart/frameEnd.
- *      Records frame time (ms) into a rolling ring buffer (last 240 frames
- *      ≈ 4s @ 60fps). From this we derive FPS, avg/min/max frame time,
- *      and jank counts (frames > 16.67ms = missed 60fps, > 33.33ms =
- *      missed 30fps).
+ *      The frame time is the INTERVAL between consecutive frameEnd calls
+ *      (NOT the render duration), recorded into a rolling ring buffer
+ *      (last 240 frames ≈ 4s @ 60fps). From this we derive FPS, avg/min/max
+ *      frame time, and jank counts (frames > 16.67ms = missed 60fps,
+ *      > 33.33ms = missed 30fps). Intervals > 500ms (idle gaps where
+ *      needsRedraw was false) are skipped to keep stats clean.
  *
  *   2. Per-frame counters: incremented by renderer methods during render()
  *      via incDrawCall / incGlassElement / incPerElementFbo / incPingPong /
@@ -79,7 +81,13 @@ export class PerfMonitor {
   private frameTimes = new Float32Array(this.HISTORY_SIZE)
   private frameTimeIdx = 0
   private frameTimeCount = 0
-  private lastFrameStart = 0
+  /** Timestamp of the previous frameEnd() call. Used to compute the frame
+   *  INTERVAL (frame-to-frame), NOT the render duration. The render duration
+   *  (frameEnd - frameStart) can be sub-millisecond for a fast render, which
+   *  would inflate FPS to thousands. The interval between consecutive
+   *  frameEnd calls reflects the true rendered frame rate (≈16.67ms = 60fps
+   *  when rendering every rAF tick). */
+  private prevFrameEndTime = 0
   private totalFrames = 0
   private jank16Count = 0
   private jank33Count = 0
@@ -140,11 +148,13 @@ export class PerfMonitor {
     }
   }
 
-  /** Called at the top of render(). Resets per-frame counters + starts timer. */
+  /** Called at the top of render(). Resets per-frame counters.
+   *  NOTE: we no longer record a start timestamp here — the frame time is
+   *  measured as the interval between consecutive frameEnd() calls, which
+   *  reflects the true rendered frame rate rather than the render duration. */
   frameStart() {
     if (!this.enabled) return
     this.collectGpuInfo()
-    this.lastFrameStart = performance.now()
     this.drawCalls = 0
     this.glassElements = 0
     this.perElementFboCount = 0
@@ -153,18 +163,36 @@ export class PerfMonitor {
     this.blurPasses = 0
   }
 
-  /** Called at the bottom of render(). Records frame time + captures counters. */
+  /** Called at the bottom of render(). Records the frame INTERVAL (time
+   *  since the previous frameEnd) into the ring buffer + captures counters.
+   *
+   *  Why interval not duration: render duration = frameEnd - frameStart can
+   *  be sub-millisecond (0.2ms) for a fast render → 1000/0.2 = 5000 FPS,
+   *  which is meaningless. The interval between consecutive frameEnd calls
+   *  reflects how often frames are actually produced: ≈16.67ms = 60fps when
+   *  rendering every rAF tick, larger when frames are skipped.
+   *
+   *  Gap filtering: if the interval > 500ms, the page was likely idle
+   *  (needsRedraw was false for a while) — this isn't a real frame-to-frame
+   *  interval, so we skip recording it in the timing ring buffer (but still
+   *  count the frame + capture its counters). This keeps avg/min/max clean. */
   frameEnd() {
     if (!this.enabled) return
     const now = performance.now()
-    const dt = now - this.lastFrameStart
-    this.lastFrameTimeMs = dt
-    this.frameTimes[this.frameTimeIdx] = dt
-    this.frameTimeIdx = (this.frameTimeIdx + 1) % this.HISTORY_SIZE
-    if (this.frameTimeCount < this.HISTORY_SIZE) this.frameTimeCount++
+    const dt = this.prevFrameEndTime > 0 ? (now - this.prevFrameEndTime) : 0
+    this.prevFrameEndTime = now
+    // Record into ring buffer only for real frame-to-frame intervals.
+    if (dt > 0 && dt <= 500) {
+      this.lastFrameTimeMs = dt
+      this.frameTimes[this.frameTimeIdx] = dt
+      this.frameTimeIdx = (this.frameTimeIdx + 1) % this.HISTORY_SIZE
+      if (this.frameTimeCount < this.HISTORY_SIZE) this.frameTimeCount++
+      if (dt > 16.67) this.jank16Count++
+      if (dt > 33.33) this.jank33Count++
+    }
     this.totalFrames++
-    if (dt > 16.67) this.jank16Count++
-    if (dt > 33.33) this.jank33Count++
+    // Capture this frame's counters into the "last completed" slots so the
+    // overlay sees the most recent frame's render work.
     this.lastDrawCalls = this.drawCalls
     this.lastGlassElements = this.glassElements
     this.lastPerElementFboCount = this.perElementFboCount
@@ -187,6 +215,7 @@ export class PerfMonitor {
     this.frameTimes.fill(0)
     this.frameTimeIdx = 0
     this.frameTimeCount = 0
+    this.prevFrameEndTime = 0
     this.totalFrames = 0
     this.jank16Count = 0
     this.jank33Count = 0

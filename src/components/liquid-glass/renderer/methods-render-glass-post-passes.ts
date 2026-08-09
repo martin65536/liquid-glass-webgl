@@ -129,7 +129,8 @@ export const glassPostPassMethods = {
 
     // Inner shadow (faithful to the original — only ONE black inner shadow,
     // no innerShadow2. LiquidToggle.kt: InnerShadow(radius=4dp*progress, alpha=progress))
-    if (el.innerShadow) {
+    // Quick power-save toggle: skip the inner shadow pass entirely.
+    if (el.innerShadow && this.quickToggles.innershadow) {
       drawInnerShadowPass(el.innerShadow, 0)
     }
 
