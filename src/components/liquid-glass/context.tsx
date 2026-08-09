@@ -226,7 +226,7 @@ export function LiquidGlassCanvas({
     if (blurTapCap != null) renderer.blurTapCap = Math.max(1, Math.min(33, blurTapCap | 0))
     // Apply blur downsample (Settings slider). Must be set BEFORE resizeFBOs
     // so the blur FBOs are created at the downsampled size on first init.
-    if (blurDownsample != null) renderer.blurDownsample = Math.max(1, Math.min(4, blurDownsample))
+    if (blurDownsample != null) renderer.blurDownsample = Math.max(8, Math.min(32, blurDownsample))
     if (cornerStyle != null) renderer.cornerStyle = cornerStyle
     if (usePerElementFbo != null) renderer.usePerElementFbo = usePerElementFbo
     if (perfMonitorEnabled != null) renderer.perfMonitor.enabled = perfMonitorEnabled
@@ -289,7 +289,7 @@ export function LiquidGlassCanvas({
   React.useEffect(() => {
     const renderer = rendererRefInternal.current
     if (!renderer || blurDownsample == null) return
-    renderer.blurDownsample = Math.max(1, Math.min(4, blurDownsample))
+    renderer.blurDownsample = Math.max(8, Math.min(32, blurDownsample))
     renderer.resizeFBOs(renderer.fboW, renderer.fboH, true)
     renderer.requestRender()
   }, [blurDownsample])

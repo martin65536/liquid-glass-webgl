@@ -114,10 +114,11 @@ export function buildSettings(
   const tapFracToTaps = (f: number) => minTaps + Math.round(f * tapRange)
 
   // --- Downsample slider setup (shared across card 2) ---
-  // Continuous (stepless): left = low quality (ds=4, 16× faster),
-  // right = high quality (ds=1, full-res). ds is a float 1.0–4.0.
-  const minDs = 1
-  const maxDs = 4
+  // Continuous (stepless): left = low quality (ds=32, fastest),
+  // right = high quality (ds=8, best quality within perf floor).
+  // ds is a float 8.0–32.0 (4× range).
+  const minDs = 8
+  const maxDs = 32
   const dsRange = maxDs - minDs
   // fraction 0 = left = low quality (ds=maxDs), fraction 1 = right = high quality (ds=minDs)
   const dsInitFrac = Math.max(0, Math.min(1, (maxDs - state.blurDownsample) / dsRange))
@@ -329,8 +330,8 @@ export function buildSettings(
     elements.push(tapCapLabelEl)
     nextY += tapCapLabelH
 
-    // Blur downsample slider — continuous: left = low quality (faster),
-    // right = high quality (full-res). Stepless float ds 1.0–4.0.
+    // Blur downsample slider — continuous: left = low quality (ds=32, fastest),
+    // right = high quality (ds=8, best quality within perf floor). Stepless.
     const dsTrackY = nextY + (24 - 6) / 2
     const dsSlider = makeLiquidSlider(
       'settings-blur-downsample',
@@ -554,14 +555,14 @@ export function buildSettings(
     elements.push(resetBtn)
     interactions['settings-reset'] = {
       onTap: () => {
-        setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 17, blurDownsample: 2, capsuleShape: true, hideOverlayButtons: false, locale: 'zh', pageTransition: true, liveDpr: null, liveTapCap: null, liveBlurDownsample: null, showFps: false, showPerfMonitor: false, highlightAa: true, usePerElementFbo: false, perfProgress: null, perfDone: false, perfResultDpr: 0, perfStatusText: '' })
+        setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 9, blurDownsample: 8, capsuleShape: true, hideOverlayButtons: false, locale: 'zh', pageTransition: true, liveDpr: null, liveTapCap: null, liveBlurDownsample: null, showFps: false, showPerfMonitor: false, highlightAa: true, usePerElementFbo: false, perfProgress: null, perfDone: false, perfResultDpr: 0, perfStatusText: '' })
         try { window.localStorage.removeItem('liquid-glass-perf-dpr') } catch {}
         const d = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
         const dprFrac = (d - 0.5) / Math.max(0.0001, d - 0.5)
         rendererRef?.current?.setToggleTarget('settings-dpr', dprFrac)
-        rendererRef?.current?.setToggleTarget('settings-blur-taps', (17 - 1) / 32)
-        // Downsample default = 2× → fraction = (4-2)/3 = 2/3
-        rendererRef?.current?.setToggleTarget('settings-blur-downsample', (4 - 2) / 3)
+        rendererRef?.current?.setToggleTarget('settings-blur-taps', (9 - 1) / 32)
+        // Downsample default = 8× (min = best quality) → fraction = (32-8)/24 = 1.0
+        rendererRef?.current?.setToggleTarget('settings-blur-downsample', (32 - 8) / 24)
       },
     }
   }

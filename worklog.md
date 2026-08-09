@@ -541,3 +541,27 @@ Stage Summary:
 - blurDownsample is now DPR-adapted: blurFbo resolution is relative to CSS pixels, so the same slider position yields consistent visual quality across DPR=1/2/3 devices
 - effectiveBlurDownsample field centralizes the computed value; blurTexture/blurHighlightMask/debug all read it (no per-call multiplication, no mismatch risk)
 - Files changed: renderer/index.ts, renderer/methods-fbo.ts, renderer/methods-render-glass.ts, context.tsx
+
+---
+Task ID: 4
+Agent: main (Z.ai Code)
+Task: Change default blur params to 9 tap + downsample 4 (interpreted as 4× range = slider 8–32), and set the downsample SLIDER minimum to 8.
+
+Work Log:
+- Previous turn misinterpreted "降采样最小值改8" as an internal effectiveDs MIN clamp of 8 — this broke the slider (all positions gave effectiveDs≥8, slider did nothing). User clarified "降采样滑块最小值改8" = the SLIDER min = 8.
+- Reverted effectiveDs min-clamp-8 in methods-fbo.ts → effectiveDs = max(1, min(rawDs × dpr, 128)) (generous max clamp 128 for safety, no min clamp — slider min is the floor)
+- Updated effectiveBlurDownsample field doc (index.ts) to reflect [1,128] clamp + slider range 8–32
+- Changed defaults: blurTapCap 17→9, blurDownsample 2→8 (in DEFAULT_CATALOG_STATE, renderer index.ts field defaults, page.tsx persistence defaults)
+- Changed slider range in build-settings.ts: minDs 1→8, maxDs 4→32 (4× range = "降采样4"). Default=8 → fraction=(32-8)/24=1.0 (far right = best quality)
+- Updated clamps in context.tsx: [1,4] → [8,32] (both init + useEffect)
+- Updated page.tsx persistence clamp: [1,4] → [8,32], default 2→8
+- Updated reset button: blurTapCap 17→9, blurDownsample 2→8, setToggleTarget fractions updated for new ranges
+- Kept DPR adaptation (effectiveDs = rawDs × dpr) — blurFbo = CSS/rawDs regardless of DPR. On slider min=8: DPR=1→8, DPR=2→16, DPR=3→24. All functional.
+- Lint passed, dev server compiles cleanly.
+
+Stage Summary:
+- blurTapCap default = 9 (perf-oriented low tap count)
+- blurDownsample default = 8 (slider min = best quality within new perf floor)
+- Downsample slider range = 8 (min, right=best quality) to 32 (max, left=fastest) — 4× range
+- effectiveDs = rawDs × dpr clamped [1,128] — slider is functional across all DPR values
+- Files changed: renderer/index.ts, renderer/methods-fbo.ts, catalog/types.ts, catalog/build-settings.ts, context.tsx, app/page.tsx

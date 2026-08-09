@@ -103,15 +103,13 @@ export const fboMethods = {
     if (this.dsBlurFboATex) gl.deleteTexture(this.dsBlurFboATex)
     if (this.dsBlurFboB) gl.deleteFramebuffer(this.dsBlurFboB)
     if (this.dsBlurFboBTex) gl.deleteTexture(this.dsBlurFboBTex)
-    // DPR-adapted effective downsample: the user's blurDownsample is a quality
-    // choice relative to CSS (display) pixels. On a DPR=N device, fboW = CSS×N,
-    // so we multiply ds by dpr to keep blurFbo = CSS/rawDs regardless of DPR.
-    // MIN clamp 8: the blur is a low-frequency effect, so aggressive downsampling
-    // is visually acceptable and gives a large perf win (8× → 64× fewer fragments).
-    // The slider (rawDs 1–4) gives fine control; this clamp guarantees effectiveDs
-    // never drops below 8 even on DPR=1 (rawDs=1 → 1×1=1 → clamped to 8).
+    // DPR-adapted effective downsample: the user's blurDownsample (slider,
+    // range 8–32) is a quality choice relative to CSS (display) pixels. On a
+    // DPR=N device, fboW = CSS×N, so we multiply ds by dpr to keep
+    // blurFbo = CSS/rawDs regardless of DPR. Max clamp 128 prevents absurdly
+    // tiny FBOs at extreme slider + high DPR (rawDs=32 × DPR=3 = 96 < 128).
     const rawDs = Math.max(1, this.blurDownsample)
-    const ds = Math.max(8, rawDs * (this.dpr || 1))
+    const ds = Math.max(1, Math.min(rawDs * (this.dpr || 1), 128))
     this.effectiveBlurDownsample = ds
     const blurW = Math.max(1, Math.floor(w / ds))
     const blurH = Math.max(1, Math.floor(h / ds))

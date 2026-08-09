@@ -499,9 +499,11 @@ export interface CatalogState {
   globalSeparableBlur: boolean
   // Settings — blur tap cap (1..33, max 1D taps per separable pass)
   blurTapCap: number
-  // Settings — blur downsample factor (float, 1=full-res high quality,
-  // up to 4=quarter-res low quality). Continuous slider: left=low quality,
-  // right=high quality. The blur FBOs are sized floor(fboW/ds) × floor(fboH/ds).
+  // Settings — blur downsample factor (float, slider range 8–32). Continuous
+  // slider: left=low quality (ds=32, fastest), right=high quality (ds=8).
+  // The blur FBOs are sized floor(fboW/effectiveDs) × floor(fboH/effectiveDs)
+  // where effectiveDs = blurDownsample × dpr (DPR-adapted for consistent
+  // visual quality across devices).
   blurDownsample: number
   // Settings — corner style: true = continuous (squircle, faithful to original
   // Capsule's ContinuousCurvature), false = circular (standard arc).
@@ -606,8 +608,8 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   adaptiveLuminance: 0.5,
   customDpr: 0,
   globalSeparableBlur: true,
-  blurTapCap: 17,
-  blurDownsample: 2,
+  blurTapCap: 9,
+  blurDownsample: 8,
   capsuleShape: true,
   liveDpr: null,
   liveTapCap: null,
