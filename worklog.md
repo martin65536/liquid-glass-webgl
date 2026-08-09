@@ -210,3 +210,35 @@ Stage Summary:
 - antialias:false + powerPreference:'low-power' retained (pure cost reductions).
 - Per-frame render speed (184ms on SwiftShader) is the CPU rasterizer's inherent floor — cannot be improved without hardware acceleration. This is a Tier-2 concern (SwiftShader static-render mode), deferred.
 - Ready to commit + push.
+
+---
+Task ID: 6
+Agent: main (Z.ai Code)
+Task: Fix per-element FBO (PEF) sampling bug by keeping the sampling source fullscreen instead of cropping to bbox.
+
+Work Log:
+- Root-cause analysis (discussed with user before implementing): the old PEF path cropped the backdrop to a small bbox-sized texture and sampled that. But the element shader's sampling is NON-LOCAL — refraction offsets, chromatic dispersion's 7-tap spread, and the Gaussian blur kernel all read neighbors OUTSIDE the element's bbox. With a cropped texture, those reads clamped to the edge (CLAMP_TO_EDGE), producing wrong/stretched colors at glass borders. This was coupled with the MAX_ELEMENT_FBO_SIZE=1024 clamp: uBackdropRect.zw used the unclamped bbox size while the texture was clamped, so UV mapping was off for large elements. The 4 bugs were all symptoms of one wrong design assumption: "shrink the sampling source".
+- User's insight (the fix): keep the sampling source FULLSCREEN. PEF's real speedup comes from RENDERING INTO a small elFbo (fewer fragment shader invocations) + skipping the fullscreen ping-pong blit — NOT from shrinking the sampling source. With the source fullscreen, the shader's non-local reads hit real neighbor content, identical to the ping-pong path's sampling environment.
+- methods-render-glass.ts changes:
+  - Entry guard: added bbox size check (peBboxW/peBboxH ≤ 1024). Elements whose bbox (incl. 60px margin) exceeds MAX_ELEMENT_FBO_SIZE now fall through to ping-pong, avoiding the elFbo clamp coverage bug (large element right/bottom would be unrendered).
+  - renderGlassElementPerFbo Step 2: removed cropAndBlurBackdrop call + the uBackdropRect uniform write. Backdrop is now the FULLSCREEN curTex (no blur) or blurTexture(curTex) result (fullscreen 2-pass Gaussian, same as ping-pong). Re-enables BLEND after blurTexture (it disables blend). Added incDrawCall(2) for the fullscreen blur to match ping-pong's accounting.
+  - Updated doc comments (method header + Step 3 inline) to describe the new design.
+- shaders/element-utils.ts changes:
+  - sceneUv(): removed the uUsePerElementFbo branch. Now always returns fullscreen UV (canvasPx / uCanvasSize, Y-flipped). This is the core correctness fix — both PEF and ping-pong now sample the fullscreen texture identically.
+  - sampleBackdrop() pxToUv: removed the PEF branch, always radius / uCanvasSize.
+- shaders/element-uniforms.ts: marked uBackdropRect as DEPRECATED (kept the uniform declaration + cache-list entry for compatibility; no shader code reads it anymore). shader gets null location from getUniformLocation → uniform4f(null,...) is a no-op.
+- element.ts screenCoord reconstruction: UNCHANGED. The PEF path still needs uSceneRectOffset + (gl_FragCoord.x, uElFboSize.y - gl_FragCoord.y) to map the small elFbo's local gl_FragCoord back into full-canvas top-left-origin coords. Once screenCoord is in canvas-px space, sceneUv maps it to fullscreen UV — same as ping-pong.
+- backdropCropFbo / cropAndBlurBackdrop / elBlurFboA/B are now DEAD CODE (no callers). Left in place to minimize this change's surface; cleanup is a follow-up.
+
+Verification (agent-browser + VLM):
+- Enabled showPerfMonitor via localStorage, reloaded.
+- Single-glass page (default): counters "Glass 1, FBO 1, ping-pong 0, Blur 1" → PEF active with blur path. VLM compare (pe-off vs pe-on): "no visible offset or misalignment", "refraction and blur appear visually identical", "no visual artifacts, stretched edges, or wrong colors". Draw calls 18→17 (1 blit saved).
+- Multi-glass page (9 glass elements, navigated via canvas click): counters "Glass 9, FBO 9, ping-pong 0" (PEF on) vs "Glass 9, FBO 0, ping-pong 9" (PEF off). VLM compare: "visually equivalent", "no shift, mirroring, or incorrect region sampling", "blur intensity, chromatic dispersion, edge sharpness appear exactly the same", "no stretched edges, color banding, or border artifacts". Draw calls 17→8 (9 fullscreen blits saved).
+- No console errors, no page errors. Lint clean. Dev server compiles cleanly.
+
+Stage Summary:
+- PEF sampling bug FIXED by design change: sampling source is now fullscreen (same as ping-pong), elFbo only shrinks the RENDER TARGET. This eliminates all 4 coupled bugs (edge clamp on refraction/chromatic/blur + the 1024-clamp UV mismatch) at their shared root.
+- Correctness now identical to ping-pong (VLM-verified on 1-glass and 9-glass pages).
+- PEF speedup preserved: skips N fullscreen blits (9 on the multi-glass page → draw calls 17→8) + element pass rasterizes only bbox-sized region.
+- Large elements (bbox > 1024) auto-fall-back to ping-pong — no coverage bug.
+- Ready to commit + push.

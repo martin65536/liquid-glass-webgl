@@ -377,8 +377,15 @@ export const glassRenderMethods = {
     //  - backdropFbo elements (dialog card): they sample the pre-rendered
     //    dialogBackdropTex, not the scene FBO — the crop would be wrong.
     //  - SDF-texture elements (LockScreen): use a separate glass path.
+    //  - Elements whose bbox (incl. margin) exceeds MAX_ELEMENT_FBO_SIZE
+    //    (1024): the elFbo would be clamped, leaving part of the element
+    //    unrendered. Fall back to ping-pong for those.
     // These fall through to the legacy path below.
-    if (this.quickToggles.perElementFbo && !el.backdropFbo && !el.useSdfTexture && !skipPingPong) {
+    const MARGIN_CSS_PE = 60
+    const peBboxW = Math.min(this.fboW, Math.round((sw + 2 * MARGIN_CSS_PE) * this.dpr))
+    const peBboxH = Math.min(this.fboH, Math.round((sh + 2 * MARGIN_CSS_PE) * this.dpr))
+    if (this.quickToggles.perElementFbo && !el.backdropFbo && !el.useSdfTexture && !skipPingPong &&
+        peBboxW <= 1024 && peBboxH <= 1024) {
       this.perfMonitor.incGlassElement()
       this.perfMonitor.incPerElementFbo()
       return this.renderGlassElementPerFbo(el, st, curFbo, curTex, otherFbo, otherTex, {
@@ -513,12 +520,17 @@ export const glassRenderMethods = {
    *  bbox-sized FBO (capped at MAX_ELEMENT_FBO_SIZE) instead of the fullscreen
    *  ping-pong blit. Steps:
    *    1. Shadow pass → curFbo (scissor to bbox, same as legacy).
-   *    2. Crop the element's bbox region from curTex into backdropCropFbo
-   *       (optionally 2-pass blur for useSeparableBlur elements).
-   *    3. Render the element pass into elFbo (sampling the cropped backdrop).
+   *    2. (Optional) 2-pass blur on the FULLSCREEN curTex → blurFboB.
+   *       The sampling source stays fullscreen so the shader's non-local
+   *       reads (refraction / chromatic / blur kernel) hit real neighbors,
+   *       identical to the ping-pong path.
+   *    3. Render the element pass into elFbo (sampling the fullscreen backdrop;
+   *       screenCoord is reconstructed from gl_FragCoord via uSceneRectOffset).
    *    4. Composite elFbo back onto curFbo at the bbox (scissor + SrcOver).
    *    5. Post passes (press glow, foreground, highlight) → curFbo (scissor).
-   *  curFbo is never swapped — it stays the fixed accumulation target. */
+   *  curFbo is never swapped — it stays the fixed accumulation target.
+   *  Elements whose bbox exceeds MAX_ELEMENT_FBO_SIZE fall back to ping-pong
+   *  (see the entry guard in renderGlassElement). */
   renderGlassElementPerFbo(
     this: LiquidGlassRenderer,
     el: GlassElementConfig,
@@ -596,21 +608,35 @@ export const glassRenderMethods = {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
     this.renderGlassShadowPass(state)
 
-    // --- Step 2: Crop + (optional) blur backdrop ---
-    // Crop the bbox region of curTex into backdropCropFbo. If useSeparableBlur,
-    // also run the 2-pass Gaussian on the cropped texture (operates on the
-    // small FBO — much cheaper than blurring the fullscreen scene).
-    // Set uBackdropRect FIRST so the element pass's sceneUv maps canvasPx into
-    // the cropped texture's [0..1] range (not the full canvas).
-    this.gl.useProgram(this.elementProgram)
-    this.gl.uniform4f(this.uEl['uBackdropRect'], bx0, by0Top, bboxW, bboxH)
+    // --- Step 2: Backdrop texture for the element pass ---
+    // KEY DESIGN: the element pass samples the FULLSCREEN scene texture
+    // (curTex), NOT a cropped region. This is what makes PEF correct: the
+    // shader's non-local sampling (refraction offset, chromatic dispersion's
+    // 7-tap spread, Gaussian blur kernel) all read neighbors that live OUTSIDE
+    // the element's bbox. With a cropped texture those reads clamped to the
+    // edge (sampling bug). With the fullscreen texture they read the real
+    // neighbor content — identical to the ping-pong path's sampling environment.
+    //
+    // PEF's speedup comes from RENDERING INTO a small elFbo (fewer fragment
+    // shader invocations) + skipping the fullscreen ping-pong blit — NOT from
+    // shrinking the sampling source. Keeping the source fullscreen preserves
+    // correctness for free.
+    //
+    // For useSeparableBlur elements, blur the fullscreen curTex (same as the
+    // ping-pong path). blurTexture writes into blurFboB (fullscreen) and
+    // restores the FBO binding.
     let backdropTex: WebGLTexture
     if (el.useSeparableBlur && el.blurRadius >= 0.5 && this.quickToggles.backdropBlur) {
       const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr
-      backdropTex = this.cropAndBlurBackdrop(curTex, bx0, by0Top, bboxW, bboxH, blurRadiusPx)
+      backdropTex = this.blurTexture(curTex, blurRadiusPx)
       this.perfMonitor.incBlurPass()
+      this.perfMonitor.incDrawCall(2) // 2-pass Gaussian (H + V), fullscreen
+      // blurTexture disables BLEND — re-enable it so the element pass
+      // composites the glass onto elFbo with alpha blending.
+      gl.enable(gl.BLEND)
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
     } else {
-      backdropTex = this.cropAndBlurBackdrop(curTex, bx0, by0Top, bboxW, bboxH, 0)
+      backdropTex = curTex
     }
 
     // --- Step 3: Render element pass → elFbo (transparent, then glass body) ---
@@ -623,11 +649,12 @@ export const glassRenderMethods = {
     gl.clear(gl.COLOR_BUFFER_BIT)
     gl.enable(gl.BLEND)
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-    // Render the element pass sampling the cropped backdrop. For
-    // useSeparableBlur elements, the backdrop is already blurred → the
-    // element pass should use inlineBlurRadius=0. renderGlassElementPass
-    // handles this when uSkipColorControls / useSeparableBlur is set on el.
-    // We pass the (possibly blurred) backdropTex as curTex.
+    // Render the element pass sampling the FULLSCREEN backdrop (curTex, or
+    // blurFboBTex when blurred). The shader reconstructs screenCoord from
+    // gl_FragCoord via uSceneRectOffset/uElFboSize, then samples the fullscreen
+    // texture with sceneUv = screenCoord / uCanvasSize — identical to the
+    // ping-pong path's sampling environment, so all non-local reads (refraction,
+    // chromatic dispersion, blur kernel) hit real neighbor content.
     this.renderGlassElementPass(state, backdropTex)
 
     // --- Step 4: Composite elFbo → curFbo at the bbox (SrcOver) ---

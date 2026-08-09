@@ -111,11 +111,12 @@ uniform float uEnterAlpha;          // global element alpha (enterProgress, 0..1
 uniform float uUsePerElementFbo;    // 0 or 1
 uniform vec2  uSceneRectOffset;     // element bbox top-left in canvas px (top-left origin, device px)
 uniform vec2  uElFboSize;           // per-element FBO size in device px
-// When uUsePerElementFbo > 0.5, the backdrop texture (uBackdrop) is a SMALL
-// cropped texture covering uBackdropRect (xy = top-left origin, zw = size,
-// in scene device px), NOT the fullscreen scene. sceneUv must then map
-// canvasPx into [0..1] over that rect instead of over the full canvas.
-uniform vec4  uBackdropRect;        // (x, y, w, h) top-left origin, scene device px
+// DEPRECATED: uBackdropRect was used by the old PEF path that sampled a
+// cropped backdrop texture. The current PEF path samples the FULLSCREEN
+// scene texture (same as ping-pong), so sceneUv no longer reads this.
+// Kept in the uniform list for cache-index compatibility; not referenced
+// by any shader code. Safe to remove once the uniform-cache list is cleaned.
+uniform vec4  uBackdropRect;        // (x, y, w, h) top-left origin, scene device px (UNUSED)
 // When 1.0, skip applyColorControls in the element shader (colorControls was
 // already applied as a fullscreen pass BEFORE the 2-pass blur on the backdrop
 // FBO, matching the original's colorControls→blur→lens order). Used by

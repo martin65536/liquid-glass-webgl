@@ -107,15 +107,15 @@ vec4 sampleSdfTexture(vec2 localPx) {
 // canvasPx.y / canvasH). The Y flip happens here so the rest of the shader
 // can work in top-left-origin canvas px.
 //
-// Per-element FBO: when uUsePerElementFbo is set, the backdrop texture is a
-// SMALL cropped texture covering uBackdropRect (not the fullscreen scene).
-// Map canvasPx into [0..1] over that rect: uv = (canvasPx - rect.xy) / rect.zw,
-// with Y flipped because the cropped texture was rendered bottom-left origin.
+// This is used by BOTH the ping-pong path and the per-element FBO path.
+// In the PEF path, the element pass still samples the FULLSCREEN scene
+// texture (uBackdrop = curTex or blurFboBTex), NOT a cropped region. The
+// only PEF-specific work happens in element.ts's main(), where screenCoord
+// is reconstructed from gl_FragCoord via uSceneRectOffset/uElFboSize. Once
+// screenCoord is in canvas-px space, this function maps it to UV identically
+// for both paths — keeping the shader's non-local reads (refraction offset,
+// chromatic 7-tap spread, blur kernel) hitting real neighbor content.
 vec2 sceneUv(vec2 canvasPx) {
-    if (uUsePerElementFbo > 0.5) {
-        vec2 local = (canvasPx - uBackdropRect.xy) / uBackdropRect.zw;
-        return vec2(local.x, 1.0 - local.y);
-    }
     return vec2(canvasPx.x / uCanvasSize.x, 1.0 - canvasPx.y / uCanvasSize.y);
 }
 
@@ -154,9 +154,9 @@ ${wallpaperBlurCode}            c = sum;
     if (radius < 0.5) {
         return texture2D(uBackdrop, uv);
     }
-    // Per-element FBO: the backdrop texture is the cropped rect, so the blur
-    // offset UV scale must use the rect size (not the full canvas size).
-    vec2 pxToUv = (uUsePerElementFbo > 0.5) ? (radius / uBackdropRect.zw) : (radius / uCanvasSize);
+    // Backdrop is always the fullscreen scene texture (both ping-pong and
+    // PEF paths), so blur offsets scale by the canvas size.
+    vec2 pxToUv = radius / uCanvasSize;
     vec4 sum = vec4(0.0);
 ${backdropBlurCode}    return sum;
 }
