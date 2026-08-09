@@ -129,20 +129,32 @@ export class LiquidGlassRenderer {
   // gpElementFbo: element pass renders here (refraction on CLEAR backdrop,
   // uBlurRadius=0) for useSeparableBlur elements. Transparent background;
   // the element shader's discard leaves only the glass shape's refracted content.
-  // blurFboA/blurFboB: ping-pong for the 2-pass Gaussian (H then V).
-  // The blurred result is alpha-composited back into the scene (otherFbo).
+  // blurFboA/blurFboB: FULL-RES scratch ping-pong. Used by the dialog backdrop
+  //   colorControls pass (methods-render.ts) which needs a full-res temp buffer
+  //   (bindFBO + drawColorControls both assume fboW×fboH). NOT used by
+  //   blurTexture — must stay full-res to avoid the downsample viewport
+  //   mismatch that broke dialog backdrops (only a small corner was written,
+  //   the rest stayed transparent).
+  // dsBlurFboA/dsBlurFboB: downsampled (floor(fboW/ds)×floor(fboH/ds)) ping-pong
+  //   for blurTexture/blurHighlightMask. Half-res pixels are ds× wider, so
+  //   radius is scaled by 1/ds to preserve the visual blur radius while
+  //   cutting fragment invocations by ds².
   gpElementFbo: WebGLFramebuffer | null = null
   gpElementTex: WebGLTexture | null = null
   blurFboA: WebGLFramebuffer | null = null
   blurFboATex: WebGLTexture | null = null
   blurFboB: WebGLFramebuffer | null = null
   blurFboBTex: WebGLTexture | null = null
+  dsBlurFboA: WebGLFramebuffer | null = null
+  dsBlurFboATex: WebGLTexture | null = null
+  dsBlurFboB: WebGLFramebuffer | null = null
+  dsBlurFboBTex: WebGLTexture | null = null
   // --- Highlight mask FBO (3-pass faithful highlight) ---
   // Pass 1: HIGHLIGHT_STROKE_FRAGMENT_SHADER renders the clipped stroke alpha
   //   mask here (transparent surround, alpha=1 in the stroke band).
-  // Pass 2: blurTexture(highlightMaskTex, sigma) → blurFboB (2-pass Gaussian,
-  //   faithful to Skia BlurMaskFilter NORMAL).
-  // Pass 3: HIGHLIGHT_COMPOSITE_FRAGMENT_SHADER samples blurFboB, multiplies
+  // Pass 2: blurHighlightMask(highlightMaskTex, sigma) → dsBlurFboB (2-pass
+  //   Gaussian, faithful to Skia BlurMaskFilter NORMAL).
+  // Pass 3: HIGHLIGHT_COMPOSITE_FRAGMENT_SHADER samples dsBlurFboB, multiplies
   //   by intensity+color, blends into the scene FBO.
   highlightMaskFbo: WebGLFramebuffer | null = null
   highlightMaskTex: WebGLTexture | null = null
@@ -178,16 +190,16 @@ export class LiquidGlassRenderer {
   blurTapCap = 17
   /** Blur downsample factor (1=full-res, 2=half-res, 4=quarter). Higher = much
    *  faster but slightly lower quality. Set from CatalogState.blurDownsample.
-   *  The blur FBOs (blurFboA/blurFboB) are sized floor(fboW/ds) × floor(fboH/ds).
-   *  blurTexture scales `radius` by 1/ds so the visual blur radius is preserved
-   *  (half-res pixels are twice as wide → radius/2 px covers the same screen
-   *  distance). */
+   *  The downsampled blur FBOs (dsBlurFboA/dsBlurFboB) are sized
+   *  floor(fboW/ds) × floor(fboH/ds). blurTexture scales `radius` by 1/ds so
+   *  the visual blur radius is preserved (half-res pixels are twice as wide →
+   *  radius/2 px covers the same screen distance). */
   blurDownsample = 1
-  /** Actual device-px size of blurFboA/blurFboB (= floor(fboW/blurDownsample)).
+  /** Actual device-px size of dsBlurFboA/dsBlurFboB (= floor(fboW/blurDownsample)).
    *  Set by resizeFBOs. blurTexture/blurHighlightMask viewport + uTexSize use
    *  THIS (not fboW/fboH) so the blur renders into the downsampled FBO. */
-  blurFboW = 0
-  blurFboH = 0
+  dsBlurFboW = 0
+  dsBlurFboH = 0
   /** Corner style: 0 = circular, 1 = continuous (squircle). Set from
    *  CatalogState.capsuleShape. Default 1 (Continuous, matching original). */
   cornerStyle = 1
@@ -652,22 +664,21 @@ export class LiquidGlassRenderer {
   }
 
   /** 2-pass blur a source texture by `radius` px. Reads srcTex, writes the
-   *  blurred result into blurFboB, returns blurFboBTex.
+   *  blurred result into dsBlurFboB, returns dsBlurFboBTex.
    *  Saves/restores the currently-bound framebuffer.
    *  Uses this.blurTapCap to cap 1D tap count (performance knob).
-   *  (blurDownsample is reserved for future use — currently always full-res.)
    *
-   *  Downsample: the blur FBOs are sized floor(fboW/ds) × floor(fboH/ds).
+   *  Downsample: dsBlurFboA/dsBlurFboB are sized floor(fboW/ds) × floor(fboH/ds).
    *  `radius` is scaled by 1/ds (half-res pixels are twice as wide, so
    *  radius/ds px covers the same screen distance). This preserves the
    *  visual blur radius while cutting fragment invocations by ds². The
-   *  element pass samples blurFboBTex with UV 0-1 (LINEAR filtering
+   *  element pass samples dsBlurFboBTex with UV 0-1 (LINEAR filtering
    *  upsamples back to full-res), so no caller changes needed. */
   blurTexture(srcTex: WebGLTexture, radius: number): WebGLTexture {
     const gl = this.gl
     const ds = Math.max(1, this.blurDownsample | 0)
-    const w = this.blurFboW || this.fboW
-    const h = this.blurFboH || this.fboH
+    const w = this.dsBlurFboW || this.fboW
+    const h = this.dsBlurFboH || this.fboH
     // Scale radius to the downsampled space (1/ds). Visual radius preserved.
     const dsRadius = radius / ds
     // Compute tap count, capped by blurTapCap (performance knob).
@@ -678,8 +689,14 @@ export class LiquidGlassRenderer {
     const savedFb = gl.getParameter(gl.FRAMEBUFFER_BINDING)
     gl.disable(gl.BLEND)
 
-    // Pass 1: horizontal — srcTex → blurFboA
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurFboA)
+    // Pass 1: horizontal — srcTex → dsBlurFboA (half-res)
+    // uTexSize = (w,h) = dsBlurFbo size: shader computes uv = gl_FragCoord/uTexSize.
+    // gl_FragCoord is in the CURRENT render-target (dsBlurFboA, half-res) space,
+    // so uTexSize MUST be the half-res size to map FragCoord → uv 0..1. The src
+    // texture (fullscreen) is then sampled with uv 0..1 (LINEAR upsamples fine).
+    // pxToUv = uRadius/uTexSize = (radius/ds)/(fboW/ds) = radius/fboW → the UV
+    // offset corresponds to `radius` source pixels, preserving visual radius.
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.dsBlurFboA)
     gl.viewport(0, 0, w, h)
     gl.useProgram(entry.hProg)
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
@@ -692,15 +709,15 @@ export class LiquidGlassRenderer {
     gl.uniform1f(entry.uH['uRadius'], dsRadius)
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 
-    // Pass 2: vertical — blurFboATex → blurFboB
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurFboB)
+    // Pass 2: vertical — dsBlurFboATex → dsBlurFboB (both half-res)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.dsBlurFboB)
     gl.viewport(0, 0, w, h)
     gl.useProgram(entry.vProg)
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
     gl.enableVertexAttribArray(entry.aPosV)
     gl.vertexAttribPointer(entry.aPosV, 2, gl.FLOAT, false, 0, 0)
     gl.activeTexture(gl.TEXTURE0)
-    gl.bindTexture(gl.TEXTURE_2D, this.blurFboATex!)
+    gl.bindTexture(gl.TEXTURE_2D, this.dsBlurFboATex!)
     gl.uniform1i(entry.uV['uTexture'], 0)
     gl.uniform2f(entry.uV['uTexSize'], w, h)
     gl.uniform1f(entry.uV['uRadius'], dsRadius)
@@ -708,7 +725,7 @@ export class LiquidGlassRenderer {
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, savedFb)
     gl.viewport(0, 0, this.fboW, this.fboH)
-    return this.blurFboBTex!
+    return this.dsBlurFboBTex!
   }
 
   /** Lazy-compile highlight blur programs (alpha-blurring, sigma semantics).
@@ -755,13 +772,13 @@ export class LiquidGlassRenderer {
    *    - sigma = blurRadiusPx (the Android radius param IS sigma)
    *    - convolves the mask's ALPHA with a Gaussian kernel
    *    - sub-pixel sigma (0.25px) still blurs (no 0.5 early-return)
-   *  Reads srcTex (alpha mask), writes blurFboB, returns blurFboBTex.
+   *  Reads srcTex (alpha mask), writes dsBlurFboB, returns dsBlurFboBTex.
    *  Saves/restores the currently-bound framebuffer. */
   blurHighlightMask(srcTex: WebGLTexture, sigmaPx: number): WebGLTexture {
     const gl = this.gl
     const ds = Math.max(1, this.blurDownsample | 0)
-    const w = this.blurFboW || this.fboW
-    const h = this.blurFboH || this.fboH
+    const w = this.dsBlurFboW || this.fboW
+    const h = this.dsBlurFboH || this.fboH
     // Scale sigma to downsampled space (visual radius preserved).
     const dsSigma = sigmaPx / ds
     let taps = computeHighlightBlurTapCount(dsSigma)
@@ -771,8 +788,8 @@ export class LiquidGlassRenderer {
     const savedFb = gl.getParameter(gl.FRAMEBUFFER_BINDING)
     gl.disable(gl.BLEND)
 
-    // Pass 1: horizontal — srcTex → blurFboA
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurFboA)
+    // Pass 1: horizontal — srcTex → dsBlurFboA (half-res)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.dsBlurFboA)
     gl.viewport(0, 0, w, h)
     gl.useProgram(entry.hProg)
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
@@ -785,15 +802,15 @@ export class LiquidGlassRenderer {
     gl.uniform1f(entry.uH['uRadius'], dsSigma)
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 
-    // Pass 2: vertical — blurFboATex → blurFboB
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.blurFboB)
+    // Pass 2: vertical — dsBlurFboATex → dsBlurFboB (both half-res)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.dsBlurFboB)
     gl.viewport(0, 0, w, h)
     gl.useProgram(entry.vProg)
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
     gl.enableVertexAttribArray(entry.aPosV)
     gl.vertexAttribPointer(entry.aPosV, 2, gl.FLOAT, false, 0, 0)
     gl.activeTexture(gl.TEXTURE0)
-    gl.bindTexture(gl.TEXTURE_2D, this.blurFboATex!)
+    gl.bindTexture(gl.TEXTURE_2D, this.dsBlurFboATex!)
     gl.uniform1i(entry.uV['uTexture'], 0)
     gl.uniform2f(entry.uV['uTexSize'], w, h)
     gl.uniform1f(entry.uV['uRadius'], dsSigma)
@@ -801,7 +818,7 @@ export class LiquidGlassRenderer {
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, savedFb)
     gl.viewport(0, 0, this.fboW, this.fboH)
-    return this.blurFboBTex!
+    return this.dsBlurFboBTex!
   }
 
   dispose() {
@@ -833,8 +850,12 @@ export class LiquidGlassRenderer {
     if (this.blurFboATex) gl.deleteTexture(this.blurFboATex)
     if (this.blurFboB) gl.deleteFramebuffer(this.blurFboB)
     if (this.blurFboBTex) gl.deleteTexture(this.blurFboBTex)
-    this.gpElementFbo = this.blurFboA = this.blurFboB = null
-    this.gpElementTex = this.blurFboATex = this.blurFboBTex = null
+    if (this.dsBlurFboA) gl.deleteFramebuffer(this.dsBlurFboA)
+    if (this.dsBlurFboATex) gl.deleteTexture(this.dsBlurFboATex)
+    if (this.dsBlurFboB) gl.deleteFramebuffer(this.dsBlurFboB)
+    if (this.dsBlurFboBTex) gl.deleteTexture(this.dsBlurFboBTex)
+    this.gpElementFbo = this.blurFboA = this.blurFboB = this.dsBlurFboA = this.dsBlurFboB = null
+    this.gpElementTex = this.blurFboATex = this.blurFboBTex = this.dsBlurFboATex = this.dsBlurFboBTex = null
     if (this.highlightMaskFbo) gl.deleteFramebuffer(this.highlightMaskFbo)
     if (this.highlightMaskTex) gl.deleteTexture(this.highlightMaskTex)
     this.highlightMaskFbo = null

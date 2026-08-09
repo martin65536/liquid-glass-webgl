@@ -412,3 +412,36 @@ Stage Summary:
 - blurDownsample 真正生效：blur FBO 尺寸 = floor(fboW/ds) × floor(fboH/ds)。默认 2× = blur fragment invocations 降 4×。设置页可调 1/2/4×。
 - radius 按 1/ds 缩放保持视觉模糊半径不变（半分辨率下 radius/2 px = 全分辨率 radius px 的屏幕距离）。
 - blurTexture + blurHighlightMask 都用 downsample 尺寸。highlight sigma 极小（0.25/1.5dp），downsample 后 taps 保持 ≥3，视觉影响可接受。
+
+---
+Task ID: blur-downsample-fix
+Agent: main (Z.ai Code)
+Task: 修复 blurDownsample 实现后的"裁剪区域有问题"bug——用户报告开启降采样后"有时只有一小块正常，其他一片就直接透明了，不开降采样就没事"。
+
+Root cause analysis:
+- 之前 commit (fe87c87) 把 blurFboA/blurFboB 直接改成半分辨率。但 blurFboA/B 不只被 blurTexture 用——methods-render.ts:391 的 dialog backdrop colorControls ping-pong 也用 `bindFBO(this.blurFboA)` 做临时全分辨率缓冲。
+- `bindFBO` 硬编码 viewport=(0,0,fboW,fboH)，`drawColorControls` 硬编码 uTexSize=(fboW,fboH)。当 blurFboA 变成半分辨率后：viewport 超出纹理 → 只有左下角 blurW×blurH 被写入；shader 的 uv=gl_FragCoord/uTexSize 让被光栅化的像素只采样源纹理左下 1/ds² 区域。结果 dialogBackdropFbo 只有左下角一小块有 colorControls 内容，其余透明 → 用户看到的"一小块正常，其他透明"。
+- NOTE: summary 里之前推测的 "H pass uTexSize 应传源纹理全屏尺寸" 是错误分析。shader 里 uv=gl_FragCoord/uTexSize，gl_FragCoord 是当前渲染目标坐标，所以 uTexSize 必须是当前 FBO 尺寸（半分辨率）才对。原 blurTexture 的 uTexSize 传 (w,h)=blurFbo 尺寸是正确的。
+
+Fix (解除复用):
+- blurFboA/blurFboB 恢复全分辨率（仍给 dialog backdrop colorControls ping-pong 用，bindFBO/drawColorControls 的全分辨率假设重新成立）。
+- 新增 dsBlurFboA/dsBlurFboB（半分辨率 floor(fboW/ds)×floor(fboH/ds)）专给 blurTexture/blurHighlightMask 用。
+- 新增 dsBlurFboW/dsBlurFboH 字段（替代原 blurFboW/blurFboH）。
+- blurTexture + blurHighlightMask 改 bind dsBlurFboA/B + 用 dsBlurFboW/H 做 viewport/uTexSize，返回 dsBlurFboBTex。
+- resizeFBOs: blurFboA/B 用 (w,h) 全分辨率；dsBlurFboA/B 用 (blurW,blurH)；同时删除旧 dsBlur FBO。
+- dispose: 新增 dsBlurFboA/B/Tex 的删除。
+- 更新所有相关 doc 注释（blurFboB→dsBlurFboB 等）。
+
+Files changed:
+- src/components/liquid-glass/renderer/index.ts: 字段声明 + blurTexture + blurHighlightMask + dispose + 注释。
+- src/components/liquid-glass/renderer/methods-fbo.ts: resizeFBOs 重建逻辑。
+
+Verification:
+- lint 干净（eslint . 无输出）。
+- dev.log 显示编译成功，页面 GET / 200 正常，无运行时错误。
+- blurFboA/B 全分辨率 → dialog backdrop colorControls ping-pong 的 viewport/uTexSize 重新匹配 → 不再只写左下角。
+- blurTexture 用独立的 dsBlurFboA/B 半分辨率，downsample 性能优化保留，且不影响全分辨率 scratch 用途。
+
+Stage Summary:
+- 根因是 FBO 复用冲突：blurFboA/B 同时承担"blur 内部缓冲（可降采样）"和"dialog colorControls 临时缓冲（必须全分辨率）"两种职责，降采样破坏了后者。
+- 修复方式是职责分离：blurFboA/B 回归全分辨率 scratch，新增 dsBlurFboA/B 专做半分辨率 blur。downsample 性能收益保留，dialog backdrop 渲染正确性恢复。

@@ -83,30 +83,46 @@ export const fboMethods = {
     this.tabsBackdropFbo = tb.fb
     this.tabsBackdropTex = tb.tex
     this.tabsBackdropDirty = true
-    // GP element FBO (useSeparableBlur element pass output) + blur ping-pong FBOs.
-    // blurFboA/blurFboB are downsampled by blurDownsample (1=full-res, 2=half,
-    // 4=quarter). The blur shader scales radius by 1/ds so the visual blur
-    // radius is preserved; fragment invocations drop by ds².
+    // GP element FBO (useSeparableBlur element pass output) + blur FBOs.
+    // blurFboA/blurFboB: FULL-RES scratch ping-pong. Used by the dialog backdrop
+    //   colorControls pass (methods-render.ts) which needs a full-res temp buffer
+    //   (bindFBO sets viewport=fboW×fboH, drawColorControls uses uTexSize=fboW×fboH).
+    //   MUST stay full-res — downsampling these breaks the colorControls ping-pong
+    //   (viewport exceeds the half-res texture → only a small corner is written,
+    //   the rest of the dialog backdrop stays transparent).
+    // dsBlurFboA/dsBlurFboB: downsampled (blurDownsample) ping-pong for
+    //   blurTexture/blurHighlightMask. radius is scaled by 1/ds so the visual
+    //   blur radius is preserved; fragment invocations drop by ds².
     if (this.gpElementFbo) gl.deleteFramebuffer(this.gpElementFbo)
     if (this.gpElementTex) gl.deleteTexture(this.gpElementTex)
     if (this.blurFboA) gl.deleteFramebuffer(this.blurFboA)
     if (this.blurFboATex) gl.deleteTexture(this.blurFboATex)
     if (this.blurFboB) gl.deleteFramebuffer(this.blurFboB)
     if (this.blurFboBTex) gl.deleteTexture(this.blurFboBTex)
+    if (this.dsBlurFboA) gl.deleteFramebuffer(this.dsBlurFboA)
+    if (this.dsBlurFboATex) gl.deleteTexture(this.dsBlurFboATex)
+    if (this.dsBlurFboB) gl.deleteFramebuffer(this.dsBlurFboB)
+    if (this.dsBlurFboBTex) gl.deleteTexture(this.dsBlurFboBTex)
     const ds = Math.max(1, this.blurDownsample | 0)
     const blurW = Math.max(1, Math.floor(w / ds))
     const blurH = Math.max(1, Math.floor(h / ds))
     const ge = this.createFBO(w, h)
-    const ba = this.createFBO(blurW, blurH)
-    const bb = this.createFBO(blurW, blurH)
+    const ba = this.createFBO(w, h)
+    const bb = this.createFBO(w, h)
+    const dba = this.createFBO(blurW, blurH)
+    const dbb = this.createFBO(blurW, blurH)
     this.gpElementFbo = ge.fb
     this.gpElementTex = ge.tex
     this.blurFboA = ba.fb
     this.blurFboATex = ba.tex
     this.blurFboB = bb.fb
     this.blurFboBTex = bb.tex
-    this.blurFboW = blurW
-    this.blurFboH = blurH
+    this.dsBlurFboA = dba.fb
+    this.dsBlurFboATex = dba.tex
+    this.dsBlurFboB = dbb.fb
+    this.dsBlurFboBTex = dbb.tex
+    this.dsBlurFboW = blurW
+    this.dsBlurFboH = blurH
     // Highlight mask FBO (3-pass faithful highlight: stroke mask → blur → composite).
     if (this.highlightMaskFbo) gl.deleteFramebuffer(this.highlightMaskFbo)
     if (this.highlightMaskTex) gl.deleteTexture(this.highlightMaskTex)
