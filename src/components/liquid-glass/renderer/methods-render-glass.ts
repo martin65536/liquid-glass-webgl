@@ -365,27 +365,22 @@ export const glassRenderMethods = {
     const independent = !!(el.independentBackdrop && !this.backgroundColor && this.wallpaperTexture)
     const skipPingPong = false // TODO: re-enable after fixing visual issues
 
-    // --- Per-element FBO optimization (Settings toggle, default ON) ---
-    // Instead of the fullscreen ping-pong blit (Step 1 below), render the
-    // element into a small bbox-sized FBO. The backdrop is scissor-cropped
-    // into a small texture, the element pass samples that, then composites
-    // back onto curFbo at the element's bbox. curFbo is NEVER swapped — it
-    // stays the fixed accumulation target, so all previously-rendered
-    // elements remain available for subsequent elements to sample.
+    // --- Per-element FBO (PEF) — UNCONDITIONAL ---
+    // All glass elements render into a small bbox-sized FBO instead of the
+    // fullscreen ping-pong blit. The element pass samples the FULLSCREEN
+    // backdrop (curTex, or dialogBackdropTex for backdropFbo elements, or
+    // their blurred variants), then composites back onto curFbo at the bbox.
+    // curFbo is NEVER swapped — it stays the fixed accumulation target, so
+    // all previously-rendered elements remain available for subsequent
+    // elements to sample.
     //
-    // Excluded elements (kept on the legacy ping-pong path for correctness):
-    //  - backdropFbo elements (dialog card): they sample the pre-rendered
-    //    dialogBackdropTex, not the scene FBO — the crop would be wrong.
-    //  - SDF-texture elements (LockScreen): use a separate glass path.
-    //  - Elements whose bbox (incl. margin) exceeds MAX_ELEMENT_FBO_SIZE
-    //    (1024): the elFbo would be clamped, leaving part of the element
-    //    unrendered. Fall back to ping-pong for those.
-    // These fall through to the legacy path below.
-    const MARGIN_CSS_PE = 60
-    const peBboxW = Math.min(this.fboW, Math.round((sw + 2 * MARGIN_CSS_PE) * this.dpr))
-    const peBboxH = Math.min(this.fboH, Math.round((sh + 2 * MARGIN_CSS_PE) * this.dpr))
-    if (this.quickToggles.perElementFbo && !el.backdropFbo && !el.useSdfTexture && !skipPingPong &&
-        peBboxW <= 1024 && peBboxH <= 1024) {
+    // No fallback: the old MAX_ELEMENT_FBO_SIZE=1024 clamp + bbox>1024 →
+    // ping-pong fallback have been removed. The elFbo now matches the
+    // element's bbox (already clamped to canvas size), so large elements
+    // render fully. backdropFbo + SDF-texture elements are handled inline
+    // (Step 2 picks dialogBackdropTex; the element shader's SDF branch is
+    // orthogonal to which FBO it renders into).
+    if (this.quickToggles.perElementFbo) {
       this.perfMonitor.incGlassElement()
       this.perfMonitor.incPerElementFbo()
       return this.renderGlassElementPerFbo(el, st, curFbo, curTex, otherFbo, otherTex, {
@@ -625,16 +620,27 @@ export const glassRenderMethods = {
     // For useSeparableBlur elements, blur the fullscreen curTex (same as the
     // ping-pong path). blurTexture writes into blurFboB (fullscreen) and
     // restores the FBO binding.
+    //
+    // backdropFbo elements (dialog card): blur the dialogBackdropTex
+    // (wallpaper+scrim+colorControls opaque layer) instead of the scene FBO —
+    // same logic as the ping-pong path's Step 2b. Then temporarily disable
+    // backdropFbo on the element state so renderGlassElementPass binds the
+    // blurred texture as uBackdrop instead of the raw dialogBackdropTex.
     let backdropTex: WebGLTexture
+    let passState = state
     if (el.useSeparableBlur && el.blurRadius >= 0.5 && this.quickToggles.backdropBlur) {
       const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr
-      backdropTex = this.blurTexture(curTex, blurRadiusPx)
+      const backdropSrc = (el.backdropFbo && this.dialogBackdropTex) ? this.dialogBackdropTex : curTex
+      backdropTex = this.blurTexture(backdropSrc, blurRadiusPx)
       this.perfMonitor.incBlurPass()
       this.perfMonitor.incDrawCall(2) // 2-pass Gaussian (H + V), fullscreen
       // blurTexture disables BLEND — re-enable it so the element pass
       // composites the glass onto elFbo with alpha blending.
       gl.enable(gl.BLEND)
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+      if (el.backdropFbo) {
+        passState = { ...state, el: { ...el, backdropFbo: false } }
+      }
     } else {
       backdropTex = curTex
     }
@@ -655,7 +661,7 @@ export const glassRenderMethods = {
     // texture with sceneUv = screenCoord / uCanvasSize — identical to the
     // ping-pong path's sampling environment, so all non-local reads (refraction,
     // chromatic dispersion, blur kernel) hit real neighbor content.
-    this.renderGlassElementPass(state, backdropTex)
+    this.renderGlassElementPass(passState, backdropTex)
 
     // --- Step 4: Composite elFbo → curFbo at the bbox (SrcOver) ---
     this.bindFBO(curFbo)

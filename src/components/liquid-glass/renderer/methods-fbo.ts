@@ -187,16 +187,16 @@ export const fboMethods = {
   },
 
   /** Ensure the per-element FBO (elFbo) + backdrop crop FBO + element blur
-   *  ping-pong FBOs exist at (w,h) device px (capped at MAX_ELEMENT_FBO_SIZE).
-   *  Lazily recreated when the required size changes. Returns the actual
-   *  (possibly capped) size used. */
+   *  ping-pong FBOs exist at (w,h) device px. Lazily recreated when the
+   *  required size changes. Returns the actual size used.
+   *
+   *  No clamp: the caller already clamps bbox to the canvas (fboW/fboH), so
+   *  the elFbo never exceeds the scene FBO size. The old MAX_ELEMENT_FBO_SIZE
+   *  = 1024 clamp + the bbox>1024 fallback in renderGlassElement have been
+   *  removed — all glass elements now unconditionally use the PEF path. */
   ensureElementFBO(this: LiquidGlassRenderer, w: number, h: number): { w: number; h: number } {
-    // MAX_ELEMENT_FBO_SIZE = 1024. Inlined (not referenced via the class name)
-    // because the bundled output may not expose the class identifier inside
-    // its own method scope.
-    const max = 1024
-    const cw = Math.min(Math.max(1, Math.round(w)), max)
-    const ch = Math.min(Math.max(1, Math.round(h)), max)
+    const cw = Math.max(1, Math.round(w))
+    const ch = Math.max(1, Math.round(h))
     if (this.elFboW === cw && this.elFboH === ch && this.elFbo && this.backdropCropFbo && this.elBlurFboA && this.elBlurFboB) {
       return { w: cw, h: ch }
     }

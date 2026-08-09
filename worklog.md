@@ -269,3 +269,37 @@ Stage Summary:
 - Confirmed PEF is active and correct (no large-element fallback in normal usage; "looks same as off" is the intended visual-equivalence result).
 - Perf monitor panel now caps at viewport height with 8px margins and scrolls internally when content overflows — header stays fixed, body scrolls with a styled scrollbar. Verified at both small (scrolling) and large (no-scroll) viewport sizes.
 - Ready to commit + push.
+
+---
+Task ID: 8
+Agent: main (Z.ai Code)
+Task: 全面禁止 PEF 回退 —— 让所有玻璃元素无条件走 per-element FBO 路径，删除所有 fall-through 到 ping-pong 的条件。
+
+Work Log:
+- 评估 entry guard 的三个回退条件，发现：
+  - `!el.useSdfTexture`：死代码。字段名是 `isSdfTexture`（types.ts:397），`useSdfTexture` 从未定义，`!undefined` 永远 true，条件等于没写。SDF 元素其实早就在走 PEF 了。
+  - `!skipPingPong`：死代码。`skipPingPong = false`（TODO disabled），`!false` 永远 true。
+  - `peBboxW <= 1024 && peBboxH <= 1024`：真实尺寸限制，由 `MAX_ELEMENT_FBO_SIZE` clamp 引起。
+  - `!el.backdropFbo`：真实分流。对话框元素 sample dialogBackdropTex 而非 curTex，PEF Step 2 原本只处理 curTex。
+- methods-fbo.ts `ensureElementFBO`：删除 `const max = 1024` clamp。elFbo 现在用 bbox 实际尺寸（caller 已 clamp 到 canvas fboW/fboH，不会超限）。更新 doc comment 说明无 clamp。
+- methods-render-glass.ts `renderGlassElementPerFbo` Step 2：增加 backdropFbo 支持。
+  - backdropSrc 选择：`el.backdropFbo && dialogBackdropTex ? dialogBackdropTex : curTex`（与 ping-pong Step 2b 一致）。
+  - passState：backdropFbo 元素临时设 `backdropFbo: false`，让 renderGlassElementPass 把 blurred backdrop 绑定到 uBackdrop 而非 raw dialogBackdropTex（与 ping-pong line 494 一致）。
+  - Step 3 调用改为 `renderGlassElementPass(passState, backdropTex)`。
+- methods-render-glass.ts entry guard：删除所有 fall-through 条件，只保留 `this.quickToggles.perElementFbo`（perf monitor 的 runtime 开关，保留给性能调试用）。删除 `MARGIN_CSS_PE`/`peBboxW`/`peBboxH` 局部变量。更新 doc comment 说明无回退、backdropFbo + SDF 在 PEF 内联处理。
+- 保留 ping-pong 路径作为 `quickToggles.perElementFbo === false` 时的 fallback（perf monitor 关 PEF 时仍可用），不删除。
+
+Verification (agent-browser + VLM):
+- 首页：`Glass 1, FBO 1, ping-pong 0` —— 单玻璃走 PEF。
+- 控制中心（14 glass）：`Glass 14, FBO 14, ping-pong 0` —— 全部 14 个元素走 PEF，0 回退。Draw calls 22。
+- 对话框页（backdropFbo 元素）：`Glass 6, FBO 6, ping-pong 0` —— backdropFbo 元素现在也走 PEF（之前被 `!el.backdropFbo` 排除）。VLM 对比 PEF on/off 稳定状态："They look the same." 无视觉 regression。
+- 锁屏页（SDF 元素）：VLM 对比 PEF on/off："visually equivalent... pixel-perfect matches... no stretching, clipping, or missing regions"。SDF 元素走 PEF 无问题（其实之前就在走，因为 useSdfTexture 是死条件）。
+- lint 干净，dev log 无错误。
+
+Stage Summary:
+- 全面禁止回退完成：所有玻璃元素（含 backdropFbo 对话框 + SDF 锁屏）无条件走 PEF。
+- elFbo 不再 clamp 到 1024 —— 大元素（高 DPR / 全屏卡片）也能正确渲染。
+- ping-pong 路径保留为 perf-monitor quick-toggle 关闭时的调试 fallback，正常运行不会触发。
+- 三个页面 VLM 验证无视觉 regression。
+- Draw calls 收益：控制中心 14 glass 节省 14 个 fullscreen blit。
+- Ready to commit + push.
