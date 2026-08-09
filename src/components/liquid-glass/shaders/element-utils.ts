@@ -106,7 +106,16 @@ vec4 sampleSdfTexture(vec2 localPx) {
 // gl_FragCoord (bottom-left origin). So UV = (canvasPx.x / canvasW, 1 -
 // canvasPx.y / canvasH). The Y flip happens here so the rest of the shader
 // can work in top-left-origin canvas px.
+//
+// Per-element FBO: when uUsePerElementFbo is set, the backdrop texture is a
+// SMALL cropped texture covering uBackdropRect (not the fullscreen scene).
+// Map canvasPx into [0..1] over that rect: uv = (canvasPx - rect.xy) / rect.zw,
+// with Y flipped because the cropped texture was rendered bottom-left origin.
 vec2 sceneUv(vec2 canvasPx) {
+    if (uUsePerElementFbo > 0.5) {
+        vec2 local = (canvasPx - uBackdropRect.xy) / uBackdropRect.zw;
+        return vec2(local.x, 1.0 - local.y);
+    }
     return vec2(canvasPx.x / uCanvasSize.x, 1.0 - canvasPx.y / uCanvasSize.y);
 }
 
@@ -145,7 +154,9 @@ ${wallpaperBlurCode}            c = sum;
     if (radius < 0.5) {
         return texture2D(uBackdrop, uv);
     }
-    vec2 pxToUv = radius / uCanvasSize;
+    // Per-element FBO: the backdrop texture is the cropped rect, so the blur
+    // offset UV scale must use the rect size (not the full canvas size).
+    vec2 pxToUv = (uUsePerElementFbo > 0.5) ? (radius / uBackdropRect.zw) : (radius / uCanvasSize);
     vec4 sum = vec4(0.0);
 ${backdropBlurCode}    return sum;
 }

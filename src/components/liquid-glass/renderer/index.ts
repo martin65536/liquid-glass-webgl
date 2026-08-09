@@ -177,12 +177,8 @@ export class LiquidGlassRenderer {
    *  fullscreen ping-pong blit. See methods-render-glass.ts. */
   usePerElementFbo = true
   // --- Per-element FBO infrastructure (used when usePerElementFbo=true) ---
-  // MAX_ELEMENT_FBO_SIZE caps the per-element FBO dimensions in device px.
-  // Elements larger than this render at reduced resolution (LINEAR upsampled
-  // on composite) — acceptable for large cards; avoids huge FBOs.
-  static readonly MAX_ELEMENT_FBO_SIZE = 1024
   // elFbo: the element's glass body is rendered here (transparent; the element
-  // shader's discard leaves only the glass shape). Capped to bbox×MAX size.
+  // shader's discard leaves only the glass shape). Capped to 1024 device px.
   // Lazily (re)created by ensureElementFBO when the element's device-px bbox
   // size changes.
   elFbo: WebGLFramebuffer | null = null
@@ -377,7 +373,7 @@ export class LiquidGlassRenderer {
       'uTabContentRects[4]', 'uTabContentRects[5]', 'uTabContentRects[6]', 'uTabContentRects[7]',
       'uTabContentCount', 'uTabsGlassLayer',
       'uSdfTexSampler', 'uUseSdfTexture', 'uSdfTexSize', 'uSdfLightAngle', 'uEnterAlpha',
-      'uUsePerElementFbo', 'uSceneRectOffset', 'uElFboSize',
+      'uUsePerElementFbo', 'uSceneRectOffset', 'uElFboSize', 'uBackdropRect',
       'uCornerStyle', 'uSkipColorControls',
       'uUseMagnifier', 'uMagnifierZoom', 'uMagnifierOffsetY',
       'uElementRotation',

@@ -590,6 +590,10 @@ export const glassRenderMethods = {
     // Crop the bbox region of curTex into backdropCropFbo. If useSeparableBlur,
     // also run the 2-pass Gaussian on the cropped texture (operates on the
     // small FBO — much cheaper than blurring the fullscreen scene).
+    // Set uBackdropRect FIRST so the element pass's sceneUv maps canvasPx into
+    // the cropped texture's [0..1] range (not the full canvas).
+    this.gl.useProgram(this.elementProgram)
+    this.gl.uniform4f(this.uEl['uBackdropRect'], bx0, by0Top, bboxW, bboxH)
     let backdropTex: WebGLTexture
     if (el.useSeparableBlur && el.blurRadius >= 0.5) {
       const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr

@@ -191,7 +191,10 @@ export const fboMethods = {
    *  Lazily recreated when the required size changes. Returns the actual
    *  (possibly capped) size used. */
   ensureElementFBO(this: LiquidGlassRenderer, w: number, h: number): { w: number; h: number } {
-    const max = LiquidGlassRenderer.MAX_ELEMENT_FBO_SIZE
+    // MAX_ELEMENT_FBO_SIZE = 1024. Inlined (not referenced via the class name)
+    // because the bundled output may not expose the class identifier inside
+    // its own method scope.
+    const max = 1024
     const cw = Math.min(Math.max(1, Math.round(w)), max)
     const ch = Math.min(Math.max(1, Math.round(h)), max)
     if (this.elFboW === cw && this.elFboH === ch && this.elFbo && this.backdropCropFbo && this.elBlurFboA && this.elBlurFboB) {
