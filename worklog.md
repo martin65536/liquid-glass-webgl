@@ -565,3 +565,30 @@ Stage Summary:
 - Downsample slider range = 8 (min, right=best quality) to 32 (max, left=fastest) — 4× range
 - effectiveDs = rawDs × dpr clamped [1,128] — slider is functional across all DPR values
 - Files changed: renderer/index.ts, renderer/methods-fbo.ts, catalog/types.ts, catalog/build-settings.ts, context.tsx, app/page.tsx
+
+---
+Task ID: 5
+Agent: main (Z.ai Code)
+Task: Correct downsample slider config — default 4×, max 1 (full-res, right), min 8 (fastest, left).
+
+Work Log:
+- Previous turn misread "默认4x, 最大1, 最小8" as needing range 8–32. User clarified: default=4, max=1 (full-res best quality), min=8 (fastest low quality).
+- Slider range: minDs=1 (right=best quality, full-res), maxDs=8 (left=fastest). ds is float 1.0–8.0.
+- Default blurDownsample = 4 (midpoint-ish, balanced).
+- Defaults updated everywhere:
+  - DEFAULT_CATALOG_STATE.blurDownsample: 8 → 4
+  - renderer/index.ts blurDownsample field: 8 → 4
+  - page.tsx persistence default: 8 → 4
+  - reset button: blurDownsample 8 → 4, setToggleTarget fraction = (8-4)/7 ≈ 0.571
+- Clamps updated to [1,8]:
+  - context.tsx init + useEffect: [8,32] → [1,8]
+  - page.tsx persistence: [8,32] → [1,8]
+- effectiveDs max clamp 128 → 64 (slider max 8 × DPR max 8 = 64). Min stays 1 (slider min 1 = full-res, DPR ≥ 1).
+- Updated field/docs/comments to reflect range 1–8, default 4.
+- Lint passed, dev server compiles cleanly.
+
+Stage Summary:
+- blurDownsample slider: range 1 (right, full-res best quality) to 8 (left, fastest), default 4×
+- All defaults = 4, clamps = [1,8], effectiveDs = max(1, min(rawDs×dpr, 64))
+- DPR adaptation preserved: blurFbo = CSS/rawDs regardless of DPR
+- Files changed: renderer/index.ts, renderer/methods-fbo.ts, catalog/types.ts, catalog/build-settings.ts, context.tsx, app/page.tsx

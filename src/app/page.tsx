@@ -68,7 +68,7 @@ export default function Page() {
         customDpr: typeof parsed.customDpr === 'number' ? parsed.customDpr : 0,
         globalSeparableBlur: typeof parsed.globalSeparableBlur === 'boolean' ? parsed.globalSeparableBlur : true,
         blurTapCap: typeof parsed.blurTapCap === 'number' ? parsed.blurTapCap : 9,
-        blurDownsample: typeof parsed.blurDownsample === 'number' ? Math.max(8, Math.min(32, parsed.blurDownsample)) : 8,
+        blurDownsample: typeof parsed.blurDownsample === 'number' ? Math.max(1, Math.min(8, parsed.blurDownsample)) : 4,
         capsuleShape: typeof parsed.capsuleShape === 'boolean' ? parsed.capsuleShape : true,
         locale: (parsed.locale === 'zh' || parsed.locale === 'en') ? parsed.locale : 'zh',
         pageTransition: typeof parsed.pageTransition === 'boolean' ? parsed.pageTransition : true,

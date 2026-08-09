@@ -188,33 +188,34 @@ export class LiquidGlassRenderer {
   /** Max 1D taps per blur pass (1..33). Lower = faster, Higher = better quality.
    *  Set from CatalogState.blurTapCap. Default 9. */
   blurTapCap = 9
-  /** Blur downsample factor (float, slider range 8–32). Higher = much faster
+  /** Blur downsample factor (float, slider range 1–8). Higher = much faster
    *  but lower quality. Set from CatalogState.blurDownsample. The downsampled
    *  blur FBOs (dsBlurFboA/dsBlurFboB) are sized floor(fboW/effectiveDs) ×
    *  floor(fboH/effectiveDs) where effectiveDs = blurDownsample × dpr. */
-  blurDownsample = 8
+  blurDownsample = 4
   /** Actual device-px size of dsBlurFboA/dsBlurFboB (= floor(fboW/effectiveBlurDownsample)).
    *  Set by resizeFBOs. blurTexture/blurHighlightMask viewport + uTexSize use
    *  THIS (not fboW/fboH) so the blur renders into the downsampled FBO. */
   dsBlurFboW = 0
   dsBlurFboH = 0
   /** DPR-adapted effective downsample factor = blurDownsample × dpr, clamped
-   *  to [1, 128]. Set by resizeFBOs. blurTexture/blurHighlightMask use THIS
+   *  to [1, 64]. Set by resizeFBOs. blurTexture/blurHighlightMask use THIS
    *  (not the raw blurDownsample) to scale radius — otherwise radius/ds and
    *  the blur FBO size (which uses effectiveDs) mismatch → wrong visual radius.
    *
-   *  Why adapt to DPR: blurDownsample (slider, range 8–32) is the user's
+   *  Why adapt to DPR: blurDownsample (slider, range 1–8) is the user's
    *  quality choice relative to CSS (display) pixels. On a DPR=2 device,
-   *  fboW = CSS×2, so raw ds=8 would produce blurFbo = CSS/4 (already
-   *  downsampled relative to display). To make the same slider position
+   *  fboW = CSS×2, so raw ds=1 would produce blurFbo = CSS (already full
+   *  display res — no actual quality loss). To make the same slider position
    *  produce the same VISUAL quality across devices, the blur FBO must be
    *  sized relative to CSS pixels: effectiveDs = rawDs × dpr →
-   *  blurFbo = fboW / (rawDs×dpr) = CSS / rawDs. Now ds=8 always gives
-   *  blurFbo = CSS/8 regardless of DPR.
+   *  blurFbo = fboW / (rawDs×dpr) = CSS / rawDs. Now ds=4 always gives
+   *  blurFbo = CSS/4 regardless of DPR.
    *
-   *  Max clamp 128: prevents absurdly tiny FBOs at extreme slider (32) ×
-   *  high DPR (4+) = 128+. No min clamp — the slider min (8) is the floor. */
-  effectiveBlurDownsample = 8
+   *  Max clamp 64: prevents absurdly tiny FBOs at extreme slider (8) ×
+   *  high DPR (8+) = 64. No min clamp — the slider min (1, full-res) is the
+   *  floor and DPR ≥ 1 so effectiveDs ≥ 1 always. */
+  effectiveBlurDownsample = 4
   /** Corner style: 0 = circular, 1 = continuous (squircle). Set from
    *  CatalogState.capsuleShape. Default 1 (Continuous, matching original). */
   cornerStyle = 1
