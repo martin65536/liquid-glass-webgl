@@ -545,23 +545,9 @@ export const glassRenderMethods = {
       } else {
         backdropSrc = curTex
       }
-      // Blur bbox (device px, BL origin): element pass is scissored to the
-      // shadow bbox (computed above), so the blurred backdrop is only READ
-      // within that bbox. Scissor the blur H/V passes to match — drops
-      // fragment invocations from fboW×fboH to ~bboxW×bboxH.
-      const MARGIN_CSS_BLUR = MARGIN_CSS
-      const bbX = Math.max(0, Math.round((sx - MARGIN_CSS_BLUR) * this.dpr))
-      const bbYTop = Math.max(0, Math.round((sy - MARGIN_CSS_BLUR) * this.dpr))
-      const bbX1 = Math.min(this.fboW, Math.round((sx + sw + MARGIN_CSS_BLUR) * this.dpr))
-      const bbY1Top = Math.min(this.fboH, Math.round((sy + sh + MARGIN_CSS_BLUR) * this.dpr))
-      const blurredBackdrop = this.blurTexture(backdropSrc, blurRadiusPx, {
-        x: bbX,
-        y: Math.max(0, this.fboH - bbY1Top), // BL origin
-        w: bbX1 - bbX,
-        h: bbY1Top - bbYTop,
-      })
+      const blurredBackdrop = this.blurTexture(backdropSrc, blurRadiusPx)
       this.perfMonitor.incBlurPass()
-      this.perfMonitor.incDrawCall(2) // 2-pass Gaussian (H + V), bbox-scissored
+      this.perfMonitor.incDrawCall(2) // 2-pass Gaussian (H + V)
       // blurTexture disables BLEND — re-enable it so renderGlassElementPass
       // composites the glass onto otherFbo with alpha blending.
       this.gl.enable(this.gl.BLEND)
@@ -776,25 +762,9 @@ export const glassRenderMethods = {
       } else {
         backdropSrc = curTex
       }
-      // Blur bbox (device px, BL origin): the element pass only rasterizes
-      // the elFbo rect, so the blurred backdrop is only READ within that
-      // rect (+ a small pad for refraction offset). Scissor the blur H/V
-      // passes to this bbox so fragment invocations drop from
-      // fboW×fboH to ~elFboRectW×elFboRectH — the dominant cost saving
-      // for multi-glass scenes where each glass triggers a blur.
-      // Pad by blurRadiusPx (H pass adds another radius internally) +
-      // refractionHeight (max refraction offset, in device px).
-      const refractionPad = Math.abs(el.refractionAmount ?? 0) * this.dpr
-      const blurPad = Math.ceil(blurRadiusPx + refractionPad + 2)
-      const bbX = Math.max(0, ex0 - blurPad)
-      const bbY = Math.max(0, this.fboH - ey1Top - blurPad) // BL origin
-      const bbW = Math.min(this.fboW, ex1 + blurPad) - bbX
-      const bbH = Math.min(this.fboH, this.fboH - ey0Top + blurPad) - bbY
-      backdropTex = this.blurTexture(backdropSrc, blurRadiusPx, {
-        x: bbX, y: bbY, w: bbW, h: bbH,
-      })
+      backdropTex = this.blurTexture(backdropSrc, blurRadiusPx)
       this.perfMonitor.incBlurPass()
-      this.perfMonitor.incDrawCall(2) // 2-pass Gaussian (H + V), bbox-scissored
+      this.perfMonitor.incDrawCall(2) // 2-pass Gaussian (H + V)
       // blurTexture disables BLEND — re-enable it so the element pass
       // composites the glass onto elFbo with alpha blending.
       gl.enable(gl.BLEND)
