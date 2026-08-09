@@ -616,3 +616,36 @@ Stage Summary:
 - Downsample slider now initializes at the correct position (fraction = (8-blurDownsample)/7, e.g. default 4 → 0.571)
 - Blur backdrop now uses trilinear (LINEAR_MIPMAP_LINEAR) upscaling via per-frame gl.generateMipmap on dsBlurFboBTex → no more blocking/jaggies on downsampled blur
 - Files changed: app/page.tsx (toggleTargets), renderer/methods-fbo.ts (MIN_FILTER), renderer/index.ts (generateMipmap in blurTexture + blurHighlightMask)
+
+---
+Task ID: 7
+Agent: main (Z.ai Code)
+Task: 修复"玻璃只剩一片灰色"——上一个 commit (eb351ef) 的 trilinear 抗锯齿改动把玻璃修坏了。
+
+Root cause:
+- eb351ef 给 dsBlurFboBTex 设了 MIN_FILTER = LINEAR_MIPMAP_LINEAR 并每帧 gl.generateMipmap()。
+- 但 GL context 是 WebGL1（canvas.getContext('webgl')），WebGL1 禁止 NPOT 纹理用 mipmap。
+- dsBlurFboB 尺寸 = floor(fboW/effectiveDs) × floor(fboH/effectiveDs)，几乎总是 NPOT（如 1280×800 canvas 在 ds=2 时是 640×400）。
+- NPOT 纹理设 LINEAR_MIPMAP_LINEAR → 纹理变 incomplete → 采样返回 0（黑/透明）。
+- element pass 采样到全黑的 blur 纹理 → 玻璃区域只剩 scrim/tint 颜色 → "一片灰色"。
+- 对比 methods-wallpaper.ts:35 已有的正确写法：只有 isPOT 时才用 mipmap，否则回退 LINEAR。eb351ef 漏了这个检查。
+
+Fix (revert mipmap，保留滑块初始位置修复):
+- methods-fbo.ts: 删掉 dsBlurFboBTex 的 LINEAR_MIPMAP_LINEAR 设置，回到 createFBO 默认的 LINEAR。加 NOTE 注释说明 WebGL1 NPOT 限制。
+- index.ts: 删掉 blurTexture + blurHighlightMask 里的 gl.generateMipmap(dsBlurFboBTex) 调用（2 处）。加 NOTE 注释。
+- eb351ef 里 page.tsx 的 toggleTargets 修复（settings-blur-downsample 初始位置）保留不动——那部分是对的。
+
+Verification:
+- lint 干净（eslint . 无输出）。
+- dev.log 编译成功，无运行时错误。
+- Agent Browser 打开页面截图，VLM 分析确认："glass panels are rendering correctly... translucent with rounded corners, blurred backdrop content showing through... not flat solid gray"。
+
+Files changed:
+- src/components/liquid-glass/renderer/methods-fbo.ts: 删 LINEAR_MIPMAP_LINEAR + 注释。
+- src/components/liquid-glass/renderer/index.ts: 删 2 处 generateMipmap + 注释。
+
+Stage Summary:
+- 玻璃变灰根因：WebGL1 不支持 NPOT 纹理 mipmap，dsBlurFboB 几乎总是 NPOT，设 LINEAR_MIPMAP_LINEAR 导致纹理 incomplete 采样返回 0。
+- 修复：revert 到 LINEAR，接受 ds≤2 时 2×2 bilinear 上采样的轻微 blocking。要真正抗锯齿需手动多 tap 上采样 shader 或升 WebGL2。
+- 滑块初始位置修复保留。
+- commit f779ecb 已推送 origin/main。
