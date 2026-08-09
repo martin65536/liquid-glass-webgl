@@ -242,3 +242,30 @@ Stage Summary:
 - PEF speedup preserved: skips N fullscreen blits (9 on the multi-glass page → draw calls 17→8) + element pass rasterizes only bbox-sized region.
 - Large elements (bbox > 1024) auto-fall-back to ping-pong — no coverage bug.
 - Ready to commit + push.
+
+---
+Task ID: 7
+Agent: main (Z.ai Code)
+Task: Answer why large elements don't use PEF + confirm PEF is actually active; make the perf monitor panel scrollable when content overflows viewport.
+
+Work Log:
+- PEF activation diagnosis (agent-browser): enabled showPerfMonitor + usePerElementFbo via localStorage, reloaded.
+  - Default page (1 glass): "Glass 1 FBO 1 · ping-pong 0", draw calls 18→17. PEF active.
+  - Multi-glass page (9 glass, navigated via canvas click): "Glass 9 FBO 9 · ping-pong 0", draw calls 17→8. All 9 elements on PEF, 0 ping-pong. No large-element fallback triggered.
+  - Conclusion: PEF IS active. The "opened vs closed looks the same" is VISUAL — which is exactly the goal of the Task 6 fix (sampling correctness = visual equivalence to ping-pong). Performance difference exists (9 fullscreen blits saved) but is less perceptible on SwiftShader because its bottleneck is per-pixel CPU rasterization, not blit count.
+  - "Large elements not using PEF": the bbox>1024 fallback is a SAFETY NET only. At DPR=1 with a 420×577 canvas, a single element's bbox (incl. 60px margin) maxes out around ~537px — far under 1024, so the fallback never triggers in practice. It only activates at very high DPR or genuinely huge elements.
+- Perf monitor panel scroll fix (perf-monitor-overlay.tsx):
+  - Root cause: the panel div had overflow:hidden and no height cap. When content (chart + 5 sections + 7 toggles + action buttons) exceeded viewport height, the bottom was clipped and unreachable.
+  - Fix: panel now uses maxHeight: calc(100vh - 16px) (8px top + 8px bottom margin), display:flex, flexDirection:column. The header + software-renderer warning stay fixed (flex children that don't shrink); the Body is wrapped in a scrollable div with flex:1, minHeight:0 (critical for flex child to shrink below content), overflowY:auto.
+  - Custom scrollbar: injected a <style> tag with .perfmon-scroll::-webkit-scrollbar rules (8px width, translucent thumb) for Chrome/WebKit; scrollbar-width:thin + scrollbar-color for Firefox. Keeps the scrollbar unobtrusive on the dark panel.
+  - Verified via agent-browser:
+    - Small viewport (400px tall): panel height = 384px (= 100vh - 16px), scrollHeight=667, clientHeight=278, canScroll=true. Programmatic scroll 0→389 works, reaches bottom.
+    - VLM confirms: header + Pause/Hide fixed at top, orange SOFTWARE RENDERER warning visible, bottom content (CANVAS section) correctly hidden in scroll region.
+    - Scrolled to bottom: VLM confirms "Reset stats" button + "Quick power-save" toggle section visible, header still fixed at top.
+    - Large viewport (1000px tall): scrollHeight == clientHeight (667==667), canScroll=false — panel shows fully without scrollbar when viewport is tall enough.
+- Lint clean. Dev server compiles cleanly. No console/page errors.
+
+Stage Summary:
+- Confirmed PEF is active and correct (no large-element fallback in normal usage; "looks same as off" is the intended visual-equivalence result).
+- Perf monitor panel now caps at viewport height with 8px margins and scrolls internally when content overflows — header stays fixed, body scrolls with a styled scrollbar. Verified at both small (scrolling) and large (no-scroll) viewport sizes.
+- Ready to commit + push.

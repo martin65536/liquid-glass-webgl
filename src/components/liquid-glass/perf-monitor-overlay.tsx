@@ -169,6 +169,10 @@ export function PerfMonitorOverlay({ rendererRef, visible, rafFps }: Props) {
         zIndex: 50,
         pointerEvents: 'auto',
         width: 320,
+        // Cap height to viewport with margin; body scrolls if it overflows.
+        maxHeight: 'calc(100vh - 16px)',
+        display: 'flex',
+        flexDirection: 'column',
         background: 'rgba(0,0,0,0.82)',
         color: '#e8e8e8',
         font: '12px ui-monospace, "SF Mono", Menlo, monospace',
@@ -179,6 +183,15 @@ export function PerfMonitorOverlay({ rendererRef, visible, rafFps }: Props) {
         userSelect: 'none',
       }}
     >
+      <style>{`
+        .perfmon-scroll::-webkit-scrollbar { width: 8px; }
+        .perfmon-scroll::-webkit-scrollbar-track { background: transparent; }
+        .perfmon-scroll::-webkit-scrollbar-thumb {
+          background: rgba(255,255,255,0.25);
+          border-radius: 4px;
+        }
+        .perfmon-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.4); }
+      `}</style>
       {/* Header — drag handle + buttons */}
       <div
         onPointerDown={onHeaderPointerDown}
@@ -235,7 +248,9 @@ export function PerfMonitorOverlay({ rendererRef, visible, rafFps }: Props) {
       )}
 
       {snapshot ? (
-        <Body snapshot={snapshot} rafFps={rafFps} rendererRef={rendererRef} paused={paused} />
+        <div className="perfmon-scroll" style={scrollBodyStyle}>
+          <Body snapshot={snapshot} rafFps={rafFps} rendererRef={rendererRef} paused={paused} />
+        </div>
       ) : (
         <div style={{ padding: 12, color: '#888' }}>Waiting for samples…</div>
       )}
@@ -252,6 +267,18 @@ const btnStyle: React.CSSProperties = {
   borderRadius: 4,
   cursor: 'pointer',
   lineHeight: 1,
+}
+
+// Scrollable body container: flex-1 so it fills the panel's remaining height
+// (panel has maxHeight = calc(100vh - 16px)) and scrolls vertically when the
+// content (chart + sections + toggles + buttons) overflows. Custom scrollbar
+// styling keeps it unobtrusive on the dark panel.
+const scrollBodyStyle: React.CSSProperties = {
+  flex: 1,
+  minHeight: 0, // critical: lets flex child shrink below content height
+  overflowY: 'auto',
+  scrollbarWidth: 'thin',
+  scrollbarColor: 'rgba(255,255,255,0.25) transparent',
 }
 
 /* --- Body (chart + stats) --- */
