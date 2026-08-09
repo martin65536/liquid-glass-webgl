@@ -66,3 +66,51 @@ Stage Summary:
 - Performance monitor fully implemented and verified working.
 - Key insight confirmed: the per-element FBO optimization IS active (FBO: 8, ping-pong: 0 on the settings page).
 - Ready to commit + push.
+
+---
+Task ID: 2
+Agent: main (Z.ai Code)
+Task: Replace all emojis in entry tips and performance tool with text equivalents, add power-saving quick-toggle options to the performance monitor, then push to GitHub.
+
+Work Log:
+- Searched for emoji chars in src/ — found `💡` in page.tsx loading tip, and `▶`/`⏸`/`▁`/`⬛`/`▒`/`□`/`✕` in perf-monitor-overlay.tsx (some only in doc comment, some in live JSX).
+- page.tsx: replaced `💡 {tipFact}` with `[Tip] {tipFact}`.
+- perf-monitor-overlay.tsx: replaced all emoji/symbol chars:
+  - `⬛` → `[ ]` (comment only)
+  - `▒▒▒▒` → `....` (comment only)
+  - `{paused ? '▶' : '⏸'}` → `{paused ? 'Play' : 'Pause'}`
+  - `▁` (collapse button) → `Hide`
+  - `⏸ Paused` (paused indicator) → `[ Paused ]`
+- Added `quickToggles` object to LiquidGlassRenderer (renderer/index.ts) with 6 boolean flags:
+  - `highlight` (skip Canvas2D mask + 3-pass composite)
+  - `backdropBlur` (skip 2-pass Gaussian on backdrop)
+  - `chromatic` (force uChromaticAberration=0)
+  - `refraction` (force uRefractionHeight=0 + uRefractionAmount=0)
+  - `outerShadow` (skip drop-shadow pass)
+  - `perElementFbo` (gate per-element FBO path; falls back to legacy fullscreen blit)
+  All default to `true` (full quality).
+- Wired quickToggles checks into render paths:
+  - methods-render-glass.ts: per-element FBO branch gated by `quickToggles.perElementFbo`; both per-element and legacy blur branches gated by `quickToggles.backdropBlur`; `renderGlassShadowPass` early-returns when `!quickToggles.outerShadow`.
+  - methods-render-glass-post-passes.ts: highlight block gated by `quickToggles.highlight`.
+  - methods-render-glass-element-pass.ts: refraction + chromatic uniforms overridden to 0 when respective toggles are off (both regular and SDF-texture paths).
+- Added `QuickToggles` React component to perf-monitor-overlay.tsx:
+  - Renders 6 toggle buttons (label + ON/OFF badge, green/red color coding)
+  - `flip(key)` mirrors to `renderer.quickToggles[key]` and calls `renderer.requestRender()` for immediate redraw
+  - `setAll(true/false)` bulk button for one-click A/B comparison
+  - Off-count badge in section header
+  - NOT persisted to localStorage (intentional — resets to all-true on reload)
+- Verified via agent-browser:
+  - Loading screen shows `[Tip]` (no `💡`)
+  - Perf monitor overlay shows `Pause`/`Hide` buttons (no `▶`/`⏸`/`▁`)
+  - Quick power-save section visible with all 6 toggles
+  - Clicking Highlight toggle: ON → OFF → ON works, React state updates propagate
+  - "all off" bulk button flips all 6 to OFF simultaneously
+  - "all on" restores all to ON
+  - No console errors or page errors during toggle flipping
+- Lint passes (`bun run lint` — clean).
+- Dev server compiles cleanly (`✓ Compiled in 76ms`).
+
+Stage Summary:
+- All emojis replaced with text equivalents in entry tips and perf monitor.
+- New "Quick power-save" section in perf monitor with 6 live toggles for isolating heavy GPU path costs during power-consumption investigation.
+- Ready to commit + push.

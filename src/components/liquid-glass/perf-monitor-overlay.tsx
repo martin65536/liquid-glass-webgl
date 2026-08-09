@@ -14,9 +14,9 @@ import type { PerfSnapshot } from './renderer/perf-monitor'
  *
  * Layout (expanded):
  *   ┌──────────────────────────────────────┐
- *   │ ⬛ Performance Monitor      — □ ✕    │  header (drag handle + buttons)
+ *   │ [ ] Performance Monitor    [-] [x]   │  header (drag handle + buttons)
  *   ├──────────────────────────────────────┤
- *   │ ▒▒▒▒ FPS history chart ▒▒▒▒▒▒▒▒▒▒▒  │  120-sample rolling line graph
+ *   │ .... FPS history chart ............  │  120-sample rolling line graph
  *   │ 60 ─────────────────────────────     │  (green = good, yellow = jank,
  *   │ 30 ─────────────────────────────     │   red = severe jank)
  *   │  0 ─────────────────────────────     │
@@ -185,14 +185,14 @@ export function PerfMonitorOverlay({ rendererRef, visible, rafFps }: Props) {
             style={btnStyle}
             title={paused ? 'Resume sampling' : 'Pause sampling'}
           >
-            {paused ? '▶' : '⏸'}
+            {paused ? 'Play' : 'Pause'}
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); setCollapsed(true) }}
             style={btnStyle}
             title="Collapse"
           >
-            ▁
+            Hide
           </button>
         </span>
       </div>
@@ -264,6 +264,7 @@ function Body({
         <Row label="Vendor" value={truncate(snapshot.gpuVendor || '—', 36)} />
         <Row label="Max texture" value={String(snapshot.maxTextureSize)} hint={`exts ${snapshot.extensionCount}`} />
       </Section>
+      <QuickToggles rendererRef={rendererRef} />
       <div style={{ display: 'flex', gap: 6, padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
         <button
           style={{ ...btnStyle, flex: 1 }}
@@ -273,11 +274,128 @@ function Body({
         </button>
         {paused && (
           <div style={{ ...btnStyle, flex: 1, textAlign: 'center', background: 'rgba(255,200,0,0.15)', borderColor: 'rgba(255,200,0,0.4)', color: '#fc8' }}>
-            ⏸ Paused
+            [ Paused ]
           </div>
         )}
       </div>
     </>
+  )
+}
+
+/* --- Quick power-save toggles ---
+ * Each toggle flips a flag on the renderer's `quickToggles` object and
+ * triggers a redraw. This is for A/B-isolating the cost of individual
+ * heavy GPU paths during a power-consumption investigation.
+ *
+ * Layout per row:  [ label ............ ON/OFF ]
+ *   - click anywhere on the row flips the toggle
+ *   - state is held in React state and mirrored to renderer.quickToggles
+ *   - NOT persisted: resets to all-true on page reload
+ */
+const QUICK_TOGGLE_KEYS = [
+  'highlight',
+  'backdropBlur',
+  'chromatic',
+  'refraction',
+  'outerShadow',
+  'perElementFbo',
+] as const
+type QuickToggleKey = typeof QUICK_TOGGLE_KEYS[number]
+
+const QUICK_TOGGLE_LABELS: Record<QuickToggleKey, { label: string; hint: string }> = {
+  highlight:    { label: 'Highlight',    hint: 'rim + stroke mask + 3-pass blur' },
+  backdropBlur: { label: 'Backdrop blur', hint: '2-pass Gaussian on backdrop' },
+  chromatic:    { label: 'Chromatic',    hint: 'RGB channel split samples' },
+  refraction:   { label: 'Refraction',   hint: 'lens distortion offset' },
+  outerShadow:  { label: 'Outer shadow', hint: 'drop-shadow pass' },
+  perElementFbo:{ label: 'Per-element FBO', hint: 'small FBO vs fullscreen blit' },
+}
+
+function QuickToggles({ rendererRef }: { rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> }) {
+  // Mirror the renderer's quickToggles into local React state so flips
+  // re-render the panel. Initialize from the renderer on first mount.
+  const [flags, setFlags] = React.useState<Record<QuickToggleKey, boolean>>({
+    highlight: true,
+    backdropBlur: true,
+    chromatic: true,
+    refraction: true,
+    outerShadow: true,
+    perElementFbo: true,
+  })
+
+  const flip = (key: QuickToggleKey) => {
+    const next = !flags[key]
+    setFlags((f) => ({ ...f, [key]: next }))
+    const r = rendererRef.current
+    if (r) {
+      r.quickToggles[key] = next
+      r.requestRender()
+    }
+  }
+
+  const setAll = (v: boolean) => {
+    const next: Record<QuickToggleKey, boolean> = {
+      highlight: v,
+      backdropBlur: v,
+      chromatic: v,
+      refraction: v,
+      outerShadow: v,
+      perElementFbo: v,
+    }
+    setFlags(next)
+    const r = rendererRef.current
+    if (r) {
+      r.quickToggles.highlight = v
+      r.quickToggles.backdropBlur = v
+      r.quickToggles.chromatic = v
+      r.quickToggles.refraction = v
+      r.quickToggles.outerShadow = v
+      r.quickToggles.perElementFbo = v
+      r.requestRender()
+    }
+  }
+
+  const offCount = QUICK_TOGGLE_KEYS.reduce((n, k) => n + (flags[k] ? 0 : 1), 0)
+
+  return (
+    <div style={{ padding: '6px 10px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+        <span style={{ color: '#888', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          Quick power-save {offCount > 0 && <span style={{ color: '#fc8' }}>({offCount} off)</span>}
+        </span>
+        <span style={{ display: 'flex', gap: 4 }}>
+          <button style={{ ...btnStyle, padding: '1px 5px', fontSize: 9 }} onClick={() => setAll(true)}>all on</button>
+          <button style={{ ...btnStyle, padding: '1px 5px', fontSize: 9 }} onClick={() => setAll(false)}>all off</button>
+        </span>
+      </div>
+      {QUICK_TOGGLE_KEYS.map((k) => (
+        <button
+          key={k}
+          onClick={() => flip(k)}
+          title={QUICK_TOGGLE_LABELS[k].hint}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            width: '100%',
+            background: flags[k] ? 'rgba(80,200,80,0.10)' : 'rgba(255,90,90,0.10)',
+            border: `1px solid ${flags[k] ? 'rgba(80,200,80,0.3)' : 'rgba(255,90,90,0.3)'}`,
+            color: '#e8e8e8',
+            font: '11px ui-monospace, monospace',
+            padding: '3px 8px',
+            borderRadius: 4,
+            cursor: 'pointer',
+            marginBottom: 2,
+            textAlign: 'left',
+          }}
+        >
+          <span>{QUICK_TOGGLE_LABELS[k].label}</span>
+          <span style={{ color: flags[k] ? '#6f6' : '#f88', fontWeight: 700, fontSize: 10 }}>
+            {flags[k] ? 'ON' : 'OFF'}
+          </span>
+        </button>
+      ))}
+    </div>
   )
 }
 

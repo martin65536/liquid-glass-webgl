@@ -481,10 +481,19 @@ export const glassElementPassMethods = {
     // graphicsLayer scales the rendered output. The shader now maps the
     // refraction offset to screen space internally (offset_screen = offset_orig
     // * uLayerScale), so we must pass the ORIGINAL (unscaled) params here.
-    gl.uniform1f(this.uEl['uRefractionHeight'], elRefractionHeight * this.dpr)
-    gl.uniform1f(this.uEl['uRefractionAmount'], elRefractionAmount * this.dpr)
+    //
+    // Quick power-save overrides: when quickToggles.refraction is false, force
+    // both params to 0 — the lens distortion disappears (glass becomes a flat
+    // tinted layer), saving the refraction offset math in the fragment shader.
+    const qsRefractionH = this.quickToggles.refraction ? elRefractionHeight : 0
+    const qsRefractionA = this.quickToggles.refraction ? elRefractionAmount : 0
+    gl.uniform1f(this.uEl['uRefractionHeight'], qsRefractionH * this.dpr)
+    gl.uniform1f(this.uEl['uRefractionAmount'], qsRefractionA * this.dpr)
     gl.uniform1f(this.uEl['uDepthEffect'], el.depthEffect ? 1 : 0)
-    gl.uniform1f(this.uEl['uChromaticAberration'], el.chromaticAberration ? 1 : 0)
+    // Quick power-save override: when quickToggles.chromatic is false, force
+    // uChromaticAberration=0 — removes the extra RGB-channel texture samples
+    // in the refraction path.
+    gl.uniform1f(this.uEl['uChromaticAberration'], (el.chromaticAberration && this.quickToggles.chromatic) ? 1 : 0)
     // Blur radius: for useSeparableBlur elements with blurRadius >= 0.5,
     // the blur is applied as a separate 2-pass post-process on the element
     // pass output, so the inline shader blur is disabled (uBlurRadius=0).
@@ -536,7 +545,7 @@ export const glassElementPassMethods = {
       gl.uniform1f(this.uEl['uUseSdfTexture'], 1.0)
       gl.uniform2f(this.uEl['uSdfTexSize'], this.sdfTextureSize[0], this.sdfTextureSize[1])
       gl.uniform1f(this.uEl['uSdfLightAngle'], el.isSdfTexture.lightAngle)
-      gl.uniform1f(this.uEl['uRefractionHeight'], el.isSdfTexture.refractionHeight * this.dpr)
+      gl.uniform1f(this.uEl['uRefractionHeight'], (this.quickToggles.refraction ? el.isSdfTexture.refractionHeight : 0) * this.dpr)
     } else {
       gl.uniform1f(this.uEl['uUseSdfTexture'], 0.0)
     }

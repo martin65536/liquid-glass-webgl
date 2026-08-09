@@ -984,7 +984,7 @@ export default function Page() {
                 margin: 0,
               }}
             >
-              💡 {tipFact}
+              [Tip] {tipFact}
             </p>
           </div>
         )}

@@ -177,6 +177,38 @@ export class LiquidGlassRenderer {
    *  each glass element renders into a small bbox-sized FBO instead of a
    *  fullscreen ping-pong blit. See methods-render-glass.ts. */
   usePerElementFbo = true
+  /** Quick power-saving toggles — exposed live via the performance monitor
+   *  overlay (NOT persisted to settings). Each flag gates a specific heavy
+   *  GPU path so the user can isolate cost during a power-consumption
+   *  investigation. When a flag is `false`, that path is skipped entirely
+   *  for every element on the next frame (requestRender is called by the
+   *  overlay when a flag flips so needsRedraw is set).
+   *
+   *  - highlight:    skip the Canvas2D mask + 3-pass highlight composite
+   *                  (rim/stroke/blur). This is one of the most expensive
+   *                  per-element paths due to per-frame Canvas2D rasterization.
+   *  - backdropBlur: skip the 2-pass separable Gaussian on the backdrop
+   *                  (useSeparableBlur elements with blurRadius >= 0.5).
+   *                  Saves 2 fullscreen-equivalent blur passes per element.
+   *  - chromatic:    force uChromaticAberration=0 in the element pass
+   *                  (removes the extra RGB-channel texture samples).
+   *  - refraction:   force uRefractionHeight=0 and uRefractionAmount=0
+   *                  (the lens distortion offset disappears, glass becomes
+   *                  a flat tinted layer — much cheaper shader math).
+   *  - outerShadow:  skip the outer drop-shadow pass entirely.
+   *  - perElementFbo: gate the per-element FBO path. When false, all glass
+   *                  elements fall back to the legacy fullscreen ping-pong
+   *                  blit. Useful for A/B comparing power cost.
+   *
+   *  All flags default to `true` (full quality, no overrides). */
+  quickToggles = {
+    highlight: true,
+    backdropBlur: true,
+    chromatic: true,
+    refraction: true,
+    outerShadow: true,
+    perElementFbo: true,
+  }
   /** Performance monitor — frame timing + per-frame render counters +
    *  GPU info. When `perfMonitor.enabled === false` (default), every
    *  increment is a no-op. Toggled on by the Settings "Performance

@@ -378,7 +378,7 @@ export const glassRenderMethods = {
     //    dialogBackdropTex, not the scene FBO — the crop would be wrong.
     //  - SDF-texture elements (LockScreen): use a separate glass path.
     // These fall through to the legacy path below.
-    if (this.usePerElementFbo && !el.backdropFbo && !el.useSdfTexture && !skipPingPong) {
+    if (this.usePerElementFbo && this.quickToggles.perElementFbo && !el.backdropFbo && !el.useSdfTexture && !skipPingPong) {
       this.perfMonitor.incGlassElement()
       this.perfMonitor.incPerElementFbo()
       return this.renderGlassElementPerFbo(el, st, curFbo, curTex, otherFbo, otherTex, {
@@ -467,7 +467,7 @@ export const glassRenderMethods = {
     this.renderGlassShadowPass(state)
 
     // --- Step 2b: Element pass (refraction + vibrancy + tint) ---
-    if (el.useSeparableBlur && el.blurRadius >= 0.5) {
+    if (el.useSeparableBlur && el.blurRadius >= 0.5 && this.quickToggles.backdropBlur) {
       const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr
       // For backdropFbo elements (dialog card), blur the dialogBackdropTex
       // (wallpaper+scrim+colorControls opaque layer) instead of the scene FBO.
@@ -605,7 +605,7 @@ export const glassRenderMethods = {
     this.gl.useProgram(this.elementProgram)
     this.gl.uniform4f(this.uEl['uBackdropRect'], bx0, by0Top, bboxW, bboxH)
     let backdropTex: WebGLTexture
-    if (el.useSeparableBlur && el.blurRadius >= 0.5) {
+    if (el.useSeparableBlur && el.blurRadius >= 0.5 && this.quickToggles.backdropBlur) {
       const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr
       backdropTex = this.cropAndBlurBackdrop(curTex, bx0, by0Top, bboxW, bboxH, blurRadiusPx)
       this.perfMonitor.incBlurPass()
@@ -650,6 +650,8 @@ export const glassRenderMethods = {
     const gl = this.gl
     const { el, sx, sy, sw, sh, radii } = state
     if (!el.outerShadow || el.outerShadow.radius <= 0.5) return
+    // Quick power-save toggle: skip the outer-shadow pass entirely.
+    if (!this.quickToggles.outerShadow) return
     // Shadow alpha: for bottom tab indicator, modulate by pressProgress
     // (faithful to Kotlin: Shadow(alpha = progress)). At rest (progress=0),
     // shadow is invisible; when pressed, Shadow.Default becomes visible.

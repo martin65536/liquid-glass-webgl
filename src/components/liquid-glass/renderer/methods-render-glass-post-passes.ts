@@ -343,7 +343,7 @@ export const glassPostPassMethods = {
     // progress only affect the composite uniforms, not the mask, so caching is
     // safe and avoids both per-frame rasterization and UV mismatch between a
     // reused backing canvas and the logical mask size.
-    if (el.highlight && el.highlight.alpha > 0.001) {
+    if (el.highlight && el.highlight.alpha > 0.001 && this.quickToggles.highlight) {
       const rimAlpha = (el.isToggleKnob || el.isBottomTabIndicator) ? elHighlightAlpha : el.highlight.alpha
       // Ambient mode: paint.color = White.copy(alpha=0.38). Although the AGSL shader
       // overrides the paint COLOR, Skia still applies paint.alpha on top of the shader
