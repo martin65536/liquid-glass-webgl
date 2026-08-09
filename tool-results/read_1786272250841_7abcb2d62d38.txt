@@ -1,0 +1,649 @@
+     1→import type { ElementInteraction } from '../context'
+     2→import type { GlassElementConfig, GlassHighlight } from '../renderer'
+     3→
+     4→/* ------------------------------------------------------------------ *
+     5→ * CatalogDestination — faithful port of CatalogDestination.kt
+     6→ * ------------------------------------------------------------------ */
+     7→export enum CatalogDestination {
+     8→  Home,
+     9→  Buttons,
+    10→  Toggle,
+    11→  Slider,
+    12→  BottomTabs,
+    13→  Dialog,
+    14→  LockScreen,
+    15→  ControlCenter,
+    16→  Magnifier,
+    17→  GlassPlayground,
+    18→  AdaptiveLuminanceGlass,
+    19→  ProgressiveBlur,
+    20→  ScrollContainer,
+    21→  LazyScrollContainer,
+    22→  Settings,
+    23→  About,
+    24→  PerfBenchmark,
+    25→}
+    26→
+    27→/* ------------------------------------------------------------------ *
+    28→ * Shared constants — matching the Kotlin dp values (CSS px ≈ Android
+    29→ * dp at density 1).
+    30→ * ------------------------------------------------------------------ */
+    31→export const DP = 1
+    32→// Track which toggle groups are being dragged — setToggleTarget is skipped
+    33→// for these (in context.tsx) to avoid drift during liveUpdate.
+    34→export const draggingGroups = new Set<string>()
+    35→/** Linear interpolation. Faithful to androidx.compose.ui.util.lerp. */
+    36→export function lerp(a: number, b: number, t: number): number {
+    37→  return a + (b - a) * t
+    38→}
+    39→
+    40→// --- Gravity angle (gyroscope/accelerometer) for highlight direction ---
+    41→// Faithful to UISensor.kt: gravityAngle = atan2(y, x) * 180/PI, default 45°.
+    42→// On web, approximated via DeviceOrientationEvent (beta/gamma → gravity
+    43→// vector → angle). Passed in as a prop from page.tsx (React state) so
+    44→// changes trigger a catalog rebuild → real-time highlight rotation.
+    45→let gravityAngle = 45
+    46→export function setGravityAngle(a: number) { gravityAngle = a; }
+    47→function getGravityAngle() { return gravityAngle; }
+    48→
+    49→// Control-center snap animation state. Shared mutable object so that both
+    50→// `animateControlCenterEnter` (in this module) and `buildControlCenter`
+    51→// (in build-control-center.ts) can read/cancel the running animation.
+    52→// Faithful to the original's two separate Animatable values:
+    53→//   enterProgressAnimation (raw, can go <0 / >1)
+    54→//   safeEnterProgressAnimation (clamped 0..1)
+    55→export const ccAnim: {
+    56→  handle: number | null
+    57→  lastVelocity: number // progress/s — initial velocity for the raw spring
+    58→} = {
+    59→  handle: null,
+    60→  lastVelocity: 0,
+    61→}
+    62→
+    63→/* ------------------------------------------------------------------ *
+    64→ * ProgressConverter — faithful port of ProgressConverter.kt
+    65→ *   convert(p) = (1 - exp(-|p|)) * sign(p)
+    66→ *
+    67→ * This dampens overscroll exponentially: as |p| grows, the converted
+    68→ * value approaches ±1 asymptotically. Used by ControlCenterContent.kt's
+    69→ * derivedStateOf to map raw enterProgress → visual progress:
+    70→ *   p < 0  → convert(p)              (approaches -1)
+    71→ *   0..1   → p                        (linear)
+    72→ *   p > 1  → 1 + convert(p - 1)      (approaches 2)
+    73→ * ------------------------------------------------------------------ */
+    74→export function convertProgress(p: number): number {
+    75→  return (1 - Math.exp(-Math.abs(p))) * Math.sign(p)
+    76→}
+    77→export function derivedProgress(p: number): number {
+    78→  if (p < 0) return convertProgress(p)
+    79→  if (p <= 1) return p
+    80→  return 1 + convertProgress(p - 1)
+    81→}
+    82→
+    83→/** Animate controlCenterEnter (raw) AND controlCenterSafeEnter (clamped)
+    84→ *  to `target` (0 or 1) via springs.
+    85→ *
+    86→ *  Faithful to ControlCenterContent.kt onDragStopped:
+    87→ *    enterProgressAnimation.animateTo(
+    88→ *        target,
+    89→ *        if (target > 0.5) spring(0.5, 300, 0.5/maxDragHeight)  // underdamped
+    90→ *        else              spring(1.0, 300, 0.01),               // critical
+    91→ *        velocity / maxDragHeight                                 // initial vel
+    92→ *    )
+    93→ *    safeEnterProgressAnimation.animateTo(
+    94→ *        target, spring(1.0, 300, 0.01)   // always critical, NO initial vel
+    95→ *    )
+    96→ *
+    97→ *  The raw spring BOUNCES on expand (underdamped ζ=0.5) giving the
+    98→ *  characteristic overshoot when releasing an over-pulled control center.
+    99→ *  The safe spring settles smoothly (critical ζ=1.0) so alpha/dim/blur
+   100→ *  never overshoot.
+   101→ *
+   102→ *  Uses the ANALYTICAL spring solution (not numerical integration) for
+   103→ *  exact Compose-spring behavior at any frame rate. */
+   104→export function animateControlCenterEnter(
+   105→  setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void,
+   106→  target: number,
+   107→  maxDrag: number,
+   108→  initialVelocity: number // progress/s — already converted from px/s
+   109→) {
+   110→  if (ccAnim.handle != null) cancelAnimationFrame(ccAnim.handle)
+   111→
+   112→  // Spring params (faithful to Compose spring(dampingRatio, stiffness, visibilityThreshold))
+   113→  const stiffness = 300
+   114→  const omega0 = Math.sqrt(stiffness) // natural frequency (m=1)
+   115→  const dampingRatioRaw = target > 0.5 ? 0.5 : 1.0 // underdamped for expand, critical for collapse
+   116→  const dampingRatioSafe = 1.0 // always critical
+   117→  // Visibility thresholds — the spring is considered settled below these.
+   118→  const visThresholdRaw = target > 0.5 ? 0.5 / maxDrag : 0.01
+   119→  const visThresholdSafe = 0.01
+   120→
+   121→  let posRaw = -1
+   122→  let posSafe = -1
+   123→  let velRaw = initialVelocity
+   124→  let velSafe = 0
+   125→  let lastT = -1
+   126→
+   127→  /** Analytical spring step. Given current pos, vel, and dt, computes
+   128→   *  the exact new pos and vel after dt. Uses the closed-form solution
+   129→   *  of the damped harmonic oscillator. */
+   130→  function springStep(
+   131→    pos: number, vel: number, tgt: number,
+   132→    ratio: number, dt: number
+   133→  ): { p: number; v: number } {
+   134→    const A = pos - tgt
+   135→    if (ratio >= 1) {
+   136→      // Critically damped: y(t) = (A + B*t) * e^(-ω₀t)
+   137→      //   A = pos - target, B = vel + ω₀*A
+   138→      const B = vel + omega0 * A
+   139→      const ed = Math.exp(-omega0 * dt)
+   140→      const newPos = tgt + (A + B * dt) * ed
+   141→      const newVel = (vel - omega0 * B * dt) * ed
+   142→      return { p: newPos, v: newVel }
+   143→    }
+   144→    // Underdamped: y(t) = e^(-ζω₀t) * (A*cos(ωd*t) + B*sin(ωd*t))
+   145→    //   A = pos - target, B = (vel + ζω₀*A) / ωd
+   146→    const omegaD = omega0 * Math.sqrt(1 - ratio * ratio)
+   147→    const B = (vel + ratio * omega0 * A) / omegaD
+   148→    const ed = Math.exp(-ratio * omega0 * dt)
+   149→    const cd = Math.cos(omegaD * dt)
+   150→    const sd = Math.sin(omegaD * dt)
+   151→    const newPos = tgt + ed * (A * cd + B * sd)
+   152→    const newVel = ed * ((B * omegaD - ratio * omega0 * A) * cd - (A * omegaD + ratio * omega0 * B) * sd)
+   153→    return { p: newPos, v: newVel }
+   154→  }
+   155→
+   156→  const step = (now: number) => {
+   157→    setState((prev) => {
+   158→      if (posRaw < 0) posRaw = prev.controlCenterEnter
+   159→      if (posSafe < 0) posSafe = prev.controlCenterSafeEnter
+   160→      let dt: number
+   161→      if (lastT < 0) {
+   162→        dt = 1 / 60
+   163→      } else {
+   164→        dt = Math.min(0.05, (now - lastT) / 1000)
+   165→      }
+   166→      lastT = now
+   167→
+   168→      // Analytical spring step — exact solution, no integration error.
+   169→      const r = springStep(posRaw, velRaw, target, dampingRatioRaw, dt)
+   170→      posRaw = r.p
+   171→      velRaw = r.v
+   172→      const s = springStep(posSafe, velSafe, target, dampingRatioSafe, dt)
+   173→      posSafe = s.p
+   174→      velSafe = s.v
+   175→
+   176→      const doneRaw = Math.abs(target - posRaw) < visThresholdRaw && Math.abs(velRaw) < visThresholdRaw * 10
+   177→      const doneSafe = Math.abs(target - posSafe) < visThresholdSafe && Math.abs(velSafe) < visThresholdSafe * 10
+   178→
+   179→      if (doneRaw && doneSafe) {
+   180→        ccAnim.handle = null
+   181→        ccAnim.lastVelocity = 0
+   182→        return { controlCenterEnter: target, controlCenterSafeEnter: target }
+   183→      }
+   184→      ccAnim.handle = requestAnimationFrame(step)
+   185→      return { controlCenterEnter: posRaw, controlCenterSafeEnter: posSafe }
+   186→    })
+   187→  }
+   188→  ccAnim.handle = requestAnimationFrame(step)
+   189→}
+   190→
+   191→export const BUTTON_HEIGHT = 48 * DP
+   192→export const BUTTON_HORIZONTAL_PADDING = 16 * DP
+   193→export const TEXT_FONT_SIZE_PX = 15 * DP
+   194→export const SUBTITLE_FONT_SIZE_PX = 15 * DP
+   195→export const TITLE_FONT_SIZE_PX = 28 * DP
+   196→
+   197→export const FONT_FAMILY =
+   198→  '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+   199→
+   200→// Glass params matching LiquidButton.kt's effects block.
+   201→export const GLASS_PARAMS = {
+   202→  refractionHeight: 12 * DP,
+   203→  refractionAmount: -24 * DP,
+   204→  depthEffect: false,
+   205→  chromaticAberration: false,
+   206→  blurRadius: 2 * DP,
+   207→  saturation: 1.5,
+   208→  brightness: 0,
+   209→  contrast: 1,
+   210→}
+   211→
+   212→export const DEFAULT_HIGHLIGHT: GlassHighlight = {
+   213→  mode: 0,
+   214→  color: [1, 1, 1],
+   215→  angle: 45 * Math.PI / 180,
+   216→  falloff: 1.0,
+   217→  alpha: 0.5, // faithful to HighlightStyle.Default: color = White.copy(alpha = 0.5f)
+   218→  widthDp: 0.5,
+   219→}
+   220→
+   221→export const DEFAULT_SHADOW = {
+   222→  radius: 24 * DP,
+   223→  alpha: 0.1,
+   224→  offsetX: 0,
+   225→  offsetY: (24 / 6) * DP,
+   226→  color: [0, 0, 0] as [number, number, number],
+   227→}
+   228→
+   229→/* ------------------------------------------------------------------ *
+   230→ * Theme-aware color palettes — faithful to the Kotlin source's
+   231→ * `isLightTheme = !isSystemInDarkTheme()` pattern.
+   232→ *
+   233→ * Each destination's Kotlin file declares its own per-theme colors.
+   234→ * We mirror them here as a single palette object so each builder
+   235→ * picks the right colors via `palette = getPalette(isLightTheme)`.
+   236→ * ------------------------------------------------------------------ */
+   237→
+   238→export interface ThemePalette {
+   239→  // HomeContent.kt
+   240→  homeContentColor: [number, number, number, number]
+   241→  homeSubtitleColor: [number, number, number, number]
+   242→  homeTextHalo: 'light' | 'dark' | 'none'
+   243→
+   244→  // ToggleContent.kt + LiquidToggle.kt
+   245→  toggleAccent: [number, number, number]
+   246→  toggleTrackOff: [number, number, number, number]
+   247→  toggleCardBg: [number, number, number, number]
+   248→
+   249→  // SliderContent.kt + LiquidSlider.kt
+   250→  sliderAccent: [number, number, number]
+   251→  sliderTrackOff: [number, number, number, number]
+   252→  sliderCardBg: [number, number, number, number]
+   253→
+   254→  // BottomTabsContent.kt + LiquidBottomTabs.kt
+   255→  tabsContentColor: [number, number, number, number]
+   256→  tabsAccent: [number, number, number]
+   257→  tabsContainer: [number, number, number, number]
+   258→  tabsTextHalo: 'light' | 'dark' | 'none'
+   259→
+   260→  // DialogContent.kt
+   261→  dialogContentColor: [number, number, number, number]
+   262→  dialogAccent: [number, number, number, number]
+   263→  dialogContainer: [number, number, number, number]
+   264→  dialogDim: [number, number, number, number]
+   265→  dialogBlurRadius: number
+   266→  dialogBrightness: number
+   267→
+   268→  // MagnifierContent.kt
+   269→  magnifierContentColor: [number, number, number, number]
+   270→  magnifierAccent: [number, number, number, number]
+   271→  magnifierCardBg: [number, number, number, number]
+   272→
+   273→  // ControlCenterContent.kt
+   274→  controlCenterAccent: [number, number, number, number]
+   275→
+   276→  // ProgressiveBlurContent.kt
+   277→  progressiveContentColor: [number, number, number, number]
+   278→  progressiveTint: [number, number, number, number]
+   279→  progressiveTextHalo: 'light' | 'dark' | 'none'
+   280→
+   281→  // AdaptiveLuminanceGlassContent.kt (initial contentColor; the actual
+   282→  // behavior is adaptive but we need a starting color)
+   283→  adaptiveContentColor: [number, number, number, number]
+   284→
+   285→  // Back button icon color — black on light, white on dark.
+   286→  backIconColor: [number, number, number, number]
+   287→
+   288→  // Back/theme button glass surface color — mirrors tabsContainer
+   289→  // (white 0.3 in light, dark 0.4 in dark) so the circular buttons
+   290→  // match the bottom-tabs container in each theme.
+   291→  buttonSurface: [number, number, number, number]
+   292→}
+   293→
+   294→export const LIGHT_PALETTE: ThemePalette = {
+   295→  homeContentColor: [0, 0, 0, 1],
+   296→  homeSubtitleColor: [0x00 / 255, 0x88 / 255, 0xff / 255, 1],
+   297→  homeTextHalo: 'dark',
+   298→
+   299→  toggleAccent: [0x34 / 255, 0xc7 / 255, 0x59 / 255],
+   300→  toggleTrackOff: [0x78 / 255, 0x78 / 255, 0x78 / 255, 0.2],
+   301→  toggleCardBg: [1, 1, 1, 1],
+   302→
+   303→  sliderAccent: [0x00 / 255, 0x88 / 255, 0xff / 255],
+   304→  sliderTrackOff: [0x78 / 255, 0x78 / 255, 0x78 / 255, 0.2],
+   305→  sliderCardBg: [1, 1, 1, 1],
+   306→
+   307→  tabsContentColor: [0, 0, 0, 1],
+   308→  tabsAccent: [0x00 / 255, 0x88 / 255, 0xff / 255],
+   309→  tabsContainer: [0xfa / 255, 0xfa / 255, 0xfa / 255, 0.4],
+   310→  tabsTextHalo: 'dark',
+   311→
+   312→  dialogContentColor: [0, 0, 0, 1],
+   313→  dialogAccent: [0x00 / 255, 0x88 / 255, 0xff / 255, 1],
+   314→  dialogContainer: [0xfa / 255, 0xfa / 255, 0xfa / 255, 0.6],
+   315→  dialogDim: [0x29 / 255, 0x29 / 255, 0x3a / 255, 0.23],
+   316→  dialogBlurRadius: 16 * DP,
+   317→  dialogBrightness: 0.2,
+   318→
+   319→  magnifierContentColor: [0, 0, 0, 1],
+   320→  magnifierAccent: [0x00 / 255, 0x88 / 255, 0xff / 255, 1],
+   321→  magnifierCardBg: [1, 1, 1, 0.9],
+   322→
+   323→  controlCenterAccent: [0x00 / 255, 0x88 / 255, 0xff / 255, 1],
+   324→
+   325→  progressiveContentColor: [0, 0, 0, 1],
+   326→  progressiveTint: [1, 1, 1, 1],
+   327→  progressiveTextHalo: 'dark',
+   328→
+   329→  adaptiveContentColor: [0, 0, 0, 1],
+   330→
+   331→  backIconColor: [0, 0, 0, 1],
+   332→  buttonSurface: [1, 1, 1, 0.3],
+   333→}
+   334→
+   335→export const DARK_PALETTE: ThemePalette = {
+   336→  homeContentColor: [1, 1, 1, 1],
+   337→  homeSubtitleColor: [0x00 / 255, 0x88 / 255, 0xff / 255, 1],
+   338→  homeTextHalo: 'light',
+   339→
+   340→  toggleAccent: [0x30 / 255, 0xd1 / 255, 0x58 / 255],
+   341→  toggleTrackOff: [0x78 / 255, 0x78 / 255, 0x80 / 255, 0.36],
+   342→  toggleCardBg: [0x12 / 255, 0x12 / 255, 0x12 / 255, 1],
+   343→
+   344→  sliderAccent: [0x00 / 255, 0x91 / 255, 0xff / 255],
+   345→  sliderTrackOff: [0x78 / 255, 0x78 / 255, 0x80 / 255, 0.36],
+   346→  sliderCardBg: [0x12 / 255, 0x12 / 255, 0x12 / 255, 1],
+   347→
+   348→  tabsContentColor: [1, 1, 1, 1],
+   349→  tabsAccent: [0x00 / 255, 0x91 / 255, 0xff / 255],
+   350→  tabsContainer: [0x12 / 255, 0x12 / 255, 0x12 / 255, 0.4],
+   351→  tabsTextHalo: 'light',
+   352→
+   353→  dialogContentColor: [1, 1, 1, 1],
+   354→  dialogAccent: [0x00 / 255, 0x91 / 255, 0xff / 255, 1],
+   355→  dialogContainer: [0x12 / 255, 0x12 / 255, 0x12 / 255, 0.4],
+   356→  dialogDim: [0x12 / 255, 0x12 / 255, 0x12 / 255, 0.56],
+   357→  dialogBlurRadius: 8 * DP,
+   358→  dialogBrightness: 0,
+   359→
+   360→  magnifierContentColor: [1, 1, 1, 1],
+   361→  magnifierAccent: [0x00 / 255, 0x91 / 255, 0xff / 255, 1],
+   362→  magnifierCardBg: [0x12 / 255, 0x12 / 255, 0x12 / 255, 0.9],
+   363→
+   364→  controlCenterAccent: [0x00 / 255, 0x91 / 255, 0xff / 255, 1],
+   365→
+   366→  progressiveContentColor: [1, 1, 1, 1],
+   367→  progressiveTint: [0x80 / 255, 0x80 / 255, 0x80 / 255, 1],
+   368→  progressiveTextHalo: 'light',
+   369→
+   370→  adaptiveContentColor: [1, 1, 1, 1],
+   371→
+   372→  backIconColor: [1, 1, 1, 1],
+   373→  buttonSurface: [0x12 / 255, 0x12 / 255, 0x12 / 255, 0.4],
+   374→}
+   375→
+   376→export function getPalette(isLightTheme: boolean): ThemePalette {
+   377→  return isLightTheme ? LIGHT_PALETTE : DARK_PALETTE
+   378→}
+   379→
+   380→// Legacy aliases — kept for backward compat with any code that still
+   381→// references the single-theme constants. They equal the LIGHT palette
+   382→// values. New code should use getPalette(isLightTheme) instead.
+   383→export const TOGGLE_ACCENT: [number, number, number] = LIGHT_PALETTE.toggleAccent
+   384→export const TOGGLE_TRACK: [number, number, number, number] = LIGHT_PALETTE.toggleTrackOff
+   385→export const SLIDER_ACCENT: [number, number, number] = LIGHT_PALETTE.sliderAccent
+   386→export const SLIDER_TRACK: [number, number, number, number] = LIGHT_PALETTE.sliderTrackOff
+   387→
+   388→// Dialog colors (faithful to DialogContent.kt, light theme).
+   389→export const DIALOG_CONTAINER: [number, number, number, number] = LIGHT_PALETTE.dialogContainer
+   390→export const DIALOG_ACCENT: [number, number, number, number] = LIGHT_PALETTE.dialogAccent
+   391→export const DIALOG_DIM: [number, number, number, number] = LIGHT_PALETTE.dialogDim
+   392→
+   393→export const LOREM_IPSUM =
+   394→  'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.'
+   395→
+   396→// Flight icon SVG path (960×960 viewport) — faithful port of FlightIcon.kt.
+   397→// Original is a Compose ImageVector with mixed absolute/relative commands.
+   398→export const FLIGHT_ICON_PATH =
+   399→  'M400 552 L147 653 q-24 10 -45.5 -4.5 T80 608 v-22 q0 -12 5.5 -23 t15.5 -18 l299 -209 v-176 q0 -33 23.5 -56.5 T480 80 q33 0 56.5 23.5 T560 160 v176 l299 209 q10 7 15.5 18 t5.5 23 v22 q0 26 -21.5 40.5 T813 653 L560 552 v144 l103 72 q8 6 12.5 14.5 T680 801 v24 q0 20 -16.5 32.5 T627 864 l-147 -44 l-147 44 q-20 6 -36.5 -6.5 T280 825 v-24 q0 -10 4.5 -18.5 T297 768 l103 -72 v-144 Z'
+   400→
+   401→// Catalog home-page structure — faithful to HomeContent.kt
+   402→export const HOME_SECTIONS: { titleKey: string; items: { dest: CatalogDestination; labelKey: string }[] }[] = [
+   403→  {
+   404→    titleKey: 'section_glass',
+   405→    items: [
+   406→      { dest: CatalogDestination.Buttons, labelKey: 'item_buttons' },
+   407→      { dest: CatalogDestination.Toggle, labelKey: 'item_toggle' },
+   408→      { dest: CatalogDestination.Slider, labelKey: 'item_slider' },
+   409→      { dest: CatalogDestination.BottomTabs, labelKey: 'item_bottom_tabs' },
+   410→      { dest: CatalogDestination.Dialog, labelKey: 'item_dialog' },
+   411→    ],
+   412→  },
+   413→  {
+   414→    titleKey: 'section_system',
+   415→    items: [
+   416→      { dest: CatalogDestination.LockScreen, labelKey: 'item_lock_screen' },
+   417→      { dest: CatalogDestination.ControlCenter, labelKey: 'item_control_center' },
+   418→      { dest: CatalogDestination.Magnifier, labelKey: 'item_magnifier' },
+   419→    ],
+   420→  },
+   421→  {
+   422→    titleKey: 'section_experiments',
+   423→    items: [
+   424→      { dest: CatalogDestination.GlassPlayground, labelKey: 'item_glass_playground' },
+   425→      { dest: CatalogDestination.AdaptiveLuminanceGlass, labelKey: 'item_adaptive_luminance' },
+   426→      { dest: CatalogDestination.ProgressiveBlur, labelKey: 'item_progressive_blur' },
+   427→      { dest: CatalogDestination.ScrollContainer, labelKey: 'item_scroll_container' },
+   428→      { dest: CatalogDestination.LazyScrollContainer, labelKey: 'item_lazy_scroll' },
+   429→      { dest: CatalogDestination.PerfBenchmark, labelKey: 'item_perf_benchmark' },
+   430→    ],
+   431→  },
+   432→  {
+   433→    titleKey: 'section_system_nav',
+   434→    items: [
+   435→      { dest: CatalogDestination.Settings, labelKey: 'item_settings' },
+   436→      { dest: CatalogDestination.About, labelKey: 'item_about' },
+   437→    ],
+   438→  },
+   439→]
+   440→
+   441→/* ------------------------------------------------------------------ *
+   442→ * Catalog result type — returned by each destination builder.
+   443→ * ------------------------------------------------------------------ */
+   444→export interface CatalogResult {
+   445→  elements: GlassElementConfig[]
+   446→  interactions: Record<string, ElementInteraction>
+   447→  contentHeight: number
+   448→  /** Live state hooks — the page calls these to push interactive state
+   449→   *  (toggle / slider / tab values) into the elements list each frame.
+   450→   *  The builder returns a function that, given the current state,
+   451→   *  returns a fresh elements array. */
+   452→  stateful?: (state: CatalogState) => {
+   453→    elements: GlassElementConfig[]
+   454→    interactions: Record<string, ElementInteraction>
+   455→  }
+   456→}
+   457→
+   458→export interface CatalogState {
+   459→  toggleOn: boolean
+   460→  sliderValue: number
+   461→  selectedTab: number
+   462→  selectedTab2: number
+   463→  // GlassPlayground
+   464→  cornerRadiusFrac: number
+   465→  blurRadiusDp: number
+   466→  refractionHeightFrac: number
+   467→  refractionAmountFrac: number
+   468→  chromaticAberration: number
+   469→  // Magnifier
+   470→  magnifierX: number
+   471→  magnifierY: number
+   472→  // LockScreen
+   473→  lockScreenOffsetX: number
+   474→  lockScreenOffsetY: number
+   475→  // ControlCenter — bitmask of active tiles (bit 0 = cc-a, bit 1 = cc-b, ...)
+   476→  controlCenterActive: number
+   477→  // ControlCenter — raw enter progress (can go <0 / >1 for overscroll)
+   478→  controlCenterEnter: number
+   479→  // ControlCenter — safe enter progress (clamped 0..1, for alpha/dim/blur)
+   480→  controlCenterSafeEnter: number
+   481→  // GlassPlayground sheet expanded
+   482→  gpSheetExpanded: boolean
+   483→  // GlassPlayground glass transform
+   484→  gpOffsetX: number
+   485→  gpOffsetY: number
+   486→  gpZoom: number
+   487→  gpRotation: number
+   488→  // AdaptiveLuminanceGlass drag offset
+   489→  algOffsetX: number
+   490→  algOffsetY: number
+   491→  // AdaptiveLuminanceGlass — measured average luminance (0..1) of the
+   492→  // backdrop behind the glass. Drives brightness/contrast/blur/contentColor
+   493→  // per AdaptiveLuminanceGlassContent.kt. Updated via GPU readback in
+   494→  // page.tsx (1px sample at glass center, throttled).
+   495→  adaptiveLuminance: number
+   496→  // Settings — custom DPR override (0 = use default capped DPR)
+   497→  customDpr: number
+   498→  // Settings — global separable 2-pass blur toggle
+   499→  globalSeparableBlur: boolean
+   500→  // Settings — blur tap cap (1..33, max 1D taps per separable pass)
+   501→  blurTapCap: number
+   502→  // Settings — blur downsample factor (1=full-res, 2/4=downsampled)
+   503→  blurDownsample: number
+   504→  // Settings — corner style: true = continuous (squircle, faithful to original
+   505→  // Capsule's ContinuousCurvature), false = circular (standard arc).
+   506→  // Settings — capsule shape via continuous-curvature SDF texture. When true,
+   507→  // the dialog card samples a precomputed SDF texture (generated from the
+   508→  // G2-continuous Bezier path) instead of the analytic sdRoundedRect SDF.
+   509→  // This gives pixel-perfect squircle corners on the dialog card. Other
+   510→  // elements still use the analytic SDF (circular or continuous placeholder).
+   511→  capsuleShape: boolean
+   512→  // Settings — live (drag-in-progress) display values for slider labels
+   513→  liveDpr: number | null
+   514→  liveTapCap: number | null
+   515→  // Settings — hide the overlay exit (back) and theme toggle buttons on all
+   516→  // non-Home pages. Default false (buttons visible). When true, the back
+   517→  // button is still reachable via the browser back button / Esc.
+   518→  hideOverlayButtons: boolean
+   519→  // Settings — language for UI labels ('zh' = Chinese, 'en' = English)
+   520→  locale: 'zh' | 'en'
+   521→  // Settings — page transition animation (fade + slide). Default false (off).
+   522→  pageTransition: boolean
+   523→  // Settings — show FPS counter overlay. Default false.
+   524→  showFps: boolean
+   525→  // Settings — highlight anti-aliasing. When true (default), the stroke width
+   526→  // is rounded up via Math.ceil() to ensure full-pixel coverage, matching the
+   527→  // original Kotlin formula. When false, the stroke width is kept at sub-pixel
+   528→  // precision (Math.round / Math.max), producing a thinner highlight but with
+   529→  // potential aliasing at low DPR.
+   530→  highlightAa: boolean
+   531→  // Settings — per-element FBO optimization. When true (default), each glass
+   532→  // element renders into a small bbox-sized FBO (capped at 1024 device px)
+   533→  // instead of doing a fullscreen ping-pong blit. This avoids the ~850K-px
+   534→  // fullscreen copy per element — the biggest per-element cost. The backdrop
+   535→  // (curFbo) is scissor-cropped into a small texture, the element renders on a
+   536→  // small FBO, then composites back via a small scissor blit. curFbo is never
+   537→  // swapped — it stays the fixed accumulation target. Pure optimization, no
+   538→  // expected visual change. Kept as a toggle so it can be disabled if any
+   539→  // element shows a visual regression.
+   540→  usePerElementFbo: boolean
+   541→  // Performance benchmark: null = not running, 'running' = in progress
+   542→  perfProgress: string | null
+   543→  // Performance benchmark: status text displayed on the benchmark page
+   544→  perfStatusText: string
+   545→  // Performance benchmark: whether the benchmark is complete
+   546→  perfDone: boolean
+   547→  // Performance benchmark: result DPR (0 = not yet determined)
+   548→  perfResultDpr: number
+   549→  // Performance benchmark: current deformation angle (radians) for W/H oscillation.
+   550→  // Each glass computes W = baseW + amp*cos(angle + phaseOffset) and
+   551→  // H = baseH + amp*sin(angle + phaseOffset) so vertices orbit while
+   552→  // center stays fixed. 16 glasses share the same angle but have different
+   553→  // phase offsets for a wave/ripple effect.
+   554→  perfGlassAngle: number
+   555→  // Performance benchmark: iteration trigger counter (increments each round
+   556→  // so the React effect re-fires even though perfProgress stays 'running')
+   557→  perfRoundTrigger: number
+   558→  // Performance benchmark: progress fraction (0..1) for the progress bar.
+   559→  // iteration/maxIterations when running, 1 when done.
+   560→  perfProgressFrac: number
+   561→  // Performance benchmark: animated progress fraction (smoothly lerps toward
+   562→  // perfProgressFrac, replacing CSS transition for the canvas progress bar).
+   563→  perfProgressFracAnimated: number
+   564→  // Performance benchmark: deformation multiplier (0..1). 1 = full deformation
+   565→  // during testing, smoothly decays to 0 after done (settle animation).
+   566→  // When 0, all glasses are perfectly square.
+   567→  perfDeformMul: number
+   568→  // Performance benchmark: exit button appearance progress (0..1).
+   569→  // 0 = hidden, 1 = fully visible. Animated via settle animation.
+   570→  perfExitProgress: number
+   571→}
+   572→
+   573→export const DEFAULT_CATALOG_STATE: CatalogState = {
+   574→  toggleOn: false,
+   575→  sliderValue: 50,
+   576→  selectedTab: 0,
+   577→  selectedTab2: 0,
+   578→  cornerRadiusFrac: 0.5,
+   579→  blurRadiusDp: 0,
+   580→  refractionHeightFrac: 0.2,
+   581→  refractionAmountFrac: 0.2,
+   582→  chromaticAberration: 0,
+   583→  magnifierX: 0,
+   584→  magnifierY: 0,
+   585→  lockScreenOffsetX: 0,
+   586→  lockScreenOffsetY: 0,
+   587→  controlCenterActive: 0,
+   588→  controlCenterEnter: 1,
+   589→  controlCenterSafeEnter: 1,
+   590→  gpSheetExpanded: true,
+   591→  gpOffsetX: 0,
+   592→  gpOffsetY: 0,
+   593→  gpZoom: 1,
+   594→  gpRotation: 0,
+   595→  algOffsetX: 0,
+   596→  algOffsetY: 0,
+   597→  adaptiveLuminance: 0.5,
+   598→  customDpr: 0,
+   599→  globalSeparableBlur: true,
+   600→  blurTapCap: 17,
+   601→  blurDownsample: 1,
+   602→  capsuleShape: true,
+   603→  liveDpr: null,
+   604→  liveTapCap: null,
+   605→  hideOverlayButtons: false,
+   606→  locale: 'zh',
+   607→  pageTransition: true,
+   608→  showFps: false,
+   609→  highlightAa: true,
+   610→  usePerElementFbo: true,
+   611→  perfProgress: null,
+   612→  perfStatusText: '',
+   613→  perfDone: false,
+   614→  perfResultDpr: 0,
+   615→  perfGlassAngle: 0,
+   616→  perfRoundTrigger: 0,
+   617→  perfProgressFrac: 0,
+   618→  perfProgressFracAnimated: 0,
+   619→  perfDeformMul: 0,
+   620→  perfExitProgress: 0,
+   621→}
+   622→
+   623→/* ------------------------------------------------------------------ *
+   624→ * Text-measurement helper (hidden 2D canvas).
+   625→ * ------------------------------------------------------------------ */
+   626→let _measureCtx: CanvasRenderingContext2D | null = null
+   627→export function measureTextWidth(text: string, fontPx: number, weight = 400): number {
+   628→  if (typeof document !== 'undefined') {
+   629→    if (!_measureCtx) {
+   630→      const c = document.createElement('canvas')
+   631→      _measureCtx = c.getContext('2d')
+   632→    }
+   633→    if (_measureCtx) {
+   634→      _measureCtx.font = `${weight} ${fontPx}px ${FONT_FAMILY}`
+   635→      return _measureCtx.measureText(text).width
+   636→    }
+   637→  }
+   638→  return text.length * fontPx * 0.55
+   639→}
+   640→
+   641→/* ------------------------------------------------------------------ *
+   642→ * Shared slider dimensions — used by makeLiquidSlider, makeSettingsSlider,
+   643→ * and the Slider / GlassPlayground / Settings builder functions.
+   644→ * ------------------------------------------------------------------ */
+   645→export const SLIDER_TRACK_H = 6 * DP
+   646→export const SLIDER_KNOB_W = 40 * DP
+   647→export const SLIDER_KNOB_H = 24 * DP
+   648→export const SLIDER_HIT_H = 48 * DP
+   649→
