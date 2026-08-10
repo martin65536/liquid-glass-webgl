@@ -795,3 +795,29 @@ Stage Summary:
   - toggle 动画 → 该 group 元素 MISS → 红色；其他 independent 元素 HIT → 绿色
 - perfMonitor 的 dirty/total 计数仍反映事件标记语义（用于追踪 markElementDirty 调用频率），与 marker 分离。
 - lint 干净，dev.log 编译正常。
+
+---
+Task ID: 6
+Agent: main (Z.ai Code)
+Task: Restore the removed dirty-marker bbox border (keep the blinking red dot), ensure theme toggle triggers a full re-raster, then push to GitHub.
+
+Work Log:
+- Read previous worklog entry (Task 5) + current state of context.tsx overlay drawing, perf-monitor-overlay.tsx toggle, renderer/index.ts comments, and page.tsx theme toggle.
+- context.tsx: rewrote the `showDirtyMarkers` overlay block to draw BOTH:
+  1. A colored bbox border on every element every rAF tick (green=clean cache hit, red=dirty re-rasterized). This is the border the user asked to add back.
+  2. A blinking red dot (~30Hz, alternate rAF ticks via `dirtyBlinkOn`) on dirty elements only.
+  Both are consumed after draw (`markers.length = 0`), so idle frames draw nothing — the "no stale red when idle" fix from the previous iteration is preserved.
+- page.tsx: added `React.useEffect` on `isLightTheme` that calls `renderer.markAllDirty()` + `renderer.requestRender()`. Runs AFTER the setElements child effect (child effects fire before parent effects), so by the time it runs the new element list is already pushed. `markAllDirty()` invalidates EVERY cached elFbo so the next render re-rasterizes all glass bodies with the new theme. Rationale: setElements' cache-signature diff only catches elements whose glass-BODY props changed (scrim, outerShadow, highlight...); some theme-dependent visual props (dimColor, text halo, ripple color) are NOT in `elementCacheSignature`, so cached glass textures could be reused with stale theme colors without this nuclear invalidation.
+- perf-monitor-overlay.tsx: updated the "Show dirty markers" toggle tooltip to describe the border+dot behavior.
+- renderer/index.ts: updated `showDirtyMarkers` field comment to reflect border+dot semantics.
+
+Verification (agent-browser):
+- Idle state (showDirtyMarkers ON, no interaction): VLM confirmed NO borders, NO dots on canvas. `debugDirtyMarkers.length === 0` across 60 synchronous samples.
+- Active rendering (continuous markAllDirty+requestRender loop): VLM confirmed red borders visible on all 5 rapid screenshots; red dot captured on 1/5 screenshots (consistent with ~30Hz blink = ~50% duty cycle).
+- Theme toggle: dispatched pointerdown/up on the `__theme__` element (canvas coords 348,16 → screen 806,44). bgColor changed [1,1,1]→[0,0,0]→[1,1,1] across two toggles. 33 new frames rendered per toggle. Sampler (8ms interval) captured `maxDirtyElementsSeenInOneFrame: 14` — all 14 glass elements re-rasterized in a single frame, confirming markAllDirty() invalidated every elFbo cache entry.
+- Lint passes clean; dev server compiles cleanly.
+
+Stage Summary:
+- Dirty marker overlay now shows: colored border (green/red) every tick + blinking red dot on dirty elements. Idle = nothing. Active render = visible borders + flashing dots.
+- Theme toggle now guarantees a full glass-body re-raster via explicit markAllDirty() effect. Verified all 14 glass elements dirty in one frame post-toggle.
+- Committed + pushed to GitHub (1edbee4).
