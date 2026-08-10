@@ -392,7 +392,16 @@ export function LiquidGlassCanvas({
             }
           }
           if (renderer.showDirtyMarkers) {
-            // Blinking red dot per dirty element.
+            // Colored border + blinking red dot per element.
+            //
+            // BORDER: green = clean (cache hit, no re-raster), red = dirty
+            // (cache miss, re-rasterized this frame). Drawn every rAF tick
+            // so the bbox is always visible while the overlay is on.
+            //
+            // RED DOT: drawn ONLY on alternate rAF ticks (dirtyBlinkOn) and
+            // ONLY for dirty elements — gives a visible ~30Hz flash that
+            // makes it obvious which elements are doing GPU work. Combined
+            // with the consume-after-draw below, dots disappear when idle.
             //
             // SEMANTICS: a "dirty" element is one whose glass body was
             // actually re-rasterized this render frame (elFboCache MISS).
@@ -400,19 +409,27 @@ export function LiquidGlassCanvas({
             // each render(); we consume the list here (length = 0) after
             // drawing, so:
             //   - On rAF ticks that follow a render → list is populated →
-            //     draw red dots (only on alternate ticks → visible blink).
+            //     draw borders + (blinking) red dots.
             //   - On rAF ticks with no new render (idle) → list is empty →
-            //     draw nothing → no stale red dots linger on idle frames.
+            //     draw nothing → no stale markers linger on idle frames.
             const markers = renderer.debugDirtyMarkers
-            if (dirtyBlinkOn && markers.length > 0) {
-              ctx.fillStyle = 'rgba(255, 70, 70, 0.95)'
+            if (markers.length > 0) {
               for (let i = 0; i < markers.length; i++) {
                 const m = markers[i]
-                if (!m.dirty) continue
-                // Red dot in the top-right corner of the element's bbox.
-                ctx.beginPath()
-                ctx.arc(m.x + m.w - 7, m.y + 7, 4, 0, Math.PI * 2)
-                ctx.fill()
+                ctx.strokeStyle = m.dirty ? 'rgba(255, 110, 110, 0.95)' : 'rgba(120, 230, 130, 0.85)'
+                ctx.lineWidth = m.dirty ? 2 : 1
+                ctx.strokeRect(m.x + 0.5, m.y + 0.5, m.w - 1, m.h - 1)
+              }
+              // Blinking red dot on dirty elements (alternate ticks).
+              if (dirtyBlinkOn) {
+                ctx.fillStyle = 'rgba(255, 70, 70, 0.95)'
+                for (let i = 0; i < markers.length; i++) {
+                  const m = markers[i]
+                  if (!m.dirty) continue
+                  ctx.beginPath()
+                  ctx.arc(m.x + m.w - 7, m.y + 7, 4, 0, Math.PI * 2)
+                  ctx.fill()
+                }
               }
             }
             // Consume the markers so idle frames (no new render between

@@ -652,6 +652,28 @@ export default function Page() {
     setUserOverride((prev) => (prev === 'light' ? 'dark' : 'light'))
   }, [])
 
+  // Theme switch → force a FULL glass-body re-raster.
+  //
+  // When isLightTheme flips, the catalog rebuilds (the useMemo below
+  // depends on it) and setElements diffs each element's cache signature.
+  // That diff catches elements whose glass-BODY props changed (scrim,
+  // outerShadow, highlight, ...). But some theme-dependent visual props
+  // are NOT in elementCacheSignature (e.g. dimColor, foreground text
+  // halo, ripple color), and the cached elFbo glass texture could be
+  // reused with stale theme colors.
+  //
+  // This effect runs AFTER the setElements effect (child effects fire
+  // before parent effects), so by the time it runs the new element list
+  // is already pushed. Calling markAllDirty() here invalidates EVERY
+  // cached elFbo so the next render re-rasterizes all glass bodies with
+  // the new theme — a one-time cost per theme toggle, not per-frame.
+  React.useEffect(() => {
+    const r = rendererRef.current
+    if (!r) return
+    r.markAllDirty()
+    r.requestRender()
+  }, [isLightTheme])
+
   // Device motion → gravity angle for glass highlight direction.
   // Faithful to UISensor.kt:
   //   gravityAngle = gravityAngle * (1-alpha) + atan2(y, x) * 180/PI * alpha

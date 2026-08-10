@@ -115,11 +115,10 @@ export class LiquidGlassRenderer {
    *  element list rebuilt). Makes every element count as dirty for one frame. */
   dirtyElementIds = new Set<string>()
   allDirty = true
-  /** Debug overlay: when true, draw a blinking red dot on each element
-   *  that actually re-rasterized its glass body this frame (cache MISS).
-   *  Toggled from the perf-monitor overlay. The overlay consumes the
-   *  markers after each rAF tick, so dots only appear when a render has
-   *  just occurred — no stale red when the renderer is idle. */
+  /** Debug overlay: when true, draw a colored border (green=clean, red=dirty)
+   *  + a blinking red dot on dirty elements. The dot flashes ~30Hz and the
+   *  whole overlay disappears when idle. Toggled from the perf-monitor
+   *  overlay. */
   showDirtyMarkers = false
   /** Debug overlay data — the dirty status of each element this frame,
    *  pushed during render() for the overlay to read. "dirty" here means
