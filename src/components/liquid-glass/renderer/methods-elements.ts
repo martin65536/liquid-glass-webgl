@@ -102,6 +102,8 @@ export const elementMethods = {
           this.fgTextures.delete(id)
         }
         this.fgDirtyIds.delete(id)
+        // Also free the cached elFbo (if the element was independent + cached).
+        this.deleteElFboCacheEntry(id)
       }
     }
     // Ensure state exists for new buttons.

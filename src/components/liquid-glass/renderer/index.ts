@@ -115,6 +115,7 @@ export class LiquidGlassRenderer {
    *  element list rebuilt). Makes every element count as dirty for one frame. */
   dirtyElementIds = new Set<string>()
   allDirty = true
+  _dbgMarkAllDirtyLogged = false  // TEMP DEBUG
   /** Debug overlay: when true, draw a colored marker on each element
    *  indicating its dirty status this frame (green=clean, red=dirty).
    *  Toggled from the perf-monitor overlay. */
@@ -326,6 +327,40 @@ export class LiquidGlassRenderer {
   elFboTex: WebGLTexture | null = null
   elFboW = 0
   elFboH = 0
+  /** Per-element CACHED elFbo. Only INDEPENDENT elements (backdrop = static
+   *  wallpaper via uSampleWallpaper=1) can be cached across frames — non-
+   *  independent elements sample curTex (the accumulation buffer) which
+   *  changes whenever an earlier element draws, so their backdrop is never
+   *  stable across frames and caching would produce stale visuals.
+   *
+   *  Cache key: element.id. Entry validity is gated by:
+   *    - entry.valid (set false by any global state change)
+   *    - geometry match (elFboRectW/H + ex0/ey0Top — covers scroll, layerScale,
+   *      translation, enterProgress)
+   *    - entry.wallpaperVersion === this.wallpaperVersion (wallpaper reload)
+   *    - entry.dpr === this.dpr
+   *
+   *  When all match AND the element is not dirty this frame, the render loop
+   *  SKIPS shadow + element pass + blur + post passes, and just composites
+   *  the cached tex onto curFbo. The cached tex contains the FULL element
+   *  (shadow + glass body + foreground + highlight) with alpha, so SrcOver
+   *  compositing is correct. */
+  elFboCache = new Map<string, {
+    fb: WebGLFramebuffer
+    tex: WebGLTexture
+    w: number         // device px (elFboRectW)
+    h: number         // device px (elFboRectH)
+    ex0: number       // device px, top-left origin (composite placement)
+    ey0Top: number    // device px, top-left origin
+    valid: boolean    // false = stale, needs re-render
+    wallpaperVersion: number
+    dpr: number
+  }>()
+  /** Monotonically incremented each time the wallpaper texture is (re)loaded.
+   *  Compared against each elFboCache entry's stored wallpaperVersion to
+   *  invalidate cached independent elements when the backdrop they sampled
+   *  has changed. */
+  wallpaperVersion = 0
   // backdropCropFbo: a scissor-cropped copy of curFbo covering the element's
   // bbox (+ blur margin). The element pass samples THIS (small) texture for
   // refraction/blur instead of doing a fullscreen blit.
@@ -962,6 +997,12 @@ export class LiquidGlassRenderer {
     if (this.elBlurFboBTex) gl.deleteTexture(this.elBlurFboBTex)
     this.elBlurFboA = this.elBlurFboB = null
     this.elBlurFboATex = this.elBlurFboBTex = null
+    // Per-element cached elFbo (independent backdrop cache)
+    for (const e of this.elFboCache.values()) {
+      gl.deleteFramebuffer(e.fb)
+      gl.deleteTexture(e.tex)
+    }
+    this.elFboCache.clear()
     for (const { hProg, vProg } of this.blurPrograms.values()) {
       gl.deleteProgram(hProg)
       gl.deleteProgram(vProg)

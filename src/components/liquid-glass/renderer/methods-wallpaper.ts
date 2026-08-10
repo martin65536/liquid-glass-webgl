@@ -45,6 +45,11 @@ export const wallpaperMethods = {
     this.wallpaperTexture = tex
     this.wallpaperSize = [w || 1, h || 1]
     this.wallpaperReady = true
+    // Bump the wallpaper version so cached independent elFbos know their
+    // sampled backdrop has changed. markAllDirty() below flips every entry's
+    // valid flag; the version bump lets re-rendered entries stamp the new
+    // version so they won't be falsely reused after a future reload.
+    this.wallpaperVersion++
     // Wallpaper now available → independent backdrop becomes active for all
     // eligible elements, changing their sampling source. Mark all dirty.
     this.markAllDirty()
@@ -146,6 +151,18 @@ export const wallpaperMethods = {
     for (const b of this.buttonConfigs) this.fgDirtyIds.add(b.id)
     this.cssWidth = cssW
     this.cssHeight = cssH
+    // Canvas resize changes every element's device-px elFboRect (sx/sy/sw/sh
+    // are CSS px, multiplied by dpr to get device px). Cached entries are now
+    // the wrong size — free them and let the next render rebuild. markAllDirty
+    // also flips valid=false, but clearing fully reclaims GPU memory.
+    if (this.elFboCache.size > 0) {
+      const gl = this.gl
+      for (const e of this.elFboCache.values()) {
+        gl.deleteFramebuffer(e.fb)
+        gl.deleteTexture(e.tex)
+      }
+      this.elFboCache.clear()
+    }
     this.markAllDirty()
     this.requestRender()
   },

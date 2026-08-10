@@ -54,6 +54,7 @@ export interface PerfSnapshot {
   blurPasses: number           // 2-pass Gaussian invocations
   dirtyElements: number        // elements whose visual state changed this frame
   totalElements: number        // total elements processed (visible, not culled)
+  cachedElements: number       // glass elements that hit the elFbo cache (skipped re-render)
   // --- Static GPU info (collected once) ---
   gpuVendor: string
   gpuRenderer: string
@@ -105,6 +106,7 @@ export class PerfMonitor {
   private blurPasses = 0
   private dirtyElements = 0
   private totalElements = 0
+  private cachedElements = 0
 
   // --- Last completed frame counters (captured at frameEnd) ---
   private lastDrawCalls = 0
@@ -115,6 +117,7 @@ export class PerfMonitor {
   private lastBlurPasses = 0
   private lastDirtyElements = 0
   private lastTotalElements = 0
+  private lastCachedElements = 0
   private lastFrameTimeMs = 0
 
   // --- Static GPU info (collected lazily on first frameStart) ---
@@ -175,6 +178,7 @@ export class PerfMonitor {
     this.blurPasses = 0
     this.dirtyElements = 0
     this.totalElements = 0
+    this.cachedElements = 0
   }
 
   /** Called at the bottom of render(). Records the frame INTERVAL (time
@@ -215,6 +219,7 @@ export class PerfMonitor {
     this.lastBlurPasses = this.blurPasses
     this.lastDirtyElements = this.dirtyElements
     this.lastTotalElements = this.totalElements
+    this.lastCachedElements = this.cachedElements
   }
 
   // --- Counter increments (called from renderer methods).
@@ -227,6 +232,7 @@ export class PerfMonitor {
   incBlurPass() { if (this.enabled) this.blurPasses++ }
   incDirty() { if (this.enabled) this.dirtyElements++ }
   incTotal() { if (this.enabled) this.totalElements++ }
+  incCachedElement() { if (this.enabled) this.cachedElements++ }
 
   /** Reset all accumulated stats (timing + counters + jank). */
   reset() {
@@ -247,6 +253,7 @@ export class PerfMonitor {
     this.lastBlurPasses = 0
     this.lastDirtyElements = 0
     this.lastTotalElements = 0
+    this.lastCachedElements = 0
   }
 
   getSnapshot(): PerfSnapshot {
@@ -284,6 +291,7 @@ export class PerfMonitor {
       blurPasses: this.lastBlurPasses,
       dirtyElements: this.lastDirtyElements,
       totalElements: this.lastTotalElements,
+      cachedElements: this.lastCachedElements,
       gpuVendor: this.gpuVendor,
       gpuRenderer: this.gpuRenderer,
       maxTextureSize: this.maxTextureSize,

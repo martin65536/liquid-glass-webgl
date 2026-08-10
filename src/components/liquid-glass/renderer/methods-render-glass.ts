@@ -133,6 +133,7 @@ declare module './index' {
         togglePressProgress: number
         independent: boolean
         translationX: number; translationY: number
+        elDirty: boolean
       }
     ): {
       curFbo: WebGLFramebuffer
@@ -440,9 +441,16 @@ export const glassRenderMethods = {
     if (this.quickToggles.perElementFbo) {
       this.perfMonitor.incGlassElement()
       this.perfMonitor.incPerElementFbo()
+      // Element dirty flag — passed to renderGlassElementPerFbo so it can
+      // skip re-rendering and composite the cached elFbo when the element is
+      // independent (static wallpaper backdrop) AND its visual state hasn't
+      // changed this frame. Non-independent elements always re-render because
+      // their backdrop (curTex, the accumulation buffer) changes whenever an
+      // earlier element draws.
+      const elDirty = this.allDirty || this.dirtyElementIds.has(el.id)
       return this.renderGlassElementPerFbo(el, st, curFbo, curTex, otherFbo, otherTex, {
         sx, sy, sw, sh, radii, scaleX, scaleY, isButton, p, togglePressProgress,
-        independent, translationX, translationY,
+        independent, translationX, translationY, elDirty,
       })
     }
 
@@ -643,6 +651,7 @@ export const glassRenderMethods = {
       togglePressProgress: number
       independent: boolean
       translationX: number; translationY: number
+      elDirty: boolean
     }
   ): {
     curFbo: WebGLFramebuffer
@@ -651,7 +660,7 @@ export const glassRenderMethods = {
     otherTex: WebGLTexture
   } {
     const gl = this.gl
-    const { sx, sy, sw, sh, radii, scaleX, scaleY, isButton, p, togglePressProgress, independent } = computed
+    const { sx, sy, sw, sh, radii, scaleX, scaleY, isButton, p, togglePressProgress, independent, elDirty } = computed
     const layerScale = Math.min(scaleX, scaleY)
 
     // --- Two decoupled rectangles (the key PEF size optimization) ---
@@ -707,8 +716,104 @@ export const glassRenderMethods = {
       })
     }
 
-    // --- Ensure the per-element FBOs exist at elFboRectW×elFboRectH ---
-    const { w: elFboW, h: elFboH } = this.ensureElementFBO(elFboRectW, elFboRectH)
+    // --- Determine cacheability for the glass-body elFbo ---
+    // Only INDEPENDENT elements (backdrop = static wallpaper via
+    // uSampleWallpaper=1) can have their glass body cached across frames:
+    // their backdrop (wallpaperTexture) only changes on wallpaper reload,
+    // so the rendered glass body is stable as long as the element's own
+    // state (press/scale/scroll/enter) hasn't changed.
+    //
+    // Non-independent elements sample curTex (the accumulation buffer, which
+    // changes whenever an earlier element draws) — their glass body is never
+    // stable across frames, so caching would composite stale pixels.
+    //
+    // Excluded even when independent:
+    //  - backdropFbo (dialog card): uses a 2-pass blur on dialogBackdropTex
+    //    whose cache key (scrim+cc params) is managed separately; caching
+    //    here would bypass that and show stale blur.
+    //  - useContinuousSdf: the SDF texture path is tied to dialog geometry
+    //    and is not independent-cacheable here.
+    //  - isToggleKnob / isBottomTabIndicator / isBottomTabContent: these
+    //    animate continuously (fraction, scale, velocity) and are marked
+    //    dirty every spring tick, so caching yields no hits — skip the
+    //    overhead of checking/allocating entries for them.
+    const cacheable = !!(
+      independent && !elDirty && this.wallpaperTexture &&
+      !el.backdropFbo && !el.useContinuousSdf &&
+      !el.isToggleKnob && !el.isBottomTabIndicator && !el.isBottomTabContent
+    )
+
+    // Resolve the FBO + texture to render into (and composite from).
+    // - cacheHit=true  → reuse cached tex, skip Steps 2+3 entirely.
+    // - cacheable miss → render into a per-element cached FBO (allocated/
+    //   resized below), then mark valid so subsequent frames can hit.
+    // - non-cacheable  → render into the shared scratch elFbo (existing path).
+    let cacheHit = false
+    let cacheWrite = false  // true → mark entry.valid=true after Step 3
+    let renderFbo: WebGLFramebuffer
+    let renderTex: WebGLTexture
+    let elFboW: number
+    let elFboH: number
+
+    if (cacheable) {
+      const entry = this.elFboCache.get(el.id)
+      if (entry && entry.w === elFboRectW && entry.h === elFboRectH &&
+          entry.ex0 === ex0 && entry.ey0Top === ey0Top &&
+          entry.valid &&
+          entry.wallpaperVersion === this.wallpaperVersion &&
+          entry.dpr === this.dpr) {
+        // CACHE HIT: the cached tex already contains this element's glass
+        // body for the current geometry + wallpaper. Skip backdrop blur
+        // (Step 2) + element pass (Step 3); just composite the cached tex.
+        cacheHit = true
+        renderFbo = entry.fb
+        renderTex = entry.tex
+        elFboW = entry.w
+        elFboH = entry.h
+        this.perfMonitor.incCachedElement()
+      } else {
+        // CACHE MISS: allocate/resize the per-element cached FBO, render
+        // into it, then mark valid so the next frame can hit.
+        if (!entry) {
+          const created = this.createFBO(elFboRectW, elFboRectH)
+          this.elFboCache.set(el.id, {
+            fb: created.fb, tex: created.tex,
+            w: elFboRectW, h: elFboRectH,
+            ex0, ey0Top,
+            valid: false,
+            wallpaperVersion: this.wallpaperVersion,
+            dpr: this.dpr,
+          })
+        } else if (entry.w !== elFboRectW || entry.h !== elFboRectH) {
+          // Size changed (scroll/scale moved the elFboRect) — recreate.
+          gl.deleteFramebuffer(entry.fb)
+          gl.deleteTexture(entry.tex)
+          const created = this.createFBO(elFboRectW, elFboRectH)
+          entry.fb = created.fb
+          entry.tex = created.tex
+          entry.w = elFboRectW
+          entry.h = elFboRectH
+        }
+        const e = this.elFboCache.get(el.id)!
+        e.ex0 = ex0
+        e.ey0Top = ey0Top
+        e.valid = false  // will flip to true after Step 3 completes
+        e.wallpaperVersion = this.wallpaperVersion
+        e.dpr = this.dpr
+        renderFbo = e.fb
+        renderTex = e.tex
+        elFboW = e.w
+        elFboH = e.h
+        cacheWrite = true
+      }
+    } else {
+      // Non-cacheable: use the shared scratch elFbo (recreated if size differs).
+      const ensured = this.ensureElementFBO(elFboRectW, elFboRectH)
+      elFboW = ensured.w
+      elFboH = ensured.h
+      renderFbo = this.elFbo!
+      renderTex = this.elFboTex!
+    }
 
     // --- Build the GlassRenderState (same as the legacy path) ---
     const state: GlassRenderState = {
@@ -740,6 +845,10 @@ export const glassRenderMethods = {
     }
 
     // --- Step 1: Shadow pass → curFbo (scissor to bbox) ---
+    // Shadow is NEVER cached — it's cheap (1 drawArrays, simple SDF shader,
+    // no texture fetches) and re-rendering it every frame keeps the shadow
+    // correct even when the element beneath it in z-order changes (which
+    // doesn't apply to independent elements, but the cost is negligible).
     this.bindFBO(curFbo)
     gl.enable(gl.SCISSOR_TEST)
     gl.scissor(bx0, bboxScissorY, bboxW, bboxH)
@@ -747,105 +856,120 @@ export const glassRenderMethods = {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
     this.renderGlassShadowPass(state)
 
-    // --- Step 2: Backdrop texture for the element pass ---
-    // KEY DESIGN: the element pass samples the FULLSCREEN scene texture
-    // (curTex), NOT a cropped region. This is what makes PEF correct: the
-    // shader's non-local sampling (refraction offset, chromatic dispersion's
-    // 7-tap spread, Gaussian blur kernel) all read neighbors that live OUTSIDE
-    // the element's bbox. With a cropped texture those reads clamped to the
-    // edge (sampling bug). With the fullscreen texture they read the real
-    // neighbor content — identical to the ping-pong path's sampling environment.
-    //
-    // PEF's speedup comes from RENDERING INTO a small elFbo (fewer fragment
-    // shader invocations) + skipping the fullscreen ping-pong blit — NOT from
-    // shrinking the sampling source. Keeping the source fullscreen preserves
-    // correctness for free.
-    //
-    // INDEPENDENT elements (state.independent=true): the shader samples the
-    // CLEAN wallpaper via uSampleWallpaper=1 (set in renderGlassElementPass),
-    // using its internal poisson-disc blur. No blurTexture call needed — the
-    // curTex passed here is NOT read by the shader. This makes independent
-    // elements not refract/blur each other's glass bodies (matching the
-    // original Android app's LayerBackdrop).
-    //
-    // Non-independent useSeparableBlur elements: blur the fullscreen curTex
-    // (or dialogBackdropTex for backdropFbo elements) via blurTexture.
-    let backdropTex: WebGLTexture
-    let passState = state
-    if (independent) {
-      // Independent: shader samples wallpaper internally. curTex is a placeholder
-      // (unused when uSampleWallpaper=1, but TEXTURE0 must be bound to something).
-      backdropTex = curTex
-    } else if (el.useSeparableBlur && el.blurRadius >= 0.5 && this.quickToggles.backdropBlur) {
-      const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr
-      // Isolate backdrop: sample bgOnlyTex (wallpaper + non-glass UI) instead
-      // of curTex (which includes other glass). backdropFbo elements keep
-      // their own dialogBackdropTex (it's already wallpaper-only).
-      let backdropSrc: WebGLTexture
-      if (el.backdropFbo && this.dialogBackdropTex) {
-        backdropSrc = this.dialogBackdropTex
-      } else if (this.quickToggles.isolateBackdrop && this.bgOnlyTex) {
-        backdropSrc = this.bgOnlyTex
+    if (!cacheHit) {
+      // --- Step 2: Backdrop texture for the element pass ---
+      // KEY DESIGN: the element pass samples the FULLSCREEN scene texture
+      // (curTex), NOT a cropped region. This is what makes PEF correct: the
+      // shader's non-local sampling (refraction offset, chromatic dispersion's
+      // 7-tap spread, Gaussian blur kernel) all read neighbors that live OUTSIDE
+      // the element's bbox. With a cropped texture those reads clamped to the
+      // edge (sampling bug). With the fullscreen texture they read the real
+      // neighbor content — identical to the ping-pong path's sampling environment.
+      //
+      // PEF's speedup comes from RENDERING INTO a small elFbo (fewer fragment
+      // shader invocations) + skipping the fullscreen ping-pong blit — NOT from
+      // shrinking the sampling source. Keeping the source fullscreen preserves
+      // correctness for free.
+      //
+      // INDEPENDENT elements (state.independent=true): the shader samples the
+      // CLEAN wallpaper via uSampleWallpaper=1 (set in renderGlassElementPass),
+      // using its internal poisson-disc blur. No blurTexture call needed — the
+      // curTex passed here is NOT read by the shader. This makes independent
+      // elements not refract/blur each other's glass bodies (matching the
+      // original Android app's LayerBackdrop).
+      //
+      // Non-independent useSeparableBlur elements: blur the fullscreen curTex
+      // (or dialogBackdropTex for backdropFbo elements) via blurTexture.
+      let backdropTex: WebGLTexture
+      let passState = state
+      if (independent) {
+        // Independent: shader samples wallpaper internally. curTex is a placeholder
+        // (unused when uSampleWallpaper=1, but TEXTURE0 must be bound to something).
+        backdropTex = curTex
+      } else if (el.useSeparableBlur && el.blurRadius >= 0.5 && this.quickToggles.backdropBlur) {
+        const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr
+        // Isolate backdrop: sample bgOnlyTex (wallpaper + non-glass UI) instead
+        // of curTex (which includes other glass). backdropFbo elements keep
+        // their own dialogBackdropTex (it's already wallpaper-only).
+        let backdropSrc: WebGLTexture
+        if (el.backdropFbo && this.dialogBackdropTex) {
+          backdropSrc = this.dialogBackdropTex
+        } else if (this.quickToggles.isolateBackdrop && this.bgOnlyTex) {
+          backdropSrc = this.bgOnlyTex
+        } else {
+          backdropSrc = curTex
+        }
+        backdropTex = this.blurTexture(backdropSrc, blurRadiusPx)
+        if (this.showBlurDebug) {
+          this.debugBlurRegions.push({
+            x: sx, y: sy, w: sw, h: sh,
+            radius: blurRadiusPx,
+            ds: this.effectiveBlurDownsample,
+            blurW: this.dsBlurFboW, blurH: this.dsBlurFboH,
+          })
+        }
+        this.perfMonitor.incBlurPass()
+        this.perfMonitor.incDrawCall(2) // 2-pass Gaussian (H + V)
+        // blurTexture disables BLEND — re-enable it so the element pass
+        // composites the glass onto elFbo with alpha blending.
+        gl.enable(gl.BLEND)
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+        if (el.backdropFbo) {
+          passState = { ...state, el: { ...el, backdropFbo: false } }
+        }
       } else {
-        backdropSrc = curTex
+        // No blur: backdrop is sampled directly. Isolate → bgOnlyTex.
+        if (this.quickToggles.isolateBackdrop && this.bgOnlyTex && !el.backdropFbo) {
+          backdropTex = this.bgOnlyTex
+        } else {
+          backdropTex = curTex
+        }
       }
-      backdropTex = this.blurTexture(backdropSrc, blurRadiusPx)
-      if (this.showBlurDebug) {
-        this.debugBlurRegions.push({
-          x: sx, y: sy, w: sw, h: sh,
-          radius: blurRadiusPx,
-          ds: this.effectiveBlurDownsample,
-          blurW: this.dsBlurFboW, blurH: this.dsBlurFboH,
-        })
-      }
-      this.perfMonitor.incBlurPass()
-      this.perfMonitor.incDrawCall(2) // 2-pass Gaussian (H + V)
-      // blurTexture disables BLEND — re-enable it so the element pass
-      // composites the glass onto elFbo with alpha blending.
+
+      // --- Step 3: Render element pass → renderFbo (transparent, then glass body) ---
+      // Clear renderFbo to transparent first (the element shader discards outside
+      // the glass shape, leaving only the glass body's RGBA).
+      gl.bindFramebuffer(gl.FRAMEBUFFER, renderFbo)
+      gl.viewport(0, 0, elFboW, elFboH)
+      gl.disable(gl.SCISSOR_TEST)
+      gl.clearColor(0, 0, 0, 0)
+      gl.clear(gl.COLOR_BUFFER_BIT)
       gl.enable(gl.BLEND)
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-      if (el.backdropFbo) {
-        passState = { ...state, el: { ...el, backdropFbo: false } }
-      }
-    } else {
-      // No blur: backdrop is sampled directly. Isolate → bgOnlyTex.
-      if (this.quickToggles.isolateBackdrop && this.bgOnlyTex && !el.backdropFbo) {
-        backdropTex = this.bgOnlyTex
-      } else {
-        backdropTex = curTex
+      // Render the element pass sampling the FULLSCREEN backdrop (curTex, or
+      // blurFboBTex when blurred). The shader reconstructs screenCoord from
+      // gl_FragCoord via uSceneRectOffset/uElFboSize, then samples the fullscreen
+      // texture with sceneUv = screenCoord / uCanvasSize — identical to the
+      // ping-pong path's sampling environment, so all non-local reads (refraction,
+      // chromatic dispersion, blur kernel) hit real neighbor content.
+      this.renderGlassElementPass(passState, backdropTex)
+
+      // If this was a cacheable miss, the renderFbo is the element's cached
+      // entry — mark it valid so subsequent frames can hit.
+      if (cacheWrite) {
+        const e = this.elFboCache.get(el.id)
+        if (e) e.valid = true
       }
     }
 
-    // --- Step 3: Render element pass → elFbo (transparent, then glass body) ---
-    // Clear elFbo to transparent first (the element shader discards outside
-    // the glass shape, leaving only the glass body's RGBA).
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.elFbo)
-    gl.viewport(0, 0, elFboW, elFboH)
-    gl.disable(gl.SCISSOR_TEST)
-    gl.clearColor(0, 0, 0, 0)
-    gl.clear(gl.COLOR_BUFFER_BIT)
-    gl.enable(gl.BLEND)
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-    // Render the element pass sampling the FULLSCREEN backdrop (curTex, or
-    // blurFboBTex when blurred). The shader reconstructs screenCoord from
-    // gl_FragCoord via uSceneRectOffset/uElFboSize, then samples the fullscreen
-    // texture with sceneUv = screenCoord / uCanvasSize — identical to the
-    // ping-pong path's sampling environment, so all non-local reads (refraction,
-    // chromatic dispersion, blur kernel) hit real neighbor content.
-    this.renderGlassElementPass(passState, backdropTex)
-
-    // --- Step 4: Composite elFbo → curFbo at the elFbo rect (SrcOver) ---
-    // Scissor to the tight elFbo rect (not the shadow bbox): elFboTex is
+    // --- Step 4: Composite renderTex → curFbo at the elFbo rect (SrcOver) ---
+    // Scissor to the tight elFbo rect (not the shadow bbox): the tex is
     // transparent outside the glass shape, so a wider scissor would only
     // rasterize no-op blends.
     this.bindFBO(curFbo)
     gl.enable(gl.SCISSOR_TEST)
     gl.scissor(ex0, elFboScissorY, elFboRectW, elFboRectH)
-    this.drawElFboComposite(this.elFboTex!, elFboW, elFboH, ex0, ey0Top, elFboRectW, elFboRectH)
+    this.drawElFboComposite(renderTex, elFboW, elFboH, ex0, ey0Top, elFboRectW, elFboRectH)
 
     // --- Step 5: Post passes (press glow, white overlay, foreground, rim
     // highlight) → curFbo (scissor back to the shadow bbox; post passes are
     // SDF-clipped to the shape so the shadow margin is harmless headroom) ---
+    // Post passes are NOT cached — they're drawn directly onto curFbo (on top
+    // of the composited glass body) every frame. For static independent
+    // elements they produce identical pixels each frame, but caching them
+    // would require a larger cached FBO (shadow bbox, not glass-shape bbox)
+    // and coordinate remapping — not worth the complexity for the modest
+    // savings (post passes are cheap SDF-clipped draws).
     gl.scissor(bx0, bboxScissorY, bboxW, bboxH)
     this.renderGlassPostPasses(state)
 

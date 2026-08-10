@@ -353,6 +353,11 @@ function Body({
           value={String(snapshot.dirtyElements)}
           hint={`of ${snapshot.totalElements} visible`}
         />
+        <Row
+          label="Cached"
+          value={String(snapshot.cachedElements)}
+          hint="elFbo cache hits"
+        />
         <Row label="Blur passes" value={String(snapshot.blurPasses)} />
       </Section>
       <Section title="Canvas">
