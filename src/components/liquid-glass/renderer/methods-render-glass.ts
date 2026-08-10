@@ -728,6 +728,21 @@ export const glassRenderMethods = {
     // so the rendered glass body is stable as long as the element's own
     // state (press/scale/scroll/enter) hasn't changed.
     //
+    // NOTE: elDirty is deliberately NOT part of this check. When an element
+    // is dirty (markElementDirty / markAllDirty), its cache entry's `valid`
+    // flag is already flipped to false, which forces a CACHE MISS below →
+    // the element is re-rasterized into its cached FBO → the entry is marked
+    // valid again. This is the correct "dirty → re-rasterize → cache stays
+    // warm" flow. Excluding dirty elements here (the old `!elDirty` check)
+    // meant that after a markAllDirty() frame — e.g. a page navigation that
+    // switches the background via setBackgroundColor() — EVERY independent
+    // element was non-cacheable for that one frame, so the elFboCache was
+    // never populated. On idle pages no further renders fire, leaving the
+    // cache permanently empty and the perf monitor showing "Dirty: N,
+    // Cached: 0". Removing `!elDirty` lets the cache populate even during
+    // allDirty frames, so the next render hits instead of re-rasterizing
+    // from scratch.
+    //
     // Non-independent elements sample curTex (the accumulation buffer, which
     // changes whenever an earlier element draws) — their glass body is never
     // stable across frames, so caching would composite stale pixels.
@@ -743,7 +758,7 @@ export const glassRenderMethods = {
     //    dirty every spring tick, so caching yields no hits — skip the
     //    overhead of checking/allocating entries for them.
     const cacheable = !!(
-      independent && !elDirty && this.wallpaperTexture &&
+      independent && this.wallpaperTexture &&
       !el.backdropFbo && !el.useContinuousSdf &&
       !el.isToggleKnob && !el.isBottomTabIndicator && !el.isBottomTabContent
     )

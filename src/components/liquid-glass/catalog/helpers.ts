@@ -695,6 +695,14 @@ export function makeBackButton(
     cornerRadius: size / 2, // circular
     tintColor: [0, 0, 0, 0],
     surfaceColor: palette.buttonSurface,
+    // Same as makeButton: the back button samples the wallpaper directly
+    // (LayerBackdrop). Without this, `independent` is false in the render
+    // path → cacheable is false → the back button is re-rasterized from
+    // scratch on EVERY render instead of hitting the elFbo cache like all
+    // other glass buttons. (Home/Settings/About use a solid background, so
+    // `independent` is false there regardless — this only helps on wallpaper
+    // pages where caching actually applies.)
+    independentBackdrop: true,
     highlight: null, // no edge highlight on the back button
     outerShadow: { ...DEFAULT_SHADOW }, // faithful to drawBackdrop default: Shadow.Default
     label: '', // no text label — icon replaces it
@@ -744,6 +752,10 @@ export function makeThemeToggleButton(
     cornerRadius: size / 2, // circular
     tintColor: [0, 0, 0, 0],
     surfaceColor: palette.buttonSurface,
+    // See makeBackButton: without independentBackdrop=true the theme toggle
+    // is non-cacheable and re-rasterized every frame (the "主题按钮一直在更新"
+    // symptom).
+    independentBackdrop: true,
     highlight: null, // no edge highlight (matches back button)
     outerShadow: { ...DEFAULT_SHADOW }, // faithful to drawBackdrop default: Shadow.Default
     label: '',
