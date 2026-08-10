@@ -407,18 +407,20 @@ export const glassRenderMethods = {
     // This also means independent elements do NOT refract/blur each other's
     // glass bodies — each sees only the clean wallpaper as its backdrop.
     const independent = !!(el.independentBackdrop && !this.backgroundColor && this.wallpaperTexture)
-    // skipPingPong: independent elements sample the CLEAN wallpaper (via
-    // uSampleWallpaper in the shader), NOT the scene FBO (curTex). So they
-    // never read curTex — there's no read-after-write hazard, and the fullscreen
-    // ping-pong blit (drawCopy curTex → otherFbo, ~850K px) can be skipped
-    // entirely. The element renders directly onto curFbo with alpha blending
-    // (SrcOver composite). This is the single biggest per-element perf win.
+    // Independent backdrop: when independentBackdrop=true AND the page has a
+    // wallpaper, the element's glass shader samples the CLEAN wallpaper via
+    // uSampleWallpaper=1 (set in renderGlassElementPass from state.independent).
+    // It does NOT read curTex (the accumulated scene), so independent elements
+    // don't refract/blur each other's glass bodies — matching the original
+    // Android app's LayerBackdrop. The element still goes through the normal
+    // ping-pong blit+swap so the accumulated scene carries forward correctly
+    // for subsequent elements and the final framebuffer output.
     //
-    // Conditions: independent (wallpaper page + el.independentBackdrop) AND
-    // not a backdropFbo element (those sample dialogBackdropTex, not wallpaper,
-    // so they still need the scene FBO path). Also requires the wallpaper
-    // texture to be loaded (guaranteed by `independent`).
-    const skipPingPong = independent && !el.backdropFbo
+    // (The previous skipPingPong optimization tried to skip the blit for
+    // independent elements, but rendering directly into curFbo while binding
+    // curTex/otherTex caused feedback-loop hazards and broke z-ordering. The
+    // blit is cheap relative to correctness, and PEF already eliminates it on
+    // the optimized path.)
 
     // --- Per-element FBO (PEF) — UNCONDITIONAL ---
     // All glass elements render into a small bbox-sized FBO instead of the
@@ -444,33 +446,21 @@ export const glassRenderMethods = {
       })
     }
 
-    // --- Step 1: Blit curFbo → otherFbo (FULLSCREEN — must copy the entire
-    // scene so ping-pong preserves all previously-rendered elements. Scissor
-    // cannot be used here because otherFbo's regions outside the current
-    // element still need the correct scene content for subsequent elements
-    // to sample from.) ---
-    // PERF: this fullscreen blit is the biggest per-element cost the
-    // per-element FBO optimization replaces. Count it so the perf monitor
-    // can show how many elements are still on the legacy ping-pong path.
-    //
-    // SKIP for independent elements (skipPingPong): they sample the wallpaper
-    // texture directly (uSampleWallpaper=1 in the shader), so they never read
-    // curTex — no read-after-write hazard, no need to copy the scene. Render
-    // directly onto curFbo with alpha blending.
+    // --- Step 1: Blit curFbo → otherFbo (FULLSCREEN ping-pong) ---
+    // Copy the entire accumulated scene into otherFbo so the element can
+    // composite on top, then otherFbo becomes the new "current scene" after
+    // the swap. This preserves z-ordering for subsequent elements. Even
+    // independent elements (which sample wallpaper, not curTex) go through
+    // the blit — the scene must carry forward for non-independent elements
+    // and the final framebuffer output.
     this.perfMonitor.incGlassElement()
-    if (skipPingPong) {
-      this.perfMonitor.incSkipPingPong()
-      this.bindFBO(curFbo)
-      // Blending is already enabled from the element loop setup.
-    } else {
-      this.perfMonitor.incPingPong()
-      this.bindFBO(otherFbo)
-      this.drawCopy(curTex)
-      this.perfMonitor.incDrawCall() // fullscreen blit
-      // Re-enable blending after the copy (drawCopy disables it).
-      gl.enable(gl.BLEND)
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-    }
+    this.perfMonitor.incPingPong()
+    this.bindFBO(otherFbo)
+    this.drawCopy(curTex)
+    this.perfMonitor.incDrawCall() // fullscreen blit
+    // Re-enable blending after the copy (drawCopy disables it).
+    gl.enable(gl.BLEND)
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
     // --- Scissor: limit drawing passes (shadow + element + highlight) to the
     // element's bounding box + dynamic margin. The blit above is fullscreen
@@ -542,30 +532,21 @@ export const glassRenderMethods = {
       elFboH: 0,
     }
 
-    // --- Step 2a: Shadow pass (to the render target, on top of scene) ---
-    // For skipPingPong: target is curFbo (alpha blend shadow onto scene).
-    // For ping-pong: target is otherFbo (shadow on top of copied scene).
+    // --- Step 2a: Shadow pass (to otherFbo, on top of copied scene) ---
     this.renderGlassShadowPass(state)
 
     // --- Step 2b: Element pass (refraction + vibrancy + tint) ---
-    // skipPingPong (independent) path: the shader samples the CLEAN wallpaper
-    // via uSampleWallpaper=1, using its internal poisson-disc blur (16-tap).
-    // No blurTexture call needed — the shader handles blur inside sampleBackdrop.
-    // The curTex passed here is NOT read by the shader (uSampleWallpaper=1
-    // bypasses uBackdrop), so it's just a placeholder to satisfy the binding.
+    // Independent elements: the shader samples the CLEAN wallpaper via
+    // uSampleWallpaper=1 (activated from state.independent in
+    // renderGlassElementPass), using its internal poisson-disc blur. curTex
+    // is bound to TEXTURE0 as a placeholder but NOT read — no feedback loop
+    // since we render into otherFbo (not curFbo). No blurTexture call needed.
     //
-    // Ping-pong path: use the original blurTexture pipeline (separable Gaussian
-    // on the scene FBO or dialogBackdropTex).
-    if (skipPingPong) {
-      // Independent element: shader samples wallpaper internally (uSampleWallpaper=1),
-      // so uBackdrop is not read. BUT we must NOT bind curTex here — curTex is
-      // curFbo's own texture, and binding it while rendering into curFbo creates
-      // a WebGL feedback loop (undefined behavior, even if the shader doesn't
-      // sample it). The GPU's feedback-loop detection is based on texture
-      // binding, not actual shader reads. Bind otherTex (the other FBO's
-      // texture) instead — it's a valid texture, not attached to curFbo, and
-      // the shader won't read it anyway (uSampleWallpaper=1 bypasses uBackdrop).
-      this.renderGlassElementPass(state, otherTex)
+    // Non-independent: use the blurTexture pipeline (separable Gaussian on
+    // the scene FBO / dialogBackdropTex / bgOnlyTex) when blurRadius >= 0.5,
+    // otherwise sample curTex directly.
+    if (independent) {
+      this.renderGlassElementPass(state, curTex)
     } else if (el.useSeparableBlur && el.blurRadius >= 0.5 && this.quickToggles.backdropBlur) {
       const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr
       // Isolate backdrop: sample bgOnlyTex (wallpaper + non-glass UI) instead
@@ -614,14 +595,10 @@ export const glassRenderMethods = {
     // elements + the final blit to the default framebuffer) ---
     gl.disable(gl.SCISSOR_TEST)
 
-    // --- Step 3: Swap curFbo ↔ otherFbo (ping-pong only) ---
-    // For skipPingPong: curFbo was the render target all along (shadow +
-    // element + post passes composited onto it via alpha blending). No swap.
-    // For ping-pong: otherFbo now contains the new scene — swap so it becomes
-    // the "current scene" for subsequent elements to sample.
-    if (skipPingPong) {
-      return { curFbo, curTex, otherFbo, otherTex }
-    }
+    // --- Step 3: Swap curFbo ↔ otherFbo (ping-pong) ---
+    // otherFbo now contains the copied scene + this element's shadow + glass
+    // + post passes. Swap so it becomes the "current scene" for subsequent
+    // elements to sample and for the final framebuffer blit.
     return {
       curFbo: otherFbo,
       curTex: otherTex,
