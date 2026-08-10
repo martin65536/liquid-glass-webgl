@@ -2096,3 +2096,25 @@ Stage Summary:
 - 优点：不改 cacheable 逻辑（indicator 保持 cacheable），只在页面切换时多一帧
 - 性能开销：每次进入 bottom-tabs 多 1 次渲染（1 帧开销），可忽略
 - indicator 保持 cacheable → 静止态每帧 cache hit（不每帧重 raster）
+
+---
+Task ID: 2
+Agent: main (Z.ai Code)
+Task: Explain why the settings-page knob triggers `size_mismatch` cache misses during scroll on a fractional-dpr device (dpr=2.700000047683761) but not on integer-dpr devices (dpr=3), and fix it.
+
+Work Log:
+- Read prior context from worklog.md (Task 1: bottom-tabs indicator double-render fix).
+- Located the elFbo rect + cache-miss logic in renderer/methods-render-glass.ts (lines ~831-861 for rect, ~1015-1026 for miss reasons).
+- Confirmed knob dimensions from catalog/build-toggle.ts: TOGGLE_KNOB_H = 24 CSS px, with ELFBO_PAD_DEVICE=2 → elFboMarginCss = 3/dpr.
+- Root-caused the oscillation: elFboRectH was `round((sy+sh+margin)*dpr) - round((sy-margin)*dpr)` = `round(A) - round(B)` with span A-B = (sh+2*margin)*dpr = sh*dpr + 6 (margin*dpr=3 is integer). This difference is stable iff sh*dpr is integer. dpr=3 → 24*3=72 ✓ stable. dpr=2.700000047683761 → 24*2.7=64.8 ✗ → as sy scrolls, round(A) and round(B) cross integer boundaries at different sy → height flips 70↔71 every few frames → `size_mismatch` → re-raster. The float32 artifact (2.7 → 2.700000047683761) is just storage; any non-integer dpr triggers it.
+- Verified the Snapdragon-vs-Dimensity framing was a red herring: it's purely the dpr value (2.7 vs 3), not the GPU vendor. The Snapdragon test device happens to report dpr=2.7.
+- Implemented fix: compute elFbo rect SIZE from local geometry `round((sw+2*margin)*dpr)` once (stable, position-independent), and only let the POSITION (ex0/ey0Top) vary + clamp to canvas. Replaced the 4-line `round(top)-round(bot)` block with the stable form. Added explanatory doc-comment.
+- Checked downstream usage: ex1/ey1Top only feed elFboScissorY (= fboH - ey1Top); sceneRectOffset uses ex0/ey0Top; cache key uses (ex0, ey0Top, w, h); FBO alloc uses (w,h); composite scissor uses (ex0, elFboScissorY, w, h). All consistent with the new form. Scissor covers exactly [ex0,ex0+W]×[ey0Top,ey0Top+H] in TL origin, same as before.
+- Edge cases handled: fully-on-screen → clamp no-op (identical to before, just stable size); partially-off-screen → rect pinned to edge (SDF discard covers the extra empty area, cache key stays stable — strictly better than old per-frame shrink); oversized element (W>fboW) → ex0 clamps to 0, GL framebuffer-clips the rest.
+- Left the parallel scissor-bbox block (bx0/by0Top/bx1/by1Top, curFbo shadow scissor) untouched — it's not a cache key so its oscillation doesn't cause cache misses; out of scope for the reported issue.
+- `bun run lint`: clean (no errors). dev.log: compiles cleanly, no runtime errors.
+
+Stage Summary:
+- Root cause: `round(A) - round(B)` width/height is unstable when the span `A-B` is non-integer, which happens whenever `elementCssSize * dpr` is non-integer — i.e. any fractional dpr. Integer dpr (3) makes 24*3 integral so it never triggers; fractional dpr (2.7, float32-stored as 2.700000047683761) makes 24*2.7=64.8 non-integral so it oscillates every few scroll frames.
+- Fix: renderer/methods-render-glass.ts — elFbo rect SIZE now derived from local geometry (stable), only POSITION varies. Eliminates size_mismatch during scroll on fractional-dpr devices. Knob cache stays warm through scroll.
+- Not a GPU-vendor issue; purely the dpr value. Any fractional-dpr device would exhibit this.

@@ -828,14 +828,36 @@ export const glassRenderMethods = {
     // Bottom-left origin Y for scissor (WebGL scissor uses BL origin).
     const bboxScissorY = Math.max(0, this.fboH - by1Top)
 
-    // elFbo rect in device px (top-left origin), clamped to canvas. This is
-    // tighter than the scissor bbox — just the glass shape + AA pad.
-    const ex0 = Math.max(0, Math.round((sx - elFboMarginCss) * this.dpr))
-    const ey0Top = Math.max(0, Math.round((sy - elFboMarginCss) * this.dpr))
-    const ex1 = Math.min(this.fboW, Math.round((sx + sw + elFboMarginCss) * this.dpr))
-    const ey1Top = Math.min(this.fboH, Math.round((sy + sh + elFboMarginCss) * this.dpr))
-    const elFboRectW = Math.max(1, ex1 - ex0)
-    const elFboRectH = Math.max(1, ey1Top - ey0Top)
+    // elFbo rect in device px (top-left origin). Tighter than the scissor
+    // bbox — just the glass shape + AA pad.
+    //
+    // SIZE is computed from the element's LOCAL geometry (sw/sh + 2*pad),
+    // NOT as a difference of two position-dependent roundings. The old
+    // `round(top*dpr) - round(bot*dpr)` form is stable ONLY when the span
+    // `(sw + 2*pad) * dpr` is an integer. On fractional-dpr devices (e.g. a
+    // phone whose window.devicePixelRatio is 2.7, storable as float32
+    // 2.700000047683761), sw*dpr is non-integer (24*2.7 = 64.8), so as sy
+    // scrolls, round(top*dpr) and round(bot*dpr) cross integer boundaries
+    // at different sy values → elFboRectH oscillates between floor(span)
+    // and ceil(span) every few frames → `size_mismatch` cache miss → the
+    // knob re-rasters every few frames during scroll. Integer-dpr devices
+    // (dpr=3) never hit this: 24*3 = 72 is integral, so both roundings
+    // move in lockstep and the difference is constant. Rounding the full
+    // span once removes the oscillation on every device.
+    const elFboRectW = Math.max(1, Math.round((sw + 2 * elFboMarginCss) * this.dpr))
+    const elFboRectH = Math.max(1, Math.round((sh + 2 * elFboMarginCss) * this.dpr))
+    // POSITION (top-left): rounded to device px, then clamped so the full
+    // stable rect stays inside the canvas. When the element is fully
+    // on-screen the clamp is a no-op and the rect tracks the element; when
+    // it's partially off-screen the rect is pinned to the edge (the SDF
+    // discard handles fragments outside the glass shape, so covering a
+    // little empty area is harmless — and the cache key stays stable,
+    // which beats the old per-frame shrink that re-rastered on every
+    // edge-exit frame).
+    const ex0 = Math.max(0, Math.min(this.fboW - elFboRectW, Math.round((sx - elFboMarginCss) * this.dpr)))
+    const ey0Top = Math.max(0, Math.min(this.fboH - elFboRectH, Math.round((sy - elFboMarginCss) * this.dpr)))
+    const ex1 = Math.min(this.fboW, ex0 + elFboRectW)
+    const ey1Top = Math.min(this.fboH, ey0Top + elFboRectH)
     const elFboScissorY = Math.max(0, this.fboH - ey1Top)
 
     // Debug: record the actual elFbo rect (the tight PEF box) so the overlay
