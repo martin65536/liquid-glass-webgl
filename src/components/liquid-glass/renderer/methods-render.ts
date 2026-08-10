@@ -200,16 +200,24 @@ export const renderMethods = {
       const st = this.buttonStates.get(el.id)
 
       // Dirty tracking (event-driven): check if this element was marked dirty
-      // since the last frame, then record its status for the debug overlay.
+      // since the last frame. Used for perfMonitor counters. NOTE: this is the
+      // EVENT-DRIVEN dirty flag, NOT the actual re-raster status — with the
+      // signature-diff + position-check cache scheme, an element can be
+      // re-rasterized without being event-marked dirty (e.g. position changed
+      // → elFboCache position check misses → re-rasterize). The debug overlay
+      // marker uses the TRUE re-raster status (populated after render for
+      // glass elements via _dbgLastGlassCacheHit).
       const dirty = this.allDirty || this.dirtyElementIds.has(el.id)
       this.perfMonitor.incTotal()
       if (dirty) this.perfMonitor.incDirty()
-      if (this.showDirtyMarkers) {
-        this.debugDirtyMarkers.push({ x: r.x, y: r.y, w: r.w, h: r.h, dirty })
-      }
 
       // --- Non-glass elements: render directly to current FBO ---
       if (this.renderNonGlassElement(el, r, st, curFbo)) {
+        // Non-glass elements don't go through the elFboCache — every visible
+        // non-glass element is redrawn each frame, so "dirty" = event-flag.
+        if (this.showDirtyMarkers) {
+          this.debugDirtyMarkers.push({ x: r.x, y: r.y, w: r.w, h: r.h, dirty })
+        }
         // Isolate backdrop: also composite non-glass elements into bgOnlyFbo
         // so glass elements sampling bgOnlyFbo see the non-glass UI.
         if (isolate && this.bgOnlyFbo) {
@@ -241,6 +249,12 @@ export const renderMethods = {
       curTex = result.curTex
       otherFbo = result.otherFbo
       otherTex = result.otherTex
+      // Debug marker for glass elements: dirty = actually re-rasterized the
+      // glass body this frame (cache MISS). cacheHit=true means the elFboCache
+      // was reused → no GPU re-raster → marker shows green (clean).
+      if (this.showDirtyMarkers) {
+        this.debugDirtyMarkers.push({ x: r.x, y: r.y, w: r.w, h: r.h, dirty: !this._dbgLastGlassCacheHit })
+      }
 
       // After the container glass is rendered (before tab-content), snapshot
       // the scene (wallpaper + glass, no text) into tabsBackdropFbo. The
@@ -279,12 +293,12 @@ export const renderMethods = {
       const dirty = this.allDirty || this.dirtyElementIds.has(el.id)
       this.perfMonitor.incTotal()
       if (dirty) this.perfMonitor.incDirty()
-      if (this.showDirtyMarkers) {
-        this.debugDirtyMarkers.push({ x: r.x, y: r.y, w: r.w, h: r.h, dirty })
-      }
 
       // Non-glass renderOnTop elements (scrim/dim) render directly on curFbo.
       if (this.renderNonGlassElement(el, r, st, curFbo)) {
+        if (this.showDirtyMarkers) {
+          this.debugDirtyMarkers.push({ x: r.x, y: r.y, w: r.w, h: r.h, dirty })
+        }
         if (isolate && this.bgOnlyFbo) {
           this.renderNonGlassElement(el, r, st, this.bgOnlyFbo)
         }
@@ -301,6 +315,9 @@ export const renderMethods = {
       curTex = result.curTex
       otherFbo = result.otherFbo
       otherTex = result.otherTex
+      if (this.showDirtyMarkers) {
+        this.debugDirtyMarkers.push({ x: r.x, y: r.y, w: r.w, h: r.h, dirty: !this._dbgLastGlassCacheHit })
+      }
     }
 
     // --- Final: blit curFbo → default framebuffer (visible canvas) ---

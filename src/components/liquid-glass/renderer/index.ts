@@ -120,8 +120,20 @@ export class LiquidGlassRenderer {
    *  Toggled from the perf-monitor overlay. */
   showDirtyMarkers = false
   /** Debug overlay data — the dirty status of each element this frame,
-   *  pushed during render() for the overlay to read. */
+   *  pushed during render() for the overlay to read. "dirty" here means
+   *  "this element actually re-rasterized its glass body this frame"
+   *  (cache MISS), NOT merely "was event-marked dirty". With the event-
+   *  driven + signature-diff cache scheme, an element can be re-rasterized
+   *  without being in dirtyElementIds (e.g. position changed → elFboCache
+   *  position check misses → re-rasterize). The marker reflects the TRUE
+   *  GPU work, which is what the user wants to see during optimization. */
   debugDirtyMarkers: Array<{ x: number; y: number; w: number; h: number; dirty: boolean }> = []
+  /** Internal scratch slot — set by renderGlassElementPerFbo to indicate
+   *  whether the just-rendered glass element hit its elFboCache (true =
+   *  cached, no glass-body re-raster). Read by the render() main loop to
+   *  populate debugDirtyMarkers. Only valid between renderGlassElement()
+   *  return and the next element's render. */
+  _dbgLastGlassCacheHit = false
 
   // --- Scene FBO ping-pong infrastructure ---
   // See render() for the full ping-pong pipeline description.

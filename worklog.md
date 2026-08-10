@@ -769,3 +769,29 @@ Stage Summary:
 - 修了 cornerStyle 全局变化不失效缓存的 bug。
 - markAllDirty 现在只保留在：setBackgroundColor / wallpaper load / wallpaper resize / canvas resize / usePerElementFbo effect / cornerStyle effect / perf-overlay setAll / perf-overlay flip(key)，全部是真正的全局失效场景。
 - lint 干净，dev.log 编译正常。
+
+---
+Task ID: 12
+Agent: main
+Task: 修复 dirtyMarkers 不显示红色（优化后 dirty 语义与实际重栅格脱节）
+
+Work Log:
+- 问题根源：之前的 dirtyMarkers 用 `dirty = allDirty || dirtyElementIds.has(el.id)`，但近几轮优化改变了失效路径——大量元素现在通过 elFboCache 的「位置校验 miss」或「signature diff miss」重新光栅化，而 NOT 通过 dirtyElementIds。所以拖动放大镜/滚动时，元素实际在重栅格，但 dirty=false → marker 显示绿色（误导）。
+- 语义重定义：debugDirtyMarkers 的 dirty 改为「这一帧实际重新光栅化了玻璃体（cache MISS）」，这才是用户想看到的「真实 GPU work」。事件标记的 dirty 仍用于 perfMonitor 计数（incDirty/incTotal），语义不变。
+- 实现：
+  - index.ts：新增 `_dbgLastGlassCacheHit` 临时槽位 + 更新 debugDirtyMarkers 注释。
+  - methods-render-glass.ts：
+    - renderGlassElementPerFbo 末尾设置 `this._dbgLastGlassCacheHit = cacheHit`
+    - renderGlassElement PEF 分支返回后不额外处理（子函数已设置）；ping-pong 分支设置 `_dbgLastGlassCacheHit = false`（ping-pong 永不缓存）
+  - methods-render.ts 主循环两段（主元素 + renderOnTop）：
+    - marker push 拆分：非 glass 元素在 renderNonGlassElement 后用事件 dirty push（非 glass 不走 cache，每帧重画）
+    - glass 元素在 renderGlassElement 后用 `!_dbgLastGlassCacheHit` push（真实重栅格状态）
+    - perfMonitor incTotal/incDirty 保持用事件 dirty（计数语义不变）
+
+Stage Summary:
+- dirtyMarkers 现在准确反映「这一帧哪些元素实际重新光栅化了玻璃体」：
+  - 拖动放大镜 → 放大镜元素 cache MISS（位置变）→ 红色；其他 independent 元素 cache HIT → 绿色
+  - 滚动 → scroll 元素 cache MISS（位置变）→ 红色；non-scroll independent 元素 HIT → 绿色
+  - toggle 动画 → 该 group 元素 MISS → 红色；其他 independent 元素 HIT → 绿色
+- perfMonitor 的 dirty/total 计数仍反映事件标记语义（用于追踪 markElementDirty 调用频率），与 marker 分离。
+- lint 干净，dev.log 编译正常。

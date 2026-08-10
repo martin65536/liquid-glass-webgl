@@ -448,11 +448,16 @@ export const glassRenderMethods = {
       // their backdrop (curTex, the accumulation buffer) changes whenever an
       // earlier element draws.
       const elDirty = this.allDirty || this.dirtyElementIds.has(el.id)
-      return this.renderGlassElementPerFbo(el, st, curFbo, curTex, otherFbo, otherTex, {
+      const result = this.renderGlassElementPerFbo(el, st, curFbo, curTex, otherFbo, otherTex, {
         sx, sy, sw, sh, radii, scaleX, scaleY, isButton, p, togglePressProgress,
         independent, translationX, translationY, elDirty,
       })
+      // Debug: expose cache-hit status for the dirty-marker overlay.
+      // _dbgLastGlassCacheHit was set inside renderGlassElementPerFbo.
+      return result
     }
+    // Ping-pong path never caches the glass body → always re-rasterized.
+    this._dbgLastGlassCacheHit = false
 
     // --- Step 1: Blit curFbo → otherFbo (FULLSCREEN ping-pong) ---
     // Copy the entire accumulated scene into otherFbo so the element can
@@ -974,6 +979,11 @@ export const glassRenderMethods = {
     this.renderGlassPostPasses(state)
 
     gl.disable(gl.SCISSOR_TEST)
+
+    // --- Debug: expose cache-hit status for the dirty-marker overlay ---
+    // cacheHit=true → glass body was reused from elFboCache (no re-raster).
+    // cacheHit=false → glass body was re-rasterized this frame (real GPU work).
+    this._dbgLastGlassCacheHit = cacheHit
 
     // --- No swap: curFbo remains the accumulation target ---
     return { curFbo, curTex, otherFbo, otherTex }
