@@ -882,9 +882,39 @@ export const glassRenderMethods = {
     // — but markGroupDirty already invalidates their entry on change, so when
     // the spring settles the entry stays valid and can hit, avoiding re-raster
     // while idle.
+    //
+    // EXCEPTION: bottom-tab indicators are NOT cacheable. Their element shader
+    // (sampleIndicatorBackdrop) bakes two pressProgress-dependent layers into
+    // the elFbo that cannot be stale-reused:
+    //   (a) the inner-backdrop rim highlight (step 6, alpha = uIndicatorPressProgress)
+    //   (b) the inner-backdrop mask + tab-content contentScale (steps 2 + 4,
+    //       both modulated by uIndicatorPressProgress)
+    // On PEF cache hit, Step 3 is skipped → these layers are never recomputed.
+    // If the cache was written at progress=0 (e.g. first frame before
+    // setTabSelected fires, or idle at rest), the baked content is missing
+    // the inner rim highlight AND uses the at-rest mask/contentScale. When
+    // the user later presses a tab, markGroupDirty invalidates during the
+    // spring — but the FIRST press frame and any frame where the spring
+    // settles then re-presses still bakes a stale snapshot that persists
+    // until the next invalidation. This caused two PEF-only symptoms:
+    //   1. "first frame missing indicator content layer" — cache written at
+    //      progress=0, inner rim highlight + pressed-mask baked as empty.
+    //   2. "highlights frequently disappear" — cache hit reusing a progress=0
+    //      bake (the outer rim highlight was fixed separately in Task 29 by
+    //      correcting state.elHighlightAlpha; the INNER one lives inside
+    //      sampleIndicatorBackdrop and can only be fixed by re-running Step 3).
+    // The indicator also samples uTabsGlassLayer (tabsBackdropTex), a LIVE
+    // snapshot of the scene that changes whenever the container/content
+    // behind it changes — caching a sample of a live texture is inherently
+    // stale-prone.
+    // Forcing re-raster every frame matches the ping-pong path (which the
+    // user confirmed has no symptoms). Cost is negligible: only 2 indicators
+    // per bottom-tabs page, and the tight elFbo rect is still used (far
+    // cheaper than full-screen ping-pong).
     const cacheable = !!(
       this.wallpaperTexture &&
-      !el.backdropFbo && !el.useContinuousSdf
+      !el.backdropFbo && !el.useContinuousSdf &&
+      !el.isBottomTabIndicator
     )
 
     // Position-invariant cache: the element's glass body rendered into the

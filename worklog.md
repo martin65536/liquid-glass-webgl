@@ -1917,3 +1917,59 @@ Stage Summary:
   时也能拿到正确值
 - 同步解决"第一帧少 indicator 内容层"（实为 rim highlight 缺失的视觉表现）
 - PEF-only 症状的解释：ping-pong 路径每帧跑 Step 3，L623 每帧修正，无此 bug
+
+---
+Task ID: 30
+Agent: main
+Task: 修复 bottomtabs 第一帧渲染少 indicator 内容层（PEF-only）
+
+Work Log:
+- 用户反馈：Task 29 只修了"高光消失"，"第一帧渲染少了 indicator 内容层"还在
+- 复查 sampleIndicatorBackdrop（element-utils.ts L282-460）的全部 6 层：
+  1. wallpaper（outer backdrop）— 不依赖 progress
+  2. inner backdrop capsule SDF（mask = mix(1.0, smoothstep, progress)）— 依赖 progress
+  3. inner backdrop shadow — 不依赖 progress
+  4. scene（uTabsGlassLayer = tabsBackdropTex）— 采样 LIVE 纹理
+  5. blue tab content（contentScale = 1 + 0.2*progress）— 依赖 progress
+  6. inner backdrop rim highlight（alpha = uIndicatorPressProgress）— 依赖 progress
+
+- 根因（Task 28 诊断确认）：
+  indicator 的 elFbo cache 在 Step 3 写入时，把 sampleIndicatorBackdrop 的
+  全部 6 层烘焙进 elFbo 纹理。其中第 2/5/6 层依赖 pressProgress：
+  - 第一帧（toggleStates 未就绪 / setTabSelected 因 targetFraction===tabIndex
+    而 return 不触发 press 动画）progress=0 → 第 6 层 inner rim highlight
+    不画 + 第 2 层 mask=1.0 + 第 5 层 contentScale=1.0 → cache 写入"静止态"内容
+  - 之后 cache hit 跳过 Step 3 → 这些层不重新计算 → inner rim highlight 一直缺失
+  - Task 29 修的是外圈 rim highlight（post-pass Step 2f，读 state.elHighlightAlpha）
+    inner rim highlight 在 Step 3 的 element shader 内（sampleIndicatorBackdrop 第 6 层），
+    cache hit 时无法修正
+
+- 修复（methods-render-glass.ts cacheable 检查，L885-918）：
+  在 cacheable 条件加 `&& !el.isBottomTabIndicator`：
+    const cacheable = !!(
+      this.wallpaperTexture &&
+      !el.backdropFbo && !el.useContinuousSdf &&
+      !el.isBottomTabIndicator
+    )
+  - indicator 走 non-cacheable 路径（L1079-1096 shared scratch elFbo）
+  - 每帧 Step 3 重新渲染 → sampleIndicatorBackdrop 每帧重算 → inner rim highlight
+    + mask + contentScale 用当前 pressProgress → 第一帧和按压帧都正确
+  - 仍然用 tight elFbo rect（不是全屏 ping-pong）→ 比 ping-pong 快
+  - 每页只有 2 个 indicator → 性能开销可忽略
+  - 和 ping-pong 路径行为一致（用户确认 ping-pong 无此症状）
+
+- 验证（Agent Browser + VLM）：
+  - 导航到 bottomtabs 页面
+  - VLM 确认：两个 pill 形 glass bar + indicator 可见 + 折射内容 + 蓝色 tint ✓
+  - 按压 tab：VLM 确认 indicator 有 visible bright edge/rim highlight ✓
+    （即 inner rim highlight，之前 PEF cache hit 时缺失）
+  - lint 干净
+  - dev.log 编译正常（✓ Compiled in 227ms）
+
+Stage Summary:
+- 根因：indicator 的 elFbo cache 烘焙了 sampleIndicatorBackdrop 的 progress 依赖层
+  （inner rim highlight + mask + tab contentScale）。cache hit 跳过 Step 3 →
+  这些层不刷新。第一帧 progress=0 写入的"静止态"内容被后续 cache hit 复用
+- 修复：把 isBottomTabIndicator 排除出 cacheable，强制每帧 Step 3 重新渲染
+- Task 29（外圈 rim highlight）+ Task 30（inner rim highlight + 内容层）共同
+  解决了 bottomtabs 的两个 PEF-only 症状
