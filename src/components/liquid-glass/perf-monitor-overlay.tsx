@@ -345,7 +345,7 @@ function Body({
         <Row
           label="Glass"
           value={String(snapshot.glassElements)}
-          hint={`PEF ${snapshot.perElementFboCount} · skip ${snapshot.skipPingPongCount} · pp ${snapshot.pingPongCount}`}
+          hint={`PEF ${snapshot.perElementFboCount} · pp ${snapshot.pingPongCount}`}
         />
         <Row label="Non-glass" value={String(snapshot.nonGlassElements)} />
         <Row
