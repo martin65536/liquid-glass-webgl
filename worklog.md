@@ -1663,3 +1663,53 @@ Stage Summary:
 - culled 元素也记录（不止 kept），方便确认"它确实被裁了"
 - 设计目的：证明 cull 逻辑是否是"卡片提前消失"的元凶——
   若消失元素仍显 GREEN，需查 PEF composite/scissor/elFbo cache
+
+---
+Task ID: 26
+Agent: main
+Task: 调查 settings-card-rendering-bg 是否有特殊处理 + 修 cull overlay 的 stick 显示
+
+Work Log:
+- 用户反馈："settingscardrenderingbg和其他卡片相比有什么特殊处理吗，为什么就它不正常，好像划到一个位置后它的矩形框会stick在一个固定的高度"
+
+- 调查 build-settings.ts：
+  - card 1 (rendering-bg) L138-247
+  - card 2 (blur-bg) L259-...
+  - card 3 / card 4 同模式
+  - 四张卡构建逻辑完全一致：
+    makePlainRect(id, {x,y,w,h:100}, cardBg, CARD_RADIUS)  // placeholder h
+    elements.push(cardBgEl)
+    // ... 子元素 ...
+    cardBgEl.rect.h = nextY - cardStartY  // 末尾更新真实 h
+  - makePlainRect 默认 scroll=true（helpers.ts L373）
+  - settings 卡片没覆盖 scroll，所以 scroll=true → 视口 y 随 scrollY 变
+  - 结论：构建层面无特殊处理
+
+- 定位 "矩形框 stick" 根因：
+  - context.tsx cull overlay 里我加的 drawY clamp：
+      const drawY = Math.max(-60, Math.min(vh - 4, c.y))
+  - 当卡片上滑、c.y 变成 -100/-200/-400 时，drawY 被钉在 -60
+    → 矩形框看起来 stick 在画布顶部上方 60px
+  - 第一张卡 y 最小、最先滑出顶部 → 最先触发 clamp → 看起来"就它不正常"
+  - 这是 debug overlay 的显示限制，不是渲染 bug
+
+- 修复（context.tsx cull overlay）：
+  - 去掉 drawY 的 clamp，矩形框画在真实视口 y 位置
+    （canvas 自动裁剪画布外内容，y=-200 时只看到底边从顶部滑出）
+  - 标签单独处理：垂直 clamp 到 [12, vh-4]，保证 off-screen 元素的
+    标签仍可见（钉在画布顶部/底部边缘）
+  - 标签水平 clamp 避免长 id 溢出右边
+  - 注释说明为什么不能 clamp y（会掩盖真实滚动位置，无法判断 KEPT/CULL）
+
+- 验证：
+  - lint 干净
+  - dev.log 编译正常（✓ Compiled in 142ms）
+  - 未使用 Agent Browser
+
+Stage Summary:
+- settings-card-rendering-bg 无特殊处理，和其他卡片构建逻辑一致
+- "矩形框 stick" 是 cull overlay 的 drawY clamp 误导显示，已修复
+- 修复后矩形框反映真实视口 y，能准确判断元素何时被 cull
+- 印证：cull 逻辑（margin=max(120,h)）对 h≈300 的卡片很宽松，
+  卡片视觉提前消失时 cull overlay 应仍显示 GREEN(KEPT) → 元凶在别处
+  （PEF composite position / scissor / elFbo cache）

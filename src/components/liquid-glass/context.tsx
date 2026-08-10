@@ -462,30 +462,45 @@ export function LiquidGlassCanvas({
             ctx.font = 'bold 10px ui-monospace, monospace'
             for (let i = 0; i < culls.length; i++) {
               const c = culls[i]
-              // Clamp the drawn rect + label to the canvas so culled
-              // (off-screen) elements still leave a visible marker at the
-              // edge — otherwise a culled element at y=-500 would be
-              // invisible and the user couldn't tell it existed.
-              const drawY = Math.max(-60, Math.min(vh - 4, c.y))
-              const drawH = Math.max(8, Math.min(vh - drawY, c.h))
+              // Draw the rect at its TRUE viewport y — do NOT clamp y.
+              // Clamping y (the earlier Math.max(-60, ...) approach) made
+              // the rect "stick" at a fixed height once the element slid
+              // above y=-60, which hid the real scroll position and made it
+              // impossible to tell whether the element was KEPT or about to
+              // be CULLD. The canvas auto-clips content outside [0, vh], so
+              // a rect at y=-200 simply draws its bottom edge sliding off
+              // the top — exactly what the user needs to see.
+              // The LABEL is handled separately below (clamped into view so
+              // it never disappears entirely when the element is off-screen).
+              const drawY = c.y
               if (c.culled) {
                 ctx.strokeStyle = 'rgba(255, 80, 80, 0.9)'
                 ctx.lineWidth = 1.5
                 ctx.setLineDash([4, 3])
-                ctx.strokeRect(c.x + 0.5, drawY + 0.5, c.w - 1, drawH - 1)
+                ctx.strokeRect(c.x + 0.5, drawY + 0.5, c.w - 1, c.h - 1)
                 ctx.setLineDash([])
               } else {
                 ctx.strokeStyle = 'rgba(80, 230, 130, 0.95)'
                 ctx.lineWidth = 1.5
-                ctx.strokeRect(c.x + 0.5, drawY + 0.5, c.w - 1, drawH - 1)
+                ctx.strokeRect(c.x + 0.5, drawY + 0.5, c.w - 1, c.h - 1)
               }
-              // Label: id | y h m | KEPT/CULL, placed inside top-left.
+              // Label: id | y h m | KEPT/CULL. Clamp the LABEL vertically
+              // into [2, vh-14] so it's always readable even when the rect
+              // itself is fully off-screen. Horizontally clamp so long ids
+              // don't overflow the right edge.
               const label = `${c.id} y=${Math.round(c.y)} h=${c.h} m=${c.margin} ${c.culled ? 'CULL' : 'KEPT'}${c.pass === 'onTop' ? ' [top]' : ''}`
               const tw = ctx.measureText(label).width
+              const labelX = Math.max(0, Math.min(c.x, oc.width - tw - 9))
+              // Vertical: prefer just-inside-top of the rect; if the rect is
+              // above the viewport (drawY < 0), pin the label to y=2 so it
+              // stays visible at the top edge; if below viewport, pin to bottom.
+              let labelY = drawY + 10
+              if (drawY + 10 < 6) labelY = 12
+              else if (drawY + 10 > vh - 4) labelY = vh - 4
               ctx.fillStyle = c.culled ? 'rgba(120, 0, 0, 0.78)' : 'rgba(0, 80, 30, 0.78)'
-              ctx.fillRect(c.x + 1, drawY + 1, tw + 6, 12)
+              ctx.fillRect(labelX, labelY - 9, tw + 6, 12)
               ctx.fillStyle = c.culled ? 'rgba(255, 200, 200, 0.98)' : 'rgba(220, 255, 230, 0.98)'
-              ctx.fillText(label, c.x + 4, drawY + 10)
+              ctx.fillText(label, labelX + 3, labelY)
             }
             // NOTE: do NOT consume — structural overlay (persists across
             // idle frames). The renderer clears + repopulates on each render.
