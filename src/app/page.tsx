@@ -117,6 +117,17 @@ export default function Page() {
   // is pure waste: it keeps the browser compositor + display pipeline awake
   // at 60Hz for no benefit, which is itself a power cost during investigation.
   const perfRunning = destination === CatalogDestination.PerfBenchmark && state.perfProgress === 'running'
+  // Benchmark actively measuring? (running OR stop-requested — stop-requested
+  // means the user tapped stop but the current iteration is still finishing).
+  // While measuring, PEF is FORCED OFF: the PerfBenchmark's 16-glass grid
+  // changes every glass's w/h/x/y each frame, which under PEF triggers
+  // per-frame elFbo delete+create (size_mismatch) for the inner 4 + cache
+  // misses (position_mismatch) for all 16. PEF's fullscreen-blit savings
+  // don't compensate for the FBO churn → PEF is slower than ping-pong here.
+  // Forcing ping-pong during measurement gives a clean, PEF-independent
+  // throughput number. Restored to the user setting when not measuring.
+  const perfMeasuring = destination === CatalogDestination.PerfBenchmark &&
+    (state.perfProgress === 'running' || state.perfProgress === 'stop-requested')
   React.useEffect(() => {
     if ((!state.showFps && !perfRunning) || !rendererReady || state.showPerfMonitor) return
     fpsFrames.current = 0
@@ -1010,7 +1021,7 @@ export default function Page() {
           dpr={state.customDpr}
           blurTapCap={state.blurTapCap}
           blurDownsample={state.blurDownsample}
-          usePerElementFbo={state.usePerElementFbo}
+          usePerElementFbo={perfMeasuring ? false : state.usePerElementFbo}
           perfMonitorEnabled={state.showPerfMonitor}
           className="w-full h-full"
           onReady={() => setRendererReady(true)}

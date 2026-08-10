@@ -1481,3 +1481,81 @@ Stage Summary:
   drawElFboComposite 用 blendFuncSeparate 保持 curFbo.alpha=1（防级联衰减）
 - ControlCenter 展开过程（enterAlpha<1）不再变黑；完全展开（enterAlpha=1）行为不变
 - ping-pong 路径不受影响
+
+---
+Task ID: 23
+Agent: main
+Task: PerfBenchmark 运行时强制关闭 PEF + 不继承 GlassPlayground 玻璃属性
+
+Work Log:
+- 用户反馈：
+  1. "保持 benchmark 运行时 pef 选项关闭"（关闭 PEF 帧率更高）
+  2. "benchmark 会继承隔壁 GlassPlayground 的玻璃属性，不要绑定它的自定义属性"
+
+- 根因分析（任务1 — PEF 在 PerfBenchmark 更慢）：
+  PerfBenchmark 的 16 个 glass 每帧都变化：
+  - inner 4 个做 size 呼吸动画（w/h 每帧变）→ PEF elFbo size_mismatch →
+    每帧 deleteFramebuffer + deleteTexture + createFBO（GPU 资源销毁/创建，
+    ~24 个 GPU 调用/帧）
+  - outer 12 个做 drift（x/y 每帧变）→ PEF position_mismatch → cache miss
+  - PEF 省下的 fullscreen drawCopy（cheap，单纹理采样）抵不过 FBO 重建开销
+  → 关闭 PEF（走 ping-pong）反而更快
+
+- 修复1（page.tsx）：
+  新增 perfMeasuring 标志：
+    destination === PerfBenchmark &&
+    (perfProgress === 'running' || perfProgress === 'stop-requested')
+  （stop-requested 时当前 iteration 还在跑，测量仍在进行）
+
+  usePerElementFbo prop 改为：
+    usePerElementFbo={perfMeasuring ? false : state.usePerElementFbo}
+
+  - benchmark 测量中 → 强制 false（ping-pong 路径）
+  - benchmark idle/done 或其他页面 → 用用户设置
+  - 不污染 settings state，不持久化到 localStorage（只是覆盖 prop）
+  - context.tsx 的 useEffect 在 usePerElementFbo 变化时 markAllDirty +
+    requestRender，所以 true→false→true 切换正确处理
+
+- 根因分析（任务2 — 继承 GlassPlayground 属性）：
+  build-perf-benchmark.ts 从 state 读 5 个字段：
+    state.cornerRadiusFrac
+    state.refractionHeightFrac
+    state.refractionAmountFrac
+    state.blurRadiusDp
+    state.chromaticAberration
+  这 5 个字段同时被 GlassPlayground 的滑块绑定。用户在 GlassPlayground
+  调整滑块后切到 PerfBenchmark，这些值会保留 → benchmark 的 glass
+  渲染参数被 Playground 滑块污染 → 测量结果不可复现。
+
+- 修复2（build-perf-benchmark.ts）：
+  新增 5 个固定常量（值 = GlassPlayground 默认值，保持 baseline 工作负载不变）：
+    PERF_CORNER_RADIUS_FRAC = 0.5
+    PERF_REFRACTION_HEIGHT_FRAC = 0.2
+    PERF_REFRACTION_AMOUNT_FRAC = 0.2
+    PERF_BLUR_RADIUS_DP = 0
+    PERF_CHROMATIC_ABERRATION = false
+
+  glass 构建里 5 处 state.xxx → PERF_xxx：
+    cornerRadius = minDim * 0.5 * PERF_CORNER_RADIUS_FRAC
+    refractionHeight = PERF_REFRACTION_HEIGHT_FRAC * minDim * 0.5
+    refractionAmount = -PERF_REFRACTION_AMOUNT_FRAC * minDim
+    blurRadius = PERF_BLUR_RADIUS_DP * DP
+    chromaticAberration: PERF_CHROMATIC_ABERRATION
+
+  加文件头注释说明为什么不用 state。
+
+- 未改 page.tsx toggleTargets useMemo 的依赖数组（仍含 5 个字段）：
+  那个 useMemo 只影响 settings 页 toggle targets（不含这 5 个字段的 toggle），
+  5 个字段变化时只是多算一次空对象，无害。不改避免引入意外副作用。
+
+- 验证：
+  - lint 干净
+  - dev.log 编译正常（✓ Compiled in 196ms）
+  - 未使用 Agent Browser
+
+Stage Summary:
+- PerfBenchmark 测量中（running/stop-requested）强制 usePerElementFbo=false，
+  走 ping-pong 路径避免 elFbo 重建开销，帧率更高且测量更稳定
+- PerfBenchmark glass 属性改为固定常量，不再从 state 读，不继承
+  GlassPlayground 滑块值 → benchmark 工作负载可复现
+- 用户 PEF 设置不受影响（只在测量期间覆盖，结束后恢复）

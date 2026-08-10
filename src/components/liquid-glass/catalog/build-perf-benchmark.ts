@@ -22,6 +22,16 @@ import { t, type Locale } from './i18n'
  * rendering performance. Binary-search for optimal DPR runs
  * automatically in page.tsx.
  *
+ * GLASS PROPERTIES ARE FIXED CONSTANTS — deliberately NOT read from
+ * state (cornerRadiusFrac / blurRadiusDp / refractionHeightFrac /
+ * refractionAmountFrac / chromaticAberration). Those state fields
+ * belong to GlassPlayground's user-tunable sliders and would otherwise
+ * leak across pages: tweaking the Playground sliders then visiting
+ * PerfBenchmark would silently change the benchmark's workload,
+ * making DPR results non-reproducible. Keeping the glass params fixed
+ * (and independent of any slider) ensures the benchmark measures the
+ * SAME workload every run.
+ *
  * Animation design (when RUNNING):
  *   Diagonal ripple wave: each glass pulses with a phase offset
  *   proportional to its diagonal distance from the grid center.
@@ -33,6 +43,15 @@ import { t, type Locale } from './i18n'
  *       scaleY contracts) → elegant elastic deformation
  *   Inner glasses pulse stronger, outer ones subtler.
  * ------------------------------------------------------------------ */
+
+// Fixed glass rendering params for the benchmark workload.
+// Values mirror GlassPlayground's DEFAULTS (types.ts initialState) so the
+// baseline workload is unchanged from before, but is now reproducible.
+const PERF_CORNER_RADIUS_FRAC = 0.5    // circular
+const PERF_REFRACTION_HEIGHT_FRAC = 0.2
+const PERF_REFRACTION_AMOUNT_FRAC = 0.2
+const PERF_BLUR_RADIUS_DP = 0
+const PERF_CHROMATIC_ABERRATION = false
 
 // Phase offset = diagonal distance from grid center (row+col - 3)
 // Center glasses (row+col=3) pulse first, wave radiates outward.
@@ -132,20 +151,20 @@ export function buildPerfBenchmark(
       const y = centerY - h / 2
 
       const minDim = Math.min(w, h)
-      const cornerRadius = minDim * 0.5 * state.cornerRadiusFrac
+      const cornerRadius = minDim * 0.5 * PERF_CORNER_RADIUS_FRAC
       const glassEl = makeGlassShape(
         `perf-glass-${idx}`,
         { x, y, w, h },
         {
           cornerRadius,
-          refractionHeight: state.refractionHeightFrac * minDim * 0.5,
-          refractionAmount: -state.refractionAmountFrac * minDim,
-          blurRadius: state.blurRadiusDp * DP,
+          refractionHeight: PERF_REFRACTION_HEIGHT_FRAC * minDim * 0.5,
+          refractionAmount: -PERF_REFRACTION_AMOUNT_FRAC * minDim,
+          blurRadius: PERF_BLUR_RADIUS_DP * DP,
           saturation: 1.5,
           surfaceColor: [0, 0, 0, 0],
           highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, alpha: 0.38 },
           depthEffect: true,
-          chromaticAberration: state.chromaticAberration > 0,
+          chromaticAberration: PERF_CHROMATIC_ABERRATION,
         }
       )
       glassEl.useSeparableBlur = true
