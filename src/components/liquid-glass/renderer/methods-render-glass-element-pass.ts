@@ -495,13 +495,19 @@ export const glassElementPassMethods = {
     // in the refraction path.
     gl.uniform1f(this.uEl['uChromaticAberration'], (el.chromaticAberration && this.quickToggles.chromatic) ? 1 : 0)
     // Blur radius: for useSeparableBlur elements with blurRadius >= 0.5,
-    // the blur is applied as a separate 2-pass post-process on the element
-    // pass output, so the inline shader blur is disabled (uBlurRadius=0).
-    // For useSeparableBlur elements with blurRadius < 0.5, the 2-pass branch
-    // in renderGlassElement won't run (no blur needed), so keep inline blur
-    // (which is also ~0 anyway) to avoid losing blur entirely.
-    // For non-useSeparableBlur elements, the inline 16-tap Vogel disc applies.
-    const inlineBlurRadius = (el.useSeparableBlur && el.blurRadius >= 0.5) ? 0 : elBlurRadius
+    // the blur is normally applied as a separate 2-pass post-process on the
+    // scene texture (blurTexture), so the inline shader blur is disabled
+    // (uBlurRadius=0) to avoid double-blurring.
+    //
+    // EXCEPTION: when uSampleWallpaper is active (independent backdrop or
+    // el.sampleWallpaper), the shader samples the CLEAN wallpaper texture
+    // directly via sampleBackdrop()'s wallpaper branch — the 2-pass
+    // blurTexture pipeline is SKIPPED for independent elements (they don't
+    // read curTex). So the inline shader blur (poisson-disc on the wallpaper
+    // texture) is the ONLY blur that runs. We must keep the real radius here,
+    // otherwise independent glass elements lose their backdrop blur entirely.
+    const useSampleWallpaper = el.sampleWallpaper || state.independent
+    const inlineBlurRadius = (el.useSeparableBlur && el.blurRadius >= 0.5 && !useSampleWallpaper) ? 0 : elBlurRadius
     gl.uniform1f(this.uEl['uBlurRadius'], inlineBlurRadius * layerScale * this.dpr)
     gl.uniform1f(this.uEl['uSaturation'], el.saturation)
     gl.uniform1f(this.uEl['uBrightness'], el.brightness)
@@ -601,7 +607,8 @@ export const glassElementPassMethods = {
     // IMPORTANT: must use state.independent (which accounts for backgroundColor
     // and wallpaperTexture), NOT el.independentBackdrop (which is a static
     // element property that doesn't know the page's background type).
-    const useSampleWallpaper = el.sampleWallpaper || state.independent
+    // (useSampleWallpaper was computed above, near uBlurRadius, because the
+    // inline-blur decision also depends on it.)
     gl.uniform1f(this.uEl['uSampleWallpaper'], useSampleWallpaper ? 1.0 : 0.0)
     if (el.scrimColor) {
       gl.uniform4f(this.uEl['uScrimColor'], el.scrimColor[0], el.scrimColor[1], el.scrimColor[2], el.scrimColor[3])
