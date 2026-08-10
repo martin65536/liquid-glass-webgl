@@ -167,7 +167,7 @@ export class LiquidGlassRenderer {
    *    'backdrop_overlap'   — a dirtyRect overlaps this element's backdrop
    *    'non_cacheable'      — cacheable=false (no wallpaper / backdropFbo / SDF)
    *    'ping_pong'          — PEF toggle off, ping-pong path (never cached) */
-  debugCacheMissLog: Array<{ id: string; reason: string; x: number; y: number }> = []
+  debugCacheMissLog: Array<{ id: string; reason: string; x: number; y: number; w: number; h: number }> = []
   /** Debug trace: who called markElementDirty, populated when showDirtyMarkers
    *  is on. Each entry = { id, source } where source is the caller's caller
    *  function name (best-effort via stack parse). Helps answer "why is this

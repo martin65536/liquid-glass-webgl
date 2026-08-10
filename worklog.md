@@ -821,3 +821,39 @@ Stage Summary:
 - Dirty marker overlay now shows: colored border (green/red) every tick + blinking red dot on dirty elements. Idle = nothing. Active render = visible borders + flashing dots.
 - Theme toggle now guarantees a full glass-body re-raster via explicit markAllDirty() effect. Verified all 14 glass elements dirty in one frame post-toggle.
 - Committed + pushed to GitHub (1edbee4).
+
+---
+Task ID: 13
+Agent: main
+Task: 修复每个元素显示 cache miss 原因（用户反馈看不到 miss reason）
+
+Work Log:
+- 根因排查：debugCacheMissLog 之前完全不可见，原因有三：
+  1. NaN bug：debugCacheMissLog 条目类型是 { id, reason, x, y }——没有 h 字段。但 overlay 用 m.y + m.h - 4 画文字 → m.h 是 undefined → m.y + undefined - 4 = NaN → Canvas 规范规定 y=NaN 时不绘制文字。MISS 原因从未显示过。
+  2. ping-pong 路径不记录：当 perElementFbo=false（默认值）时，所有 glass 元素走 ping-pong 路径，只设 _dbgLastGlassCacheHit=false，不 push 任何 missReason。所以 PEF 关时没有任何元素显示原因。
+  3. non-cacheable 分支不记录：当 cacheable=false（无 wallpaper / backdropFbo / SDF）时，也不 push missReason。
+
+- 修复 1（index.ts）：debugCacheMissLog 类型加 w: number, h: number。
+- 修复 2（methods-render-glass.ts cacheable 分支）：push 时传 w: sw, h: sh。
+- 修复 3（methods-render-glass.ts non-cacheable 分支）：新增 missReason 记录，带子类型：
+    non_cacheable:no_wp       — 无 wallpaperTexture（纯色背景页）
+    non_cacheable:backdropFbo — dialog backdrop 元素
+    non_cacheable:sdf         — SDF-texture 元素
+- 修复 4（methods-render-glass.ts ping-pong 路径）：新增 missReason = 'ping_pong' 记录。PEF 关时每个 glass 元素都会显示这个，直接告诉用户「PEF 没开，走 ping-pong 永不缓存」。
+- 修复 5（context.tsx overlay 绘制）：
+    - 修 ReferenceError：canvas.height → oc.height（overlay canvas 的 CSS 高度）
+    - 文字位置改为 bbox 下方 (m.y + m.h + 11)，靠近屏幕底部时回退到 bbox 内顶部 (m.y + 11)
+    - 加半透明黑色背景矩形 (rgba(0,0,0,0.72)) 提高可读性
+    - 字体 bold 10px monospace，黄色 (rgba(255,220,80,0.98))
+
+Stage Summary:
+- 现在打开 showDirtyMarkers 后，每个未命中 elFboCache 的 glass 元素都会在 bbox 下方显示黄色原因标签（带黑底）：
+    no_entry / size_mismatch / position_mismatch / invalidated /
+    wallpaper_version / dpr / backdrop_overlap /
+    non_cacheable:no_wp / non_cacheable:backdropFbo / non_cacheable:sdf /
+    ping_pong
+- 这直接暴露 Bug 3（bottomtabs 互相更新）的根因：
+    - 如果 4tabs 显示 ping_pong → PEF 没开，所有元素都不缓存
+    - 如果 4tabs 显示 backdrop_overlap → 3tabs 的 dirtyRect 与 4tabs 的 backdrop 采样区域空间重叠
+    - 如果 4tabs 显示 invalidated → 有代码在调 markElementDirty(4tabs)
+- lint 干净，dev.log 编译正常。未使用 Agent Browser（遵用户指示）。

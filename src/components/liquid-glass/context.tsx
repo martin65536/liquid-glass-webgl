@@ -436,16 +436,34 @@ export function LiquidGlassCanvas({
             // rAF ticks) draw nothing — fixes "red still shows when idle".
             markers.length = 0
 
-            // Cache MISS reasons — drawn as yellow text next to each dirty
-            // element's bbox. Helps answer "why is this element re-rasterizing
-            // every frame?" (invalidated / backdrop_overlap / position_mismatch / ...).
+            // Cache MISS reasons — drawn as yellow text on a dark background
+            // just BELOW each dirty element's bbox. Helps answer "why is this
+            // element re-rasterizing every frame?"
+            //   invalidated / backdrop_overlap / position_mismatch /
+            //   size_mismatch / no_entry / wallpaper_version / dpr /
+            //   non_cacheable:* / ping_pong
+            // Every glass element that did NOT hit its elFboCache logs a
+            // reason here, including the ping-pong path (PEF off) and
+            // non-cacheable elements (no wallpaper / backdropFbo / SDF).
             const missLog = renderer.debugCacheMissLog
             if (missLog.length > 0) {
               ctx.font = 'bold 10px ui-monospace, monospace'
-              ctx.fillStyle = 'rgba(255, 220, 80, 0.95)'
               for (let i = 0; i < missLog.length; i++) {
                 const m = missLog[i]
-                ctx.fillText(m.reason, m.x + 3, m.y + m.h - 4)
+                // Position: just below the bbox. If the element is near the
+                // bottom of the canvas, place it inside-top instead so it
+                // never gets clipped off-screen.
+                const labelY = (m.y + m.h + 13 > oc.height)
+                  ? m.y + 11        // inside-top fallback
+                  : m.y + m.h + 11  // just below bbox
+                const label = m.reason
+                const tw = ctx.measureText(label).width
+                // Dark background rect for readability over any content.
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.72)'
+                ctx.fillRect(m.x, labelY - 9, tw + 6, 12)
+                // Yellow reason text.
+                ctx.fillStyle = 'rgba(255, 220, 80, 0.98)'
+                ctx.fillText(label, m.x + 3, labelY)
               }
               missLog.length = 0
             }

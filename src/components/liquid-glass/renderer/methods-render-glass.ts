@@ -504,6 +504,9 @@ export const glassRenderMethods = {
     }
     // Ping-pong path never caches the glass body → always re-rasterized.
     this._dbgLastGlassCacheHit = false
+    if (this.showDirtyMarkers) {
+      this.debugCacheMissLog.push({ id: el.id, reason: 'ping_pong', x: sx, y: sy, w: sw, h: sh })
+    }
     // Re-rasterizing into the fullscreen ping-pong → output may change
     // curFbo within this element's bbox. Record it so subsequent
     // non-independent glass elements whose backdrop samples this region
@@ -845,7 +848,7 @@ export const glassRenderMethods = {
         missReason = 'backdrop_overlap'
       }
       if (missReason && this.showDirtyMarkers) {
-        this.debugCacheMissLog.push({ id: el.id, reason: missReason, x: sx, y: sy })
+        this.debugCacheMissLog.push({ id: el.id, reason: missReason, x: sx, y: sy, w: sw, h: sh })
       }
       if (entry && missReason === null) {
         // CACHE HIT: the cached tex already contains this element's glass
@@ -894,6 +897,16 @@ export const glassRenderMethods = {
       }
     } else {
       // Non-cacheable: use the shared scratch elFbo (recreated if size differs).
+      // Reasons an element is non-cacheable: no wallpaperTexture (solid bg
+      // page), el.backdropFbo (dialog captures its own backdrop — changes
+      // when the scene behind the dialog changes), or el.useContinuousSdf
+      // (SDF-texture elements whose shape data updates independently).
+      if (this.showDirtyMarkers) {
+        const ncReason = !this.wallpaperTexture ? 'non_cacheable:no_wp'
+          : el.backdropFbo ? 'non_cacheable:backdropFbo'
+          : 'non_cacheable:sdf'
+        this.debugCacheMissLog.push({ id: el.id, reason: ncReason, x: sx, y: sy, w: sw, h: sh })
+      }
       const ensured = this.ensureElementFBO(elFboRectW, elFboRectH)
       elFboW = ensured.w
       elFboH = ensured.h
