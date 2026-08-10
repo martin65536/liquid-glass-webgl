@@ -53,19 +53,37 @@ export function computeScissorMarginCss(
  *  every curFbo pixel the element's rendering could change. Pushed into
  *  dirtyRectsThisFrame by any element that actually re-rasterizes, then used
  *  by subsequent non-independent glass elements' cache-hit test to detect
- *  whether their backdrop sampling region was affected. */
+ *  whether their backdrop sampling region was affected.
+ *
+ *  For toggle knobs + bottom-tab indicators, blur and shadow are MODULATED by
+ *  pressProgress (rest → 0, pressed → full). At rest the indicator draws
+ *  neither blur nor shadow, so its real output reach is just the glass body
+ *  (+ AA pad). Using the config's full blur/shadow here would over-inflate
+ *  the rect and cause false overlaps between adjacent tab bars (32dp gap)
+ *  even though their actual render footprints don't touch — this was the
+ *  root cause of "sliding tabs3 updates tabs4". */
 export function inflatedOutputRect(
   el: GlassElementConfig,
-  x: number, y: number, w: number, h: number
+  x: number, y: number, w: number, h: number,
+  togglePressProgress = 0
 ): { x: number; y: number; w: number; h: number } {
-  const blur = el.blurRadius || 0
-  const shadow = el.outerShadow
-    ? el.outerShadow.radius +
-      Math.max(Math.abs(el.outerShadow.offsetX), Math.abs(el.outerShadow.offsetY))
+  // Progress modulation: knobs/indicators scale blur+shadow by pressProgress.
+  // At rest (0) neither is drawn; at full press (1) both fully drawn.
+  const mod = (el.isToggleKnob || el.isBottomTabIndicator)
+    ? Math.max(0, Math.min(1, togglePressProgress))
+    : 1
+  let blur = (el.blurRadius || 0) * mod
+  let shadow = el.outerShadow
+    ? (el.outerShadow.radius +
+       Math.max(Math.abs(el.outerShadow.offsetX), Math.abs(el.outerShadow.offsetY))) * mod
     : 0
-  // +4 px headroom for SDF AA + sub-pixel rounding. The blur radius covers
-  // backdrop sampling reach; the shadow radius covers output draw reach.
-  const m = Math.max(blur, shadow) + 4
+  // Knob: blur is 8*(1-progress) at rest (see renderGlassElementPass),
+  // NOT blur*progress. Apply that inversion so rest knob still has its blur.
+  if (el.isToggleKnob) {
+    blur = (el.blurRadius || 0) * (1 - mod) * 0 + 8 * (1 - mod)
+  }
+  // +4 px headroom for SDF AA + sub-pixel rounding.
+  const m = Math.max(blur, shadow, 3) + 4
   return { x: x - m, y: y - m, w: w + 2 * m, h: h + 2 * m }
 }
 
@@ -491,7 +509,7 @@ export const glassRenderMethods = {
     // non-independent glass elements whose backdrop samples this region
     // know to re-rasterize too (spatial, not global — only overlapping
     // elements are affected).
-    this.dirtyRectsThisFrame.push(inflatedOutputRect(el, sx, sy, sw, sh))
+    this.dirtyRectsThisFrame.push(inflatedOutputRect(el, sx, sy, sw, sh, togglePressProgress))
 
     // --- Step 1: Blit curFbo → otherFbo (FULLSCREEN ping-pong) ---
     // Copy the entire accumulated scene into otherFbo so the element can
@@ -823,7 +841,7 @@ export const glassRenderMethods = {
       } else if (entry.dpr !== this.dpr) {
         missReason = 'dpr'
       } else if (!independent && this.dirtyRectsThisFrame.some(r =>
-        rectsOverlap(r, inflatedOutputRect(el, sx, sy, sw, sh)))) {
+        rectsOverlap(r, inflatedOutputRect(el, sx, sy, sw, sh, togglePressProgress)))) {
         missReason = 'backdrop_overlap'
       }
       if (missReason && this.showDirtyMarkers) {
@@ -931,7 +949,7 @@ export const glassRenderMethods = {
       // whose backdrop sampling overlaps it know to re-rasterize too.
       // This is SPATIAL: a static bar elsewhere on the page whose bbox
       // doesn't overlap this one still hits its cache.
-      this.dirtyRectsThisFrame.push(inflatedOutputRect(el, sx, sy, sw, sh))
+      this.dirtyRectsThisFrame.push(inflatedOutputRect(el, sx, sy, sw, sh, togglePressProgress))
       // --- Step 2: Backdrop texture for the element pass ---
       // KEY DESIGN: the element pass samples the FULLSCREEN scene texture
       // (curTex), NOT a cropped region. This is what makes PEF correct: the
