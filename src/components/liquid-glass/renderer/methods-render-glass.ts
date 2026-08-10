@@ -806,21 +806,30 @@ export const glassRenderMethods = {
 
     if (cacheable) {
       const entry = this.elFboCache.get(el.id)
-      if (entry && entry.w === elFboRectW && entry.h === elFboRectH &&
-          entry.ex0 === ex0 && entry.ey0Top === ey0Top &&
-          entry.valid &&
-          entry.wallpaperVersion === this.wallpaperVersion &&
-          entry.dpr === this.dpr &&
-          // Non-independent elements' backdrop is curFbo (the accumulated
-          // scene). It still matches the cached snapshot iff no element
-          // that re-rasterized earlier this frame had an output rect
-          // overlapping this element's backdrop sampling region. This is
-          // SPATIAL: an animating tab bar on the left does NOT invalidate
-          // a static bar on the right. Independent elements sample the
-          // wallpaper directly, so they skip this check (wallpaperVersion
-          // covers wallpaper reloads).
-          (independent || !this.dirtyRectsThisFrame.some(r =>
-            rectsOverlap(r, inflatedOutputRect(el, sx, sy, sw, sh))))) {
+      // Determine cache-hit status + miss reason (for the debug overlay).
+      // The reason is only recorded when showDirtyMarkers is on, to avoid
+      // string allocation on the hot path in production.
+      let missReason: string | null = null
+      if (!entry) {
+        missReason = 'no_entry'
+      } else if (entry.w !== elFboRectW || entry.h !== elFboRectH) {
+        missReason = 'size_mismatch'
+      } else if (entry.ex0 !== ex0 || entry.ey0Top !== ey0Top) {
+        missReason = 'position_mismatch'
+      } else if (!entry.valid) {
+        missReason = 'invalidated'
+      } else if (entry.wallpaperVersion !== this.wallpaperVersion) {
+        missReason = 'wallpaper_version'
+      } else if (entry.dpr !== this.dpr) {
+        missReason = 'dpr'
+      } else if (!independent && this.dirtyRectsThisFrame.some(r =>
+        rectsOverlap(r, inflatedOutputRect(el, sx, sy, sw, sh)))) {
+        missReason = 'backdrop_overlap'
+      }
+      if (missReason && this.showDirtyMarkers) {
+        this.debugCacheMissLog.push({ id: el.id, reason: missReason, x: sx, y: sy })
+      }
+      if (entry && missReason === null) {
         // CACHE HIT: the cached tex already contains this element's glass
         // body for the current geometry + wallpaper. Skip backdrop blur
         // (Step 2) + element pass (Step 3); just composite the cached tex.

@@ -60,6 +60,8 @@ export const renderMethods = {
     // own bbox, and non-independent elements hit the cache iff no pushed rect
     // overlaps their backdrop sampling region (spatial, not global).
     this.dirtyRectsThisFrame.length = 0
+    this.debugCacheMissLog.length = 0
+    this.debugDirtySourceLog.length = 0
     if (this.allDirty || this.scrollY !== this.lastRenderedScrollY) {
       this.dirtyRectsThisFrame.push({ x: 0, y: 0, w: this.cssWidth, h: this.cssHeight })
     }

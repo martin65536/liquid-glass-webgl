@@ -54,6 +54,28 @@ export const dirtyTrackingMethods = {
     // re-marked valid) on the next render of this element.
     const entry = this.elFboCache.get(id)
     if (entry) entry.valid = false
+    // Debug: record who called markElementDirty. Best-effort stack parse —
+    // grabs the 3rd frame (0=Error, 1=markElementDirty, 2=caller). Only when
+    // showDirtyMarkers is on to avoid Error.stack allocation on hot path.
+    if (this.showDirtyMarkers) {
+      const stack = new Error().stack ?? ''
+      const lines = stack.split('\n')
+      // Find first frame that isn't markElementDirty / markGroupDirty /
+      // markAllDirty itself — that's the real source.
+      let source = 'unknown'
+      for (let i = 2; i < lines.length; i++) {
+        const ln = lines[i].trim()
+        if (!ln) continue
+        if (ln.includes('markElementDirty') || ln.includes('markGroupDirty') || ln.includes('markAllDirty')) continue
+        // Extract function name or file:line. Format varies by browser:
+        //   "at foo (http://.../file.ts:123:45)"  → foo
+        //   "at http://.../file.ts:123:45"        → file.ts:123
+        const m = ln.match(/at\s+(\S+)\s+\(/)
+        source = m ? m[1] : ln.slice(0, 60)
+        break
+      }
+      this.debugDirtySourceLog.push({ id, source })
+    }
   },
 
   markAllDirty(this: LiquidGlassRenderer) {

@@ -155,6 +155,24 @@ export class LiquidGlassRenderer {
    *  non-independent element whose backdrop overlaps them must re-rasterize.
    *  Represented by pushing a full-screen rect into dirtyRectsThisFrame. */
   lastRenderedScrollY = 0
+  /** Debug trace: per-element cache MISS reason, populated during render when
+   *  showDirtyMarkers is on. Each entry = { id, reason, x, y } so the overlay
+   *  can draw the reason text next to the element's bbox. Reasons:
+   *    'no_entry'           — first render, cache not yet populated
+   *    'size_mismatch'      — w/h changed (scroll/scale moved elFboRect)
+   *    'position_mismatch'  — ex0/ey0Top changed (element moved)
+   *    'invalidated'        — entry.valid=false (markElementDirty/markAllDirty)
+   *    'wallpaper_version'  — wallpaper reloaded
+   *    'dpr'                — devicePixelRatio changed
+   *    'backdrop_overlap'   — a dirtyRect overlaps this element's backdrop
+   *    'non_cacheable'      — cacheable=false (no wallpaper / backdropFbo / SDF)
+   *    'ping_pong'          — PEF toggle off, ping-pong path (never cached) */
+  debugCacheMissLog: Array<{ id: string; reason: string; x: number; y: number }> = []
+  /** Debug trace: who called markElementDirty, populated when showDirtyMarkers
+   *  is on. Each entry = { id, source } where source is the caller's caller
+   *  function name (best-effort via stack parse). Helps answer "why is this
+   *  element dirty every frame when nothing changed?" */
+  debugDirtySourceLog: Array<{ id: string; source: string }> = []
 
   // --- Scene FBO ping-pong infrastructure ---
   // See render() for the full ping-pong pipeline description.

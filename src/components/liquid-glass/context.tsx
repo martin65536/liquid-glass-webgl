@@ -198,6 +198,9 @@ export function LiquidGlassCanvas({
     const renderer = new LiquidGlassRenderer(canvasRef.current)
     rendererRefInternal.current = renderer
     if (rendererRef) rendererRef.current = renderer
+    // DEV-ONLY: expose renderer to window for debugging (trace toggles,
+    // cache inspection). Removed before production.
+    if (typeof window !== 'undefined') (window as unknown as { __lgRenderer?: unknown }).__lgRenderer = renderer
     renderer.setBackgroundColor(backgroundColor)
     renderer.loadWallpaper(wallpaperSrc).then(() => {
       // Fire onReady after wallpaper loads + one frame renders
@@ -435,6 +438,40 @@ export function LiquidGlassCanvas({
             // Consume the markers so idle frames (no new render between
             // rAF ticks) draw nothing — fixes "red still shows when idle".
             markers.length = 0
+
+            // Cache MISS reasons — drawn as yellow text next to each dirty
+            // element's bbox. Helps answer "why is this element re-rasterizing
+            // every frame?" (invalidated / backdrop_overlap / position_mismatch / ...).
+            const missLog = renderer.debugCacheMissLog
+            if (missLog.length > 0) {
+              ctx.font = 'bold 10px ui-monospace, monospace'
+              ctx.fillStyle = 'rgba(255, 220, 80, 0.95)'
+              for (let i = 0; i < missLog.length; i++) {
+                const m = missLog[i]
+                ctx.fillText(m.reason, m.x + 3, m.y + m.h - 4)
+              }
+              missLog.length = 0
+            }
+            // Dirty sources — who called markElementDirty this frame. Drawn
+            // as a compact list in the top-left corner so you can see, e.g.,
+            // "startAnimation tick → markGroupDirty" firing every frame.
+            const srcLog = renderer.debugDirtySourceLog
+            if (srcLog.length > 0) {
+              // Aggregate by source (count how many times each caller fired).
+              const counts = new Map<string, number>()
+              for (let i = 0; i < srcLog.length; i++) {
+                const s = srcLog[i].source
+                counts.set(s, (counts.get(s) ?? 0) + 1)
+              }
+              ctx.font = 'bold 11px ui-monospace, monospace'
+              ctx.fillStyle = 'rgba(255, 180, 255, 0.95)'
+              let ty = 16
+              counts.forEach((cnt, src) => {
+                ctx.fillText(`${src} ×${cnt}`, 8, ty)
+                ty += 14
+              })
+              srcLog.length = 0
+            }
           }
         }
       }
