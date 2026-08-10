@@ -446,6 +446,66 @@ export class LiquidGlassRenderer {
     togglePressProgress: number
     elHighlightAlpha: number
   }[] = []
+  /** Debug: when true, records each plain-rect element's RENDER DECISION
+   *  (made in renderNonGlassElement) into `debugPlainRects` during render.
+   *  The overlay draws each plain-rect's effective viewport rect color-coded
+   *  by verdict, plus a detail info panel for settings-card-rendering-bg.
+   *
+   *  WHY THIS EXISTS: the "settings card background mysteriously disappears"
+   *  symptom. The card bg is a plain-rect (NOT glass — it does NOT go through
+   *  PEF / elFboCache / element-pass shader / uEnterAlpha). So the
+   *  disappearance must be one of:
+   *    1. SKIPPED    — color alpha ≤ 0 (palette.toggleCardBg alpha→0 or NaN)
+   *                    → renderNonGlassElement early-returns before drawArrays.
+   *    2. INVISIBLE  — finalAlpha = colorA * enterA ≤ 0. Two sub-causes:
+   *                    (a) enterProgress leaked from ControlCenter page →
+   *                        enterA=0 → uColor.a=0 (card draws fully transparent).
+   *                    (b) color alpha is NaN (NaN≤0 is false → not SKIPPED,
+   *                        but NaN*enterA=NaN → uColor.a=NaN→0 in GL).
+   *    3. DEGENERATE — rect w/h ≤ 0 (cardBgEl.rect.h = nextY-cardStartY ≤ 0
+   *                    due to a layout / scrollY / conditional-skip bug in
+   *                    build-settings.ts). setSdfUniforms gets a 0-size quad.
+   *    4. NO_OP      — BLEND disabled by a prior element (progressive-blur /
+   *                    blurTexture) and not restored → drawArrays writes
+   *                    nothing (plain-rect branch only sets blendFunc, never
+   *                    re-enables BLEND).
+   *    5. (else)     — drawn OK; the disappearance is elsewhere (ping-pong
+   *                    blit curFbo/curTex desync, or a later opaque element
+   *                    covering the card). curFboIsA is recorded as a clue.
+   *
+   *  CONSUME-AFTER-DRAW: NO — structural overlay (persists across idle
+   *  frames like showCullDebug). The renderer clears + repopulates it at the
+   *  start of each actual render; idle frames leave the last render's data
+   *  intact so the overlay stays visible. */
+  showPlainRectDebug = false
+  debugPlainRects: {
+    id: string
+    /** rect in CSS px, viewport coords (after scroll + enterProgress translationY). */
+    x: number; y: number; w: number; h: number
+    /** el.rect.h from config (pre-scroll) — to detect layout bugs where h≤0. */
+    origH: number
+    /** base color c[0..3] (after toggle-track lerp / slider-fill). */
+    colorR: number; colorG: number; colorB: number; colorA: number
+    enterProgress: number | null
+    enterSafeProgress: number | null
+    /** computed enter alpha (1 if no enterProgress; easeIn(safeProgress) otherwise). */
+    enterA: number
+    /** colorA * enterA — what's actually passed to uColor.a. */
+    finalAlpha: number
+    /** true = early-returned before drawArrays (color alpha ≤ 0). */
+    skipped: boolean
+    skipReason: string | null
+    /** true = drawArrays was called. */
+    drawn: boolean
+    /** gl.isEnabled(gl.BLEND) at draw time — false means drawArrays is a no-op. */
+    blendEnabled: boolean
+    /** curFbo === this.fboA at draw time (informational; fboB is legitimate
+     *  after a prior glass ping-pong — not itself a bug, but useful clue). */
+    curFboIsA: boolean
+    /** auto-diagnosis verdict. */
+    diagnosis: 'OK' | 'SKIPPED' | 'INVISIBLE' | 'DEGENERATE' | 'NO_OP'
+    diagnosisDetail: string
+  }[] = []
   /** Performance monitor — frame timing + per-frame render counters +
    *  GPU info. When `perfMonitor.enabled === false` (default), every
    *  increment is a no-op. Toggled on by the Settings "Performance

@@ -507,6 +507,93 @@ export function LiquidGlassCanvas({
             // NOTE: do NOT consume — structural overlay (persists across
             // idle frames). The renderer clears + repopulates on each render.
           }
+          if (renderer.showPlainRectDebug) {
+            // Plain-rect render-decision overlay — diagnoses "settings card
+            // background mysteriously disappears". The card bg is a plain-rect
+            // (NOT glass), so it doesn't go through PEF/elFboCache/element-pass
+            // shader. The disappearance must be one of 5 causes (see
+            // showPlainRectDebug doc-comment in index.ts). This overlay draws:
+            //   1. ALL plain-rects as thin outlines, color-coded by verdict:
+            //        GREEN solid   = OK (drawn, finalAlpha>0, BLEND on)
+            //        RED solid     = SKIPPED (color alpha ≤ 0 → early return)
+            //        RED dashed    = INVISIBLE (drawn but finalAlpha ≤ 0 / NaN)
+            //        YELLOW dashed = DEGENERATE (rect w/h ≤ 0)
+            //        ORANGE dashed = NO_OP (BLEND disabled → drawArrays no-op)
+            //   2. A detail info panel (bottom-left) for settings-card-rendering-bg
+            //      showing every recorded field + the auto-diagnosis verdict.
+            const rects = renderer.debugPlainRects
+            const vColor: Record<string, string> = {
+              OK: 'rgba(80, 230, 130, 0.75)',
+              SKIPPED: 'rgba(255, 80, 80, 0.95)',
+              INVISIBLE: 'rgba(255, 80, 80, 0.85)',
+              DEGENERATE: 'rgba(255, 220, 80, 0.9)',
+              NO_OP: 'rgba(255, 160, 60, 0.9)',
+            }
+            // 1. Draw all plain-rect outlines.
+            ctx.lineWidth = 1.5
+            for (let i = 0; i < rects.length; i++) {
+              const pr = rects[i]
+              ctx.strokeStyle = vColor[pr.diagnosis] ?? 'rgba(180,180,180,0.5)'
+              if (pr.diagnosis === 'INVISIBLE' || pr.diagnosis === 'DEGENERATE' || pr.diagnosis === 'NO_OP') {
+                ctx.setLineDash([4, 3])
+              } else {
+                ctx.setLineDash([])
+              }
+              ctx.strokeRect(pr.x + 0.5, pr.y + 0.5, Math.max(1, pr.w - 1), Math.max(1, pr.h - 1))
+            }
+            ctx.setLineDash([])
+
+            // 2. Detail panel for settings-card-rendering-bg.
+            //    If not found (e.g. on a different page), fall back to the
+            //    first non-OK plain-rect so the overlay is still useful.
+            const TARGET_ID = 'settings-card-rendering-bg'
+            let t = rects.find(r => r.id === TARGET_ID)
+            if (!t) t = rects.find(r => r.diagnosis !== 'OK')
+            if (t) {
+              const faStr = isFinite(t.finalAlpha) ? t.finalAlpha.toFixed(4) : String(t.finalAlpha)
+              const lines = [
+                `id: ${t.id}`,
+                `VERDICT: ${t.diagnosis}`,
+                `  ${t.diagnosisDetail}`,
+                `rect (viewport): x=${Math.round(t.x)} y=${Math.round(t.y)} w=${Math.round(t.w)} h=${Math.round(t.h)}`,
+                `orig rect.h (config): ${t.origH}`,
+                `color: r=${t.colorR.toFixed(3)} g=${t.colorG.toFixed(3)} b=${t.colorB.toFixed(3)} a=${t.colorA}`,
+                `enterProgress: ${t.enterProgress}`,
+                `enterSafeProgress: ${t.enterSafeProgress}`,
+                `enterA: ${t.enterA.toFixed(4)}`,
+                `finalAlpha (a*enterA): ${faStr}`,
+                `skipped=${t.skipped}  drawn=${t.drawn}`,
+                `blendEnabled=${t.blendEnabled}  curFbo=${t.curFboIsA ? 'A' : 'B'}`,
+              ]
+              ctx.font = 'bold 11px ui-monospace, monospace'
+              let maxW = 0
+              for (let li = 0; li < lines.length; li++) {
+                const w = ctx.measureText(lines[li]).width
+                if (w > maxW) maxW = w
+              }
+              const panelW = maxW + 16
+              const panelH = lines.length * 15 + 12
+              // Anchor bottom-left (same as cull overlay) so it doesn't cover
+              // the element under test when it's near the top of the viewport.
+              const panelX = 8
+              const panelY = oc.height - panelH - 8
+              ctx.fillStyle = 'rgba(0, 0, 0, 0.85)'
+              ctx.fillRect(panelX, panelY, panelW, panelH)
+              ctx.strokeStyle = vColor[t.diagnosis] ?? 'rgba(180,180,180,0.6)'
+              ctx.lineWidth = 1
+              ctx.strokeRect(panelX + 0.5, panelY + 0.5, panelW - 1, panelH - 1)
+              for (let li = 0; li < lines.length; li++) {
+                // Highlight the VERDICT + detail lines (indices 1 and 2).
+                const isVerdict = li === 1 || li === 2
+                ctx.fillStyle = isVerdict
+                  ? (vColor[t.diagnosis] ?? 'rgba(230,230,230,0.95)')
+                  : 'rgba(230, 230, 230, 0.95)'
+                ctx.fillText(lines[li], panelX + 8, panelY + 16 + li * 15)
+              }
+            }
+            // NOTE: do NOT consume — structural overlay (persists across
+            // idle frames). The renderer clears + repopulates on each render.
+          }
           if (renderer.showPefPassDebug) {
             // PEF pass-execution overlay — diagnoses "highlight disappears"
             // + "bottom-tab indicator content layer missing" (PEF-only).

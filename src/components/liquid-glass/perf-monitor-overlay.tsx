@@ -555,6 +555,7 @@ function DebugToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
   const [showShadow, setShowShadow] = React.useState(false)
   const [showCull, setShowCull] = React.useState(false)
   const [showPefPass, setShowPefPass] = React.useState(false)
+  const [showPlainRect, setShowPlainRect] = React.useState(false)
 
   // Read the renderer's actual flags on mount (they may have been seeded from
   // props by context.tsx, or toggled by a previous overlay instance).
@@ -567,6 +568,7 @@ function DebugToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
       setShowShadow(r.showShadowBbox)
       setShowCull(r.showCullDebug)
       setShowPefPass(r.showPefPassDebug)
+      setShowPlainRect(r.showPlainRectDebug)
     }
   }, [rendererRef])
 
@@ -630,6 +632,16 @@ function DebugToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
     }
   }
 
+  const flipPlainRect = () => {
+    const next = !showPlainRect
+    setShowPlainRect(next)
+    const r = rendererRef.current
+    if (r) {
+      r.showPlainRectDebug = next
+      r.requestRender()
+    }
+  }
+
   return (
     <div style={{ padding: '6px 10px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
       <div style={{ font: 'bold 10px ui-monospace, monospace', color: '#aaa', marginBottom: 4, letterSpacing: 0.5 }}>
@@ -683,6 +695,16 @@ function DebugToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
         <span>Show PEF passes</span>
         <span style={{ color: showPefPass ? '#f86' : '#888', fontWeight: 700, fontSize: 10 }}>
           {showPefPass ? 'ON' : 'OFF'}
+        </span>
+      </button>
+      <button
+        onClick={flipPlainRect}
+        title="Plain-rect render-decision overlay — diagnoses 'settings card bg mysteriously disappears'. The card bg is a plain-rect (NOT glass), so it never goes through PEF/elFboCache. Draws ALL plain-rects color-coded by verdict: GREEN solid=OK (drawn, finalAlpha>0, BLEND on); RED solid=SKIPPED (color alpha≤0 → early return); RED dashed=INVISIBLE (drawn but finalAlpha≤0/NaN — likely enterProgress leak); YELLOW dashed=DEGENERATE (rect w/h≤0 — layout bug); ORANGE dashed=NO_OP (BLEND disabled by prior element → drawArrays no-op). A detail panel (bottom-left) shows every field for settings-card-rendering-bg + the auto-diagnosis. If verdict=OK but the card is still missing, the cause is elsewhere (ping-pong blit desync / opaque coverage)."
+        style={debugBtnStyle(showPlainRect)}
+      >
+        <span>Show plain-rect render</span>
+        <span style={{ color: showPlainRect ? '#fc6' : '#888', fontWeight: 700, fontSize: 10 }}>
+          {showPlainRect ? 'ON' : 'OFF'}
         </span>
       </button>
       <button

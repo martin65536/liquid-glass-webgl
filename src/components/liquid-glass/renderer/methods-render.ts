@@ -4,6 +4,34 @@ import { DP } from './spring'
 import { easeIn } from './gl-utils'
 import { inflatedOutputRect } from './methods-render-glass'
 
+/** Auto-diagnose a plain-rect's render verdict from its recorded state.
+ *  Used by the showPlainRectDebug overlay to color-code each rect + print
+ *  a human-readable cause. The 5 verdicts map 1:1 to the candidate causes
+ *  of the "settings card bg mysteriously disappears" symptom — see the
+ *  showPlainRectDebug doc-comment in index.ts for the full rationale. */
+function diagnosePlainRect(
+  skipped: boolean,
+  skipReason: string | null,
+  finalAlpha: number,
+  w: number,
+  h: number,
+  blendEnabled: boolean
+): { verdict: 'OK' | 'SKIPPED' | 'INVISIBLE' | 'DEGENERATE' | 'NO_OP'; detail: string } {
+  if (skipped) return { verdict: 'SKIPPED', detail: skipReason ?? 'unknown' }
+  // NaN finalAlpha (color alpha was NaN): NaN≤0 is false so it wasn't SKIPPED,
+  // but in GL uColor.a=NaN renders as 0 → invisible. !isFinite catches this.
+  if (!isFinite(finalAlpha) || finalAlpha <= 0) {
+    return { verdict: 'INVISIBLE', detail: `finalAlpha=${finalAlpha} (colorA*enterA)` }
+  }
+  if (w <= 0 || h <= 0) {
+    return { verdict: 'DEGENERATE', detail: `rect ${w.toFixed(1)}x${h.toFixed(1)} ≤ 0` }
+  }
+  if (!blendEnabled) {
+    return { verdict: 'NO_OP', detail: 'BLEND disabled by prior element' }
+  }
+  return { verdict: 'OK', detail: `finalAlpha=${finalAlpha.toFixed(3)}` }
+}
+
 declare module './index' {
   interface LiquidGlassRenderer {
     render(): void
@@ -96,6 +124,7 @@ export const renderMethods = {
     this.debugDirtyMarkers.length = 0
     this.debugCullRects.length = 0
     this.debugPefPasses.length = 0
+    this.debugPlainRects.length = 0
 
     if (!this.wallpaperReady && !this.backgroundColor) {
       this.perfMonitor.frameEnd()
@@ -531,7 +560,35 @@ export const renderMethods = {
       // draw call and (with SRC_ALPHA blending) could interfere with the
       // scene. Alpha=0 → no contribution → skip.
       const baseC = el.isToggleTrack ? null : el.plainRect.color
-      if (baseC && baseC[3] <= 0) return true
+      if (baseC && baseC[3] <= 0) {
+        // SKIPPED path — record debug entry before returning.
+        // curFbo !== bgOnlyFbo: skip recording the isolate-backdrop duplicate
+        // draw (methods-render.ts line ~270 renders into bgOnlyFbo too); we
+        // only care about the primary scene draw.
+        if (this.showPlainRectDebug && curFbo !== this.bgOnlyFbo) {
+          const col = el.plainRect.color
+          const sp0 = el.enterSafeProgress != null
+            ? Math.max(0, Math.min(1, el.enterSafeProgress))
+            : (el.enterProgress != null ? Math.max(0, Math.min(1, el.enterProgress)) : 1)
+          const ea = el.enterProgress != null ? easeIn(sp0) : 1
+          const fa = col[3] * ea
+          const blendOn = this.gl.isEnabled(this.gl.BLEND)
+          const reason = `color alpha=${col[3]} ≤ 0`
+          const dg = diagnosePlainRect(true, reason, fa, r2.w, r2.h, blendOn)
+          this.debugPlainRects.push({
+            id: el.id, x: r2.x, y: r2.y, w: r2.w, h: r2.h, origH: el.rect.h,
+            colorR: col[0], colorG: col[1], colorB: col[2], colorA: col[3],
+            enterProgress: el.enterProgress ?? null,
+            enterSafeProgress: el.enterSafeProgress ?? null,
+            enterA: ea, finalAlpha: fa,
+            skipped: true, skipReason: reason, drawn: false,
+            blendEnabled: blendOn,
+            curFboIsA: curFbo === this.fboA,
+            diagnosis: dg.verdict, diagnosisDetail: dg.detail,
+          })
+        }
+        return true
+      }
       this.bindFBO(curFbo)
       // Toggle tracks: lerp between offColor and onColor based on the
       // group's animated fraction. Faithful to LiquidToggle.kt's
@@ -600,6 +657,25 @@ export const renderMethods = {
       gl.drawArrays(gl.TRIANGLES, 0, 6)
       this.perfMonitor.incNonGlass()
       this.perfMonitor.incDrawCall()
+      // DRAWN path — record debug entry after drawArrays.
+      // Uses `c` (final color after toggle-track lerp), `enterA` (computed
+      // above), `fillRect` (actual drawn rect, = r2 unless slider-fill).
+      if (this.showPlainRectDebug && curFbo !== this.bgOnlyFbo) {
+        const fa = c[3] * enterA
+        const blendOn = this.gl.isEnabled(this.gl.BLEND)
+        const dg = diagnosePlainRect(false, null, fa, fillRect.w, fillRect.h, blendOn)
+        this.debugPlainRects.push({
+          id: el.id, x: fillRect.x, y: fillRect.y, w: fillRect.w, h: fillRect.h, origH: el.rect.h,
+          colorR: c[0], colorG: c[1], colorB: c[2], colorA: c[3],
+          enterProgress: el.enterProgress ?? null,
+          enterSafeProgress: el.enterSafeProgress ?? null,
+          enterA: enterA, finalAlpha: fa,
+          skipped: false, skipReason: null, drawn: true,
+          blendEnabled: blendOn,
+          curFboIsA: curFbo === this.fboA,
+          diagnosis: dg.verdict, diagnosisDetail: dg.detail,
+        })
+      }
       return true
     }
 
