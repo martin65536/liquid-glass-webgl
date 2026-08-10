@@ -1136,6 +1136,24 @@ export const glassRenderMethods = {
     if (el.isBottomTabIndicator) {
       shadowAlpha *= state.togglePressProgress
     }
+    // Debug: record the shadow bbox (the dynamic scissor rect that wraps the
+    // shadow pass). This is computed from computeScissorMarginCss — which
+    // scales (radius + maxOffset) by layerScale + a 3px floor — and is the
+    // ACTUAL screen area the shadow rasterizes into. At rest for indicators,
+    // shadowAlpha→0 → pass is skipped (skipped=true) so you can see the bbox
+    // "disappear" visually. Always record (even when skipped) so you can see
+    // the would-be shadow reach and the skip reason.
+    if (this.showShadowBbox) {
+      const scissorMarginCss = computeScissorMarginCss(el, state.layerScale, this.quickToggles)
+      this.debugShadowBboxes.push({
+        x: sx - scissorMarginCss,
+        y: sy - scissorMarginCss,
+        w: sw + 2 * scissorMarginCss,
+        h: sh + 2 * scissorMarginCss,
+        alpha: shadowAlpha,
+        skipped: shadowAlpha <= 0.001,
+      })
+    }
     if (shadowAlpha <= 0.001) return
     gl.useProgram(this.shadowProgram)
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)

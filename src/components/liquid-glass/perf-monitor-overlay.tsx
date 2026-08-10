@@ -552,6 +552,7 @@ function DebugToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
   const [showBbox, setShowBbox] = React.useState(false)
   const [showBlur, setShowBlur] = React.useState(false)
   const [showDirty, setShowDirty] = React.useState(false)
+  const [showShadow, setShowShadow] = React.useState(false)
 
   // Read the renderer's actual flags on mount (they may have been seeded from
   // props by context.tsx, or toggled by a previous overlay instance).
@@ -561,6 +562,7 @@ function DebugToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
       setShowBbox(r.showPefBbox)
       setShowBlur(r.showBlurDebug)
       setShowDirty(r.showDirtyMarkers)
+      setShowShadow(r.showShadowBbox)
     }
   }, [rendererRef])
 
@@ -594,6 +596,16 @@ function DebugToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
     }
   }
 
+  const flipShadow = () => {
+    const next = !showShadow
+    setShowShadow(next)
+    const r = rendererRef.current
+    if (r) {
+      r.showShadowBbox = next
+      r.requestRender()
+    }
+  }
+
   return (
     <div style={{ padding: '6px 10px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
       <div style={{ font: 'bold 10px ui-monospace, monospace', color: '#aaa', marginBottom: 4, letterSpacing: 0.5 }}>
@@ -617,6 +629,16 @@ function DebugToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
         <span>Show blur regions</span>
         <span style={{ color: showBlur ? '#6cf' : '#888', fontWeight: 700, fontSize: 10 }}>
           {showBlur ? 'ON' : 'OFF'}
+        </span>
+      </button>
+      <button
+        onClick={flipShadow}
+        title="Draw each glass element's dynamic shadow bbox on the canvas. The shadow bbox is computed from outerShadow.radius + offset * layerScale + a 3px floor, and is the ACTUAL screen area the shadow pass rasterizes into. Orange solid = shadow drawn this frame; gray dashed = shadow skipped (alpha≈0, e.g. bottom-tab indicator at rest). Use to visualize why inflatedOutputRect causes/avoids backdrop_overlap between adjacent elements."
+        style={debugBtnStyle(showShadow)}
+      >
+        <span>Show shadow bbox</span>
+        <span style={{ color: showShadow ? '#fa0' : '#888', fontWeight: 700, fontSize: 10 }}>
+          {showShadow ? 'ON' : 'OFF'}
         </span>
       </button>
       <button

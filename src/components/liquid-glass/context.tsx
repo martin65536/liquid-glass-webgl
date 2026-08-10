@@ -374,6 +374,12 @@ export function LiquidGlassCanvas({
               ctx.font = 'bold 10px ui-monospace, monospace'
               ctx.fillText(String(i), b.x + 3, b.y + 11)
             }
+            // Consume-after-draw: clear the list here (not at render start)
+            // so the data survives the async gap between render() finishing
+            // and this rAF tick reading it. Without this, a render firing
+            // between two rAF ticks would clear the list before we draw →
+            // blank/flickering overlay (the blur-box display bug).
+            boxes.length = 0
           }
           if (renderer.showBlurDebug) {
             const regions = renderer.debugBlurRegions
@@ -390,6 +396,34 @@ export function LiquidGlassCanvas({
               const label = `#${i} ds=${r.ds} r=${(r.radius / (renderer.dpr || 1)).toFixed(1)} fbo=${r.blurW}×${r.blurH}`
               ctx.fillText(label, r.x + 3, r.y + 11)
             }
+            // Consume-after-draw (see showPefBbox comment above).
+            regions.length = 0
+          }
+          if (renderer.showShadowBbox) {
+            const sboxes = renderer.debugShadowBboxes
+            for (let i = 0; i < sboxes.length; i++) {
+              const b = sboxes[i]
+              // Drawn: orange solid rect (alpha=full) — shadow is actually
+              // rasterized this frame. Skipped: gray dashed rect (alpha≈0)
+              // — shadow pass early-returned, would-be reach shown for ref.
+              if (b.skipped) {
+                ctx.strokeStyle = 'rgba(160, 160, 160, 0.5)'
+                ctx.lineWidth = 1
+                ctx.setLineDash([3, 3])
+                ctx.strokeRect(b.x + 0.5, b.y + 0.5, b.w - 1, b.h - 1)
+                ctx.setLineDash([])
+              } else {
+                ctx.strokeStyle = 'rgba(255, 165, 0, 0.95)'
+                ctx.lineWidth = 1.5
+                ctx.strokeRect(b.x + 0.5, b.y + 0.5, b.w - 1, b.h - 1)
+              }
+              ctx.fillStyle = b.skipped ? 'rgba(160, 160, 160, 0.7)' : 'rgba(255, 165, 0, 0.98)'
+              ctx.font = 'bold 10px ui-monospace, monospace'
+              const label = `#${i} a=${b.alpha.toFixed(2)}${b.skipped ? ' skip' : ''}`
+              ctx.fillText(label, b.x + 3, b.y + 11)
+            }
+            // Consume-after-draw (see showPefBbox comment above).
+            sboxes.length = 0
           }
           if (renderer.showDirtyMarkers) {
             // Colored border + blinking red dot per element.

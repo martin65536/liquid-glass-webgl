@@ -363,18 +363,31 @@ export class LiquidGlassRenderer {
   /** Debug: when true, the renderer collects each glass element's PEF
    *  bbox (CSS px, top-left origin) into `debugPefBboxes` during render.
    *  The React overlay reads this array to draw visible rectangles over
-   *  the canvas. Cleared at the start of every render; only populated
-   *  when this flag is true. */
+   *  the canvas. CONSUME-AFTER-DRAW: the overlay clears the list after
+   *  drawing it, so the data survives the async gap between render and the
+   *  overlay's rAF tick. Only populated when this flag is true. */
   showPefBbox = false
   debugPefBboxes: { x: number; y: number; w: number; h: number; fbo: boolean }[] = []
   /** Debug: when true, the renderer collects each blurTexture call's element
    *  rect (CSS px, top-left origin) + radius + downsample into
    *  `debugBlurRegions` during render. The React overlay reads this to draw
    *  rectangles marking where backdrop blur was computed. Useful for diagnosing
-   *  downsample / scissor / coverage bugs. Cleared at the start of every render;
-   *  only populated when this flag is true. */
+   *  downsample / scissor / coverage bugs. CONSUME-AFTER-DRAW: the overlay
+   *  clears the list after drawing it. Only populated when this flag is true. */
   showBlurDebug = false
   debugBlurRegions: { x: number; y: number; w: number; h: number; radius: number; ds: number; blurW: number; blurH: number }[] = []
+  /** Debug: when true, the renderer collects each glass element's SHADOW
+   *  bbox (the dynamic scissor rect that wraps the shadow pass, computed
+   *  from outerShadow.radius + offset * layerScale + a small floor) into
+   *  `debugShadowBboxes` during render. The shadow bbox is DYNAMIC — it
+   *  shrinks at rest when the indicator's pressProgress=0 (shadow alpha
+   *  → 0 → pass skipped) and grows during drag/press. This lets you
+   *  visualize exactly how much screen area each shadow re-rasterizes
+   *  into, which is the basis for the inflatedOutputRect overlap test.
+   *  CONSUME-AFTER-DRAW: the overlay clears the list after drawing it.
+   *  Only populated when this flag is true. */
+  showShadowBbox = false
+  debugShadowBboxes: { x: number; y: number; w: number; h: number; alpha: number; skipped: boolean }[] = []
   /** Performance monitor — frame timing + per-frame render counters +
    *  GPU info. When `perfMonitor.enabled === false` (default), every
    *  increment is a no-op. Toggled on by the Settings "Performance

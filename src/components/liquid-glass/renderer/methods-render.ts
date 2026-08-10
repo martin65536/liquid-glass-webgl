@@ -80,11 +80,20 @@ export const renderMethods = {
     this.perfMonitor.deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
     this.perfMonitor.frameStart()
 
-    // Debug: clear the PEF bbox list at the start of each render. The PEF
-    // path pushes to it during the element loop; the overlay reads it after.
-    if (this.showPefBbox) this.debugPefBboxes.length = 0
-    if (this.showBlurDebug) this.debugBlurRegions.length = 0
-    if (this.showDirtyMarkers) this.debugDirtyMarkers.length = 0
+    // Debug lists: always clear at render start so the lists are repopulated
+    // from scratch this frame. The overlay then consumes them (length = 0)
+    // AFTER drawing — this consume-after-draw pattern is what keeps the data
+    // alive across the async gap between render() finishing and the overlay's
+    // rAF tick reading it. Previously these were gated on their respective
+    // show* flags, which meant: (1) when the flag was off the stale data from
+    // the last flagged-frame lingered, and (2) when a new render fired
+    // BETWEEN the overlay's rAF ticks, it cleared the list before the overlay
+    // could draw it → blank/flickering overlay (the blur-box display bug).
+    // Unconditional clear + overlay consume-after-draw fixes both.
+    this.debugPefBboxes.length = 0
+    this.debugBlurRegions.length = 0
+    this.debugShadowBboxes.length = 0
+    this.debugDirtyMarkers.length = 0
 
     if (!this.wallpaperReady && !this.backgroundColor) {
       this.perfMonitor.frameEnd()

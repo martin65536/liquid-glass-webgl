@@ -944,3 +944,54 @@ Stage Summary:
   根因是 tabs3-container 的 dirtyRect 与 tabs4 重叠，本次修复通过缩小 dirtyRect 让
   它们不再重叠。
 - lint 干净，dev.log 编译正常。未使用 Agent Browser。
+
+---
+Task ID: 16
+Agent: main
+Task: 新增 shadow bbox 调试开关 + 修复 blur 盒显示失效
+
+Work Log:
+- 用户问题 1："影子盒是动态计算的吗" → 是的。shadow bbox = computeScissorMarginCss(el, layerScale, quickToggles)，
+  = max(3, (outerShadow.radius + max(|offsetX|,|offsetY|)) * layerScale + 2)。
+  对于 indicator，shadow alpha = outerShadow.alpha * pressProgress，rest 时 alpha=0 → shadow pass early-return（skipped）。
+  所以 shadow bbox 是动态的：rest 时小（3px floor）/ drag 时大（full radius+offset）。
+- 用户问题 2："性能监视器里加一个画影子盒矩形的开关" → 新增 showShadowBbox + debugShadowBboxes。
+- 用户问题 3："blur 盒显示好像失效了" → 根因：debugBlurRegions 和 debugPefBboxes 在 render 开始时
+  被 gated clear（if showBlurDebug）清空，但 overlay 在 rAF tick 里读取它们。render 和 rAF 异步：
+  如果两次 rAF 之间有新 render fire，会清空列表 → overlay 读到空 → 不画。这就是 blur 盒失效的原因。
+
+修复（3 部分）：
+
+1. index.ts: 新增 showShadowBbox + debugShadowBboxes 字段
+   - 每个条目 { x, y, w, h, alpha, skipped }
+   - skipped=true 表示 shadow pass early-returned（alpha≈0，如 indicator at rest）
+
+2. methods-render-glass.ts renderGlassShadowPass: 在 early-return 之前 push shadow bbox
+   - 用 computeScissorMarginCss(el, state.layerScale, quickToggles) 算动态 margin
+   - 即使 skipped 也 push（这样能看到 would-be reach + skip 原因）
+   - 保留原有 early-return 逻辑（alpha<=0.001 时不画 shadow）
+
+3. methods-render.ts: 修复 consume-after-draw 模式
+   - 之前：if (showPefBbox) clear; if (showBlurDebug) clear; if (showDirtyMarkers) clear
+   - 现在：无条件 clear 所有 4 个 debug 列表（debugPefBboxes / debugBlurRegions / debugShadowBboxes / debugDirtyMarkers）
+   - push 端仍然 gated（只在对应 show* flag 开时 push）
+   - overlay 端改为 consume-after-draw：画完后 length=0
+   - 这样数据在 render 完成 → overlay rAF 读取之间不会被下一次 render 清空
+
+4. context.tsx overlay: 
+   - debugPefBboxes / debugBlurRegions 画完后加 length=0（consume-after-draw）
+   - 新增 showShadowBbox 分支：
+     - skipped=true → 灰色虚线框 + "a=0.00 skip" 标签
+     - skipped=false → 橙色实线框 + "a=0.10" 标签（显示实际 alpha）
+
+5. perf-monitor-overlay.tsx DebugToggles: 新增 "Show shadow bbox" 开关
+   - 橙色 ON 指示色
+   - tooltip 解释动态计算 + skipped 语义
+
+Stage Summary:
+- 新增 shadow bbox 调试可视化：橙色实线 = shadow 实际绘制 / 灰色虚线 = skipped（alpha≈0）
+- 修复 blur 盒 + PEF 盒显示失效：改用 consume-after-draw，数据不再被异步 render 清空
+- 现在可以同时开 shadow bbox + dirty markers 直观验证 Task 15 的修复：
+  - tabs3 拖动时 tabs3-container 显示橙色 shadow bbox（动态大小）
+  - tabs4 显示绿色 border（cache HIT，不再 backdrop_overlap）
+- lint 干净，dev.log 编译正常。未使用 Agent Browser。
