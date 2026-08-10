@@ -299,6 +299,10 @@ export function LiquidGlassCanvas({
     const renderer = rendererRefInternal.current
     if (!renderer || cornerStyle == null) return
     renderer.cornerStyle = cornerStyle
+    // cornerStyle is a GLOBAL shader uniform (uCornerStyle) read by every
+    // glass element's shape SDF. Changing it alters every element's rendered
+    // glass body, so all cached elFbos are stale and must be invalidated.
+    renderer.markAllDirty()
     renderer.requestRender()
   }, [cornerStyle])
 

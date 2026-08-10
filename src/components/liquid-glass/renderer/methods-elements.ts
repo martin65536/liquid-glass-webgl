@@ -1,6 +1,55 @@
 import type { LiquidGlassRenderer } from './index'
 import type { GlassElementConfig } from './types'
 
+/**
+ * Build a cache-signature string for an element's INDEPENDENT glass-body
+ * cache. Only fields that affect the rendered glass pixels are included;
+ * deliberately EXCLUDED:
+ *   - rect.x, rect.y — position changes are handled by the elFboCache's
+ *     ex0/ey0Top position check (cache MISS → re-rasterize → update). So
+ *     moving an element does NOT need to invalidate its cache here.
+ *   - scroll — folded into effective rect at render time, same as position.
+ *   - foreground props (label, labelColor, showChevron, text, icon) — these
+ *     are tracked separately by fgDirtyIds (foreground re-raster) and do NOT
+ *     affect the glass body's elFbo cache (foreground is a post-pass drawn
+ *     directly onto curFbo, never cached).
+ *   - renderOnTop — z-order, doesn't change the element's own glass pixels.
+ *
+ * When this signature changes (e.g. cornerRadius, blurRadius, scrimColor,
+ * magnifier zoom, enter progress), the cached elFbo is stale and must be
+ * re-rasterized → caller marks that single element dirty.
+ *
+ * Implementation note: JSON.stringify of a ~30-field array is ~1-2 µs per
+ * element. With <30 elements that's <60 µs total per setButtons call —
+ * negligible vs a single GPU draw call (~50-200 µs).
+ */
+function elementCacheSignature(el: GlassElementConfig): string {
+  return JSON.stringify([
+    el.rect.w, el.rect.h,
+    el.cornerRadius,
+    el.blurRadius, el.useSeparableBlur,
+    el.scrimColor,
+    el.independentBackdrop, el.sampleWallpaper,
+    el.chromaticAberration,
+    el.outerShadow,
+    el.highlight,
+    el.isMagnifier,
+    el.isSdfTexture,
+    el.enterProgress, el.enterSafeProgress, el.enterStretchFactor,
+    el.useGravityAngle,
+    el.elementRotation,
+    el.backdropFbo, el.brightness, el.contrast, el.saturation,
+    el.useContinuousSdf,
+    el.isToggleKnob, el.isToggleTrack, el.isSliderFill,
+    el.isBottomTabContainer, el.isBottomTabContent, el.isBottomTabIndicator,
+    el.sceneBlurRadius,
+    // NOTE: cornerStyle is a GLOBAL renderer field (this.cornerStyle), not
+    // per-element — its change is handled by the context.tsx effect that
+    // calls markAllDirty(). layerScale is derived at render time from
+    // element state, not stored on the config. Both deliberately excluded.
+  ])
+}
+
 declare module './index' {
   interface LiquidGlassRenderer {
     setElements(configs: GlassElementConfig[]): void
@@ -131,11 +180,29 @@ export const elementMethods = {
         })
       }
     }
+    // Diff each retained element's cache-signature BEFORE reassigning the
+    // list (we need the PREVIOUS configs to compare against). Only elements
+    // whose GLASS-BODY-affecting props changed (cornerRadius, blurRadius,
+    // scrim, magnifier zoom, enter progress, ...) are marked dirty.
+    // Position-only changes (rect.x/y — the common case during magnifier /
+    // lock-screen / glass-playground drag) do NOT invalidate the cache: the
+    // elFboCache's ex0/ey0Top position check handles that automatically
+    // (position changed → cache MISS → re-rasterize → cache updated).
+    //
+    // Previously this was an unconditional markAllDirty(), which nuked EVERY
+    // independent element's elFbo cache on every pointermove during a drag —
+    // the #1 remaining source of "lots of element updates" during drag.
+    const prevSigMap = new Map<string, string>()
+    for (const p of this.buttonConfigs) prevSigMap.set(p.id, elementCacheSignature(p))
+    for (const next of configs) {
+      const prevSig = prevSigMap.get(next.id)
+      // New element (prevSig undefined) → no cache to invalidate; it will
+      // MISS on first render and build its cache. No mark needed.
+      if (prevSig !== undefined && prevSig !== elementCacheSignature(next)) {
+        this.markElementDirty(next.id)
+      }
+    }
     this.buttonConfigs = configs
-    // Element list changed (page navigation, state rebuild) — mark all dirty
-    // so the perf monitor + debug overlay reflect the rebuild, and clear any
-    // stale per-id dirty marks (they're now meaningless against a new list).
-    this.markAllDirty()
     this.requestRender()
   },
 

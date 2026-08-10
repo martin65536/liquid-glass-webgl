@@ -741,3 +741,31 @@ Stage Summary:
   - perf overlay flip(key) 1 处（本轮修复新增）
 - 修复了 perf overlay 单个 quick-toggle 翻转不失效缓存的 bug（会导致关掉 backdropBlur/refraction 等效果时画面显示旧的带效果像素）。
 - lint 干净，dev.log 编译正常。
+
+---
+Task ID: 11
+Agent: main
+Task: setButtons 的 markAllDirty 改为按元素签名 diff（拖动放大镜/锁屏/glass-playground 时不再废所有缓存）
+
+Work Log:
+- 根源确认：magnifier / lock-screen / glass-playground 的 onDrag 走 setState({offsetX/Y}) → React 重渲染 → catalog 重建 elements（rect 带 offset）→ context.tsx:409 useEffect([elements]) → setElements → setButtons 末尾无条件 markAllDirty()。拖动一次 pointermove 就废掉所有 independent 缓存。
+- methods-elements.ts：
+  - 新增 elementCacheSignature(el) — JSON.stringify 一个 ~28 字段的数组，只含影响 independent 玻璃体缓存的属性（cornerRadius/blurRadius/scrimColor/isMagnifier/isSdfTexture/enterProgress/elementRotation/useContinuousSdf/isToggle*/isBottomTab*/sceneBlurRadius 等）。
+  - 故意排除：rect.x/rect.y（位置变由 elFboCache 的 ex0/ey0Top 位置校验自然 miss 处理）、scroll（渲染时 effRect 处理）、foreground 属性（label/text/icon，已有 fgDirtyIds diff）、renderOnTop（z-order 不影响元素自身缓存）、cornerStyle（全局字段非 per-element）、layerScale（渲染时派生非 config 属性）。
+  - setButtons 末尾：建 prevSigMap，逐元素比较 signature，变了才 markElementDirty(id)。新增元素（prevSig undefined）不 mark（无缓存可废，首次渲染自动 miss 建缓存）。去掉无条件 markAllDirty。
+  - 保留：删除元素的 deleteElFboCacheEntry、新增元素的 buttonStates 初始化、fgDirtyIds 的 foreground diff（已有逻辑不变）。
+- context.tsx cornerStyle effect：加 markAllDirty()。cornerStyle 是全局 shader uniform（uCornerStyle），改它影响所有元素的 shape SDF → 必须废所有缓存。之前只 requestRender 是 bug（和我上轮修的 perf-overlay flip 同类）。
+- 确认其他全局 effect 的缓存失效正确性：
+  - dpr effect：resize → resizeFBOs(force) → elFboCache 命中条件含 dpr 校验 → 自然 miss。✓
+  - blurTapCap effect：只影响 blurTexture（非 independent 2-pass Gaussian）的 tap 数，不影响 independent shader 内 blur。不需 markAllDirty。✓
+  - blurDownsample effect：只影响 blurTexture 降采样质量，不影响 independent 缓存。✓
+  - usePerElementFbo effect：已有 markAllDirty。✓
+  - setBackgroundColor effect：setBackgroundColor 内部有 markAllDirty。✓
+  - resize method：已清 elFboCache + markAllDirty。✓
+
+Stage Summary:
+- setButtons 从「无条件 markAllDirty」改为「按元素签名 diff，只 mark 变化的元素」。
+- 拖动放大镜/锁屏玻璃/glass-playground 时：只有被拖元素的 rect.x/y 变（signature 不含位置）→ 不 markElementDirty → elFboCache 通过 ex0/ey0Top 位置校验自然 miss 重新光栅化该元素 → 其他 independent 元素 signature 不变 → 继续命中缓存。
+- 修了 cornerStyle 全局变化不失效缓存的 bug。
+- markAllDirty 现在只保留在：setBackgroundColor / wallpaper load / wallpaper resize / canvas resize / usePerElementFbo effect / cornerStyle effect / perf-overlay setAll / perf-overlay flip(key)，全部是真正的全局失效场景。
+- lint 干净，dev.log 编译正常。
