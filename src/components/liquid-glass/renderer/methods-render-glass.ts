@@ -61,7 +61,18 @@ export function computeScissorMarginCss(
  *  (+ AA pad). Using the config's full blur/shadow here would over-inflate
  *  the rect and cause false overlaps between adjacent tab bars (32dp gap)
  *  even though their actual render footprints don't touch — this was the
- *  root cause of "sliding tabs3 updates tabs4". */
+ *  root cause of "sliding tabs3 updates tabs4".
+ *
+ *  SHADOW ALPHA THRESHOLD: shadows with effective alpha (outerShadow.alpha *
+ *  mod) below 0.15 are EXCLUDED from the inflation. A shadow at alpha=0.1
+ *  (DEFAULT_SHADOW) has a Gaussian falloff that reaches ~0.001 alpha at the
+ *  full radius edge — its contribution to curFbo at 24dp from the element is
+ *  < 1% darkening, which is imperceptible in another element's backdrop blur.
+ *  Including the full 24dp radius would cause false overlaps between adjacent
+ *  elements (e.g. two bottom-tab bars 32dp apart, each with a 28dp shadow
+ *  reach → 56dp of inflation in a 32dp gap → always overlapping). Strong
+ *  shadows (alpha >= 0.15, e.g. dialog shadows) are still included at full
+ *  radius because their contribution is visually significant. */
 export function inflatedOutputRect(
   el: GlassElementConfig,
   x: number, y: number, w: number, h: number,
@@ -73,10 +84,14 @@ export function inflatedOutputRect(
     ? Math.max(0, Math.min(1, togglePressProgress))
     : 1
   let blur = (el.blurRadius || 0) * mod
-  let shadow = el.outerShadow
-    ? (el.outerShadow.radius +
+  // Shadow: only include if the effective alpha is >= 0.15. Faint shadows
+  // (DEFAULT_SHADOW alpha=0.1) have negligible pixel contribution at their
+  // full radius edge and would cause false overlaps between adjacent bars.
+  let shadow = 0
+  if (el.outerShadow && el.outerShadow.alpha * mod >= 0.15) {
+    shadow = (el.outerShadow.radius +
        Math.max(Math.abs(el.outerShadow.offsetX), Math.abs(el.outerShadow.offsetY))) * mod
-    : 0
+  }
   // Knob: blur is 8*(1-progress) at rest (see renderGlassElementPass),
   // NOT blur*progress. Apply that inversion so rest knob still has its blur.
   if (el.isToggleKnob) {

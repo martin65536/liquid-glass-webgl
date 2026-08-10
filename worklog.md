@@ -905,3 +905,42 @@ Stage Summary:
 - 这直接回答用户的问题：「为什么 tabs 没有交互却不停触发 backdrop_overlap」——
   现在 reason 会告诉你是 all_dirty / scroll / 还是某个特定元素在不停 miss。
 - lint 干净，dev.log 编译正常。未使用 Agent Browser。
+
+---
+Task ID: 15
+Agent: main
+Task: 修复 tabs4 在 tabs3 滑动时疯狂触发 backdrop_overlap:glass:tabs3-container
+
+Work Log:
+- 根因链（通过 source 追踪定位）：
+  1. 布局：tabs3 在 y=0（高 64dp），tabs4 在 y=64dp+32dp。垂直间距 = 32dp。
+  2. 容器配置：blurRadius=8dp，outerShadow 默认 DEFAULT_SHADOW = { radius:24dp, offsetY:4dp, alpha:0.1 }。
+  3. inflatedOutputRect：m = max(blur=8dp, shadow=28dp, 3) + 4 = 32dp。每个 bar 的膨胀 rect 向四周延伸 32dp。
+  4. 两个 bar 间距 32dp，各自膨胀 32dp → 在 32dp 的 gap 里有 32dp 的重叠。
+  5. tabs3 拖动时：spring tick 每帧 → markGroupDirty('tabs3') → 标记 container dirty →
+     container cache MISS（reason='invalidated'）→ 重新光栅化 → push inflatedOutputRect（32dp reach）
+  6. tabs4 cache hit 测试：inflatedOutputRect(tabs4)（32dp reach）与 tabs3 的 dirtyRect 重叠 →
+     MISS，reason = backdrop_overlap:glass:tabs3-container
+
+- 核心问题：shadow alpha=0.1 非常淡。在 24dp 半径边缘，高斯衰减使 alpha 降到 ~0.001。
+  shadow 在距元素 24dp 处对 curFbo 的贡献 < 1% 变暗，在另一个元素的 backdrop blur 里
+  完全不可感知。但 inflatedOutputRect 却使用了完整的 28dp（radius+offset），导致两个
+  间距 32dp 的相邻 bar 永远假重叠。
+
+- 修复：inflatedOutputRect 加 shadow alpha 阈值。当 outerShadow.alpha * mod < 0.15 时，
+  不把 shadow 计入膨胀。DEFAULT_SHADOW（alpha=0.1）被排除，container 的 dirty rect 从
+  32dp 缩小到 12dp（只含 blur + headroom）。两个 bar 各膨胀 12dp → 总 reach 24dp < 32dp
+  gap → 不再假重叠。强 shadow（alpha >= 0.15，如 dialog shadow）仍按完整 radius 计入。
+
+- 效果：
+  - tabs3 拖动时：container dirty rect = 12dp，不与 tabs4 重叠 → tabs4 cache HIT → 绿色
+  - tabs4 拖动时：同理，tabs3 不受影响
+  - 只有真正在视觉上有意义的 shadow 变化才会触发相邻元素重新光栅化
+
+Stage Summary:
+- inflatedOutputRect 新增 shadow alpha 阈值（0.15）：淡 shadow（alpha=0.1）不计入膨胀，
+  消除相邻 bottom-tab bar 之间的假 backdrop_overlap。
+- 这是 Bug 3（bottomtabs 互相更新）的最终修复。之前的 source 追踪（Task 14）定位到了
+  根因是 tabs3-container 的 dirtyRect 与 tabs4 重叠，本次修复通过缩小 dirtyRect 让
+  它们不再重叠。
+- lint 干净，dev.log 编译正常。未使用 Agent Browser。
