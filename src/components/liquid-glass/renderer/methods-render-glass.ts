@@ -883,38 +883,36 @@ export const glassRenderMethods = {
     // the spring settles the entry stays valid and can hit, avoiding re-raster
     // while idle.
     //
-    // EXCEPTION: bottom-tab indicators are NOT cacheable. Their element shader
-    // (sampleIndicatorBackdrop) bakes two pressProgress-dependent layers into
-    // the elFbo that cannot be stale-reused:
-    //   (a) the inner-backdrop rim highlight (step 6, alpha = uIndicatorPressProgress)
-    //   (b) the inner-backdrop mask + tab-content contentScale (steps 2 + 4,
-    //       both modulated by uIndicatorPressProgress)
-    // On PEF cache hit, Step 3 is skipped → these layers are never recomputed.
-    // If the cache was written at progress=0 (e.g. first frame before
-    // setTabSelected fires, or idle at rest), the baked content is missing
-    // the inner rim highlight AND uses the at-rest mask/contentScale. When
-    // the user later presses a tab, markGroupDirty invalidates during the
-    // spring — but the FIRST press frame and any frame where the spring
-    // settles then re-presses still bakes a stale snapshot that persists
-    // until the next invalidation. This caused two PEF-only symptoms:
-    //   1. "first frame missing indicator content layer" — cache written at
-    //      progress=0, inner rim highlight + pressed-mask baked as empty.
-    //   2. "highlights frequently disappear" — cache hit reusing a progress=0
-    //      bake (the outer rim highlight was fixed separately in Task 29 by
-    //      correcting state.elHighlightAlpha; the INNER one lives inside
-    //      sampleIndicatorBackdrop and can only be fixed by re-running Step 3).
-    // The indicator also samples uTabsGlassLayer (tabsBackdropTex), a LIVE
-    // snapshot of the scene that changes whenever the container/content
-    // behind it changes — caching a sample of a live texture is inherently
-    // stale-prone.
-    // Forcing re-raster every frame matches the ping-pong path (which the
-    // user confirmed has no symptoms). Cost is negligible: only 2 indicators
-    // per bottom-tabs page, and the tight elFbo rect is still used (far
-    // cheaper than full-screen ping-pong).
+    // Bottom-tab indicators ARE cacheable. Their element shader
+    // (sampleIndicatorBackdrop) bakes pressProgress-dependent layers into the
+    // elFbo (inner-backdrop rim highlight alpha, inner-backdrop mask, tab-content
+    // contentScale), AND samples a live scene snapshot (uTabsGlassLayer =
+    // tabsBackdropTex, captured every frame after the container glass renders).
+    // Stale-reuse is prevented by the normal cache-invalidation paths:
+    //   - pressProgress / fraction / panelOffset change → markGroupDirty(groupId)
+    //     in methods-tabs.ts (setTabSelected / beginTabDrag / dragTab / endTabDrag)
+    //     → entry.valid=false → miss → re-raster.
+    //   - tabsBackdropTex content change → the container glass (rendered just
+    //     before the indicator) cache-misses whenever ITS backdrop changes,
+    //     pushing a `glass:<container-id>` dirtyRect; the indicator's
+    //     backdrop_overlap check finds the overlap (indicator sits inside the
+    //     container) → miss → re-raster. Tab-content text/icon changes push
+    //     `nonglass:<id>` rects, also caught by backdrop_overlap.
+    //   - scroll → position_mismatch (indicator is NOT scrollInvariant) → miss.
+    //   - wallpaper reload → wallpaperVersion → miss.
+    // The earlier "first-frame missing indicator content layer" /
+    // "highlights frequently disappear" PEF-only symptoms were caused by
+    // state.elHighlightAlpha being initialized to 0 and only corrected inside
+    // Step 3 (which cache-hit skips). That was fixed by computing
+    // base*progress up-front in the GlassRenderState (see elHighlightAlpha
+    // below) so the post-pass renders the OUTER rim highlight every frame
+    // regardless of cache hit. The INNER rim highlight (inside
+    // sampleIndicatorBackdrop, step 6) is baked into elFbo and is correct as
+    // long as the cache entry was rasterized at the current pressProgress —
+    // which the invalidation paths above guarantee.
     const cacheable = !!(
       this.wallpaperTexture &&
-      !el.backdropFbo && !el.useContinuousSdf &&
-      !el.isBottomTabIndicator
+      !el.backdropFbo && !el.useContinuousSdf
     )
 
     // Position-invariant cache: the element's glass body rendered into the
@@ -1114,10 +1112,24 @@ export const glassRenderMethods = {
       // page), el.backdropFbo (dialog captures its own backdrop — changes
       // when the scene behind the dialog changes), or el.useContinuousSdf
       // (SDF-texture elements whose shape data updates independently).
+      // (Bottom-tab indicators used to be non-cacheable too, but are now
+      // cacheable — see the cacheable doc-comment above for why stale-reuse
+      // is safely prevented by the normal invalidation paths.)
       if (this.showDirtyMarkers) {
+        // The 3 conditions in `cacheable` (above) are: !wallpaperTexture,
+        // backdropFbo, useContinuousSdf. The ncReason ternary must match them
+        // 1:1 so the debug overlay shows the TRUE reason an element is
+        // non-cacheable. Previously the ternary only checked the first 3 and
+        // fell through to 'non_cacheable:sdf' for isBottomTabIndicator — a
+        // log-labeling bug. Now each condition gets its own label, and
+        // isBottomTabIndicator is kept as a defensive fallback (it should
+        // never trigger now that indicators are cacheable, but guards against
+        // future regressions).
         const ncReason = !this.wallpaperTexture ? 'non_cacheable:no_wp'
           : el.backdropFbo ? 'non_cacheable:backdropFbo'
-          : 'non_cacheable:sdf'
+          : el.useContinuousSdf ? 'non_cacheable:sdf'
+          : el.isBottomTabIndicator ? 'non_cacheable:indicator'
+          : 'non_cacheable:unknown'
         this.debugCacheMissLog.push({ id: el.id, reason: ncReason, x: sx, y: sy, w: sw, h: sh })
       }
       const ensured = this.ensureElementFBO(elFboRectW, elFboRectH)
