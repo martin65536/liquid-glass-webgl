@@ -1713,3 +1713,52 @@ Stage Summary:
 - 印证：cull 逻辑（margin=max(120,h)）对 h≈300 的卡片很宽松，
   卡片视觉提前消失时 cull overlay 应仍显示 GREEN(KEPT) → 元凶在别处
   （PEF composite position / scissor / elFbo cache）
+
+---
+Task ID: 27
+Agent: main
+Task: 解释 cull rect + 简化 cull overlay + 只显示 settings-card-rendering-bg
+
+Work Log:
+- 用户三问：
+  1. 什么是 cull rect
+  2. overlay 太乱了，改改
+  3. 暂时只显示 settings-card-rendering-bg
+
+- 概念解释（回复用户）：
+  - cull = 剔除。渲染器每帧遍历元素，屏幕外的跳过不画
+  - 判定：y+h < -margin 或 y > vh+margin → continue（margin=max(120,h)）
+  - "cull rect" = overlay 记录的"元素参与剔除判定的信息"：
+    视口 y / h / margin / KEPT|CULLD，不是新矩形，是元素自身 rect + 判定结果
+
+- 简化 overlay（context.tsx showCullDebug 块，L426-502）：
+  旧版（太乱）：
+    - 2 条 base cull band 虚线（±120）
+    - 2 条 viewport 边缘实线
+    - 所有元素都画 rect + 长标签（id y h m 状态 [top]）
+  新版（只 3 样）：
+    1. 元素 rect（GREEN 实线=KEPT / RED 虚线=CULLD，真实视口 y 不 clamp）
+    2. 元素底部线（虚线横跨画布）—— cull 判定看的就是底部 y+h 位置
+    3. 左上角信息面板（8 行）：
+       id / viewport y / h / bottom(y+h) / margin /
+       cull 阈值 / dist to top-cull / status
+       status 行高亮（绿=KEPT / 红=CULLD）
+       面板有半透明黑底 + 彩色边框
+
+- 只显示 settings-card-rendering-bg：
+  const FILTER_ID = 'settings-card-rendering-bg'
+  const c = culls.find(r => r.id === FILTER_ID)
+  只画这一个，其他全部跳过
+  注释说明：renderer 端仍记录全部元素的 cull 决策（debugCullRects），
+  数据层不变，只是 overlay 渲染时过滤。要看其他元素改 FILTER_ID 即可
+
+- 验证：
+  - lint 干净
+  - dev.log 编译正常（✓ Compiled in 178ms）
+  - 未使用 Agent Browser
+
+Stage Summary:
+- cull rect = 元素参与剔除判定的信息（视口 y + h + margin + KEPT/CULLD）
+- overlay 从"所有元素 + 4 条参考线 + 长标签"简化为"单个元素 + 底部线 + 信息面板"
+- 临时只显示 settings-card-rendering-bg，改 FILTER_ID 常量即可切换
+- 信息面板直观显示 dist to top-cull：>0 = KEPT，<0 = CULLD

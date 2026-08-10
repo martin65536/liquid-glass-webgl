@@ -424,83 +424,78 @@ export function LiquidGlassCanvas({
             // NOTE: do NOT consume — see showPefBbox comment above.
           }
           if (renderer.showCullDebug) {
-            // Cull-decision overlay: draws each element's effective viewport
-            // rect (after scroll) + the cull margin applied + KEPT/CULL label.
+            // Cull-decision overlay — SIMPLIFIED.
             //
-            // GREEN solid rect  = KEPT (rendered this frame)
-            // RED   dashed rect = CULLED (skipped via `continue`)
+            // 临时只显示 settings-card-rendering-bg（排查"卡片提前消失"）。
+            // 要看其他元素时改下面的 FILTER_ID 即可；renderer 端仍记录
+            // 全部元素的 cull 决策（debugCullRects），数据层不变。
             //
-            // Also draws two faint dashed horizontal reference lines at
-            // y = -120 and y = viewportH + 120 — the BASE cull band (the
-            // actual per-element band is [-max(120,h), viewportH+max(120,h)],
-            // which is wider for tall elements; the base band is the minimum).
-            //
-            // DIAGNOSTIC USE: if an element visually disappears on screen
-            // but still shows a GREEN rect here, the cull logic is NOT the
-            // cause — look at PEF composite position / scissor / elFbo cache
-            // instead. If it shows RED while still partially on-screen, the
-            // cull logic IS the bug (shouldn't happen given max(120,h)).
+            // 只画 3 样：
+            //   1. 元素 rect（真实视口位置，GREEN=KEPT / RED 虚线=CULLD）
+            //   2. 元素底部线（虚线横跨画布）—— cull 判定看的就是底部 y+h
+            //   3. 左上角信息面板（数字 + cull 阈值 + 距离 + 状态）
             const culls = renderer.debugCullRects
-            const vh = oc.height
-            // Base cull band reference lines (y = ±120 outside viewport).
-            ctx.strokeStyle = 'rgba(180, 180, 255, 0.35)'
-            ctx.lineWidth = 1
-            ctx.setLineDash([6, 4])
-            ctx.beginPath()
-            ctx.moveTo(0, -120 + 0.5); ctx.lineTo(oc.width, -120 + 0.5)
-            ctx.moveTo(0, vh + 120 + 0.5); ctx.lineTo(oc.width, vh + 120 + 0.5)
-            ctx.stroke()
-            ctx.setLineDash([])
-            // Viewport edge reference (the actual on-screen area).
-            ctx.strokeStyle = 'rgba(180, 180, 255, 0.5)'
-            ctx.lineWidth = 1
-            ctx.beginPath()
-            ctx.moveTo(0, 0.5); ctx.lineTo(oc.width, 0.5)
-            ctx.moveTo(0, vh - 0.5); ctx.lineTo(oc.width, vh - 0.5)
-            ctx.stroke()
-            // Per-element rects.
-            ctx.font = 'bold 10px ui-monospace, monospace'
-            for (let i = 0; i < culls.length; i++) {
-              const c = culls[i]
-              // Draw the rect at its TRUE viewport y — do NOT clamp y.
-              // Clamping y (the earlier Math.max(-60, ...) approach) made
-              // the rect "stick" at a fixed height once the element slid
-              // above y=-60, which hid the real scroll position and made it
-              // impossible to tell whether the element was KEPT or about to
-              // be CULLD. The canvas auto-clips content outside [0, vh], so
-              // a rect at y=-200 simply draws its bottom edge sliding off
-              // the top — exactly what the user needs to see.
-              // The LABEL is handled separately below (clamped into view so
-              // it never disappears entirely when the element is off-screen).
-              const drawY = c.y
+            const FILTER_ID = 'settings-card-rendering-bg'
+            const c = culls.find(r => r.id === FILTER_ID)
+            if (c) {
+              // --- 1. 元素 rect（真实视口 y，canvas 自动裁画布外部分）---
               if (c.culled) {
-                ctx.strokeStyle = 'rgba(255, 80, 80, 0.9)'
-                ctx.lineWidth = 1.5
-                ctx.setLineDash([4, 3])
-                ctx.strokeRect(c.x + 0.5, drawY + 0.5, c.w - 1, c.h - 1)
+                ctx.strokeStyle = 'rgba(255, 80, 80, 0.95)'
+                ctx.lineWidth = 2
+                ctx.setLineDash([5, 3])
+                ctx.strokeRect(c.x + 0.5, c.y + 0.5, c.w - 1, c.h - 1)
                 ctx.setLineDash([])
               } else {
                 ctx.strokeStyle = 'rgba(80, 230, 130, 0.95)'
-                ctx.lineWidth = 1.5
-                ctx.strokeRect(c.x + 0.5, drawY + 0.5, c.w - 1, c.h - 1)
+                ctx.lineWidth = 2
+                ctx.strokeRect(c.x + 0.5, c.y + 0.5, c.w - 1, c.h - 1)
               }
-              // Label: id | y h m | KEPT/CULL. Clamp the LABEL vertically
-              // into [2, vh-14] so it's always readable even when the rect
-              // itself is fully off-screen. Horizontally clamp so long ids
-              // don't overflow the right edge.
-              const label = `${c.id} y=${Math.round(c.y)} h=${c.h} m=${c.margin} ${c.culled ? 'CULL' : 'KEPT'}${c.pass === 'onTop' ? ' [top]' : ''}`
-              const tw = ctx.measureText(label).width
-              const labelX = Math.max(0, Math.min(c.x, oc.width - tw - 9))
-              // Vertical: prefer just-inside-top of the rect; if the rect is
-              // above the viewport (drawY < 0), pin the label to y=2 so it
-              // stays visible at the top edge; if below viewport, pin to bottom.
-              let labelY = drawY + 10
-              if (drawY + 10 < 6) labelY = 12
-              else if (drawY + 10 > vh - 4) labelY = vh - 4
-              ctx.fillStyle = c.culled ? 'rgba(120, 0, 0, 0.78)' : 'rgba(0, 80, 30, 0.78)'
-              ctx.fillRect(labelX, labelY - 9, tw + 6, 12)
-              ctx.fillStyle = c.culled ? 'rgba(255, 200, 200, 0.98)' : 'rgba(220, 255, 230, 0.98)'
-              ctx.fillText(label, labelX + 3, labelY)
+
+              // --- 2. 元素底部线（y+h，cull 判定看的就是这条线的位置）---
+              const bottomY = c.y + c.h
+              ctx.strokeStyle = c.culled ? 'rgba(255, 80, 80, 0.5)' : 'rgba(80, 230, 130, 0.5)'
+              ctx.lineWidth = 1
+              ctx.setLineDash([3, 3])
+              ctx.beginPath()
+              ctx.moveTo(0, bottomY + 0.5)
+              ctx.lineTo(oc.width, bottomY + 0.5)
+              ctx.stroke()
+              ctx.setLineDash([])
+
+              // --- 3. 左上角信息面板 ---
+              ctx.font = 'bold 11px ui-monospace, monospace'
+              const bottomVal = Math.round(c.y + c.h)
+              const topCullThreshold = -c.margin
+              const distToCull = bottomVal - topCullThreshold
+              const lines = [
+                `id: ${c.id}`,
+                `viewport y = ${Math.round(c.y)}`,
+                `h = ${c.h}`,
+                `bottom (y+h) = ${bottomVal}`,
+                `margin = max(120, h) = ${c.margin}`,
+                `cull when y+h < ${topCullThreshold}  or  y > ${c.viewportH + c.margin}`,
+                `dist to top-cull = ${distToCull > 0 ? '+' : ''}${distToCull}px  ${distToCull > 0 ? '(KEPT)' : '(CULLD)'}`,
+                `status: ${c.culled ? '[ CULLD — skipped ]' : '[ KEPT — rendered ]'}`,
+              ]
+              let maxW = 0
+              for (let li = 0; li < lines.length; li++) {
+                const w = ctx.measureText(lines[li]).width
+                if (w > maxW) maxW = w
+              }
+              const panelW = maxW + 16
+              const panelH = lines.length * 15 + 12
+              ctx.fillStyle = 'rgba(0, 0, 0, 0.82)'
+              ctx.fillRect(8, 8, panelW, panelH)
+              ctx.strokeStyle = c.culled ? 'rgba(255, 80, 80, 0.6)' : 'rgba(80, 230, 130, 0.6)'
+              ctx.lineWidth = 1
+              ctx.strokeRect(8.5, 8.5, panelW - 1, panelH - 1)
+              for (let li = 0; li < lines.length; li++) {
+                const isStatus = li === lines.length - 1
+                ctx.fillStyle = isStatus
+                  ? (c.culled ? 'rgba(255, 130, 130, 1)' : 'rgba(130, 255, 150, 1)')
+                  : 'rgba(230, 230, 230, 0.95)'
+                ctx.fillText(lines[li], 16, 24 + li * 15)
+              }
             }
             // NOTE: do NOT consume — structural overlay (persists across
             // idle frames). The renderer clears + repopulates on each render.
