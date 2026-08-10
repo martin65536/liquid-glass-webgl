@@ -30,7 +30,15 @@ export const SPRING_OMEGA_N = Math.sqrt(SPRING_K) // ≈ 17.3205 (m = 1)
 export const SPRING_OMEGA_D =
   SPRING_OMEGA_N *
   Math.sqrt(1 - SPRING_DAMPING_RATIO * SPRING_DAMPING_RATIO) // ≈ 15.0
-export const SPRING_THRESHOLD = 0.0005
+// Settle threshold: springs are considered "at rest" when both position delta
+// and velocity fall below this. 0.0005 was too strict — underdamped springs
+// (ζ=0.5, used by velocity/scaleX/scaleY) oscillate around zero, and their
+// velocity repeatedly dips just under 0.0005 then bounces back above it,
+// preventing the settle branch from firing. The animation loop then runs
+// forever, marking the group dirty every frame → constant re-render → heat.
+// 0.003 is still visually imperceptible (<0.3% of the value range) but lets
+// the oscillator settle within a few frames of crossing zero.
+export const SPRING_THRESHOLD = 0.003
 
 // Critically-damped spring constants for toggle value/press
 // (matches DampedDragAnimation.kt's spring(1f, 1000f)).
