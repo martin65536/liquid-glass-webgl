@@ -719,3 +719,25 @@ Stage Summary:
 - toggle/tab 动画期间：只有该 group 的元素被 mark，其他 independent 元素缓存不失效。
 - 重力传感器：只有 useGravityAngle=true 的元素被 mark。
 - lint 干净，dev.log 编译正常无报错。
+
+---
+Task ID: 10
+Agent: main
+Task: 排查并修复剩余 markAllDirty 调用点（React 层 + perf overlay）
+
+Work Log:
+- 全仓 grep `markAllDirty` 找到所有调用点，逐一分析合理性：
+  - renderer 内 4 处（setButtons / setBackgroundColor / wallpaper load / wallpaper resize）：真正的全局状态变化 → 保留。
+  - context.tsx:316 usePerElementFbo effect：切 PEF 开关改变所有 glass 元素渲染路径 → 保留。
+  - perf-monitor-overlay.tsx:492 setAll(v)：一次翻 8 个 quickToggle → 保留。
+  - **BUG 发现**：perf-monitor-overlay.tsx:460 flip(key) 单个 toggle 翻转时只 requestRender() 不 markAllDirty。但 refraction/chromatic/backdropBlur/isolateBackdrop/highlight/innershadow/outerShadow 这些 toggle 直接改变 independent 元素玻璃体的 shader uniform / 采样源 / blur 路径 → 缓存的 elFbo 持有旧 toggle 状态的像素，不失效会显示错误效果。
+- 修复：flip(key) 加 r.markAllDirty()，与 setAll 行为一致。
+- 确认所有 quickToggles.* 赋值点（grep `quickToggles\.\w+\s*=`）都在 setAll（已 markAllDirty）、flip（已修复）、context usePerElementFbo effect（已 markAllDirty）三处，无遗漏。
+
+Stage Summary:
+- markAllDirty 调用点现状（全合理）：
+  - renderer 内 4 处：setButtons / setBackgroundColor / wallpaper load / wallpaper resize
+  - React 层 2 处：context usePerElementFbo effect / perf overlay setAll
+  - perf overlay flip(key) 1 处（本轮修复新增）
+- 修复了 perf overlay 单个 quick-toggle 翻转不失效缓存的 bug（会导致关掉 backdropBlur/refraction 等效果时画面显示旧的带效果像素）。
+- lint 干净，dev.log 编译正常。

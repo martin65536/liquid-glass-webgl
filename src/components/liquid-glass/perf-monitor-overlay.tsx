@@ -463,6 +463,11 @@ function QuickToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
     const r = rendererRef.current
     if (r) {
       r.quickToggles[key] = next
+      // Any quick-toggle flip changes the glass-body render result
+      // (shader uniforms / blur path / sampling source). Cached elFbos
+      // hold the PREVIOUS toggle state's pixels, so they MUST be
+      // invalidated or the next frame composites a stale look.
+      r.markAllDirty()
       r.requestRender()
     }
   }
