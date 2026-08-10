@@ -995,3 +995,53 @@ Stage Summary:
   - tabs3 拖动时 tabs3-container 显示橙色 shadow bbox（动态大小）
   - tabs4 显示绿色 border（cache HIT，不再 backdrop_overlap）
 - lint 干净，dev.log 编译正常。未使用 Agent Browser。
+
+---
+Task ID: 17
+Agent: main
+Task: 修复所有 debug overlay 在 idle 时隐形
+
+Work Log:
+- 根因：render() 在 needsRedraw=false 时 early-return（line 52），不执行 clear+repopulate。
+  之前的 consume-after-draw 模式让 overlay 在画完后 length=0 清空列表 → 下一帧 idle 时
+  列表为空 → overlay rAF 画不出任何东西。所以 debug overlay 只在「紧跟在一次 render
+  之后的那个 rAF tick」可见，idle 帧全黑。
+
+- 根因本质：把 structural overlay（元素在哪 / PEF bbox / blur region / shadow bbox /
+  dirty border）和 transient overlay（这一帧实际做了什么 / red dot / miss reason /
+  dirty source）混用了同一套 consume-after-draw 生命周期。structural 应该 idle 时持久，
+  transient 才应该 idle 时消失。
+
+- 修复策略：分离两类生命周期
+  - STRUCTURAL（持久跨 idle）：debugPefBboxes / debugBlurRegions / debugShadowBboxes /
+    debugDirtyMarkers(borders)。这些列表在 render 开始时 clear+repopulate，idle 帧不
+    执行 render → 列表保留上一次 render 的数据 → overlay 持续可见。overlay 画完后
+    **不再 consume**（去掉 length=0）。
+  - TRANSIENT（仅 render 帧可见）：debugCacheMissLog / debugDirtySourceLog / red dot。
+    这些仍然 consume-after-draw，因为它们表达「这一帧的 GPU work」，idle 时没有 work
+    就不该显示。
+
+- 具体改动（context.tsx overlay）：
+  - debugPefBboxes: 去掉 boxes.length = 0（画完不 consume）
+  - debugBlurRegions: 去掉 regions.length = 0
+  - debugShadowBboxes: 去掉 sboxes.length = 0
+  - debugDirtyMarkers: 去掉 markers.length = 0 → border 持久；red dot 仍然由
+    dirtyBlinkOn 控制（只在有 markers 时画，idle 时 markers 还在但 dot 会闪——
+    实际上 idle 时 markers 保留上次 render 的 dirty 状态，dot 会持续闪，这是合理的，
+    因为它标记「上次 render 哪些元素做了 work」）
+  - debugCacheMissLog: 保留 missLog.length = 0（transient）
+  - debugDirtySourceLog: 保留 srcLog.length = 0（transient）
+
+- 注释更新：明确标注每个列表是 structural（persist）还是 transient（consume）。
+
+Stage Summary:
+- 现在 idle 时所有 structural debug overlay 持续可见：
+  - PEF bbox（绿/红框）— 持续显示每个 glass 元素的 PEF/ping-pong 路径
+  - blur regions（青色虚线）— 持续显示每个 backdrop blur 调用的区域
+  - shadow bbox（橙/灰框）— 持续显示每个元素的动态 shadow reach
+  - dirty markers border（绿/红框）— 持续显示每个元素位置 + 上次 render 的 dirty 状态
+- transient overlay 仍然只在 render 帧可见：
+  - miss reason（黄字）— 只在紧跟 render 的 rAF tick 显示
+  - dirty source（粉字）— 只在紧跟 render 的 rAF tick 显示
+  - red dot 闪烁 — markers 持久所以 dot 会持续闪（标记上次 render 的 dirty 元素）
+- lint 干净，dev.log 编译正常。未使用 Agent Browser。

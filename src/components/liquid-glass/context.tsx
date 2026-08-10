@@ -374,12 +374,12 @@ export function LiquidGlassCanvas({
               ctx.font = 'bold 10px ui-monospace, monospace'
               ctx.fillText(String(i), b.x + 3, b.y + 11)
             }
-            // Consume-after-draw: clear the list here (not at render start)
-            // so the data survives the async gap between render() finishing
-            // and this rAF tick reading it. Without this, a render firing
-            // between two rAF ticks would clear the list before we draw →
-            // blank/flickering overlay (the blur-box display bug).
-            boxes.length = 0
+            // NOTE: do NOT consume (length=0) here. The lists are structural
+            // overlays (where elements ARE, not what they DID this frame) and
+            // should persist across idle frames when no render fires. The
+            // render() method clears + repopulates them at the start of each
+            // actual render; idle frames (needsRedraw=false → early return)
+            // leave the last render's data intact, so the overlay stays visible.
           }
           if (renderer.showBlurDebug) {
             const regions = renderer.debugBlurRegions
@@ -396,8 +396,7 @@ export function LiquidGlassCanvas({
               const label = `#${i} ds=${r.ds} r=${(r.radius / (renderer.dpr || 1)).toFixed(1)} fbo=${r.blurW}×${r.blurH}`
               ctx.fillText(label, r.x + 3, r.y + 11)
             }
-            // Consume-after-draw (see showPefBbox comment above).
-            regions.length = 0
+            // NOTE: do NOT consume — see showPefBbox comment above.
           }
           if (renderer.showShadowBbox) {
             const sboxes = renderer.debugShadowBboxes
@@ -422,63 +421,63 @@ export function LiquidGlassCanvas({
               const label = `#${i} a=${b.alpha.toFixed(2)}${b.skipped ? ' skip' : ''}`
               ctx.fillText(label, b.x + 3, b.y + 11)
             }
-            // Consume-after-draw (see showPefBbox comment above).
-            sboxes.length = 0
+            // NOTE: do NOT consume — see showPefBbox comment above.
           }
           if (renderer.showDirtyMarkers) {
             // Colored border + blinking red dot per element.
             //
             // BORDER: green = clean (cache hit, no re-raster), red = dirty
             // (cache miss, re-rasterized this frame). Drawn every rAF tick
-            // so the bbox is always visible while the overlay is on.
+            // so the bbox is always visible while the overlay is on. The
+            // border PERSISTS across idle frames (the list is NOT consumed
+            // here) so you can always see where every element is — only the
+            // RED DOT + MISS reasons below are transient (consumed after
+            // draw) because they represent "this frame's actual GPU work"
+            // and should disappear when idle.
             //
             // RED DOT: drawn ONLY on alternate rAF ticks (dirtyBlinkOn) and
             // ONLY for dirty elements — gives a visible ~30Hz flash that
-            // makes it obvious which elements are doing GPU work. Combined
-            // with the consume-after-draw below, dots disappear when idle.
+            // makes it obvious which elements are doing GPU work. The dot
+            // + miss reasons disappear when idle (no render → list empty).
             //
             // SEMANTICS: a "dirty" element is one whose glass body was
             // actually re-rasterized this render frame (elFboCache MISS).
             // The renderer clears + repopulates debugDirtyMarkers during
-            // each render(); we consume the list here (length = 0) after
-            // drawing, so:
-            //   - On rAF ticks that follow a render → list is populated →
-            //     draw borders + (blinking) red dots.
-            //   - On rAF ticks with no new render (idle) → list is empty →
-            //     draw nothing → no stale markers linger on idle frames.
+            // each render(); idle frames (needsRedraw=false → early return)
+            // leave the last render's markers intact, so borders stay visible.
             const markers = renderer.debugDirtyMarkers
-            if (markers.length > 0) {
+            // BORDERS: always drawn (persist across idle frames — do NOT
+            // consume the markers list here).
+            for (let i = 0; i < markers.length; i++) {
+              const m = markers[i]
+              ctx.strokeStyle = m.dirty ? 'rgba(255, 110, 110, 0.95)' : 'rgba(120, 230, 130, 0.85)'
+              ctx.lineWidth = m.dirty ? 2 : 1
+              ctx.strokeRect(m.x + 0.5, m.y + 0.5, m.w - 1, m.h - 1)
+            }
+            // Blinking red dot on dirty elements (alternate ticks).
+            if (dirtyBlinkOn) {
+              ctx.fillStyle = 'rgba(255, 70, 70, 0.95)'
               for (let i = 0; i < markers.length; i++) {
                 const m = markers[i]
-                ctx.strokeStyle = m.dirty ? 'rgba(255, 110, 110, 0.95)' : 'rgba(120, 230, 130, 0.85)'
-                ctx.lineWidth = m.dirty ? 2 : 1
-                ctx.strokeRect(m.x + 0.5, m.y + 0.5, m.w - 1, m.h - 1)
-              }
-              // Blinking red dot on dirty elements (alternate ticks).
-              if (dirtyBlinkOn) {
-                ctx.fillStyle = 'rgba(255, 70, 70, 0.95)'
-                for (let i = 0; i < markers.length; i++) {
-                  const m = markers[i]
-                  if (!m.dirty) continue
-                  ctx.beginPath()
-                  ctx.arc(m.x + m.w - 7, m.y + 7, 4, 0, Math.PI * 2)
-                  ctx.fill()
-                }
+                if (!m.dirty) continue
+                ctx.beginPath()
+                ctx.arc(m.x + m.w - 7, m.y + 7, 4, 0, Math.PI * 2)
+                ctx.fill()
               }
             }
-            // Consume the markers so idle frames (no new render between
-            // rAF ticks) draw nothing — fixes "red still shows when idle".
-            markers.length = 0
 
             // Cache MISS reasons — drawn as yellow text on a dark background
             // just BELOW each dirty element's bbox. Helps answer "why is this
             // element re-rasterizing every frame?"
-            //   invalidated / backdrop_overlap / position_mismatch /
+            //   invalidated / backdrop_overlap:* / position_mismatch /
             //   size_mismatch / no_entry / wallpaper_version / dpr /
             //   non_cacheable:* / ping_pong
             // Every glass element that did NOT hit its elFboCache logs a
             // reason here, including the ping-pong path (PEF off) and
             // non-cacheable elements (no wallpaper / backdropFbo / SDF).
+            // CONSUMED after draw so miss reasons only show on the rAF tick
+            // immediately following a render — idle frames see no reasons
+            // (no render → no misses → nothing to show).
             const missLog = renderer.debugCacheMissLog
             if (missLog.length > 0) {
               ctx.font = 'bold 10px ui-monospace, monospace'
