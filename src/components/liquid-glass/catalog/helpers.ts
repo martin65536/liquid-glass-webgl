@@ -207,7 +207,6 @@ export function makeLiquidSlider(
   initFraction = 0,
   snap?: (f: number) => number,
   onLiveValue?: (fraction: number) => void,
-  solidBackdropColor?: [number, number, number, number],
 ): { elements: GlassElementConfig[]; interactions: Record<string, ElementInteraction> } {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
@@ -251,7 +250,7 @@ export function makeLiquidSlider(
     },
     scroll
   )
-  knobEl.isToggleKnob = { groupId, dragWidth: dragW, velocityDivisor: 10, solidBackdropColor }
+  knobEl.isToggleKnob = { groupId, dragWidth: dragW, velocityDivisor: 10 }
   knobEl.hitRect = { x: knobX, y: knobY + (SLIDER_KNOB_H - SLIDER_HIT_H) / 2, w: SLIDER_KNOB_W, h: SLIDER_HIT_H }
   elements.push(knobEl)
 

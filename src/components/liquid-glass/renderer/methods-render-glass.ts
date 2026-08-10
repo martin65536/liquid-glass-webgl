@@ -916,6 +916,48 @@ export const glassRenderMethods = {
       !el.backdropFbo && !el.useContinuousSdf
     )
 
+    // Scroll-invariant cache: the element's glass body is stable under
+    // scroll-induced position changes, even though its backdrop IS curTex
+    // (unlike positionInvariant which is solid-backdrop and reads no curTex).
+    //
+    // This applies to slider knobs on solid-background pages:
+    //   - The page has backgroundColor (no wallpaper) → curTex is solid bg.
+    //   - The knob sits on a card + track + fill, all of which scroll WITH
+    //     the knob. So the curTex region the knob samples (knob center +
+    //     blur + refraction offset) shifts by the same scrollY as the knob.
+    //   - Screen-space: knob moves up by ΔscrollY; curTex at the knob's new
+    //     screen position = the same card/track/fill content that was at the
+    //     old position. Net backdrop sample → identical.
+    //   - The cached glass body (rasterized at the old scroll position)
+    //     remains valid; we just composite it at the new position.
+    //
+    // DIFFERENCE from positionInvariant:
+    //   - positionInvariant skips ALL backdrop_overlap checks (no curTex dep).
+    //   - scrollInvariant skips ONLY position_mismatch + backdrop_overlap:
+    //     'scroll'. Other dirty rects (all_dirty, glass:<id>, nonglass:<id>)
+    //     still cause a miss — they represent real backdrop content changes
+    //     that the knob's curTex sampling would see.
+    //
+    // QUALIFIER: only on solid-bg pages (backgroundColor != null). On pages
+    // with wallpaper, scroll moves the knob over different wallpaper regions
+    // → backdrop changes → NOT scroll-invariant. Also requires the knob to
+    // sample curTex (i.e. NOT solidBackdropColor — those use positionInvariant
+    // — and NOT have trackColorOff/On — toggle knobs on solid cards already
+    // use solidBackdropColor).
+    //
+    // EDGE CASE: if the knob's blur/refraction sampling extends beyond the
+    // card edge (e.g. knob at fraction=0, sampling reaches left of card),
+    // the sampled curTex could include content outside the card. On solid-bg
+    // pages that outside content is the page background color (also solid,
+    // close to card color), so the visual impact is negligible. Acceptable.
+    const scrollInvariant = !!(
+      el.isToggleKnob &&
+      !el.isToggleKnob.solidBackdropColor &&
+      !el.isToggleKnob.trackColorOff &&  // slider knob (not toggle knob)
+      this.backgroundColor &&             // solid-bg page (no wallpaper)
+      !el.backdropFbo && !el.useContinuousSdf
+    )
+
     // Resolve the FBO + texture to render into (and composite from).
     // - cacheHit=true  → reuse cached tex, skip Steps 2+3 entirely.
     // - cacheable miss → render into a per-element cached FBO (allocated/
@@ -934,11 +976,17 @@ export const glassRenderMethods = {
       // The reason is only recorded when showDirtyMarkers is on, to avoid
       // string allocation on the hot path in production.
       let missReason: string | null = null
+      // skipPosition: position changes don't affect the cached glass body.
+      // - positionInvariant (solidBackdropColor knob): backdrop is solid →
+      //   absolute position irrelevant.
+      // - scrollInvariant (slider knob on solid-bg page): knob + backdrop
+      //   content scroll together → relative position stable under scroll.
+      const skipPosition = positionInvariant || scrollInvariant
       if (!entry) {
         missReason = 'no_entry'
       } else if (entry.w !== elFboRectW || entry.h !== elFboRectH) {
         missReason = 'size_mismatch'
-      } else if (!positionInvariant && (entry.ex0 !== ex0 || entry.ey0Top !== ey0Top)) {
+      } else if (!skipPosition && (entry.ex0 !== ex0 || entry.ey0Top !== ey0Top)) {
         missReason = 'position_mismatch'
       } else if (!entry.valid) {
         missReason = 'invalidated'
@@ -956,8 +1004,16 @@ export const glassRenderMethods = {
         //   backdrop_overlap:glass:<id>      — element <id> cache-missed
         //   backdrop_overlap:nonglass:<id>   — non-glass element <id> was dirty
         //   backdrop_overlap:pingpong:<id>   — element <id> on ping-pong path
+        //
+        // scrollInvariant elements SKIP the 'scroll' rect only — their
+        // backdrop content scrolls with them, so a scroll rect doesn't
+        // actually change what they sample. Other dirty rects (all_dirty,
+        // glass:<id>, nonglass:<id>) still cause a miss because they
+        // represent real content changes the knob's curTex sampling would see.
         const myRect = inflatedOutputRect(el, sx, sy, sw, sh, togglePressProgress)
-        const overlap = this.dirtyRectsThisFrame.find(r => rectsOverlap(r, myRect))
+        const overlap = this.dirtyRectsThisFrame.find(r =>
+          rectsOverlap(r, myRect) && !(scrollInvariant && r.source === 'scroll')
+        )
         if (overlap) {
           missReason = `backdrop_overlap:${overlap.source}`
         }
@@ -974,14 +1030,13 @@ export const glassRenderMethods = {
         renderTex = entry.tex
         elFboW = entry.w
         elFboH = entry.h
-        // For position-invariant elements (solidBackdropColor knobs), the
-        // cache hit even when the screen position changed. Update the entry's
-        // recorded position to the current one so it stays in sync (the
-        // composite step uses the LOCAL ex0/ey0Top vars, not the entry's —
-        // this update is purely for bookkeeping consistency + so that if
-        // the element later becomes position-dependent, the entry has the
-        // right starting position).
-        if (positionInvariant) {
+        // For position-invariant OR scroll-invariant elements, the cache hit
+        // even when the screen position changed. Update the entry's recorded
+        // position to the current one so it stays in sync (the composite step
+        // uses the LOCAL ex0/ey0Top vars, not the entry's — this update is
+        // purely for bookkeeping consistency + so that if the element later
+        // becomes position-dependent, the entry has the right starting pos).
+        if (positionInvariant || scrollInvariant) {
           entry.ex0 = ex0
           entry.ey0Top = ey0Top
         }

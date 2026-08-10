@@ -1263,3 +1263,94 @@ Stage Summary:
 - position_mismatch + backdrop_overlap:scroll 两个误报都消除（Task 19 的
   positionInvariant 现在覆盖 slider knob）
 - Slider destination slider knob 不受影响（有 wallpaper，backdrop 确实依赖位置）
+
+---
+Task ID: 21
+Agent: main
+Task: 修复 Task 20 导致的 slider knob 折射图像错误（回退 solidBackdropColor 方案，改用 scrollInvariant）
+
+Work Log:
+- 用户反馈："sliderknob折射的图像不对了"
+
+- 根因分析（Task 20 的 regression）：
+  Task 20 给 slider knob 加 solidBackdropColor，让 shader 走 sampleToggleBackdrop
+  （solid color 路径）替代 sampleBackdrop（curTex 采样）。但 slider knob 的
+  backdrop 不是纯色——它后面有 track（trackColor）+ fill（accentColor）+
+  卡片。solidBackdropColor 把 backdrop 强制为纯卡片色，丢失了 track/fill 的
+  折射内容。所以 knob 折射看起来不对（只剩纯卡片色，没有 track/fill 的颜色）。
+
+  toggle knob 没有这个问题，因为 toggle knob 本来就有 solidBackdropColor
+  （Task 19 之前就有），它的 backdrop 确实是纯卡片色（track color 是单独的
+  CombinedBackdrop scaled track 部分，shader 里单独处理）。
+
+  slider knob 不同：它的 backdrop = curTex（卡片 + track + fill），refraction
+  折射这些内容。改成 solid color 后折射内容丢失。
+
+- 正确方案：scrollInvariant（不是 positionInvariant）
+  slider knob 的 backdrop 确实是 curTex，但 scroll 时 curTex 里 knob 附近的
+  内容（卡片 + track + fill）随 knob 一起 scroll，相对位置不变。所以：
+  - knob screen 位置变（sy 变）→ position_mismatch
+  - curTex 内容变（scroll rect）→ backdrop_overlap:scroll
+  但两者抵消——knob 采样 screenCoord 位置的 curTex = knob 附近的 track/fill/
+  卡片，scroll 时不变。glass body 不变，只需要在新位置 composite。
+
+  scrollInvariant 的语义：
+  - 跳过 position_mismatch（scroll 引起的位置变化不影响 glass body）
+  - 跳过 backdrop_overlap:scroll（scroll rect 不改变 knob 附近的 curTex）
+  - 不跳过其他 backdrop_overlap（all_dirty / glass:<id> / nonglass:<id> 仍然
+    miss——它们代表真实的内容变化）
+
+  vs positionInvariant（solidBackdropColor）：
+  - 跳过所有 backdrop_overlap（不读 curTex）
+
+  适用条件（renderer 层判断，不需要 catalog 配置）：
+  - el.isToggleKnob 存在
+  - 没有 solidBackdropColor（否则用 positionInvariant）
+  - 没有 trackColorOff（slider knob，不是 toggle knob）
+  - this.backgroundColor 存在（solid-bg 页面，没有 wallpaper）
+  - 没有 backdropFbo / useContinuousSdf
+
+  为什么需要 backgroundColor：有 wallpaper 的页面（Slider destination）scroll
+  时 knob 移动到不同 wallpaper 区域 → backdrop 变 → 不是 scrollInvariant。
+  solid-bg 页面 knob 附近 curTex = 卡片 + track + fill，都随 scroll 移动。
+
+- 改动（4 个文件）：
+  1. 回退 build-settings.ts: 去掉 3 个 slider 的 cardBg 参数
+  2. 回退 helpers.ts makeLiquidSlider: 去掉 solidBackdropColor 参数 + knob 配置
+  3. 回退 methods-render-glass-element-pass.ts: solidBackdropColor 检查恢复到
+     trackColorOff/On block 内（原样）
+  4. 回退 types.ts: solidBackdropColor 注释恢复原样
+
+  5. methods-render-glass.ts 新增 scrollInvariant:
+     - renderer 层判断（backgroundColor + slider knob + no solidBackdropColor）
+     - skipPosition = positionInvariant || scrollInvariant
+       → position_mismatch 跳过
+     - backdrop_overlap find 加条件:
+       !(scrollInvariant && r.source === 'scroll')
+       → scrollInvariant 时跳过 scroll rect，其他 rect 仍然触发 miss
+     - cache hit 时 entry.ex0/ey0Top 更新（positionInvariant || scrollInvariant）
+
+- 效果：
+  - settings slider knob scroll 时 cache HIT（保留 curTex 折射，backdrop 正确）
+  - position_mismatch + backdrop_overlap:scroll 两个误报消除
+  - 折射图像正确（track + fill + 卡片色都被折射）
+  - Slider destination slider knob 不受影响（有 wallpaper，scrollInvariant=false）
+  - toggle knob 不受影响（已有 solidBackdropColor → positionInvariant）
+
+- 边界情况：
+  knob 在 fraction=0 时 blur/refraction 采样可能超出卡片左边缘。solid-bg 页面
+  超出部分是页面背景色（也接近卡片色），视觉影响可忽略。可接受。
+
+- 验证：
+  - lint 干净
+  - dev.log 编译正常（✓ Compiled in 122ms）
+  - 未使用 Agent Browser
+
+Stage Summary:
+- 回退 Task 20 的 solidBackdropColor 方案（破坏 slider knob 折射）
+- 新增 scrollInvariant：slider knob 在 solid-bg 页面 scroll 时 cache HIT
+  - 保留 curTex 采样（折射 track/fill/卡片色正确）
+  - 只跳过 position_mismatch + backdrop_overlap:scroll
+  - 其他 dirty rect 仍然 miss（正确处理真实内容变化）
+- toggle knob 不变（positionInvariant via solidBackdropColor）
+- Slider destination slider knob 不变（scrollInvariant=false，有 wallpaper）

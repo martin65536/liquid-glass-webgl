@@ -214,31 +214,17 @@ export const glassElementPassMethods = {
         trackCornerRadius = (trackH * 0.5) * Math.min(trackScaleX, trackScaleY)
         useToggleBackdrop = 1.0
 
+        // Solid backdrop color (t2 case): if set, the shader uses this color
+        // instead of sampling the wallpaper texture for the outer backdrop.
+        if (el.isToggleKnob.solidBackdropColor) {
+          const sd = el.isToggleKnob.solidBackdropColor
+          solidR = sd[0]; solidG = sd[1]; solidB = sd[2]; solidA = sd[3]
+          useSolidBackdrop = 1.0
+        }
+
         // When using the CombinedBackdrop path, disable the content-scale
         // on the scene sample (we sample wallpaper/solid color at full scale
         // instead, plus the track color at its own scaled position).
-        elContentScaleX = 1.0
-        elContentScaleY = 1.0
-      }
-      // Solid backdrop color — INDEPENDENT of track color.
-      // For toggle knobs with solidBackdropColor (t2/settings toggle): outer
-      // backdrop = card color, shader uses uSolidBackdropColor instead of
-      // sampling wallpaper.
-      // For slider knobs with solidBackdropColor (settings sliders): the knob
-      // sits on a solid-color card, so its backdrop is a solid color too.
-      // Without trackColorOff/On, the track color compositing in the shader
-      // is skipped (uTrackColor.a=0), leaving only the solid outer backdrop.
-      // This activates useToggleBackdrop so the shader calls
-      // sampleToggleBackdrop (which handles uUseSolidBackdrop) instead of
-      // sampleBackdrop (curTex sampling) — making the glass body position-
-      // invariant for caching (no curTex dependency → scroll doesn't miss).
-      if (el.isToggleKnob.solidBackdropColor) {
-        const sd = el.isToggleKnob.solidBackdropColor
-        solidR = sd[0]; solidG = sd[1]; solidB = sd[2]; solidA = sd[3]
-        useSolidBackdrop = 1.0
-        useToggleBackdrop = 1.0
-        // Disable content-scale: solid backdrop is sampled at full scale
-        // (matches the CombinedBackdrop behavior above).
         elContentScaleX = 1.0
         elContentScaleY = 1.0
       }
