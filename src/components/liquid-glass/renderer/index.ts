@@ -103,6 +103,24 @@ export class LiquidGlassRenderer {
    *  render() checks this and early-exits if false, avoiding redundant
    *  full-scene re-render when requestAnimationFrame fires but nothing changed. */
   needsRedraw = true
+  /** Per-element dirty tracking — maps element id → fingerprint from last
+   *  frame. Each frame, render() computes a fingerprint (hash of the fields
+   *  that affect the element's visual output: position, scale, translation,
+   *  press/toggle/enter progress, blurRadius, scrollY, etc.) for every
+   *  processed element and compares to the previous frame's value. If
+   *  different, the element is "dirty" (updated this frame). The perf
+   *  monitor reports the dirty count so you can see how many elements
+   *  actually changed — e.g. during a static page, dirty=0; during a
+   *  toggle press, dirty=1 (just the knob); during scroll, dirty=N (all
+   *  visible scroll elements). */
+  private prevFingerprints = new Map<string, number>()
+  /** Debug overlay: when true, draw a colored marker on each element
+   *  indicating its dirty status this frame (green=clean, red=dirty).
+   *  Toggled from the perf-monitor overlay. */
+  showDirtyMarkers = false
+  /** Debug overlay data — the dirty status of each element this frame,
+   *  pushed during render() for the overlay to read. */
+  debugDirtyMarkers: Array<{ x: number; y: number; w: number; h: number; dirty: boolean }> = []
 
   // --- Scene FBO ping-pong infrastructure ---
   // See render() for the full ping-pong pipeline description.
@@ -997,6 +1015,7 @@ import { renderMethods } from './methods-render'
 import { glassRenderMethods } from './methods-render-glass'
 import { glassElementPassMethods } from './methods-render-glass-element-pass'
 import { glassPostPassMethods } from './methods-render-glass-post-passes'
+import { dirtyTrackingMethods } from './methods-dirty'
 
 Object.assign(
   LiquidGlassRenderer.prototype,
@@ -1011,7 +1030,8 @@ Object.assign(
   renderMethods,
   glassRenderMethods,
   glassElementPassMethods,
-  glassPostPassMethods
+  glassPostPassMethods,
+  dirtyTrackingMethods
 )
 
 // Re-export all public types so callers can `import type { GlassElementConfig, ... } from './renderer'`.

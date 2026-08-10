@@ -65,6 +65,7 @@ export const renderMethods = {
     // path pushes to it during the element loop; the overlay reads it after.
     if (this.showPefBbox) this.debugPefBboxes.length = 0
     if (this.showBlurDebug) this.debugBlurRegions.length = 0
+    if (this.showDirtyMarkers) this.debugDirtyMarkers.length = 0
 
     if (!this.wallpaperReady && !this.backgroundColor) {
       this.perfMonitor.frameEnd()
@@ -198,6 +199,14 @@ export const renderMethods = {
       const r = effRect(el)
       const st = this.buttonStates.get(el.id)
 
+      // Dirty tracking: compute fingerprint and compare to previous frame.
+      // Counts how many elements actually changed this frame (for the perf
+      // monitor "Dirty" row). Must run AFTER cull (only count visible
+      // elements) but BEFORE the render call (so the debug overlay marker
+      // reflects this frame's status).
+      this.perfMonitor.incTotal()
+      if (this.isElementDirty(el, st, r)) this.perfMonitor.incDirty()
+
       // --- Non-glass elements: render directly to current FBO ---
       if (this.renderNonGlassElement(el, r, st, curFbo)) {
         // Isolate backdrop: also composite non-glass elements into bgOnlyFbo
@@ -264,6 +273,10 @@ export const renderMethods = {
       if (y + el.rect.h < -margin || y > this.cssHeight + margin) continue
       const r = effRect(el)
       const st = this.buttonStates.get(el.id)
+
+      // Dirty tracking for renderOnTop elements (same as the main loop).
+      this.perfMonitor.incTotal()
+      if (this.isElementDirty(el, st, r)) this.perfMonitor.incDirty()
 
       // Non-glass renderOnTop elements (scrim/dim) render directly on curFbo.
       if (this.renderNonGlassElement(el, r, st, curFbo)) {

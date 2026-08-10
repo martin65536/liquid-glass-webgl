@@ -130,6 +130,12 @@ export const elementMethods = {
       }
     }
     this.buttonConfigs = configs
+    // Clear dirty tracking fingerprints — the element list changed (page
+    // navigation, state rebuild), so previous fingerprints are stale.
+    // Without this, a new element inheriting an old element's id (rare but
+    // possible during React reconciliation) could match the old fingerprint
+    // and be falsely marked clean.
+    this.clearDirtyTracking()
     this.requestRender()
   },
 

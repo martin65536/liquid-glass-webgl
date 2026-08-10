@@ -348,6 +348,11 @@ function Body({
           hint={`PEF ${snapshot.perElementFboCount} · skip ${snapshot.skipPingPongCount} · pp ${snapshot.pingPongCount}`}
         />
         <Row label="Non-glass" value={String(snapshot.nonGlassElements)} />
+        <Row
+          label="Dirty"
+          value={String(snapshot.dirtyElements)}
+          hint={`of ${snapshot.totalElements} visible`}
+        />
         <Row label="Blur passes" value={String(snapshot.blurPasses)} />
       </Section>
       <Section title="Canvas">
@@ -535,6 +540,7 @@ function QuickToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
 function DebugToggles({ rendererRef }: { rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> }) {
   const [showBbox, setShowBbox] = React.useState(false)
   const [showBlur, setShowBlur] = React.useState(false)
+  const [showDirty, setShowDirty] = React.useState(false)
 
   // Read the renderer's actual flags on mount (they may have been seeded from
   // props by context.tsx, or toggled by a previous overlay instance).
@@ -543,6 +549,7 @@ function DebugToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
     if (r) {
       setShowBbox(r.showPefBbox)
       setShowBlur(r.showBlurDebug)
+      setShowDirty(r.showDirtyMarkers)
     }
   }, [rendererRef])
 
@@ -562,6 +569,16 @@ function DebugToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
     const r = rendererRef.current
     if (r) {
       r.showBlurDebug = next
+      r.requestRender()
+    }
+  }
+
+  const flipDirty = () => {
+    const next = !showDirty
+    setShowDirty(next)
+    const r = rendererRef.current
+    if (r) {
+      r.showDirtyMarkers = next
       r.requestRender()
     }
   }
@@ -589,6 +606,16 @@ function DebugToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
         <span>Show blur regions</span>
         <span style={{ color: showBlur ? '#6cf' : '#888', fontWeight: 700, fontSize: 10 }}>
           {showBlur ? 'ON' : 'OFF'}
+        </span>
+      </button>
+      <button
+        onClick={flipDirty}
+        title="Draw a colored border on each element: green=clean (unchanged this frame), red=dirty (updated). Use to see which elements actually changed."
+        style={debugBtnStyle(showDirty)}
+      >
+        <span>Show dirty markers</span>
+        <span style={{ color: showDirty ? '#fc6' : '#888', fontWeight: 700, fontSize: 10 }}>
+          {showDirty ? 'ON' : 'OFF'}
         </span>
       </button>
     </div>

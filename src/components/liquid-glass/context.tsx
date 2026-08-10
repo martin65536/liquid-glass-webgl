@@ -380,6 +380,21 @@ export function LiquidGlassCanvas({
               ctx.fillText(label, r.x + 3, r.y + 11)
             }
           }
+          if (renderer.showDirtyMarkers) {
+            const markers = renderer.debugDirtyMarkers
+            for (let i = 0; i < markers.length; i++) {
+              const m = markers[i]
+              // Green solid border = clean (unchanged), red = dirty (updated).
+              ctx.strokeStyle = m.dirty ? 'rgba(255, 110, 110, 0.95)' : 'rgba(120, 230, 130, 0.85)'
+              ctx.lineWidth = m.dirty ? 2 : 1
+              ctx.strokeRect(m.x + 0.5, m.y + 0.5, m.w - 1, m.h - 1)
+              if (m.dirty) {
+                ctx.fillStyle = 'rgba(255, 110, 110, 0.95)'
+                ctx.font = 'bold 9px ui-monospace, monospace'
+                ctx.fillText('●', m.x + m.w - 12, m.y + 10)
+              }
+            }
+          }
         }
       }
       raf = requestAnimationFrame(draw)

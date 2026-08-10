@@ -53,6 +53,8 @@ export interface PerfSnapshot {
   skipPingPongCount: number    // glass elements using skipPingPong (independent wallpaper sampling)
   nonGlassElements: number     // plain-rect / text / progressive-blur
   blurPasses: number           // 2-pass Gaussian invocations
+  dirtyElements: number        // elements whose visual state changed this frame
+  totalElements: number        // total elements processed (visible, not culled)
   // --- Static GPU info (collected once) ---
   gpuVendor: string
   gpuRenderer: string
@@ -103,6 +105,8 @@ export class PerfMonitor {
   private skipPingPongCount = 0
   private nonGlassElements = 0
   private blurPasses = 0
+  private dirtyElements = 0
+  private totalElements = 0
 
   // --- Last completed frame counters (captured at frameEnd) ---
   private lastDrawCalls = 0
@@ -112,6 +116,8 @@ export class PerfMonitor {
   private lastSkipPingPongCount = 0
   private lastNonGlassElements = 0
   private lastBlurPasses = 0
+  private lastDirtyElements = 0
+  private lastTotalElements = 0
   private lastFrameTimeMs = 0
 
   // --- Static GPU info (collected lazily on first frameStart) ---
@@ -171,6 +177,8 @@ export class PerfMonitor {
     this.skipPingPongCount = 0
     this.nonGlassElements = 0
     this.blurPasses = 0
+    this.dirtyElements = 0
+    this.totalElements = 0
   }
 
   /** Called at the bottom of render(). Records the frame INTERVAL (time
@@ -210,6 +218,8 @@ export class PerfMonitor {
     this.lastSkipPingPongCount = this.skipPingPongCount
     this.lastNonGlassElements = this.nonGlassElements
     this.lastBlurPasses = this.blurPasses
+    this.lastDirtyElements = this.dirtyElements
+    this.lastTotalElements = this.totalElements
   }
 
   // --- Counter increments (called from renderer methods).
@@ -221,6 +231,8 @@ export class PerfMonitor {
   incSkipPingPong() { if (this.enabled) this.skipPingPongCount++ }
   incNonGlass() { if (this.enabled) this.nonGlassElements++ }
   incBlurPass() { if (this.enabled) this.blurPasses++ }
+  incDirty() { if (this.enabled) this.dirtyElements++ }
+  incTotal() { if (this.enabled) this.totalElements++ }
 
   /** Reset all accumulated stats (timing + counters + jank). */
   reset() {
@@ -239,6 +251,8 @@ export class PerfMonitor {
     this.lastSkipPingPongCount = 0
     this.lastNonGlassElements = 0
     this.lastBlurPasses = 0
+    this.lastDirtyElements = 0
+    this.lastTotalElements = 0
   }
 
   getSnapshot(): PerfSnapshot {
@@ -275,6 +289,8 @@ export class PerfMonitor {
       skipPingPongCount: this.lastSkipPingPongCount,
       nonGlassElements: this.lastNonGlassElements,
       blurPasses: this.lastBlurPasses,
+      dirtyElements: this.lastDirtyElements,
+      totalElements: this.lastTotalElements,
       gpuVendor: this.gpuVendor,
       gpuRenderer: this.gpuRenderer,
       maxTextureSize: this.maxTextureSize,
