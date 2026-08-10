@@ -66,6 +66,7 @@ export const tabsMethods = {
       st.targetScaleX = st.pressedScale
       st.targetScaleY = st.pressedScale
     }
+    this.markAllDirty()
     this.startAnimation()
   },
 
@@ -94,6 +95,7 @@ export const tabsMethods = {
     st.targetVelocity = 0
     st.velocity = 0
     st.velocityVelocity = 0
+    this.markAllDirty()
     this.startAnimation()
   },
 
@@ -135,6 +137,7 @@ export const tabsMethods = {
     const easeOut = 1 - Math.pow(1 - Math.abs(offsetFraction), 2)
     st.targetPanelOffset = 4 * DP * Math.sign(offsetFraction) * easeOut
 
+    this.markAllDirty()
     this.startAnimation()
   },
 
@@ -169,6 +172,7 @@ export const tabsMethods = {
     st.targetPanelOffset = 0
     // Don't release press here — auto-release will fire when fraction
     // settles near clamped target.
+    this.markAllDirty()
     this.startAnimation()
     return clamped
   },

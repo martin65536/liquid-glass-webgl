@@ -199,13 +199,14 @@ export const renderMethods = {
       const r = effRect(el)
       const st = this.buttonStates.get(el.id)
 
-      // Dirty tracking: compute fingerprint and compare to previous frame.
-      // Counts how many elements actually changed this frame (for the perf
-      // monitor "Dirty" row). Must run AFTER cull (only count visible
-      // elements) but BEFORE the render call (so the debug overlay marker
-      // reflects this frame's status).
+      // Dirty tracking (event-driven): check if this element was marked dirty
+      // since the last frame, then record its status for the debug overlay.
+      const dirty = this.allDirty || this.dirtyElementIds.has(el.id)
       this.perfMonitor.incTotal()
-      if (this.isElementDirty(el, st, r)) this.perfMonitor.incDirty()
+      if (dirty) this.perfMonitor.incDirty()
+      if (this.showDirtyMarkers) {
+        this.debugDirtyMarkers.push({ x: r.x, y: r.y, w: r.w, h: r.h, dirty })
+      }
 
       // --- Non-glass elements: render directly to current FBO ---
       if (this.renderNonGlassElement(el, r, st, curFbo)) {
@@ -275,8 +276,12 @@ export const renderMethods = {
       const st = this.buttonStates.get(el.id)
 
       // Dirty tracking for renderOnTop elements (same as the main loop).
+      const dirty = this.allDirty || this.dirtyElementIds.has(el.id)
       this.perfMonitor.incTotal()
-      if (this.isElementDirty(el, st, r)) this.perfMonitor.incDirty()
+      if (dirty) this.perfMonitor.incDirty()
+      if (this.showDirtyMarkers) {
+        this.debugDirtyMarkers.push({ x: r.x, y: r.y, w: r.w, h: r.h, dirty })
+      }
 
       // Non-glass renderOnTop elements (scrim/dim) render directly on curFbo.
       if (this.renderNonGlassElement(el, r, st, curFbo)) {
@@ -302,6 +307,10 @@ export const renderMethods = {
     this.bindFBO(null)
     this.drawCopy(curTex)
     this.perfMonitor.incDrawCall() // final blit
+
+    // --- Clear event-driven dirty state (consumed by this frame) ---
+    this.dirtyElementIds.clear()
+    this.allDirty = false
 
     // --- PerfMonitor: end frame timing + capture counters ---
     this.perfMonitor.frameEnd()

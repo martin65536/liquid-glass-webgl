@@ -36,7 +36,12 @@ export const animationMethods = {
       lastTime = now
 
       let stillAnimating = false
-      for (const st of this.buttonStates.values()) {
+      // Per-element dirty marking: only mark elements whose spring state
+      // actually advanced this frame. This keeps the dirty count accurate
+      // (e.g. a settling toggle marks only its own group's elements, not
+      // every element on the page).
+      for (const [id, st] of this.buttonStates.entries()) {
+        let elementDirty = false
         // --- Press spring (underdamped, bouncy on release) ---
         const pDelta = Math.abs(st.targetPress - st.pressProgress)
         if (
@@ -52,6 +57,7 @@ export const animationMethods = {
           st.pressProgress = r.current
           st.pressVelocity = r.velocity
           stillAnimating = true
+          elementDirty = true
         } else {
           st.pressProgress = st.targetPress
           st.pressVelocity = 0
@@ -66,6 +72,7 @@ export const animationMethods = {
           st.dragX = r.current
           st.dragVx = r.velocity
           stillAnimating = true
+          elementDirty = true
         } else {
           st.dragX = st.targetDragX
           st.dragVx = 0
@@ -80,6 +87,7 @@ export const animationMethods = {
           st.dragY = r.current
           st.dragVy = r.velocity
           stillAnimating = true
+          elementDirty = true
         } else {
           st.dragY = st.targetDragY
           st.dragVy = 0
@@ -102,14 +110,17 @@ export const animationMethods = {
           st.interactiveValue = r.current
           st.interactiveVelocity = r.velocity
           stillAnimating = true
+          elementDirty = true
         } else {
           st.interactiveValue = st.targetInteractiveValue
           st.interactiveVelocity = 0
         }
+        if (elementDirty) this.markElementDirty(id)
       }
 
       // --- Toggle group springs (faithful port of DampedDragAnimation.kt) ---
       for (const tg of this.toggleStates.values()) {
+        let groupDirty = false
         // Auto-release press when fraction has nearly settled (mirrors the
         // original `release()` which awaits `value` near `targetValue`).
         // Scale spring (1.5→1) and velocity spring (→0) run SIMULTANEOUSLY
@@ -125,6 +136,7 @@ export const animationMethods = {
           tg.targetPress = 0
           tg.targetScaleX = 1
           tg.targetScaleY = 1
+          groupDirty = true
           this.startAnimation()
         }
 
@@ -173,6 +185,7 @@ export const animationMethods = {
             tg.targetVelocity = tracked / span
           }
           stillAnimating = true
+          groupDirty = true
         } else {
           tg.fraction = tg.targetFraction
           tg.fractionVelocity = 0
@@ -200,6 +213,7 @@ export const animationMethods = {
           tg.pressProgress = r.current
           tg.pressVelocity = r.velocity
           stillAnimating = true
+          groupDirty = true
         } else {
           tg.pressProgress = tg.targetPress
           tg.pressVelocity = 0
@@ -222,6 +236,7 @@ export const animationMethods = {
           tg.scaleX = r.current
           tg.scaleXVelocity = r.velocity
           stillAnimating = true
+          groupDirty = true
         } else {
           tg.scaleX = tg.targetScaleX
           tg.scaleXVelocity = 0
@@ -244,6 +259,7 @@ export const animationMethods = {
           tg.scaleY = r.current
           tg.scaleYVelocity = r.velocity
           stillAnimating = true
+          groupDirty = true
         } else {
           tg.scaleY = tg.targetScaleY
           tg.scaleYVelocity = 0
@@ -267,6 +283,7 @@ export const animationMethods = {
           tg.velocity = r.current
           tg.velocityVelocity = r.velocity
           stillAnimating = true
+          groupDirty = true
         } else {
           tg.velocity = tg.targetVelocity
           tg.velocityVelocity = 0
@@ -291,10 +308,15 @@ export const animationMethods = {
           tg.panelOffset = r.current
           tg.panelOffsetVelocity = r.velocity
           stillAnimating = true
+          groupDirty = true
         } else {
           tg.panelOffset = tg.targetPanelOffset
           tg.panelOffsetVelocity = 0
         }
+        // Toggle group animation affects knob + track + content + indicator.
+        // Marking all dirty is simpler than resolving groupId → element ids,
+        // and toggle animations are short + infrequent.
+        if (groupDirty) this.markAllDirty()
       }
 
       // --- Scroll inertia (no spring rebound) ---
@@ -314,6 +336,7 @@ export const animationMethods = {
           this.scrollVelocity *= Math.exp(-SCROLL_DECAY * dt)
         }
         stillAnimating = true
+        this.markAllDirty()
       } else {
         this.scrollVelocity = 0
       }

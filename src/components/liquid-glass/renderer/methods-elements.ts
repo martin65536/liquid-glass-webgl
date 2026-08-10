@@ -130,12 +130,10 @@ export const elementMethods = {
       }
     }
     this.buttonConfigs = configs
-    // Clear dirty tracking fingerprints — the element list changed (page
-    // navigation, state rebuild), so previous fingerprints are stale.
-    // Without this, a new element inheriting an old element's id (rare but
-    // possible during React reconciliation) could match the old fingerprint
-    // and be falsely marked clean.
-    this.clearDirtyTracking()
+    // Element list changed (page navigation, state rebuild) — mark all dirty
+    // so the perf monitor + debug overlay reflect the rebuild, and clear any
+    // stale per-id dirty marks (they're now meaningless against a new list).
+    this.markAllDirty()
     this.requestRender()
   },
 
@@ -149,6 +147,7 @@ export const elementMethods = {
     if (!st) return
     if (st.targetInteractiveValue !== value) {
       st.targetInteractiveValue = value
+      this.markElementDirty(id)
       this.startAnimation()
       this.requestRender()
     }
@@ -208,6 +207,7 @@ export const elementMethods = {
       st.targetDragX = st.startDragX
       st.targetDragY = st.startDragY
     }
+    this.markElementDirty(id)
     this.startAnimation()
   },
 
@@ -233,6 +233,7 @@ export const elementMethods = {
     st.dragVy = 0
     st.targetDragX = localX
     st.targetDragY = localY
+    this.markElementDirty(id)
     this.requestRender()
   },
 }

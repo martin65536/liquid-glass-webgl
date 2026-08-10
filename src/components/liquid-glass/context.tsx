@@ -313,6 +313,7 @@ export function LiquidGlassCanvas({
     if (!renderer || usePerElementFbo == null) return
     renderer.usePerElementFbo = usePerElementFbo
     renderer.quickToggles.perElementFbo = usePerElementFbo
+    renderer.markAllDirty()
     renderer.requestRender()
   }, [usePerElementFbo])
 

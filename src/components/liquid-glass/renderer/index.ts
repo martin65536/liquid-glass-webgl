@@ -103,17 +103,18 @@ export class LiquidGlassRenderer {
    *  render() checks this and early-exits if false, avoiding redundant
    *  full-scene re-render when requestAnimationFrame fires but nothing changed. */
   needsRedraw = true
-  /** Per-element dirty tracking — maps element id → fingerprint from last
-   *  frame. Each frame, render() computes a fingerprint (hash of the fields
-   *  that affect the element's visual output: position, scale, translation,
-   *  press/toggle/enter progress, blurRadius, scrollY, etc.) for every
-   *  processed element and compares to the previous frame's value. If
-   *  different, the element is "dirty" (updated this frame). The perf
-   *  monitor reports the dirty count so you can see how many elements
-   *  actually changed — e.g. during a static page, dirty=0; during a
-   *  toggle press, dirty=1 (just the knob); during scroll, dirty=N (all
-   *  visible scroll elements). */
-  private prevFingerprints = new Map<string, number>()
+  /** Event-driven per-element dirty tracking. Instead of hashing every
+   *  element's visual state each frame, dirty status is marked at the source:
+   *  setters (setPressed, setInteractiveValue, setScrollY, ...) and the spring
+   *  animation tick call markElementDirty(id) / markAllDirty(). The render loop
+   *  reads this set to count dirty elements (for the perf monitor) and to draw
+   *  debug markers, then clears it. When nothing is dirty AND needsRedraw is
+   *  false, no render happens at all (the rAF doesn't fire).
+   *
+   *  allDirty: set by global changes (wallpaper loaded, quickToggles flipped,
+   *  element list rebuilt). Makes every element count as dirty for one frame. */
+  dirtyElementIds = new Set<string>()
+  allDirty = true
   /** Debug overlay: when true, draw a colored marker on each element
    *  indicating its dirty status this frame (green=clean, red=dirty).
    *  Toggled from the perf-monitor overlay. */

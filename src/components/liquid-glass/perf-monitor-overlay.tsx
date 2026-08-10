@@ -484,6 +484,7 @@ function QuickToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
       r.quickToggles.innershadow = v
       r.quickToggles.perElementFbo = v
       r.quickToggles.isolateBackdrop = v
+      r.markAllDirty()
       r.requestRender()
     }
   }

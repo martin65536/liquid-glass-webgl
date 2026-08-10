@@ -35,6 +35,8 @@ export const scrollMethods = {
   setScrollY(this: LiquidGlassRenderer, y: number) {
     this.scrollVelocity = 0
     this.scrollY = this.clampScrollValue(y)
+    // Scroll affects all scroll-enabled elements' effective position.
+    this.markAllDirty()
     this.requestRender()
   },
 
@@ -49,6 +51,7 @@ export const scrollMethods = {
     // Clamp to a sane max to avoid absurd flicks.
     const MAX_VEL = 4000
     this.scrollVelocity = Math.max(-MAX_VEL, Math.min(MAX_VEL, v))
+    this.markAllDirty()
     this.startAnimation()
   },
 
@@ -92,6 +95,9 @@ export const scrollMethods = {
         this.backgroundColor[1] === color[1] &&
         this.backgroundColor[2] === color[2]) return
     this.backgroundColor = color
+    // Background change flips independent backdrop on/off (independent only
+    // applies on wallpaper pages), so every glass element's sampling changes.
+    this.markAllDirty()
     this.requestRender()
   },
 
@@ -106,6 +112,7 @@ export const scrollMethods = {
     const THRESHOLD = 0.02 // ~1.1 degrees
     if (Math.abs(this.gravityAngle - angleRad) < THRESHOLD) return
     this.gravityAngle = angleRad
+    this.markAllDirty()
     this.requestRender()
   },
 }

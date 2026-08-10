@@ -45,6 +45,9 @@ export const wallpaperMethods = {
     this.wallpaperTexture = tex
     this.wallpaperSize = [w || 1, h || 1]
     this.wallpaperReady = true
+    // Wallpaper now available → independent backdrop becomes active for all
+    // eligible elements, changing their sampling source. Mark all dirty.
+    this.markAllDirty()
     this.requestRender()
   },
 
@@ -143,6 +146,7 @@ export const wallpaperMethods = {
     for (const b of this.buttonConfigs) this.fgDirtyIds.add(b.id)
     this.cssWidth = cssW
     this.cssHeight = cssH
+    this.markAllDirty()
     this.requestRender()
   },
 }
