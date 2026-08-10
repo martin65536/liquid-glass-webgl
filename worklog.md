@@ -1182,3 +1182,84 @@ Stage Summary:
 - toggle 动画期间正确报告 invalidated（不再被 position_mismatch 短路）
 - glass body 位置无关性的论证：solid backdrop（不读 curTex）+ scaled track
   相对 knob 中心定位（scroll-invariant）+ SDF/refraction/highlight 都是局部坐标
+
+---
+Task ID: 20
+Agent: main
+Task: 修复设置页 slider knob 滚动时不停触发 position_mismatch + backdrop_overlap:scroll
+
+Work Log:
+- 用户反馈："开关的knob正常了，slider的还是不对"
+
+- 根因分析：
+  Task 19 的 positionInvariant 修复只覆盖了 solidBackdropColor knob。toggle knob
+  有 solidBackdropColor（helpers.ts makeSettingsToggle 传入 cardBg），但 slider
+  knob 的 isToggleKnob 配置（helpers.ts makeLiquidSlider line 253）没有
+  solidBackdropColor：
+    knobEl.isToggleKnob = { groupId, dragWidth: dragW, velocityDivisor: 10 }
+                                      ↑ 没有 solidBackdropColor
+
+  所以 slider knob：
+  1. shader 里 useToggleBackdrop=0（因为 trackColorOff/On 没配置 →
+     CombinedBackdrop block 跳过 → solidBackdropColor 检查也在 block 内 → 不执行）
+  2. 走 sampleBackdrop（curTex 采样）路径
+  3. positionInvariant=false（没有 solidBackdropColor）
+  4. scroll 时 position_mismatch + backdrop_overlap:scroll 仍然 miss
+
+  但实际上 settings 页 slider knob 的 backdrop 是纯色卡片（和 toggle knob 一样）：
+  - settings 页有 backgroundColor（solid bg）
+  - slider knob 在卡片上（cardBg = palette.toggleCardBg，纯色）
+  - scroll 时卡片和 knob 一起移动 → knob 采样位置的 curTex 内容 = 卡片色（不变）
+  → glass body 是 scroll-invariant 的，但缓存检查不知道
+
+- 修复（3 个文件）：
+
+  1. methods-render-glass-element-pass.ts:
+     把 solidBackdropColor 检查从 trackColorOff/On block 里拆出来，独立激活
+     useToggleBackdrop + useSolidBackdrop。之前 solidBackdropColor 检查嵌套在
+     trackColorOff/On block 内（line 219-223），如果 slider knob 没有
+     trackColorOff/On，整个 block 跳过，solidBackdropColor 不生效。
+
+     现在：即使没有 trackColorOff/On（slider knob），只要有 solidBackdropColor，
+     就设 useToggleBackdrop=1.0 + useSolidBackdrop=1.0。shader 会调用
+     sampleToggleBackdrop（处理 uUseSolidBackdrop），用纯色替代 curTex 采样。
+     trackColorOff/On 不配置时 uTrackColor.a=0 → track color compositing 跳过，
+     只有 solid outer backdrop 生效。
+
+  2. helpers.ts makeLiquidSlider:
+     加 solidBackdropColor? 可选参数（在 onLiveValue 之后）。传给
+     knobEl.isToggleKnob.solidBackdropColor。
+
+  3. build-settings.ts:
+     给 3 个 slider（dprSlider / tapSlider / dsSlider）都传 cardBg 作为
+     solidBackdropColor。
+
+  4. types.ts: 更新 solidBackdropColor 注释，说明也可用于 slider knob +
+     position-invariant 缓存语义。
+
+- 效果：
+  - settings 页 slider knob：backdrop = solid 卡片色（shader 用
+    uSolidBackdropColor）→ glass body 位置无关 → scroll 时 cache HIT
+    （Task 19 的 positionInvariant 现在覆盖 slider knob）
+  - Slider destination slider knob：没有 solidBackdropColor → 走 curTex 采样
+    → scroll 时 backdrop 变 → cache miss（正确，因为有 wallpaper）
+  - toggle knob 不受影响（已有 solidBackdropColor，行为不变）
+
+- shader 行为变化验证：
+  - 之前 slider knob 走 sampleBackdrop（curTex + Gaussian blur）
+  - 现在走 sampleToggleBackdrop（solid color，无 blur）
+  - 视觉差异：blur 纯色 = 纯色（无变化），所以 backdrop 结果一样
+  - 唯一差异：knob 在卡片边缘时，之前 blur 可能采到卡片外内容，现在用纯色
+    → 更干净的视觉（knob 的 glass 不显示卡片边缘干扰）
+
+- 验证：
+  - lint 干净
+  - dev.log 编译正常（✓ Compiled in 234ms）
+  - 未使用 Agent Browser
+
+Stage Summary:
+- slider knob 也支持 solidBackdropColor（独立于 trackColorOff/On）
+- settings 页 slider knob scroll 时不再每帧重新光栅化（cache HIT）
+- position_mismatch + backdrop_overlap:scroll 两个误报都消除（Task 19 的
+  positionInvariant 现在覆盖 slider knob）
+- Slider destination slider knob 不受影响（有 wallpaper，backdrop 确实依赖位置）

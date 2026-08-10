@@ -172,6 +172,7 @@ export function buildSettings(
       initFrac,
       snapFrac,
       (f) => { setState({ liveDpr: fracToDpr(snapFrac(f)) }) },
+      cardBg,
     )
     elements.push(...dprSlider.elements)
     Object.assign(interactions, dprSlider.interactions)
@@ -309,6 +310,7 @@ export function buildSettings(
       tapInitFrac,
       tapSnapFrac,
       (f) => { setState({ liveTapCap: tapFracToTaps(tapSnapFrac(f)) }) },
+      cardBg,
     )
     elements.push(...tapSlider.elements)
     Object.assign(interactions, tapSlider.interactions)
@@ -348,6 +350,7 @@ export function buildSettings(
       dsInitFrac,
       dsClampFrac,
       (f) => { setState({ liveBlurDownsample: dsFracToDs(f) }) },
+      cardBg,
     )
     elements.push(...dsSlider.elements)
     Object.assign(interactions, dsSlider.interactions)

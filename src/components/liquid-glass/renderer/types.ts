@@ -284,12 +284,16 @@ export interface GlassElementConfig extends GlassButtonConfig {
     trackOriginalY?: number
     /**
      * Solid backdrop color (RGBA 0..1) — used when the outer backdrop is a
-     * CanvasBackdrop (e.g. toggle inside a solid-color card). Faithful to
-     * ToggleContent.kt's t2 which uses:
+     * CanvasBackdrop (e.g. toggle/slider knob inside a solid-color card).
+     * Faithful to ToggleContent.kt's t2 which uses:
      *   rememberCanvasBackdrop { drawRect(backgroundColor) }
      * When set, the knob samples this solid color instead of the wallpaper
-     * texture for the outer backdrop portion of the CombinedBackdrop.
-     * When unset, samples the wallpaper texture (LayerBackdrop case).
+     * texture (or curTex) for the outer backdrop portion of the
+     * CombinedBackdrop. This makes the glass body position-invariant
+     * (scroll-invariant) for caching — the backdrop doesn't depend on
+     * curTex/wallpaper, so position changes + dirty rects are skipped.
+     * When unset, samples the wallpaper texture (LayerBackdrop case) or
+     * curTex (default sampleBackdrop path for knobs without CombinedBackdrop).
      */
     solidBackdropColor?: [number, number, number, number]
   }
