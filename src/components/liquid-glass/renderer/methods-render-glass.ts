@@ -885,6 +885,37 @@ export const glassRenderMethods = {
       !el.backdropFbo && !el.useContinuousSdf
     )
 
+    // Position-invariant cache: the element's glass body rendered into the
+    // elFbo does NOT depend on absolute screen position. When true, position
+    // changes (scroll) and scene dirty rects (backdrop_overlap) are SKIPPED
+    // in the cache-hit test — the cached texture is still valid, we just
+    // composite it at the new position (ex0/ey0Top are LOCAL vars used by
+    // drawElFboComposite, not read from the entry).
+    //
+    // This applies to toggle knobs with solidBackdropColor:
+    //   1. Outer backdrop = solid color (uUseSolidBackdrop=1.0 in the shader)
+    //      → the shader does NOT sample curTex/wallpaper for the backdrop.
+    //      Scroll changes what's in curTex, but the knob doesn't read it.
+    //   2. Scaled track content is positioned relative to the knob's center
+    //      (trackCenter = knobCenter + (trackOrigCenter - knobCenter) * scale).
+    //      Both knobCenter and trackOrigCenter shift by the same scrollY →
+    //      their difference (and thus the track's position in elFbo-local
+    //      space) is scroll-invariant.
+    //   3. SDF shape, refraction, highlight are all relative to the element
+    //      center → position-invariant in elFbo-local space.
+    //
+    // WITHOUT this optimization, scrolling the settings page re-rasterizes
+    // every toggle knob every frame (position_mismatch + backdrop_overlap:
+    // scroll alternate due to sub-pixel rounding), even though the glass
+    // body is identical — pure waste. The toggle spring still invalidates
+    // via markGroupDirty → 'invalidated' (which is checked AFTER
+    // position_mismatch, so previously it was shadowed by position_mismatch
+    // during toggle animation — now it's correctly reported).
+    const positionInvariant = !!(
+      el.isToggleKnob?.solidBackdropColor &&
+      !el.backdropFbo && !el.useContinuousSdf
+    )
+
     // Resolve the FBO + texture to render into (and composite from).
     // - cacheHit=true  → reuse cached tex, skip Steps 2+3 entirely.
     // - cacheable miss → render into a per-element cached FBO (allocated/
@@ -907,7 +938,7 @@ export const glassRenderMethods = {
         missReason = 'no_entry'
       } else if (entry.w !== elFboRectW || entry.h !== elFboRectH) {
         missReason = 'size_mismatch'
-      } else if (entry.ex0 !== ex0 || entry.ey0Top !== ey0Top) {
+      } else if (!positionInvariant && (entry.ex0 !== ex0 || entry.ey0Top !== ey0Top)) {
         missReason = 'position_mismatch'
       } else if (!entry.valid) {
         missReason = 'invalidated'
@@ -915,7 +946,7 @@ export const glassRenderMethods = {
         missReason = 'wallpaper_version'
       } else if (entry.dpr !== this.dpr) {
         missReason = 'dpr'
-      } else if (!independent) {
+      } else if (!positionInvariant && !independent) {
         // Check if any dirty rect overlaps this element's backdrop sampling
         // region. If so, the cached glass body is stale (the backdrop it was
         // rasterized against has changed). Include the SOURCE of the
@@ -943,6 +974,17 @@ export const glassRenderMethods = {
         renderTex = entry.tex
         elFboW = entry.w
         elFboH = entry.h
+        // For position-invariant elements (solidBackdropColor knobs), the
+        // cache hit even when the screen position changed. Update the entry's
+        // recorded position to the current one so it stays in sync (the
+        // composite step uses the LOCAL ex0/ey0Top vars, not the entry's —
+        // this update is purely for bookkeeping consistency + so that if
+        // the element later becomes position-dependent, the entry has the
+        // right starting position).
+        if (positionInvariant) {
+          entry.ex0 = ex0
+          entry.ey0Top = ey0Top
+        }
         this.perfMonitor.incCachedElement()
       } else {
         // CACHE MISS: allocate/resize the per-element cached FBO, render

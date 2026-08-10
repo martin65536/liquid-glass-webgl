@@ -1108,3 +1108,77 @@ Stage Summary:
 - 用 layerScaleX/Y 各向异性缩放，stretched 元素也准
 - overlay label 显示 r/ox/oy，可直观验证 shadow 几何
 - computeScissorMarginCss 保留给 scissor 用（保守上界对 scissor 正确）
+
+---
+Task ID: 19
+Agent: main
+Task: 修复设置页 knob 滚动时不停触发 position_mismatch + backdrop_overlap:scroll
+
+Work Log:
+- 用户反馈："设置里的knob还是会不停触发backdropoverlapscroll和positionmismatch"
+
+- 根因分析：
+  设置页 toggle knob 有 solidBackdropColor（卡片纯色背景）。shader 里
+  uUseSolidBackdrop=1.0 → 背景用纯色，不采样 curTex/wallpaper。加上 scaled
+  track 内容相对 knob 中心定位（knob 和 track 都随 scroll 移动 → 相对位置不
+  变），所以 elFbo 里的 glass body 是位置无关的——scroll 时内容完全一样。
+
+  但缓存检查仍然：
+  1. position_mismatch（ex0/ey0Top 变了）→ miss → 重新光栅化
+     - 即使 sub-pixel scroll（sy 变了 <1px 但 round 后 ex0 没变）也会在下一
+       帧因 scroll rect 触发 backdrop_overlap:scroll
+     - 两个 reason 交替出现（position_mismatch → backdrop_overlap:scroll →
+       position_mismatch → ...），每帧都 miss
+  2. backdrop_overlap:scroll（非 independent + scroll rect 重叠）→ miss
+     - knob 是非 independent（settings 有 backgroundColor），但它的 backdrop
+       是 solid color，不读 curTex → scroll rect 实际不影响它
+
+  额外问题：position_mismatch 在检查链中排在 invalidated 之前（line 910 vs
+  912），所以 toggle 动画期间 markGroupDirty 设的 valid=false 被
+  position_mismatch 短路，报告的错误原因是 position_mismatch 而不是
+  invalidated。
+
+- 修复（methods-render-glass.ts）：
+  1. 新增 positionInvariant 标志：
+     - el.isToggleKnob?.solidBackdropColor && !el.backdropFbo && !el.useContinuousSdf
+     - 标记 glass body 不依赖绝对屏幕位置
+
+  2. 缓存检查修改：
+     - position_mismatch: `!positionInvariant && (entry.ex0 !== ex0 || ...)`
+       → positionInvariant 时跳过（位置变不影响 glass body 内容）
+     - backdrop_overlap: `!positionInvariant && !independent`
+       → positionInvariant 时跳过（backdrop 是 solid，不读 curTex）
+
+  3. cache hit 时更新 entry.ex0/ey0Top 到当前位置：
+     - composite 步骤用的是 LOCAL ex0/ey0Top 变量（不是 entry 的），所以
+       composite 已经在新位置
+     - 更新 entry 纯粹是 bookkeeping（万一元素后来变成 position-dependent）
+
+- 效果：
+  - 滚动设置页时 knob cache HIT（跳过 Step 2 blur + Step 3 element pass）
+    → 只做 composite（在新位置画缓存的 texture）
+  - toggle 动画期间：position_mismatch 被跳过 → invalidated 正确报告
+    （markGroupDirty 设的 valid=false）
+  - toggle 动画结束后：无 markGroupDirty → valid 保持 true → cache HIT
+  - 其他非 solidBackdropColor 元素不受影响（positionInvariant=false）
+
+- dirty rect 一致性验证：
+  - scroll 期间：全屏 scroll rect 已 push（methods-render.ts line 65-69）
+    → 其他非 independent 元素看到 backdrop_overlap:scroll 重新光栅化（正确，
+    因为它们的 curTex backdrop 确实变了）
+  - positionInvariant knob cache hit → 不 push dirty rect → 但 scroll rect
+    已覆盖全屏，不影响其他元素的正确性
+  - toggle 动画：markGroupDirty → invalidated → cache miss → push dirty rect
+    → 后续元素正确看到变化
+
+- 验证：
+  - lint 干净
+  - dev.log 编译正常（✓ Compiled in 124ms）
+  - 未使用 Agent Browser
+
+Stage Summary:
+- solidBackdropColor knob 滚动时不再每帧重新光栅化（cache HIT）
+- position_mismatch + backdrop_overlap:scroll 两个误报都消除
+- toggle 动画期间正确报告 invalidated（不再被 position_mismatch 短路）
+- glass body 位置无关性的论证：solid backdrop（不读 curTex）+ scaled track
+  相对 knob 中心定位（scroll-invariant）+ SDF/refraction/highlight 都是局部坐标
