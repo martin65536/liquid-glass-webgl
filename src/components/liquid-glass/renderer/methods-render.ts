@@ -51,6 +51,17 @@ export const renderMethods = {
     if (!this.needsRedraw) return
     this.needsRedraw = false
 
+    // frameBackdropClean: true at frame start iff no global change (allDirty)
+    // AND scroll position unchanged. Any element that actually re-rasterizes
+    // (glass cache MISS, non-glass dirty redraw, ping-pong path) flips this to
+    // false, so subsequent non-independent glass elements know their backdrop
+    // changed and must re-rasterize too. When a stretch of elements are all
+    // static, the flag stays true and they all hit the elFboCache — skipping
+    // the expensive backdrop blur + element pass even while the scene is
+    // animating elsewhere (e.g. another tab bar dragging, a knob settling).
+    this.frameBackdropClean = !this.allDirty && this.scrollY === this.lastRenderedScrollY
+    this.lastRenderedScrollY = this.scrollY
+
     // --- PerfMonitor: start frame timing + reset per-frame counters ---
     // Push canvas info first so the snapshot includes it.
     this.perfMonitor.canvasCssW = this.cssWidth
@@ -218,6 +229,11 @@ export const renderMethods = {
         if (this.showDirtyMarkers) {
           this.debugDirtyMarkers.push({ x: r.x, y: r.y, w: r.w, h: r.h, dirty })
         }
+        // A dirty non-glass element (text/icon content changed) alters curFbo
+        // → subsequent non-independent glass elements' backdrop changed.
+        // Static redraws (same content) leave pixels identical, so only flip
+        // when the event-flag says this element actually changed.
+        if (dirty) this.frameBackdropClean = false
         // Isolate backdrop: also composite non-glass elements into bgOnlyFbo
         // so glass elements sampling bgOnlyFbo see the non-glass UI.
         if (isolate && this.bgOnlyFbo) {
@@ -299,6 +315,7 @@ export const renderMethods = {
         if (this.showDirtyMarkers) {
           this.debugDirtyMarkers.push({ x: r.x, y: r.y, w: r.w, h: r.h, dirty })
         }
+        if (dirty) this.frameBackdropClean = false
         if (isolate && this.bgOnlyFbo) {
           this.renderNonGlassElement(el, r, st, this.bgOnlyFbo)
         }

@@ -29,6 +29,7 @@ function elementCacheSignature(el: GlassElementConfig): string {
     el.cornerRadius,
     el.blurRadius, el.useSeparableBlur,
     el.scrimColor,
+    el.surfaceColor, el.tintColor,
     el.independentBackdrop, el.sampleWallpaper,
     el.chromaticAberration,
     el.outerShadow,

@@ -458,6 +458,9 @@ export const glassRenderMethods = {
     }
     // Ping-pong path never caches the glass body → always re-rasterized.
     this._dbgLastGlassCacheHit = false
+    // Re-rasterizing into the fullscreen ping-pong → output changes the
+    // accumulated scene. Flip frameBackdropClean for subsequent elements.
+    this.frameBackdropClean = false
 
     // --- Step 1: Blit curFbo → otherFbo (FULLSCREEN ping-pong) ---
     // Copy the entire accumulated scene into otherFbo so the element can
@@ -742,25 +745,22 @@ export const glassRenderMethods = {
     // Cached: 0". Removing `!elDirty` lets the cache populate even during
     // allDirty frames, so the next render hits instead of re-rasterizing
     // from scratch.
-    //
-    // Non-independent elements sample curTex (the accumulation buffer, which
-    // changes whenever an earlier element draws) — their glass body is never
-    // stable across frames, so caching would composite stale pixels.
-    //
-    // Excluded even when independent:
-    //  - backdropFbo (dialog card): uses a 2-pass blur on dialogBackdropTex
-    //    whose cache key (scrim+cc params) is managed separately; caching
-    //    here would bypass that and show stale blur.
-    //  - useContinuousSdf: the SDF texture path is tied to dialog geometry
-    //    and is not independent-cacheable here.
-    //  - isToggleKnob / isBottomTabIndicator / isBottomTabContent: these
-    //    animate continuously (fraction, scale, velocity) and are marked
-    //    dirty every spring tick, so caching yields no hits — skip the
-    //    overhead of checking/allocating entries for them.
+    // cacheable now includes non-independent elements (bottom-tab container /
+    // indicator) AND toggle knobs. Previously these were excluded under the
+    // assumption that "a non-independent backdrop changes whenever an earlier
+    // element draws" — but that's only true when the earlier element's OUTPUT
+    // actually changed. A static redraw (same content, same position) leaves
+    // the backdrop pixels identical, so the cached glass body is still valid.
+    // Real backdrop changes are tracked via frameBackdropClean (flipped false
+    // when any earlier element actually re-rasterized this frame). Independent
+    // elements ignore frameBackdropClean (their backdrop is the wallpaper,
+    // gated by wallpaperVersion). Knobs/indicators were previously excluded
+    // because their spring state changes — but markGroupDirty already
+    // invalidates their entry on change, so when the spring settles the entry
+    // stays valid and can hit, avoiding re-raster while idle.
     const cacheable = !!(
-      independent && this.wallpaperTexture &&
-      !el.backdropFbo && !el.useContinuousSdf &&
-      !el.isToggleKnob && !el.isBottomTabIndicator && !el.isBottomTabContent
+      this.wallpaperTexture &&
+      !el.backdropFbo && !el.useContinuousSdf
     )
 
     // Resolve the FBO + texture to render into (and composite from).
@@ -781,7 +781,13 @@ export const glassRenderMethods = {
           entry.ex0 === ex0 && entry.ey0Top === ey0Top &&
           entry.valid &&
           entry.wallpaperVersion === this.wallpaperVersion &&
-          entry.dpr === this.dpr) {
+          entry.dpr === this.dpr &&
+          // Non-independent elements' backdrop is curFbo (the accumulated
+          // scene). It only matches the cached snapshot when no earlier
+          // element changed its output this frame (frameBackdropClean).
+          // Independent elements sample the wallpaper directly, so they
+          // skip this check (wallpaperVersion covers wallpaper reloads).
+          (independent || this.frameBackdropClean)) {
         // CACHE HIT: the cached tex already contains this element's glass
         // body for the current geometry + wallpaper. Skip backdrop blur
         // (Step 2) + element pass (Step 3); just composite the cached tex.
@@ -877,6 +883,11 @@ export const glassRenderMethods = {
     this.renderGlassShadowPass(state)
 
     if (!cacheHit) {
+      // Re-rasterizing this element's glass body → its output may differ from
+      // last frame → the accumulated scene (curFbo) changes from here on.
+      // Flip frameBackdropClean so subsequent non-independent elements know
+      // their backdrop changed and must also re-rasterize (cache MISS).
+      this.frameBackdropClean = false
       // --- Step 2: Backdrop texture for the element pass ---
       // KEY DESIGN: the element pass samples the FULLSCREEN scene texture
       // (curTex), NOT a cropped region. This is what makes PEF correct: the

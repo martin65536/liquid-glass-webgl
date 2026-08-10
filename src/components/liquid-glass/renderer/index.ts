@@ -141,6 +141,19 @@ export class LiquidGlassRenderer {
    *  populate debugDirtyMarkers. Only valid between renderGlassElement()
    *  return and the next element's render. */
   _dbgLastGlassCacheHit = false
+  /** Frame-local flag: true at render start iff the accumulated scene (curFbo)
+   *  is identical to last frame at every point so far. Any element that
+   *  actually changes its output (glass cache MISS, non-glass dirty redraw)
+   *  flips this to false. Non-independent glass elements check this in their
+   *  elFboCache hit test — when true AND their own state is unchanged, they
+   *  composite the cached glass body instead of re-rasterizing the backdrop
+   *  blur. This is what lets a static bottom-tab bar stay cached while another
+   *  bar (or a toggle knob) animates elsewhere on the page. */
+  frameBackdropClean = true
+  /** Last frame's scrollY — compared at render start to detect scroll-driven
+   *  backdrop changes (which dirty curFbo for all subsequent non-independent
+   *  elements even though no element was event-marked dirty). */
+  lastRenderedScrollY = 0
 
   // --- Scene FBO ping-pong infrastructure ---
   // See render() for the full ping-pong pipeline description.
