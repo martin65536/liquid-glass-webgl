@@ -1219,13 +1219,35 @@ export const glassRenderMethods = {
       // --- Step 3: Render element pass → renderFbo (transparent, then glass body) ---
       // Clear renderFbo to transparent first (the element shader discards outside
       // the glass shape, leaving only the glass body's RGBA).
+      //
+      // BLEND MUST BE DISABLED here. The element pass is the ONLY draw into
+      // renderFbo (single drawArrays in renderGlassElementPass), and the FBO
+      // was just cleared to (0,0,0,0). With blending ENABLED, SrcOver onto
+      // transparent premultiplies the shader's RGB output (color → color*alpha)
+      // AND squares the alpha (alpha → alpha²). The subsequent composite pass
+      // (drawElFboComposite) then SrcOver-blends this premultiplied+squared
+      // texel onto curFbo, producing:
+      //   result.rgb = (color*alpha) * alpha² + scene*(1-alpha²)
+      //              = color*alpha³ + scene*(1-alpha²)
+      // instead of the correct:
+      //   result.rgb = color*alpha + scene*(1-alpha)
+      // For semi-transparent glass (alpha<1 — e.g. ControlCenter tiles while
+      // enterAlpha<1 during the expand animation, or any glass with
+      // backdrop.a<1), this makes the glass body appear darkened/black
+      // (color*alpha³ ≈ 0 while scene*(1-alpha²) ≈ scene, so the dimmed
+      // backdrop shows through instead of the glass). Disabling blend stores
+      // the shader's unpremultiplied output (color, alpha) directly; the
+      // composite pass then produces correct SrcOver RGB.
+      //
+      // NOTE: renderGlassElementPass internally calls gl.blendFunc(...) but
+      // does NOT enable/disable BLEND — so blendFunc is a no-op while BLEND
+      // is disabled here. Safe.
       gl.bindFramebuffer(gl.FRAMEBUFFER, renderFbo)
       gl.viewport(0, 0, elFboW, elFboH)
       gl.disable(gl.SCISSOR_TEST)
       gl.clearColor(0, 0, 0, 0)
       gl.clear(gl.COLOR_BUFFER_BIT)
-      gl.enable(gl.BLEND)
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+      gl.disable(gl.BLEND)
       // Render the element pass sampling the FULLSCREEN backdrop (curTex, or
       // blurFboBTex when blurred). The shader reconstructs screenCoord from
       // gl_FragCoord via uSceneRectOffset/uElFboSize, then samples the fullscreen

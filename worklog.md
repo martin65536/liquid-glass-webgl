@@ -1354,3 +1354,130 @@ Stage Summary:
   - 其他 dirty rect 仍然 miss（正确处理真实内容变化）
 - toggle knob 不变（positionInvariant via solidBackdropColor）
 - Slider destination slider knob 不变（scrollInvariant=false，有 wallpaper）
+
+---
+Task ID: 22
+Agent: main
+Task: 修复开启 perElementFbo 时控制中心半透明效果变黑
+
+Work Log:
+- 用户反馈："开了 pef（perElementFbo）时半透明渲染会变黑，不开就没问题"
+
+- 根因分析（PEF 路径的双重 SrcOver 混合 bug）：
+
+  PEF 路径下，每个 glass element 渲染到自己的小 elFbo，然后 composite 回 curFbo。
+  这比 ping-pong 路径多了一层间接，导致半透明 glass body 的 RGB 被双重混合。
+
+  【Ping-pong 路径（perElementFbo=false，正常）】
+  - Step 1: blit curFbo → otherFbo（drawCopy，禁 blend，otherFbo = scene，alpha=1）
+  - Step 2b: element pass → otherFbo，启用 blend (SRC_ALPHA, ONE_MINUS_SRC_ALPHA)
+    - shader 输出 (color, alpha)
+    - dst = scene (alpha=1)
+    - result.rgb = color*alpha + scene.rgb*(1-alpha)  ← 正确 SrcOver
+    - result.a = alpha² + 1*(1-alpha)  ← alpha 衰减，但 RGB 对，视觉无影响
+  - Swap: curFbo = otherFbo
+
+  【PEF 路径（perElementFbo=true，bug）】
+  - Step 3: clear elFbo to (0,0,0,0)，启用 blend (SRC_ALPHA, ONE_MINUS_SRC_ALPHA)
+    - shader 输出 (color, alpha)
+    - dst = (0,0,0,0)  ← 透明背景！
+    - elFbo.rgb = color*alpha + 0 = color*alpha  ← RGB 被 premultiply！
+    - elFbo.a = alpha² + 0 = alpha²  ← alpha 被平方！
+  - Step 4: drawElFboComposite，blend (SRC_ALPHA, ONE_MINUS_SRC_ALPHA) 到 curFbo
+    - src = (color*alpha, alpha²)  ← premultiplied + 平方 alpha
+    - dst = scene
+    - result.rgb = (color*alpha)*alpha² + scene*(1-alpha²)
+                 = color*alpha³ + scene*(1-alpha²)  ← 三重 alpha 衰减！
+    - 期望: color*alpha + scene*(1-alpha)
+    - result.a = alpha⁴ + scene.a*(1-alpha²)  ← alpha 严重衰减
+
+  【为什么 ControlCenter 会变黑】
+  ControlCenter glass tile 的 shader alpha = backdrop.a * edgeAlpha * uEnterAlpha。
+  - backdrop.a = curTex.a = 1（dim 用了 glBlendFuncSeparate 保持 alpha=1）
+  - edgeAlpha = 1（glass 内部）
+  - uEnterAlpha = easeIn(safeP)  ← 展开动画进度
+
+  当 ControlCenter 正在展开（safeP < 1）时，uEnterAlpha < 1，glass body 半透明。
+  - 假设 enterAlpha = 0.5（展开中）：
+    - 修复前：result.rgb = color*0.125 + scene*0.75
+      glass body 几乎不可见（0.125），看到的是 dimmed scene（暗）→ 变黑
+    - 修复后：result.rgb = color*0.5 + scene*0.5  ← 正确半透明
+
+  当 safeP = 1（完全展开），enterAlpha = 1，alpha = 1：
+    - alpha³ = 1，无衰减，所以完全展开时 PEF 路径也正常
+    - 这解释了为什么用户只在「展开过程中」看到变黑
+
+- 修复（2 个文件）：
+
+  1. methods-render-glass.ts — Step 3 elFbo 渲染禁用 blend：
+     原代码：
+       gl.enable(gl.BLEND)
+       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+       this.renderGlassElementPass(passState, backdropTex)
+     改为：
+       gl.disable(gl.BLEND)
+       this.renderGlassElementPass(passState, backdropTex)
+
+     原理：elFbo 刚 clear 到 (0,0,0,0)，element pass 是唯一的 draw（单个
+     drawArrays）。禁用 blend 后，shader 输出 (color, alpha) 直接写入 elFbo，
+     存的是 unpremultiplied RGBA（无 premultiply、无 alpha 平方）。
+
+     renderGlassElementPass 内部虽然设了 gl.blendFunc(...)，但不 enable/disable
+     blend，所以 blendFunc 在 blend 禁用时是 no-op，安全。
+
+  2. methods-fbo.ts — drawElFboComposite 用 blendFuncSeparate：
+     原代码：
+       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+     改为：
+       gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA,
+                            gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+
+     原理：elFbo 现在存 unpremultiplied (color, alpha)。composite 用
+     blendFuncSeparate：
+     - RGB: color*alpha + scene*(1-alpha)  ← 正确 SrcOver
+     - A: alpha + scene.a*(1-alpha)  ← 正确 alpha 合成（保持 curFbo.alpha=1）
+
+     如果只用 blendFunc（alpha 也用 SRC_ALPHA），alpha 会平方：
+       out.a = alpha² + scene.a*(1-alpha)
+     导致 curFbo.alpha 衰减。后续 glass element 采样 curTex 时 backdrop.a<1，
+     shader alpha = backdrop.a*... < 1，连锁触发更多半透明 → 级联变暗。
+     blendFuncSeparate 的 alpha 通道用 ONE（src.a*1）避免平方，保持 alpha=1。
+     这和 plain-rect pass（renderNonGlassElement）用的 blend 一致。
+
+- 验证 alpha 流（修复后，ControlCenter 展开中 safeP=0.5, enterAlpha≈0.42）：
+  1. renderBackground: wallpaper → fboA, alpha=1
+  2. sceneBlur: blur fboA, alpha=1
+  3. cc-dim (plainRect alpha=0.2): glBlendFuncSeparate → alpha=1, RGB=WP*0.8
+  4. cc-a glass tile (enterAlpha=0.42):
+     - shader: backdrop.a=1, alpha=0.42, RGB=refraction(dimmed WP)
+     - elFbo (blend disabled): (shaderRGB, 0.42) unpremultiplied
+     - composite (blendFuncSeparate) to curFbo:
+       - result.rgb = shaderRGB*0.42 + dimmedWP*0.58  ← 正确半透明
+       - result.a = 0.42 + 1*0.58 = 1  ← 保持 1
+  5. cc-b glass tile: backdrop.a=1（curFbo.alpha 保持 1），正确渲染
+  → 所有 tile 正确半透明，无变黑
+
+- LINEAR filter 安全性：
+  elFbo texture 用 LINEAR filter。composite 是 1:1 mapping（elFboW = elFboRectW，
+  ex0/ey0Top 是 round 过的整数），uv 精确对应 texel 中心，LINEAR = NEAREST。
+  无 unpremultiplied 颜色泄漏问题。
+
+- ping-pong 路径不受影响：
+  - 不走 drawElFboComposite（PEF 专用）
+  - element pass 仍用 blendFunc（alpha 平方），但 dst=scene（alpha=1），
+    RGB 正确（color*alpha + scene*(1-alpha)），alpha 衰减不影响视觉
+  - 不需要改 ping-pong 路径
+
+- 验证：
+  - lint 干净
+  - dev.log 编译正常（✓ Compiled in 206ms）
+  - 未使用 Agent Browser（按用户约束）
+
+Stage Summary:
+- PEF 半透明变黑根因：elFbo 用 SrcOver blend 渲染到透明背景，RGB 被 premultiply
+  + alpha 被平方；composite 再 SrcOver，RGB 变成 color*alpha³ + scene*(1-alpha²)
+  （三重 alpha 衰减），半透明 glass body 几乎不可见，显出底下暗淡 scene
+- 修复：elFbo 禁用 blend 存 unpremultiplied (color, alpha)；
+  drawElFboComposite 用 blendFuncSeparate 保持 curFbo.alpha=1（防级联衰减）
+- ControlCenter 展开过程（enterAlpha<1）不再变黑；完全展开（enterAlpha=1）行为不变
+- ping-pong 路径不受影响

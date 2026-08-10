@@ -366,7 +366,17 @@ export const fboMethods = {
     gl.uniform4f(this.uEf['uDstRect'], dstX, dstY, dstW, dstH)
     gl.uniform2f(this.uEf['uSrcSize'], srcW, srcH)
     gl.enable(gl.BLEND)
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+    // glBlendFuncSeparate: correct SrcOver on the alpha channel (ONE instead
+    // of SRC_ALPHA for the src alpha factor) so curFbo's alpha stays at 1.0
+    // when translucent glass (alpha<1) composites onto it. With plain
+    // glBlendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA), the alpha channel would
+    // square (out.a = src.a² + dst.a*(1-src.a)), decaying curFbo.alpha below
+    // 1. Subsequent glass elements sampling curTex would then see backdrop.a<1,
+    // making their own shader output alpha<1 → cascading darkening.
+    // RGB is unchanged (SRC_ALPHA, ONE_MINUS_SRC_ALPHA = standard SrcOver).
+    // This mirrors the plain-rect pass (renderNonGlassElement) which already
+    // uses glBlendFuncSeparate for the same reason.
+    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
     gl.drawArrays(gl.TRIANGLES, 0, 6)
   },
 }
