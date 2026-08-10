@@ -2,6 +2,7 @@ import type { LiquidGlassRenderer } from './index'
 import type { GlassElementConfig, ElementState } from './types'
 import { DP } from './spring'
 import { easeIn } from './gl-utils'
+import { inflatedOutputRect } from './methods-render-glass'
 
 declare module './index' {
   interface LiquidGlassRenderer {
@@ -51,15 +52,17 @@ export const renderMethods = {
     if (!this.needsRedraw) return
     this.needsRedraw = false
 
-    // frameBackdropClean: true at frame start iff no global change (allDirty)
-    // AND scroll position unchanged. Any element that actually re-rasterizes
-    // (glass cache MISS, non-glass dirty redraw, ping-pong path) flips this to
-    // false, so subsequent non-independent glass elements know their backdrop
-    // changed and must re-rasterize too. When a stretch of elements are all
-    // static, the flag stays true and they all hit the elFboCache — skipping
-    // the expensive backdrop blur + element pass even while the scene is
-    // animating elsewhere (e.g. another tab bar dragging, a knob settling).
-    this.frameBackdropClean = !this.allDirty && this.scrollY === this.lastRenderedScrollY
+    // dirtyRectsThisFrame: screen-space rects whose curFbo pixels changed
+    // this frame. Cleared at render start. When allDirty (global state
+    // change like wallpaper reload) or scrollY changed, a full-screen rect is
+    // pushed so every non-independent glass element's backdrop is considered
+    // dirty. Otherwise only elements that actually re-rasterize push their
+    // own bbox, and non-independent elements hit the cache iff no pushed rect
+    // overlaps their backdrop sampling region (spatial, not global).
+    this.dirtyRectsThisFrame.length = 0
+    if (this.allDirty || this.scrollY !== this.lastRenderedScrollY) {
+      this.dirtyRectsThisFrame.push({ x: 0, y: 0, w: this.cssWidth, h: this.cssHeight })
+    }
     this.lastRenderedScrollY = this.scrollY
 
     // --- PerfMonitor: start frame timing + reset per-frame counters ---
@@ -230,10 +233,11 @@ export const renderMethods = {
           this.debugDirtyMarkers.push({ x: r.x, y: r.y, w: r.w, h: r.h, dirty })
         }
         // A dirty non-glass element (text/icon content changed) alters curFbo
-        // → subsequent non-independent glass elements' backdrop changed.
-        // Static redraws (same content) leave pixels identical, so only flip
+        // within its bbox → record the region so subsequent non-independent
+        // glass elements whose backdrop samples it know to re-rasterize.
+        // Static redraws (same content) leave pixels identical, so only push
         // when the event-flag says this element actually changed.
-        if (dirty) this.frameBackdropClean = false
+        if (dirty) this.dirtyRectsThisFrame.push(inflatedOutputRect(el, r.x, r.y, r.w, r.h))
         // Isolate backdrop: also composite non-glass elements into bgOnlyFbo
         // so glass elements sampling bgOnlyFbo see the non-glass UI.
         if (isolate && this.bgOnlyFbo) {
@@ -315,7 +319,7 @@ export const renderMethods = {
         if (this.showDirtyMarkers) {
           this.debugDirtyMarkers.push({ x: r.x, y: r.y, w: r.w, h: r.h, dirty })
         }
-        if (dirty) this.frameBackdropClean = false
+        if (dirty) this.dirtyRectsThisFrame.push(inflatedOutputRect(el, r.x, r.y, r.w, r.h))
         if (isolate && this.bgOnlyFbo) {
           this.renderNonGlassElement(el, r, st, this.bgOnlyFbo)
         }

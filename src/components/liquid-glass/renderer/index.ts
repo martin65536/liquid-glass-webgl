@@ -141,18 +141,19 @@ export class LiquidGlassRenderer {
    *  populate debugDirtyMarkers. Only valid between renderGlassElement()
    *  return and the next element's render. */
   _dbgLastGlassCacheHit = false
-  /** Frame-local flag: true at render start iff the accumulated scene (curFbo)
-   *  is identical to last frame at every point so far. Any element that
-   *  actually changes its output (glass cache MISS, non-glass dirty redraw)
-   *  flips this to false. Non-independent glass elements check this in their
-   *  elFboCache hit test — when true AND their own state is unchanged, they
-   *  composite the cached glass body instead of re-rasterizing the backdrop
-   *  blur. This is what lets a static bottom-tab bar stay cached while another
-   *  bar (or a toggle knob) animates elsewhere on the page. */
-  frameBackdropClean = true
-  /** Last frame's scrollY — compared at render start to detect scroll-driven
-   *  backdrop changes (which dirty curFbo for all subsequent non-independent
-   *  elements even though no element was event-marked dirty). */
+  /** Frame-local list of screen-space rects (CSS px, top-left origin) whose
+   *  curFbo pixels changed this frame. Any element that actually re-rasterizes
+   *  (glass cache MISS, dirty non-glass redraw, ping-pong path) pushes its
+   *  inflated output rect here. Non-independent glass elements check this list
+   *  in their elFboCache hit test — if no dirty rect overlaps the element's
+   *  backdrop sampling region, the cached glass body is still valid and can be
+   *  composited without re-rasterizing the backdrop blur. This is SPATIAL, not
+   *  global: a tab bar animating on the left does NOT invalidate a static bar
+   *  on the right, because their rects don't overlap. */
+  dirtyRectsThisFrame: Array<{ x: number; y: number; w: number; h: number }> = []
+  /** Last frame's scrollY — when it changes, scrolling elements move and every
+   *  non-independent element whose backdrop overlaps them must re-rasterize.
+   *  Represented by pushing a full-screen rect into dirtyRectsThisFrame. */
   lastRenderedScrollY = 0
 
   // --- Scene FBO ping-pong infrastructure ---

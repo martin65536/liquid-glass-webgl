@@ -49,6 +49,34 @@ export function computeScissorMarginCss(
   return Math.max(FLOOR_CSS, shadowReachCss + 2) // +2 px rounding headroom
 }
 
+/** Inflate an element's output rect by its blur + shadow reach so it covers
+ *  every curFbo pixel the element's rendering could change. Pushed into
+ *  dirtyRectsThisFrame by any element that actually re-rasterizes, then used
+ *  by subsequent non-independent glass elements' cache-hit test to detect
+ *  whether their backdrop sampling region was affected. */
+export function inflatedOutputRect(
+  el: GlassElementConfig,
+  x: number, y: number, w: number, h: number
+): { x: number; y: number; w: number; h: number } {
+  const blur = el.blurRadius || 0
+  const shadow = el.outerShadow
+    ? el.outerShadow.radius +
+      Math.max(Math.abs(el.outerShadow.offsetX), Math.abs(el.outerShadow.offsetY))
+    : 0
+  // +4 px headroom for SDF AA + sub-pixel rounding. The blur radius covers
+  // backdrop sampling reach; the shadow radius covers output draw reach.
+  const m = Math.max(blur, shadow) + 4
+  return { x: x - m, y: y - m, w: w + 2 * m, h: h + 2 * m }
+}
+
+/** Axis-aligned rect overlap test (both rects in CSS px, top-left origin). */
+export function rectsOverlap(
+  a: { x: number; y: number; w: number; h: number },
+  b: { x: number; y: number; w: number; h: number }
+): boolean {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
+}
+
 
 /** Shared state between renderGlassElement and its sub-passes.
  *  Rect/radius values are in CSS px (same units as the original code —
@@ -458,9 +486,12 @@ export const glassRenderMethods = {
     }
     // Ping-pong path never caches the glass body → always re-rasterized.
     this._dbgLastGlassCacheHit = false
-    // Re-rasterizing into the fullscreen ping-pong → output changes the
-    // accumulated scene. Flip frameBackdropClean for subsequent elements.
-    this.frameBackdropClean = false
+    // Re-rasterizing into the fullscreen ping-pong → output may change
+    // curFbo within this element's bbox. Record it so subsequent
+    // non-independent glass elements whose backdrop samples this region
+    // know to re-rasterize too (spatial, not global — only overlapping
+    // elements are affected).
+    this.dirtyRectsThisFrame.push(inflatedOutputRect(el, sx, sy, sw, sh))
 
     // --- Step 1: Blit curFbo → otherFbo (FULLSCREEN ping-pong) ---
     // Copy the entire accumulated scene into otherFbo so the element can
@@ -749,15 +780,13 @@ export const glassRenderMethods = {
     // indicator) AND toggle knobs. Previously these were excluded under the
     // assumption that "a non-independent backdrop changes whenever an earlier
     // element draws" — but that's only true when the earlier element's OUTPUT
-    // actually changed. A static redraw (same content, same position) leaves
-    // the backdrop pixels identical, so the cached glass body is still valid.
-    // Real backdrop changes are tracked via frameBackdropClean (flipped false
-    // when any earlier element actually re-rasterized this frame). Independent
-    // elements ignore frameBackdropClean (their backdrop is the wallpaper,
-    // gated by wallpaperVersion). Knobs/indicators were previously excluded
-    // because their spring state changes — but markGroupDirty already
-    // invalidates their entry on change, so when the spring settles the entry
-    // stays valid and can hit, avoiding re-raster while idle.
+    // actually changed AND its bbox overlaps this element's backdrop sampling
+    // region. Real backdrop changes are tracked via dirtyRectsThisFrame
+    // (spatial overlap — only overlapping elements are invalidated). Knobs/
+    // indicators were previously excluded because their spring state changes
+    // — but markGroupDirty already invalidates their entry on change, so when
+    // the spring settles the entry stays valid and can hit, avoiding re-raster
+    // while idle.
     const cacheable = !!(
       this.wallpaperTexture &&
       !el.backdropFbo && !el.useContinuousSdf
@@ -783,11 +812,15 @@ export const glassRenderMethods = {
           entry.wallpaperVersion === this.wallpaperVersion &&
           entry.dpr === this.dpr &&
           // Non-independent elements' backdrop is curFbo (the accumulated
-          // scene). It only matches the cached snapshot when no earlier
-          // element changed its output this frame (frameBackdropClean).
-          // Independent elements sample the wallpaper directly, so they
-          // skip this check (wallpaperVersion covers wallpaper reloads).
-          (independent || this.frameBackdropClean)) {
+          // scene). It still matches the cached snapshot iff no element
+          // that re-rasterized earlier this frame had an output rect
+          // overlapping this element's backdrop sampling region. This is
+          // SPATIAL: an animating tab bar on the left does NOT invalidate
+          // a static bar on the right. Independent elements sample the
+          // wallpaper directly, so they skip this check (wallpaperVersion
+          // covers wallpaper reloads).
+          (independent || !this.dirtyRectsThisFrame.some(r =>
+            rectsOverlap(r, inflatedOutputRect(el, sx, sy, sw, sh))))) {
         // CACHE HIT: the cached tex already contains this element's glass
         // body for the current geometry + wallpaper. Skip backdrop blur
         // (Step 2) + element pass (Step 3); just composite the cached tex.
@@ -883,11 +916,13 @@ export const glassRenderMethods = {
     this.renderGlassShadowPass(state)
 
     if (!cacheHit) {
-      // Re-rasterizing this element's glass body → its output may differ from
-      // last frame → the accumulated scene (curFbo) changes from here on.
-      // Flip frameBackdropClean so subsequent non-independent elements know
-      // their backdrop changed and must also re-rasterize (cache MISS).
-      this.frameBackdropClean = false
+      // Re-rasterizing this element's glass body → its output may differ
+      // from last frame → curFbo changes within this element's bbox.
+      // Record the region so subsequent non-independent glass elements
+      // whose backdrop sampling overlaps it know to re-rasterize too.
+      // This is SPATIAL: a static bar elsewhere on the page whose bbox
+      // doesn't overlap this one still hits its cache.
+      this.dirtyRectsThisFrame.push(inflatedOutputRect(el, sx, sy, sw, sh))
       // --- Step 2: Backdrop texture for the element pass ---
       // KEY DESIGN: the element pass samples the FULLSCREEN scene texture
       // (curTex), NOT a cropped region. This is what makes PEF correct: the
