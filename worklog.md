@@ -1559,3 +1559,39 @@ Stage Summary:
 - PerfBenchmark glass 属性改为固定常量，不再从 state 读，不继承
   GlassPlayground 滑块值 → benchmark 工作负载可复现
 - 用户 PEF 设置不受影响（只在测量期间覆盖，结束后恢复）
+
+---
+Task ID: 24
+Agent: main
+Task: 默认启用 PEF (perElementFbo)
+
+Work Log:
+- 用户反馈："默认启用 pef，然后推 github"
+
+- 改动（2 处默认值，新用户 / 无 localStorage 时生效）：
+
+  1. src/app/page.tsx (line 76) — localStorage 读取时的 fallback：
+     原: usePerElementFbo: ... ? parsed.usePerElementFbo : false
+     改: usePerElementFbo: ... ? parsed.usePerElementFbo : true
+
+  2. src/components/liquid-glass/catalog/types.ts (line 623) — initialState：
+     原: usePerElementFbo: false
+     改: usePerElementFbo: true
+
+- 兼容性：
+  - 已有 localStorage 的用户：parsed.usePerElementFbo 是 boolean，原值保留
+    （之前存过 false 的还是 false，需要用户手动在设置里开）
+  - 新用户 / 清空 localStorage：默认 true
+  - context.tsx 的 useEffect 在 usePerElementFbo 变化时 markAllDirty +
+    requestRender，PEF 切换正确处理
+  - PerfBenchmark 测量中仍强制 false（Task 23 的 perfMeasuring 逻辑不变）
+
+- 验证：
+  - lint 干净
+  - dev.log 编译正常（✓ Compiled in 175ms）
+  - 未使用 Agent Browser
+
+Stage Summary:
+- PEF 默认开启（新用户 / 无 localStorage）
+- 已有用户设置不受影响（localStorage 保留原值）
+- PerfBenchmark 测量期间仍自动强制关闭（Task 23 逻辑）
