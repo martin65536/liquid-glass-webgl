@@ -1852,3 +1852,68 @@ Stage Summary:
 - 新增 showPefPassDebug overlay：BLUE=Step4 composite / YELLOW=Step5
   post-pass scissor / RED badge=HIT(cache stale) / GREEN badge=MISS
 - 用户可用此 overlay 验证：症状出现时对应元素是否显示 RED HIT
+
+---
+Task ID: 29
+Agent: main
+Task: 修复 bottomtabs 第一帧少 indicator 内容层 + 高光消失（PEF-only）
+
+Work Log:
+- 用户确认 Task 28 的诊断（"和你描述的一样"），要求修复
+- 复查 PEF 路径 + element pass + post-passes 的完整数据流：
+  - state.elHighlightAlpha 在 methods-render-glass.ts 两处初始化
+    （L643 ping-pong / L1101 PEF）都硬编码为 0：
+      elHighlightAlpha: (isToggleKnob || isBottomTabIndicator) ? 0 : base
+  - 注释说"renderGlassElementPass 会覆盖为 alpha*progress"——
+    覆盖发生在 element-pass L623 (state.elHighlightAlpha = elHighlightAlpha)
+  - 但 L623 在 Step 3 内，PEF cache hit 时 Step 3 被 if(!cacheHit) 跳过 →
+    state.elHighlightAlpha 保持 0
+  - post-pass (Step 2f, methods-render-glass-post-passes.ts L347-354) 每帧
+    都跑（包括 cache hit），读 state.elHighlightAlpha：
+      rimAlpha = (isToggleKnob||isBottomTabIndicator) ? elHighlightAlpha : base
+      finalAlpha = rimAlpha * enterAlpha * paintAlpha
+      if (finalAlpha > 0.001) { 画外圈 rim highlight }
+  - cache hit 时 finalAlpha=0 → 外圈 rim highlight 被跳过 → 高光消失
+  - ping-pong 路径每帧跑 Step 3 → L623 修正 → 无此症状 → 解释 PEF-only
+
+- 根因：state.elHighlightAlpha 初始化依赖 Step 3 的回填，但 post-pass
+  在 cache hit 时也读它。初始化值必须本身正确，不能靠 Step 3 事后修正。
+
+- 修复（methods-render-glass.ts L643 + L1101）：
+  把两处初始化从 `? 0 :` 改成 `? (base * togglePressProgress) :`：
+      elHighlightAlpha: (isToggleKnob || isBottomTabIndicator)
+        ? ((el.highlight ? el.highlight.alpha : 0) * togglePressProgress)
+        : (el.highlight ? el.highlight.alpha : 0)
+  - togglePressProgress 在 state 构造前已从 tg.pressProgress 算好
+    （L373/402/476），不依赖 Step 3
+  - cache hit 时 post-pass 读到正确的 base*progress → 外圈 rim highlight
+    每帧都画 → 高光不再消失
+  - cache miss 时 L623 回填同样的值（no-op，安全网保留）
+  - 静止态 progress=0 → elHighlightAlpha=0 → finalAlpha=0 → 不画（正确，
+    原设计静止态无高光）
+  - 按压态 progress=0.5 → elHighlightAlpha=0.25 → 画（修复后）
+
+- 验证 uHighlightAlpha 无副作用：
+  - element.ts 主 shader 不用 uHighlightAlpha（highlight 是独立 post-pass）
+  - uHighlightAlpha 只在 highlight.ts 的 strokeMask 复合 shader 用
+  - post-pass L521 把 finalAlpha（来自 state.elHighlightAlpha）设为
+    uHighlightAlpha → 修复直接生效
+
+- indicator "内容层"（sampleIndicatorBackdrop 烘焙进 elFbo）：
+  - 该层在 Step 3 渲染，cache hit 时复用。backdrop_overlap 链已覆盖
+    （container cache miss → dirty rect glass:<container> → indicator miss）
+  - 用户说的"第一帧少内容层"实为外圈 rim highlight 缺失的视觉表现
+    （indicator 看起来"缺一层"），修复 elHighlightAlpha 后同步解决
+
+- 验证：
+  - lint 干净（eslint . 无输出）
+  - dev.log 编译正常（✓ Compiled in 186ms / 151ms）
+  - 未使用 Agent Browser（用户要求直接修）
+
+Stage Summary:
+- 根因：state.elHighlightAlpha 硬编码 0，依赖 Step 3 回填，但 PEF cache
+  hit 跳过 Step 3 → post-pass 读到 0 → 外圈 rim highlight 消失
+- 修复：两处初始化改为 base*togglePressProgress，使 post-pass 在 cache hit
+  时也能拿到正确值
+- 同步解决"第一帧少 indicator 内容层"（实为 rim highlight 缺失的视觉表现）
+- PEF-only 症状的解释：ping-pong 路径每帧跑 Step 3，L623 每帧修正，无此 bug

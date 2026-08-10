@@ -635,12 +635,14 @@ export const glassRenderMethods = {
 
     const state: GlassRenderState = {
       el, st, isButton, p, sx, sy, sw, sh, radii, togglePressProgress,
-      // For toggle knobs + bottom-tab indicators, the highlight alpha is
+      // For toggle knobs + bottom-tab indicators, the rim highlight alpha is
       // modulated by pressProgress (faithful to Highlight.Default.copy(alpha=progress)).
-      // At rest (progress=0) the alpha should be 0 — so we initialize to 0
-      // here, and renderGlassElementPass overrides it to alpha*progress when
-      // progress > 0. For non-toggle elements, use the static highlight alpha.
-      elHighlightAlpha: (el.isToggleKnob || el.isBottomTabIndicator) ? 0 : (el.highlight ? el.highlight.alpha : 0),
+      // Initialize to base*progress here so the post-pass (Step 2f, always
+      // runs) sees the correct value even if Step 3 is skipped (PEF cache hit).
+      // See the PEF path above for the full rationale.
+      elHighlightAlpha: (el.isToggleKnob || el.isBottomTabIndicator)
+        ? ((el.highlight ? el.highlight.alpha : 0) * togglePressProgress)
+        : (el.highlight ? el.highlight.alpha : 0),
       enterAlpha: el.enterProgress != null ? (() => {
         // Faithful to ControlCenterContent.kt: alpha = EaseIn.transform(safeProgress)
         // where safeProgress = safeEnterProgressAnimation.value (clamped 0..1).
@@ -1098,7 +1100,21 @@ export const glassRenderMethods = {
     // --- Build the GlassRenderState (same as the legacy path) ---
     const state: GlassRenderState = {
       el, st, isButton, p, sx, sy, sw, sh, radii, togglePressProgress,
-      elHighlightAlpha: (el.isToggleKnob || el.isBottomTabIndicator) ? 0 : (el.highlight ? el.highlight.alpha : 0),
+      // For toggle knobs + bottom-tab indicators, the rim highlight alpha is
+      // modulated by pressProgress (faithful to Highlight.Default.copy(alpha=progress)).
+      // CRITICAL: initialize to base*progress HERE, not 0. The post-pass
+      // (Step 2f, renderGlassPostPasses) ALWAYS runs — even on PEF cache hit,
+      // when Step 3 (element pass) is skipped. Previously this was 0 and relied
+      // on renderGlassElementPass (L623: state.elHighlightAlpha = elHighlightAlpha)
+      // to correct it. But that correction only runs inside Step 3, which PEF
+      // cache hit skips → state stayed 0 → post-pass saw finalAlpha=0 → outer
+      // rim highlight vanished on every cache hit (after spring settles / idle).
+      // PEF-only symptom because the ping-pong path always runs Step 3.
+      // Computing base*progress here makes the value correct regardless of
+      // whether Step 3 runs, so the post-pass renders the highlight every frame.
+      elHighlightAlpha: (el.isToggleKnob || el.isBottomTabIndicator)
+        ? ((el.highlight ? el.highlight.alpha : 0) * togglePressProgress)
+        : (el.highlight ? el.highlight.alpha : 0),
       enterAlpha: el.enterProgress != null ? (() => {
         const sp = el.enterSafeProgress != null
           ? Math.max(0, Math.min(1, el.enterSafeProgress))
