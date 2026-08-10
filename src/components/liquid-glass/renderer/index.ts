@@ -412,6 +412,40 @@ export class LiquidGlassRenderer {
    *  intact so the overlay stays visible. */
   showCullDebug = false
   debugCullRects: { id: string; x: number; y: number; w: number; h: number; margin: number; culled: boolean; scroll: boolean; viewportH: number; pass: 'main' | 'onTop' }[] = []
+  /** Debug: when true, records each glass element's PEF step execution into
+   *  `debugPefPasses` during render. The overlay draws, per glass element:
+   *    - BLUE rect  = Step 4 composite rect (elFbo → curFbo blit area)
+   *    - YELLOW rect = Step 5 post-pass scissor (shadow bbox)
+   *    - RED badge  = cache HIT (Step 3 skipped → element-shader highlight /
+   *      indicator backdrop NOT rendered this frame; only cached tex composited)
+   *    - GREEN badge = cache MISS (Step 3 ran → full re-raster incl. highlight)
+   *
+   *  WHY: symptoms "highlight disappears" + "bottom-tab indicator content
+   *  layer missing on first frame" both ONLY happen with PEF on. Root cause
+   *  hypothesis: the element shader (renderGlassElementPass = Step 3) renders
+   *  the refraction-embedded highlight AND the indicator's sampleIndicator
+   *  Backdrop content layer INTO the elFbo. On PEF cache HIT, Step 3 is
+   *  skipped → the cached elFbo tex (from a previous frame) is composited
+   *  as-is. If the cached tex was rasterized when highlight.alpha=0 or
+   *  pressProgress=0 (at rest), the highlight / indicator content baked
+   *  into the cache is empty, and it NEVER refreshes until cache is
+   *  invalidated. This overlay lets you verify: when highlight visually
+   *  disappears, check if the element shows a RED (HIT) badge — if so,
+   *  the cache is serving a stale tex without the highlight.
+   *
+   *  CONSUME-AFTER-DRAW: NO — structural overlay (persists across idle
+   *  frames). Cleared + repopulated each render. */
+  showPefPassDebug = false
+  debugPefPasses: {
+    id: string
+    cacheHit: boolean
+    missReason: string | null
+    composite: { x: number; y: number; w: number; h: number }  // CSS px, Step 4
+    postPass: { x: number; y: number; w: number; h: number }   // CSS px, Step 5
+    isBottomTabIndicator: boolean
+    togglePressProgress: number
+    elHighlightAlpha: number
+  }[] = []
   /** Performance monitor — frame timing + per-frame render counters +
    *  GPU info. When `perfMonitor.enabled === false` (default), every
    *  increment is a no-op. Toggled on by the Settings "Performance

@@ -500,6 +500,55 @@ export function LiquidGlassCanvas({
             // NOTE: do NOT consume — structural overlay (persists across
             // idle frames). The renderer clears + repopulates on each render.
           }
+          if (renderer.showPefPassDebug) {
+            // PEF pass-execution overlay — diagnoses "highlight disappears"
+            // + "bottom-tab indicator content layer missing" (PEF-only).
+            //
+            // Per glass element draws:
+            //   BLUE solid rect   = Step 4 composite area (elFbo → curFbo)
+            //   YELLOW dashed rect = Step 5 post-pass scissor (shadow bbox)
+            //   Badge (corner): GREEN=MISS (Step 3 ran, full re-raster)
+            //                   RED=HIT (Step 3 skipped, cached tex composited)
+            //
+            // DIAGNOSIS: when highlight/indicator visually disappears, look
+            // for a RED (HIT) badge on that element. HIT means Step 3
+            // (element pass, which renders the refraction-embedded highlight
+            // + indicator sampleIndicatorBackdrop content INTO elFbo) was
+            // skipped. The cached tex was baked at some earlier frame's
+            // state (e.g. highlight.alpha=0 at rest) and is now stale.
+            const passes = renderer.debugPefPasses
+            ctx.font = 'bold 10px ui-monospace, monospace'
+            for (let i = 0; i < passes.length; i++) {
+              const p = passes[i]
+              // Step 5 post-pass scissor (yellow dashed, larger)
+              ctx.strokeStyle = 'rgba(255, 220, 80, 0.85)'
+              ctx.lineWidth = 1.5
+              ctx.setLineDash([5, 3])
+              ctx.strokeRect(p.postPass.x + 0.5, p.postPass.y + 0.5, p.postPass.w - 1, p.postPass.h - 1)
+              ctx.setLineDash([])
+              // Step 4 composite rect (blue solid, tighter)
+              ctx.strokeStyle = 'rgba(80, 180, 255, 0.95)'
+              ctx.lineWidth = 1.5
+              ctx.strokeRect(p.composite.x + 0.5, p.composite.y + 0.5, p.composite.w - 1, p.composite.h - 1)
+              // Badge: cache HIT (red) / MISS (green) — top-left corner
+              const badgeW = 34, badgeH = 14
+              ctx.fillStyle = p.cacheHit ? 'rgba(220, 50, 50, 0.92)' : 'rgba(50, 200, 90, 0.92)'
+              ctx.fillRect(p.composite.x, p.composite.y, badgeW, badgeH)
+              ctx.fillStyle = '#fff'
+              ctx.fillText(p.cacheHit ? 'HIT' : 'MISS', p.composite.x + 4, p.composite.y + 10)
+              // Detail label (below badge): id + key state
+              const detail = `${p.id}${p.isBottomTabIndicator ? ' [IND]' : ''} press=${p.togglePressProgress.toFixed(2)} hlA=${p.elHighlightAlpha.toFixed(2)}`
+              const tw = ctx.measureText(detail).width
+              const labelX = Math.max(0, Math.min(p.composite.x, oc.width - tw - 9))
+              let labelY = p.composite.y + badgeH + 12
+              if (labelY > oc.height - 4) labelY = p.composite.y + badgeH + 12
+              ctx.fillStyle = 'rgba(0, 0, 0, 0.78)'
+              ctx.fillRect(labelX, labelY - 9, tw + 6, 12)
+              ctx.fillStyle = 'rgba(230, 230, 230, 0.98)'
+              ctx.fillText(detail, labelX + 3, labelY)
+            }
+            // NOTE: do NOT consume — structural overlay.
+          }
           if (renderer.showDirtyMarkers) {
             // Colored border + blinking red dot per element.
             //

@@ -1762,3 +1762,93 @@ Stage Summary:
 - overlay 从"所有元素 + 4 条参考线 + 长标签"简化为"单个元素 + 底部线 + 信息面板"
 - 临时只显示 settings-card-rendering-bg，改 FILTER_ID 常量即可切换
 - 信息面板直观显示 dist to top-cull：>0 = KEPT，<0 = CULLD
+
+---
+Task ID: 28
+Agent: main
+Task: 诊断 bottomtabs 第一帧少 indicator + 高光消失（PEF-only）+ 加 overlay
+
+Work Log:
+- 用户症状：
+  1. bottomtabs 第一帧渲染少了 indicator 内容层
+  2. 高光经常消失
+  3. 都只在 PEF 打开时出现
+
+- 代码排查：
+  - renderGlassPostPasses (methods-render-glass-post-passes.ts)：
+    - Step 2c press glow / Step 2d2 indicator dim+tint / Step 2e foreground /
+      Step 2f rim highlight 都在 post-passes（Step 5）
+    - Step 5 在 PEF cache hit/miss 时都执行（L1285-1286 在 if 块外）
+    - → 排除"post-pass 被 cache hit 跳过"
+
+  - renderGlassElementPass (methods-render-glass-element-pass.ts)：
+    - Step 3（element pass，渲染到 elFbo）里有：
+      L97  elHighlightAlpha（refraction 里的高光）
+      L107 isBottomTabIndicator → elHighlightAlpha = alpha * progress
+      L244 useIndicatorBackdrop = 1.0（indicator 内容层 sampleIndicatorBackdrop）
+      L280 uIndicatorBackdrop uniform
+    - 这些都画进 elFbo
+
+- 根因判断：
+  PEF cache hit 时跳过 Step 2+3（methods-render-glass.ts L1139 if(!cacheHit)）。
+  Step 3 的 element shader 把 refraction-embedded highlight + indicator
+  sampleIndicatorBackdrop 内容层渲染进 elFbo。cache hit 跳过 Step 3 →
+  composite 回 curFbo 的是之前帧 cache 写入的 tex。如果 cache 写入时
+  highlight.alpha=0 / pressProgress=0（静止态），cache 里的 highlight/
+  indicator 内容是空的，且不会刷新直到 cache 被invalidate。
+  ping-pong 路径每帧走 Step 3 → 症状不出现 → 解释了"只在 PEF 打开时"。
+  第一帧 indicator 缺失：第一帧 cache miss（no_entry）走 Step 3，但若
+  toggleStates 未就绪（pressProgress=0），cache 写入的内容就是空的，
+  后续 cache hit 复用空内容。
+
+- 新增 overlay（showPefPassDebug）：
+  1. renderer/index.ts (L415-448):
+     - showPefPassDebug = false flag
+     - debugPefPasses 数组：{id, cacheHit, missReason, composite rect,
+       postPass rect, isBottomTabIndicator, togglePressProgress,
+       elHighlightAlpha}
+     - 注释说明根因假设
+
+  2. methods-render.ts (L98):
+     render 开头清空 debugPefPasses
+
+  3. methods-render-glass.ts (L1295-1326):
+     PEF 路径末尾（gl.disable(SCISSOR_TEST) 后）记录：
+     - composite = elFboRect (ex0/ey0Top/elFboRectW/H) → CSS px
+     - postPass = shadow bbox (bx0/by0Top/bboxW/H) → CSS px
+     - cacheHit + state.togglePressProgress + state.elHighlightAlpha
+     - isBottomTabIndicator 标记
+
+  4. context.tsx (L503-551):
+     showPefPassDebug 块（在 showCullDebug 后、showDirtyMarkers 前）：
+     - YELLOW 虚线 = Step 5 post-pass scissor（shadow bbox，大）
+     - BLUE 实线 = Step 4 composite rect（elFboRect，小）
+     - 左上角 badge：RED=HIT（Step 3 跳过）/ GREEN=MISS（Step 3 执行）
+     - 详情标签：id [IND] press=xx hlA=xx
+     - 不 consume（structural overlay）
+
+  5. perf-monitor-overlay.tsx (L557, L569, L623-631, L678-687):
+     - showPefPass state + flipPefPass
+     - mount 时读 r.showPefPassDebug
+     - 新增按钮 "Show PEF passes"（橙色 ON 标识），在 cull rects 之后
+     - title 详述用法：消失时找 RED HIT badge → cache stale
+
+- 验证方法：
+  打开 overlay，到 bottomtabs 页面：
+  - 高光消失时看对应元素 badge 是否变 RED(HIT)
+  - 第一帧 indicator 缺失时看 indicator 元素 badge 是否 HIT
+  - 对比 PEF off（ping-pong）时无此问题
+
+- 验证：
+  - lint 干净
+  - dev.log 编译正常（✓ Compiled in 177ms）
+  - 未使用 Agent Browser
+
+Stage Summary:
+- 根因：PEF cache hit 跳过 Step 3（element pass），而 element shader 里的
+  refraction highlight + indicator sampleIndicatorBackdrop 内容层都画进
+  elFbo。cache 写入时若状态为静止态（alpha=0/progress=0），内容为空且
+  不刷新 → 高光消失 / indicator 内容层缺失
+- 新增 showPefPassDebug overlay：BLUE=Step4 composite / YELLOW=Step5
+  post-pass scissor / RED badge=HIT(cache stale) / GREEN badge=MISS
+- 用户可用此 overlay 验证：症状出现时对应元素是否显示 RED HIT

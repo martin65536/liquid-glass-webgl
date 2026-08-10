@@ -95,6 +95,7 @@ export const renderMethods = {
     this.debugShadowBboxes.length = 0
     this.debugDirtyMarkers.length = 0
     this.debugCullRects.length = 0
+    this.debugPefPasses.length = 0
 
     if (!this.wallpaperReady && !this.backgroundColor) {
       this.perfMonitor.frameEnd()

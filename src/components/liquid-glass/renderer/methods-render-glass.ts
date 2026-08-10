@@ -1292,6 +1292,39 @@ export const glassRenderMethods = {
     // cacheHit=false → glass body was re-rasterized this frame (real GPU work).
     this._dbgLastGlassCacheHit = cacheHit
 
+    // --- Debug: PEF pass execution log (showPefPassDebug overlay) ---
+    // Records this glass element's Step 3 (element pass) + Step 4 (composite)
+    // + Step 5 (post-pass) execution state. KEY: cacheHit=true means Step 3
+    // was SKIPPED → the element-shader highlight + indicator backdrop content
+    // baked into elFbo is from a PREVIOUS frame's cache write. If that cache
+    // was written when highlight.alpha=0 / pressProgress=0, the cached tex
+    // has no highlight/indicator → visual "highlight disappeared" /
+    // "indicator content layer missing". ping-pong path (PEF off) never
+    // skips Step 3, so the symptom never appears there.
+    if (this.showPefPassDebug) {
+      // Convert device-px scissor rects back to CSS px (top-left origin).
+      // composite = elFboRect (ex0/ey0Top/elFboRectW/H), the Step 4 blit area.
+      // postPass = shadow bbox (bx0/by0Top/bboxW/H), the Step 5 scissor.
+      const cssEx0 = ex0 / this.dpr
+      const cssEy0 = ey0Top / this.dpr
+      const cssEw = elFboRectW / this.dpr
+      const cssEh = elFboRectH / this.dpr
+      const cssBx0 = bx0 / this.dpr
+      const cssBy0 = by0Top / this.dpr
+      const cssBw = bboxW / this.dpr
+      const cssBh = bboxH / this.dpr
+      this.debugPefPasses.push({
+        id: el.id,
+        cacheHit,
+        missReason: cacheHit ? null : 'MISS',
+        composite: { x: cssEx0, y: cssEy0, w: cssEw, h: cssEh },
+        postPass: { x: cssBx0, y: cssBy0, w: cssBw, h: cssBh },
+        isBottomTabIndicator: !!el.isBottomTabIndicator,
+        togglePressProgress: state.togglePressProgress,
+        elHighlightAlpha: state.elHighlightAlpha,
+      })
+    }
+
     // --- No swap: curFbo remains the accumulation target ---
     return { curFbo, curTex, otherFbo, otherTex }
   },
