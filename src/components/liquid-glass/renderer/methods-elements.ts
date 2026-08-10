@@ -203,6 +203,22 @@ export const elementMethods = {
         this.markElementDirty(next.id)
       }
     }
+    // Detect navigation TO a bottom-tabs page: the new configs contain
+    // bottom-tab indicator elements that the previous configs didn't.
+    // On the first render, tabsBackdropTex is captured mid-frame (after the
+    // container glass renders) and the indicator's elFbo is baked against it.
+    // But the very first capture can be stale/empty (FBO just created, or the
+    // container glass itself was a cache-miss that hadn't composited yet on
+    // the same frame's snapshot). Forcing ONE extra render after entry gives
+    // the indicator a second chance to bake its elFbo against a now-stable
+    // tabsBackdropTex — fixing the "first frame missing indicator content
+    // layer" PEF-only symptom without making indicators permanently
+    // non-cacheable.
+    const hadIndicator = this.buttonConfigs.some((b) => b.isBottomTabIndicator)
+    const hasIndicator = configs.some((b) => b.isBottomTabIndicator)
+    if (!hadIndicator && hasIndicator) {
+      this.pendingExtraRenders = 1
+    }
     this.buttonConfigs = configs
     this.requestRender()
   },

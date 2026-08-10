@@ -2052,3 +2052,47 @@ Stage Summary:
   覆盖了 card 上滑时的可见部分 → card 看起来"消失"
 - 修复：info panel 移到左下角，不遮挡顶部 card
 - card 本身一直在正确渲染（白色，正确位置，正确 alpha）
+
+---
+Task ID: 32
+Agent: main
+Task: 修复 bottom-tabs 第一帧 indicator 内容层缺失（双渲染方案）
+
+Work Log:
+- 用户反馈："现在第一帧又有问题了" + "干脆第一次进去时渲染两次呗，多渲染一帧试试行不行"
+- 背景：上一个 commit (2f9fbdc) 把 indicator 从 non-cacheable 改回 cacheable，
+  依赖 elHighlightAlpha 预计算 + cache invalidation paths 防止 stale reuse。
+  但第一帧仍有问题——tabsBackdropTex 在第一帧 mid-frame 捕获时可能还不稳定
+  （FBO 刚创建 / container glass 本身是 cache miss 刚 composite），indicator
+  的 elFbo 在第一帧 bake 了一个不完整的内容。
+
+- 方案（用户建议）：第一次进入 bottom-tabs 页面时渲染两次。
+  - 第一帧：正常渲染，tabsBackdropTex 被捕获，indicator elFbo 被 bake
+  - 第一帧末尾：mark 所有 bottom-tab indicator 的 group dirty（失效 indicator cache）
+    + requestRender → 触发第二帧
+  - 第二帧：indicator cache miss → 重新 raster，此时 tabsBackdropTex 已稳定
+    （第一帧捕获的内容仍然有效）→ bake 出正确的内容
+
+- 实现：
+  1. index.ts: 新增 `pendingExtraRenders: number = 0` 字段
+  2. methods-elements.ts setButtons(): 检测从"无 indicator"到"有 indicator"的
+     页面切换（`!hadIndicator && hasIndicator`），设置 `pendingExtraRenders = 1`
+  3. methods-render.ts render() 末尾：if (pendingExtraRenders > 0) { 递减；
+     遍历 buttonConfigs 找所有 isBottomTabIndicator，markGroupDirty(groupId)
+     失效其 elFbo cache；requestRender() 触发第二帧 }
+
+- 验证（Agent Browser + VLM）：
+  - 直接加载 ?dest=BottomTabs：VLM 确认两个 pill glass bar 可见 + indicator
+    可见 + 蓝色 tint 内容在 indicator 内 ✓
+  - 从 ?dest=Home 导航到 ?dest=BottomTabs：VLM 确认第一帧 indicator 正确 ✓
+  - 点击 Tab 2：VLM 确认 indicator 移动到第二个 tab + 蓝色图标/文字 ✓
+    （press 动画 + indicator 滑动都正常）
+  - lint 干净
+  - dev.log 无错误
+
+Stage Summary:
+- 方案：进入 bottom-tabs 页面时强制多渲染一帧，让 indicator 在第二帧用稳定的
+  tabsBackdropTex 重新 bake elFbo
+- 优点：不改 cacheable 逻辑（indicator 保持 cacheable），只在页面切换时多一帧
+- 性能开销：每次进入 bottom-tabs 多 1 次渲染（1 帧开销），可忽略
+- indicator 保持 cacheable → 静止态每帧 cache hit（不每帧重 raster）

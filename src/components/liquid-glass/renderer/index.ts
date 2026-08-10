@@ -603,6 +603,15 @@ export class LiquidGlassRenderer {
 
   rafId: number | null = null
   animRafId: number | null = null
+  /** Bottom-tabs first-entry double-render counter.
+   *  When >0, render() will — at the end of the frame — mark all bottom-tab
+   *  indicator groups dirty (invalidating their elFbo cache) and request one
+   *  more render, then decrement. This forces the indicator to re-rasterize
+   *  on the second frame with a now-stable tabsBackdropTex (captured during
+   *  the first frame), fixing the "first frame missing indicator content
+   *  layer" PEF-only symptom without making indicators permanently
+   *  non-cacheable. Set by setButtons when navigating TO a bottom-tabs page. */
+  pendingExtraRenders = 0
   aPosLocEl: number
   aPosLocSh: number
   aPosLocWp: number

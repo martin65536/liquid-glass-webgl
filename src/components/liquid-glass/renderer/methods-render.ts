@@ -415,6 +415,26 @@ export const renderMethods = {
     this.dirtyElementIds.clear()
     this.allDirty = false
 
+    // --- Bottom-tabs first-entry double-render ---
+    // On the first render after navigating to a bottom-tabs page, the
+    // indicator's elFbo may have been baked against a not-yet-stable
+    // tabsBackdropTex (the snapshot is captured mid-frame, and on the very
+    // first frame the container glass + FBOs are still initializing). Force
+    // ONE extra render: mark every bottom-tab indicator's group dirty so its
+    // elFbo cache misses on the next frame, then request a redraw. The second
+    // frame re-rasterizes the indicator against the now-stable tabsBackdropTex
+    // (captured during the first frame and still valid), producing a correct
+    // bake. After that, normal cache invalidation takes over.
+    if (this.pendingExtraRenders > 0) {
+      this.pendingExtraRenders--
+      for (const el of this.buttonConfigs) {
+        if (el.isBottomTabIndicator) {
+          this.markGroupDirty(el.isBottomTabIndicator.groupId)
+        }
+      }
+      this.requestRender()
+    }
+
     // --- PerfMonitor: end frame timing + capture counters ---
     this.perfMonitor.frameEnd()
   },
