@@ -418,7 +418,7 @@ export function LiquidGlassCanvas({
               }
               ctx.fillStyle = b.skipped ? 'rgba(160, 160, 160, 0.7)' : 'rgba(255, 165, 0, 0.98)'
               ctx.font = 'bold 10px ui-monospace, monospace'
-              const label = `#${i} a=${b.alpha.toFixed(2)}${b.skipped ? ' skip' : ''}`
+              const label = `#${i} r=${b.r} o(${b.ox},${b.oy}) a=${b.alpha.toFixed(2)}${b.skipped ? ' skip' : ''}`
               ctx.fillText(label, b.x + 3, b.y + 11)
             }
             // NOTE: do NOT consume — see showPefBbox comment above.

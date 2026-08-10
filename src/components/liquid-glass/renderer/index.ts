@@ -377,17 +377,20 @@ export class LiquidGlassRenderer {
   showBlurDebug = false
   debugBlurRegions: { x: number; y: number; w: number; h: number; radius: number; ds: number; blurW: number; blurH: number }[] = []
   /** Debug: when true, the renderer collects each glass element's SHADOW
-   *  bbox (the dynamic scissor rect that wraps the shadow pass, computed
-   *  from outerShadow.radius + offset * layerScale + a small floor) into
-   *  `debugShadowBboxes` during render. The shadow bbox is DYNAMIC — it
-   *  shrinks at rest when the indicator's pressProgress=0 (shadow alpha
-   *  → 0 → pass skipped) and grows during drag/press. This lets you
-   *  visualize exactly how much screen area each shadow re-rasterizes
-   *  into, which is the basis for the inflatedOutputRect overlap test.
+   *  bbox (the TRUE per-direction reach of the shadow shape on screen,
+   *  computed by shadowBboxCss from outerShadow.radius + offsetX/Y +
+   *  layerScaleX/Y) into `debugShadowBboxes` during render. The shadow
+   *  bbox is DYNAMIC — it shrinks at rest when the indicator's
+   *  pressProgress=0 (shadow alpha → 0 → pass skipped) and grows during
+   *  drag/press. Unlike the scissor margin (uniform conservative), this
+   *  reflects the actual shadow geometry: offset directionality means
+   *  left/right/top/bottom reaches differ. This lets you visualize exactly
+   *  how much screen area each shadow rasterizes into, which is the basis
+   *  for the inflatedOutputRect overlap test.
    *  CONSUME-AFTER-DRAW: the overlay clears the list after drawing it.
    *  Only populated when this flag is true. */
   showShadowBbox = false
-  debugShadowBboxes: { x: number; y: number; w: number; h: number; alpha: number; skipped: boolean }[] = []
+  debugShadowBboxes: { x: number; y: number; w: number; h: number; alpha: number; skipped: boolean; r: number; ox: number; oy: number }[] = []
   /** Performance monitor — frame timing + per-frame render counters +
    *  GPU info. When `perfMonitor.enabled === false` (default), every
    *  increment is a no-op. Toggled on by the Settings "Performance

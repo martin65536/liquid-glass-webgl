@@ -1045,3 +1045,66 @@ Stage Summary:
   - dirty source（粉字）— 只在紧跟 render 的 rAF tick 显示
   - red dot 闪烁 — markers 持久所以 dot 会持续闪（标记上次 render 的 dirty 元素）
 - lint 干净，dev.log 编译正常。未使用 Agent Browser。
+
+---
+Task ID: 18
+Agent: main
+Task: 修复 shadow bbox 调试可视化未考虑 offset 方向性
+
+Work Log:
+- 用户反馈："阴影边界盒的渲染好像不对，有考虑阴影的所有参数吗，比如yoffset啥的"
+
+- 根因分析：
+  之前 debugShadowBboxes 用 computeScissorMarginCss 计算 bbox，而该 helper 用
+  maxOffset = max(|offsetX|, |offsetY|) 然后 UNIFORM 加到四个方向：
+    margin = (radius + maxOffset) * layerScale
+    bbox = {x: sx - margin, y: sy - margin, w: sw + 2*margin, h: sh + 2*margin}
+  这是 SCISSOR 用的保守上界（保证 shadow 一定在 scissor 内），但作为 debug
+  可视化是错的——它忽略了 offset 的方向性。
+
+  Shadow 的真实几何（original space）：
+    shape = element 圆角矩形 + disk(radius) 膨胀，然后平移 (offsetX, offsetY)
+    +Y = 向下（CSS + shader 约定）
+  每方向 reach（original px）：
+    left   = max(0, radius - offsetX)   [offsetX>0 → shadow 右移 → 左 reach 减少]
+    right  = max(0, radius + offsetX)
+    top    = max(0, radius - offsetY)   [offsetY>0 → shadow 下移 → 上 reach 减少]
+    bottom = max(0, radius + offsetY)
+  然后整个 shadow layer 被 graphicsLayer 缩放 (scaleX, scaleY) → 各方向 screen
+  reach = original reach × 对应轴的 scale。
+
+  例子：offsetY=20, radius=24
+    实际：上 reach=4, 下 reach=44
+    旧显示：上=44, 下=44 ← 明显不对
+    新显示：上=4, 下=44 ← 正确反映 shadow 偏下
+
+- 修复：
+  1. methods-render-glass.ts: 新增 shadowBboxCss(el, x, y, w, h, layerScaleX,
+     layerScaleY, toggles) helper
+     - 按方向独立计算 reach：left/right 用 layerScaleX，top/bottom 用 layerScaleY
+     - 各向异性（stretch 元素也准，如拖动中的 tab indicator）
+     - 返回 null 仅当无 shadow config / radius≤0.5 / toggled off
+     - alpha=0 时仍返回几何（caller 标 skipped=true，显示 would-be reach）
+
+  2. methods-render-glass.ts renderGlassShadowPass: debug push 改用 shadowBboxCss
+     - 替代 computeScissorMarginCss（后者仍保留给真正的 scissor margin 用，
+       保守上界对 scissor 是正确的）
+     - entry 新增 r/ox/oy 三个字段，方便 overlay 显示完整 shadow 参数
+
+  3. index.ts: debugShadowBboxes 类型加 r/ox/oy 字段
+     - 更新注释：强调 TRUE per-direction reach + offset 方向性
+
+  4. context.tsx overlay: label 从 `#i a=0.10` 改为
+     `#i r=24 o(0,20) a=0.10 skip`
+     - 用户能直接看到 radius + offset，验证 bbox 形状是否正确
+
+- 验证：
+  - lint 干净
+  - dev.log 编译正常（✓ Compiled in 188ms）
+  - 未使用 Agent Browser（按用户约束）
+
+Stage Summary:
+- shadow bbox 现在正确反映 offset 方向性：offsetY>0 时下边 reach 大、上边 reach 小
+- 用 layerScaleX/Y 各向异性缩放，stretched 元素也准
+- overlay label 显示 r/ox/oy，可直观验证 shadow 几何
+- computeScissorMarginCss 保留给 scissor 用（保守上界对 scissor 正确）

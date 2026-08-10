@@ -102,6 +102,60 @@ export function inflatedOutputRect(
   return { x: x - m, y: y - m, w: w + 2 * m, h: h + 2 * m }
 }
 
+/** Compute the ACTUAL shadow bbox in CSS px (top-left origin), per-direction.
+ *
+ *  Unlike `computeScissorMarginCss` (which uses a UNIFORM conservative margin
+ *  = `(radius + max(|ox|,|oy|)) * layerScale` for scissor safety), this
+ *  computes the TRUE per-direction reach of the shadow shape on screen:
+ *
+ *    shadow shape (original space) = element rect + disk(radius),
+ *                                    translated by (offsetX, offsetY)
+ *    then graphicsLayer scales the whole shadow layer by (scaleX, scaleY)
+ *
+ *  Per-direction screen-space reach beyond the element's scaled rect:
+ *    left:   max(0, radius - offsetX) * layerScaleX
+ *    right:  max(0, radius + offsetX) * layerScaleX
+ *    top:    max(0, radius - offsetY) * layerScaleY
+ *    bottom: max(0, radius + offsetY) * layerScaleY
+ *
+ *  (offsetX > 0 → shadow shifts right → LESS left reach, MORE right reach;
+ *   offsetY > 0 → shadow shifts down → LESS top reach, MORE bottom reach.
+ *   +Y is DOWNWARD, matching CSS + the shader convention.)
+ *
+ *  Uses layerScaleX/Y (anisotropic) rather than layerScale (min) so the bbox
+ *  is correct for stretched elements (e.g. tab indicators during drag).
+ *
+ *  Returns null ONLY when there's no shadow geometry at all (no config /
+ *  radius ≤ 0.5 / outerShadow toggled off). When alpha=0 (e.g. indicator at
+ *  rest), the geometry is still returned so the debug overlay can show the
+ *  would-be reach with a "skipped" style — the caller decides skipped. */
+export function shadowBboxCss(
+  el: GlassElementConfig,
+  x: number, y: number, w: number, h: number,
+  layerScaleX: number,
+  layerScaleY: number,
+  toggles: ScissorMarginToggles
+): { x: number; y: number; w: number; h: number } | null {
+  if (!el.outerShadow || el.outerShadow.radius <= 0.5) return null
+  if (!toggles.outerShadow) return null
+  const r = el.outerShadow.radius
+  const ox = el.outerShadow.offsetX
+  const oy = el.outerShadow.offsetY
+  // Per-direction reach in original px → scale by the matching layer axis.
+  // Shadow shape = element + disk(r), translated by (ox, oy) in original
+  // space; graphicsLayer then stretches the whole layer by (scaleX, scaleY).
+  const left   = Math.max(0, r - ox) * layerScaleX
+  const right  = Math.max(0, r + ox) * layerScaleX
+  const top    = Math.max(0, r - oy) * layerScaleY
+  const bottom = Math.max(0, r + oy) * layerScaleY
+  return {
+    x: x - left,
+    y: y - top,
+    w: w + left + right,
+    h: h + top + bottom,
+  }
+}
+
 /** Axis-aligned rect overlap test (both rects in CSS px, top-left origin). */
 export function rectsOverlap(
   a: { x: number; y: number; w: number; h: number },
@@ -1136,23 +1190,29 @@ export const glassRenderMethods = {
     if (el.isBottomTabIndicator) {
       shadowAlpha *= state.togglePressProgress
     }
-    // Debug: record the shadow bbox (the dynamic scissor rect that wraps the
-    // shadow pass). This is computed from computeScissorMarginCss — which
-    // scales (radius + maxOffset) by layerScale + a 3px floor — and is the
-    // ACTUAL screen area the shadow rasterizes into. At rest for indicators,
-    // shadowAlpha→0 → pass is skipped (skipped=true) so you can see the bbox
-    // "disappear" visually. Always record (even when skipped) so you can see
-    // the would-be shadow reach and the skip reason.
+    // Debug: record the shadow bbox — the TRUE per-direction reach of the
+    // shadow shape on screen (not the conservative scissor margin). This
+    // accounts for offset directionality:
+    //   left/right reach = max(0, radius ∓ offsetX) * layerScaleX
+    //   top/bottom reach = max(0, radius ∓ offsetY) * layerScaleY
+    // so a shadow with offsetY=+20 shows a SMALL top reach and LARGE bottom
+    // reach, instead of the old uniform (radius + maxOffset) on all sides.
+    // Uses layerScaleX/Y (anisotropic) for stretched-element correctness.
+    //
+    // Always record (even when alpha≈0 / skipped) so you can see the would-be
+    // shadow reach + the skip reason. The overlay draws skipped bboxes dashed.
     if (this.showShadowBbox) {
-      const scissorMarginCss = computeScissorMarginCss(el, state.layerScale, this.quickToggles)
-      this.debugShadowBboxes.push({
-        x: sx - scissorMarginCss,
-        y: sy - scissorMarginCss,
-        w: sw + 2 * scissorMarginCss,
-        h: sh + 2 * scissorMarginCss,
-        alpha: shadowAlpha,
-        skipped: shadowAlpha <= 0.001,
-      })
+      const bbox = shadowBboxCss(el, sx, sy, sw, sh, state.layerScaleX, state.layerScaleY, this.quickToggles)
+      if (bbox) {
+        this.debugShadowBboxes.push({
+          ...bbox,
+          alpha: shadowAlpha,
+          skipped: shadowAlpha <= 0.001,
+          r: el.outerShadow.radius,
+          ox: el.outerShadow.offsetX,
+          oy: el.outerShadow.offsetY,
+        })
+      }
     }
     if (shadowAlpha <= 0.001) return
     gl.useProgram(this.shadowProgram)
