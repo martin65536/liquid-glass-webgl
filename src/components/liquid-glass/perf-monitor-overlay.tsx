@@ -553,6 +553,7 @@ function DebugToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
   const [showBlur, setShowBlur] = React.useState(false)
   const [showDirty, setShowDirty] = React.useState(false)
   const [showShadow, setShowShadow] = React.useState(false)
+  const [showCull, setShowCull] = React.useState(false)
 
   // Read the renderer's actual flags on mount (they may have been seeded from
   // props by context.tsx, or toggled by a previous overlay instance).
@@ -563,6 +564,7 @@ function DebugToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
       setShowBlur(r.showBlurDebug)
       setShowDirty(r.showDirtyMarkers)
       setShowShadow(r.showShadowBbox)
+      setShowCull(r.showCullDebug)
     }
   }, [rendererRef])
 
@@ -606,6 +608,16 @@ function DebugToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
     }
   }
 
+  const flipCull = () => {
+    const next = !showCull
+    setShowCull(next)
+    const r = rendererRef.current
+    if (r) {
+      r.showCullDebug = next
+      r.requestRender()
+    }
+  }
+
   return (
     <div style={{ padding: '6px 10px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
       <div style={{ font: 'bold 10px ui-monospace, monospace', color: '#aaa', marginBottom: 4, letterSpacing: 0.5 }}>
@@ -639,6 +651,16 @@ function DebugToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
         <span>Show shadow bbox</span>
         <span style={{ color: showShadow ? '#fa0' : '#888', fontWeight: 700, fontSize: 10 }}>
           {showShadow ? 'ON' : 'OFF'}
+        </span>
+      </button>
+      <button
+        onClick={flipCull}
+        title="Draw each element's CULL decision on the canvas. Green solid rect = KEPT (rendered this frame); red dashed rect = CULLED (skipped via the viewport cull check). Label shows id, viewport y, h, applied margin (max(120,h)), and KEPT/CULL. Two faint dashed lines mark the base cull band (±120px outside viewport). USE: if an element visually disappears while still showing GREEN here, the cull logic is NOT the cause — look at PEF composite / scissor / elFbo cache instead."
+        style={debugBtnStyle(showCull)}
+      >
+        <span>Show cull rects</span>
+        <span style={{ color: showCull ? '#6f6' : '#888', fontWeight: 700, fontSize: 10 }}>
+          {showCull ? 'ON' : 'OFF'}
         </span>
       </button>
       <button

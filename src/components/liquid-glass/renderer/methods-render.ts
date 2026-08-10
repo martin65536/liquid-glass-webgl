@@ -94,6 +94,7 @@ export const renderMethods = {
     this.debugBlurRegions.length = 0
     this.debugShadowBboxes.length = 0
     this.debugDirtyMarkers.length = 0
+    this.debugCullRects.length = 0
 
     if (!this.wallpaperReady && !this.backgroundColor) {
       this.perfMonitor.frameEnd()
@@ -222,7 +223,14 @@ export const renderMethods = {
       // Compute the element's effective y in VIEWPORT coords (after scroll).
       const y = el.scroll ? el.rect.y - scrollY : el.rect.y
       const margin = cullMarginFor(el)
-      if (y + el.rect.h < -margin || y > this.cssHeight + margin) continue
+      const culled = y + el.rect.h < -margin || y > this.cssHeight + margin
+      if (this.showCullDebug) {
+        this.debugCullRects.push({
+          id: el.id, x: el.rect.x, y, w: el.rect.w, h: el.rect.h,
+          margin, culled, scroll: !!el.scroll, viewportH: this.cssHeight, pass: 'main',
+        })
+      }
+      if (culled) continue
 
       const r = effRect(el)
       const st = this.buttonStates.get(el.id)
@@ -322,7 +330,14 @@ export const renderMethods = {
       if (!el.renderOnTop) continue
       const y = el.scroll ? el.rect.y - scrollY : el.rect.y
       const margin = cullMarginFor(el)
-      if (y + el.rect.h < -margin || y > this.cssHeight + margin) continue
+      const culled = y + el.rect.h < -margin || y > this.cssHeight + margin
+      if (this.showCullDebug) {
+        this.debugCullRects.push({
+          id: el.id, x: el.rect.x, y, w: el.rect.w, h: el.rect.h,
+          margin, culled, scroll: !!el.scroll, viewportH: this.cssHeight, pass: 'onTop',
+        })
+      }
+      if (culled) continue
       const r = effRect(el)
       const st = this.buttonStates.get(el.id)
 

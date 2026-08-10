@@ -423,6 +423,73 @@ export function LiquidGlassCanvas({
             }
             // NOTE: do NOT consume — see showPefBbox comment above.
           }
+          if (renderer.showCullDebug) {
+            // Cull-decision overlay: draws each element's effective viewport
+            // rect (after scroll) + the cull margin applied + KEPT/CULL label.
+            //
+            // GREEN solid rect  = KEPT (rendered this frame)
+            // RED   dashed rect = CULLED (skipped via `continue`)
+            //
+            // Also draws two faint dashed horizontal reference lines at
+            // y = -120 and y = viewportH + 120 — the BASE cull band (the
+            // actual per-element band is [-max(120,h), viewportH+max(120,h)],
+            // which is wider for tall elements; the base band is the minimum).
+            //
+            // DIAGNOSTIC USE: if an element visually disappears on screen
+            // but still shows a GREEN rect here, the cull logic is NOT the
+            // cause — look at PEF composite position / scissor / elFbo cache
+            // instead. If it shows RED while still partially on-screen, the
+            // cull logic IS the bug (shouldn't happen given max(120,h)).
+            const culls = renderer.debugCullRects
+            const vh = oc.height
+            // Base cull band reference lines (y = ±120 outside viewport).
+            ctx.strokeStyle = 'rgba(180, 180, 255, 0.35)'
+            ctx.lineWidth = 1
+            ctx.setLineDash([6, 4])
+            ctx.beginPath()
+            ctx.moveTo(0, -120 + 0.5); ctx.lineTo(oc.width, -120 + 0.5)
+            ctx.moveTo(0, vh + 120 + 0.5); ctx.lineTo(oc.width, vh + 120 + 0.5)
+            ctx.stroke()
+            ctx.setLineDash([])
+            // Viewport edge reference (the actual on-screen area).
+            ctx.strokeStyle = 'rgba(180, 180, 255, 0.5)'
+            ctx.lineWidth = 1
+            ctx.beginPath()
+            ctx.moveTo(0, 0.5); ctx.lineTo(oc.width, 0.5)
+            ctx.moveTo(0, vh - 0.5); ctx.lineTo(oc.width, vh - 0.5)
+            ctx.stroke()
+            // Per-element rects.
+            ctx.font = 'bold 10px ui-monospace, monospace'
+            for (let i = 0; i < culls.length; i++) {
+              const c = culls[i]
+              // Clamp the drawn rect + label to the canvas so culled
+              // (off-screen) elements still leave a visible marker at the
+              // edge — otherwise a culled element at y=-500 would be
+              // invisible and the user couldn't tell it existed.
+              const drawY = Math.max(-60, Math.min(vh - 4, c.y))
+              const drawH = Math.max(8, Math.min(vh - drawY, c.h))
+              if (c.culled) {
+                ctx.strokeStyle = 'rgba(255, 80, 80, 0.9)'
+                ctx.lineWidth = 1.5
+                ctx.setLineDash([4, 3])
+                ctx.strokeRect(c.x + 0.5, drawY + 0.5, c.w - 1, drawH - 1)
+                ctx.setLineDash([])
+              } else {
+                ctx.strokeStyle = 'rgba(80, 230, 130, 0.95)'
+                ctx.lineWidth = 1.5
+                ctx.strokeRect(c.x + 0.5, drawY + 0.5, c.w - 1, drawH - 1)
+              }
+              // Label: id | y h m | KEPT/CULL, placed inside top-left.
+              const label = `${c.id} y=${Math.round(c.y)} h=${c.h} m=${c.margin} ${c.culled ? 'CULL' : 'KEPT'}${c.pass === 'onTop' ? ' [top]' : ''}`
+              const tw = ctx.measureText(label).width
+              ctx.fillStyle = c.culled ? 'rgba(120, 0, 0, 0.78)' : 'rgba(0, 80, 30, 0.78)'
+              ctx.fillRect(c.x + 1, drawY + 1, tw + 6, 12)
+              ctx.fillStyle = c.culled ? 'rgba(255, 200, 200, 0.98)' : 'rgba(220, 255, 230, 0.98)'
+              ctx.fillText(label, c.x + 4, drawY + 10)
+            }
+            // NOTE: do NOT consume — structural overlay (persists across
+            // idle frames). The renderer clears + repopulates on each render.
+          }
           if (renderer.showDirtyMarkers) {
             // Colored border + blinking red dot per element.
             //

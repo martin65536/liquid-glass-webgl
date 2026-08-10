@@ -391,6 +391,27 @@ export class LiquidGlassRenderer {
    *  Only populated when this flag is true. */
   showShadowBbox = false
   debugShadowBboxes: { x: number; y: number; w: number; h: number; alpha: number; skipped: boolean; r: number; ox: number; oy: number }[] = []
+  /** Debug: when true, the renderer records each element's CULL decision
+   *  (made in methods-render.ts's two element loops) into `debugCullRects`
+   *  during render. The React overlay draws each element's effective
+   *  viewport rect (after scroll offset) + the cull margin that was applied
+   *  (max(120, h)) + a KEPT/CULL label, so you can see EXACTLY why an
+   *  element was or wasn't skipped this frame.
+   *
+   *  WHY THIS EXISTS: the "element disappeared before sliding off screen"
+   *  symptom is frequently blamed on the cull logic, but the cull margin
+   *  (max(120, h)) is deliberately generous — a 300px card stays rendered
+   *  until it's FULLY off-screen + 300px beyond. This overlay proves
+   *  whether the cull logic is actually the culprit: if a disappearing
+   *  element still shows a green KEPT rect, the bug is elsewhere (PEF
+   *  composite position, scissor rect, elFbo cache, etc.).
+   *
+   *  CONSUME-AFTER-DRAW: NO — structural overlay (persists across idle
+   *  frames like showPefBbox). The renderer clears + repopulates it at the
+   *  start of each actual render; idle frames leave the last render's data
+   *  intact so the overlay stays visible. */
+  showCullDebug = false
+  debugCullRects: { id: string; x: number; y: number; w: number; h: number; margin: number; culled: boolean; scroll: boolean; viewportH: number; pass: 'main' | 'onTop' }[] = []
   /** Performance monitor — frame timing + per-frame render counters +
    *  GPU info. When `perfMonitor.enabled === false` (default), every
    *  increment is a no-op. Toggled on by the Settings "Performance

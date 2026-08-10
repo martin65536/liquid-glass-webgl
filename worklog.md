@@ -1595,3 +1595,71 @@ Stage Summary:
 - PEF 默认开启（新用户 / 无 localStorage）
 - 已有用户设置不受影响（localStorage 保留原值）
 - PerfBenchmark 测量期间仍自动强制关闭（Task 23 逻辑）
+
+---
+Task ID: 25
+Agent: main
+Task: 加 cull debug overlay（可视化"卡片滑出屏幕是否隐藏"的判定逻辑）
+
+Work Log:
+- 用户问："重点判断卡片滑出屏幕是否隐藏的逻辑啊" + "加一个debug这个的overlay吧"
+
+- 先定位 cull 逻辑（methods-render.ts）：
+  - 主循环 L225 / renderOnTop 循环 L325：
+    `if (y + el.rect.h < -margin || y > this.cssHeight + margin) continue`
+  - margin = cullMarginFor(el) = max(120, el.rect.h)
+  - 这是整个渲染器里唯一会"整片跳过不画"的判定
+  - 对设置页第一片卡片（h≈300）：margin=300，完全离屏后再多留 300px 才裁
+    → 从逻辑上不会提前消失
+
+- 按现有 debug overlay 模式（showPefBbox / showShadowBbox / showBlurDebug /
+  showDirtyMarkers）加 showCullDebug：
+
+  1. renderer/index.ts (L394-414):
+     - 新增 showCullDebug = false flag
+     - 新增 debugCullRects 数组，每条记录：
+       { id, x, y(视口坐标), w, h, margin, culled, scroll, viewportH, pass }
+     - 注释说明：用于诊断"元素提前消失"——如果消失的元素仍显示
+       GREEN(KEPT)，则 cull 逻辑不是元凶，应查 PEF composite / scissor /
+       elFbo cache
+
+  2. renderer/methods-render.ts:
+     - render 开头清空 debugCullRects（与其它 debug list 一起，L97）
+     - 主循环 (L217-233)：把 `if(... ) continue` 拆成
+       `const culled = ...; push(...); if (culled) continue`
+       —— culled 元素也记录，方便看"它确实被裁了"
+     - renderOnTop 循环 (L329-340)：同样处理，pass='onTop'
+
+  3. context.tsx (overlay rAF, L426-492):
+     - 新增 `if (renderer.showCullDebug)` 块（在 showShadowBbox 之后、
+       showDirtyMarkers 之前）
+     - 画 3 层参考线：
+       - 两条淡紫虚线 y=-120 / y=viewportH+120（base cull band ±120）
+       - 两条淡紫实线 y=0 / y=viewportH（viewport 边缘）
+     - 每个元素画 rect：
+       - GREEN 实线 = KEPT（渲染了）
+       - RED 虚线 = CULLED（被 continue 跳过）
+       - drawY/drawH clamp 到画布内，避免 off-screen 元素完全看不见
+     - 标签：`id y={视口y} h={h} m={margin} KEPT|CULL [top]`
+       带半透明背景框保证可读性
+     - 不 consume（structural overlay，跨 idle 帧保留，同 showPefBbox）
+
+  4. perf-monitor-overlay.tsx (DebugToggles, L556-567 + L611-619 + L656-665):
+     - 新增 showCull state + flipCull（写 renderer.showCullDebug + requestRender）
+     - mount 时读 renderer.showCullDebug 同步 state
+     - 新增按钮 "Show cull rects"（绿色 ON 标识），放在 shadow bbox 之后、
+       dirty markers 之前
+     - title 详述用法：消失的元素若仍 GREEN → cull 不是元凶
+
+- 验证：
+  - lint 干净
+  - dev.log 编译正常（✓ Compiled in 188ms）
+  - 未使用 Agent Browser（用户要求）
+
+Stage Summary:
+- 新增 "Show cull rects" debug overlay，可视化每个元素的 cull 决策
+- 绿框=KEPT、红虚框=CULLD，带 id/y/h/margin/状态 标签
+- 画 base cull band (±120px) + viewport 边缘参考线
+- culled 元素也记录（不止 kept），方便确认"它确实被裁了"
+- 设计目的：证明 cull 逻辑是否是"卡片提前消失"的元凶——
+  若消失元素仍显 GREEN，需查 PEF composite/scissor/elFbo cache
