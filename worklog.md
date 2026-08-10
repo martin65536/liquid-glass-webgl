@@ -649,3 +649,44 @@ Stage Summary:
 - 修复：revert 到 LINEAR，接受 ds≤2 时 2×2 bilinear 上采样的轻微 blocking。要真正抗锯齿需手动多 tap 上采样 shader 或升 WebGL2。
 - 滑块初始位置修复保留。
 - commit f779ecb 已推送 origin/main。
+
+---
+Task ID: 8
+Agent: main (Z.ai Code)
+Task: 把 dirty tracking 改成触发式——不要每帧 hash 检测，改为在 setter（setButtons/setPressed/setInteractiveValue/setDragPosition/setScrollY）和 spring tick 里标记 dirty。
+
+Work Log:
+- 确认上一轮会话已在本机 commit `95aff4f refactor: event-driven dirty tracking replaces per-frame hashing` 完成本任务，工作树 clean，已推到 origin/main。本轮做完整审计 + 浏览器验证 + 补 worklog。
+
+审计结果（所有入口都已改为事件驱动标记）：
+- methods-dirty.ts：定义 `markElementDirty(id)` / `markAllDirty()` / `hasDirtyElements()`。dirtyElementIds 是 Set<string>，allDirty 是 boolean。无 hash 残留（rg `dirtyHash|prevHash|computeHash|elementHash|fnv1a|hashState` 全无匹配）。
+- methods-elements.ts：
+  - `setButtons` → `markAllDirty()` (line 136)，元素列表重建视为全局脏
+  - `setInteractiveValue` → `markElementDirty(id)` (line 150)，仅目标元素脏
+  - `setPressed` → `markElementDirty(id)` (line 210)
+  - `setDragPosition` → `markElementDirty(id)` (line 236)
+- methods-scroll.ts：
+  - `setScrollY` → `markAllDirty()` (line 39)，滚动影响所有 scroll=true 的元素位置
+  - `setScrollVelocity` → `markAllDirty()` (line 54)，惯性期间每帧标记
+  - `setBackgroundColor` → `markAllDirty()` (line 100)，背景切换影响所有玻璃采样
+  - `setGravityAngle` → `markAllDirty()` (line 115)，重力角影响所有 useGravityAngle 元素
+- methods-toggle.ts：`setToggleTarget`/`beginToggleDrag`/`dragToggle`/`endToggleDrag`/`endSliderDrag`/`setSliderDragPosition` 全部 `markAllDirty()`（toggle/slider 影响 knob+track+content+indicator 多元素，比解析 groupId→element ids 简单）
+- methods-tabs.ts：`setTabSelected`/`beginTabDrag`/`dragTab`/`endTabDrag` 全部 `markAllDirty()`
+- methods-wallpaper.ts：`loadWallpaper` 等 2 处 `markAllDirty()` (line 50, 149)
+- methods-animation.ts（spring tick）：
+  - per-element：buttonStates 的 press/drag/interactive spring 推进时 `markElementDirty(id)` (line 118)
+  - toggle group：fraction/press/scaleX/scaleY/velocity/panelOffset 任一推进时 `markAllDirty()` (line 319)
+  - scroll inertia：velocity > 0.5 时每帧 `markAllDirty()` (line 339)
+- context.tsx + perf-monitor-overlay.tsx：quickToggles 翻转时 `markAllDirty()`
+- methods-render.ts：render() 主循环两处（line 204 主元素 / line 279 renderOnTop 元素）计算 `dirty = this.allDirty || this.dirtyElementIds.has(el.id)`，仅用于 `incTotal`/`incDirty` 统计 + `debugDirtyMarkers` 调试 overlay，帧末 `dirtyElementIds.clear()` + `allDirty = false`（line 312-313）。
+
+Verification:
+- `bun run lint` 干净（无输出）。
+- `git status` working tree clean，commit `95aff4f` 已在 origin/main。
+- dev.log 编译成功，无运行时错误，持续 200 响应。
+- Agent Browser 打开 `/`，截图 VLM 分析：玻璃元素半透明、backdrop blur 正常、layout 完整、无 solid gray/black、无 blank 区域。console 无 error。
+
+Stage Summary:
+- Task 1（事件驱动 dirty tracking）在上一轮会话已完成并 commit（`95aff4f`）。本轮做完整审计确认所有 setter + spring tick 入口都已改为 `markElementDirty` / `markAllDirty`，无 hash 残留，lint + 浏览器验证通过。
+- 当前 dirty 标记的用途：仅 (a) perf monitor 的 dirty/total 计数 + (b) debug overlay 的脏元素标记。**不**用于跳过渲染——render() 仍每帧渲染所有可见元素。跳过渲染属于 Task 2（per-element 帧缓存方案）范畴。
+- 关键文件：methods-dirty.ts（API 定义）、index.ts（dirtyElementIds + allDirty 字段）、methods-elements.ts / methods-scroll.ts / methods-toggle.ts / methods-tabs.ts / methods-wallpaper.ts（setter 标记）、methods-animation.ts（spring tick 标记）、methods-render.ts（消费 + 清除）。
