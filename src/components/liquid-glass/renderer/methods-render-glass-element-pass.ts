@@ -588,17 +588,20 @@ export const glassElementPassMethods = {
     gl.uniform1f(this.uEl['uSkipColorControls'], (el.backdropFbo && el.useSeparableBlur && el.blurRadius >= 0.5) ? 1.0 : 0.0)
 
     // uSampleWallpaper: when 1.0, sampleBackdrop() uses the wallpaper texture
-    // (uWallpaperSampler via coverUv) instead of the scene FBO (uBackdrop).
-    // Only set when the element is actually on the independent path AND
-    // skipPingPong is active (currently disabled), or when sampleWallpaper=true
-    // (refract clean wallpaper over a scrim).
+    // (uWallpaperSampler via coverUv + poisson-disc blur) instead of the scene
+    // FBO (uBackdrop via sceneUv). This makes each independent element sample
+    // the CLEAN wallpaper — elements no longer refract/blur each other's glass
+    // bodies, matching the original Android app where most elements use
+    // LayerBackdrop (wallpaper) via RenderEffect.
+    //
+    // Activation: state.independent (true when el.independentBackdrop AND the
+    // page has a wallpaper, not a solid backgroundColor). el.sampleWallpaper is
+    // a separate explicit flag for elements that need clean wallpaper over a
+    // scrim regardless of the page background type (e.g. dialog card).
     // IMPORTANT: must use state.independent (which accounts for backgroundColor
     // and wallpaperTexture), NOT el.independentBackdrop (which is a static
     // element property that doesn't know the page's background type).
-    // Since skipPingPong is currently disabled, independent elements still
-    // use the scene FBO, so uSampleWallpaper should only be true for
-    // explicit sampleWallpaper elements.
-    const useSampleWallpaper = el.sampleWallpaper
+    const useSampleWallpaper = el.sampleWallpaper || state.independent
     gl.uniform1f(this.uEl['uSampleWallpaper'], useSampleWallpaper ? 1.0 : 0.0)
     if (el.scrimColor) {
       gl.uniform4f(this.uEl['uScrimColor'], el.scrimColor[0], el.scrimColor[1], el.scrimColor[2], el.scrimColor[3])

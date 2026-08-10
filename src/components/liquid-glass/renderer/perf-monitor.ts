@@ -50,6 +50,7 @@ export interface PerfSnapshot {
   glassElements: number        // total glass elements rendered
   perElementFboCount: number   // glass elements using per-element FBO path
   pingPongCount: number        // glass elements using fullscreen ping-pong
+  skipPingPongCount: number    // glass elements using skipPingPong (independent wallpaper sampling)
   nonGlassElements: number     // plain-rect / text / progressive-blur
   blurPasses: number           // 2-pass Gaussian invocations
   // --- Static GPU info (collected once) ---
@@ -99,6 +100,7 @@ export class PerfMonitor {
   private glassElements = 0
   private perElementFboCount = 0
   private pingPongCount = 0
+  private skipPingPongCount = 0
   private nonGlassElements = 0
   private blurPasses = 0
 
@@ -107,6 +109,7 @@ export class PerfMonitor {
   private lastGlassElements = 0
   private lastPerElementFboCount = 0
   private lastPingPongCount = 0
+  private lastSkipPingPongCount = 0
   private lastNonGlassElements = 0
   private lastBlurPasses = 0
   private lastFrameTimeMs = 0
@@ -165,6 +168,7 @@ export class PerfMonitor {
     this.glassElements = 0
     this.perElementFboCount = 0
     this.pingPongCount = 0
+    this.skipPingPongCount = 0
     this.nonGlassElements = 0
     this.blurPasses = 0
   }
@@ -203,6 +207,7 @@ export class PerfMonitor {
     this.lastGlassElements = this.glassElements
     this.lastPerElementFboCount = this.perElementFboCount
     this.lastPingPongCount = this.pingPongCount
+    this.lastSkipPingPongCount = this.skipPingPongCount
     this.lastNonGlassElements = this.nonGlassElements
     this.lastBlurPasses = this.blurPasses
   }
@@ -213,6 +218,7 @@ export class PerfMonitor {
   incGlassElement() { if (this.enabled) this.glassElements++ }
   incPerElementFbo() { if (this.enabled) this.perElementFboCount++ }
   incPingPong() { if (this.enabled) this.pingPongCount++ }
+  incSkipPingPong() { if (this.enabled) this.skipPingPongCount++ }
   incNonGlass() { if (this.enabled) this.nonGlassElements++ }
   incBlurPass() { if (this.enabled) this.blurPasses++ }
 
@@ -230,6 +236,7 @@ export class PerfMonitor {
     this.lastGlassElements = 0
     this.lastPerElementFboCount = 0
     this.lastPingPongCount = 0
+    this.lastSkipPingPongCount = 0
     this.lastNonGlassElements = 0
     this.lastBlurPasses = 0
   }
@@ -265,6 +272,7 @@ export class PerfMonitor {
       glassElements: this.lastGlassElements,
       perElementFboCount: this.lastPerElementFboCount,
       pingPongCount: this.lastPingPongCount,
+      skipPingPongCount: this.lastSkipPingPongCount,
       nonGlassElements: this.lastNonGlassElements,
       blurPasses: this.lastBlurPasses,
       gpuVendor: this.gpuVendor,

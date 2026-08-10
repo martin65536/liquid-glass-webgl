@@ -397,20 +397,28 @@ export const glassRenderMethods = {
     // --- Independent backdrop optimization ---
     // When independentBackdrop=true AND the page has a wallpaper (not a solid
     // backgroundColor), the element's glass refraction samples the wallpaper
-    // directly (via uSampleWallpaper in the shader). This allows SKIPPING the
-    // FBO ping-pong blit — the most expensive per-element operation (~850K px
-    // fullscreen copy at DPR 1.5). The element renders directly to curFbo with
-    // alpha blending, matching the original Android app where most elements use
-    // LayerBackdrop (wallpaper) via RenderEffect rather than compositing the scene.
+    // directly (via uSampleWallpaper=1 in the shader, using coverUv + poisson-disc
+    // blur). This allows SKIPPING the FBO ping-pong blit — the most expensive
+    // per-element operation (~850K px fullscreen copy). The element renders
+    // directly to curFbo with alpha blending, matching the original Android app
+    // where most elements use LayerBackdrop (wallpaper) via RenderEffect rather
+    // than compositing the scene.
     //
-    // TODO: The skip-ping-pong path is currently DISABLED because it causes
-    // visual issues (upside-down, stretching, missing effects). The
-    // independent flag is still computed and passed to the element pass so
-    // that uSampleWallpaper can be set correctly for the shader path that
-    // samples the wallpaper via coverUv (which is already working for toggle
-    // knobs and indicators). The ping-pong blit is always performed for now.
+    // This also means independent elements do NOT refract/blur each other's
+    // glass bodies — each sees only the clean wallpaper as its backdrop.
     const independent = !!(el.independentBackdrop && !this.backgroundColor && this.wallpaperTexture)
-    const skipPingPong = false // TODO: re-enable after fixing visual issues
+    // skipPingPong: independent elements sample the CLEAN wallpaper (via
+    // uSampleWallpaper in the shader), NOT the scene FBO (curTex). So they
+    // never read curTex — there's no read-after-write hazard, and the fullscreen
+    // ping-pong blit (drawCopy curTex → otherFbo, ~850K px) can be skipped
+    // entirely. The element renders directly onto curFbo with alpha blending
+    // (SrcOver composite). This is the single biggest per-element perf win.
+    //
+    // Conditions: independent (wallpaper page + el.independentBackdrop) AND
+    // not a backdropFbo element (those sample dialogBackdropTex, not wallpaper,
+    // so they still need the scene FBO path). Also requires the wallpaper
+    // texture to be loaded (guaranteed by `independent`).
+    const skipPingPong = independent && !el.backdropFbo
 
     // --- Per-element FBO (PEF) — UNCONDITIONAL ---
     // All glass elements render into a small bbox-sized FBO instead of the
@@ -444,12 +452,18 @@ export const glassRenderMethods = {
     // PERF: this fullscreen blit is the biggest per-element cost the
     // per-element FBO optimization replaces. Count it so the perf monitor
     // can show how many elements are still on the legacy ping-pong path.
+    //
+    // SKIP for independent elements (skipPingPong): they sample the wallpaper
+    // texture directly (uSampleWallpaper=1 in the shader), so they never read
+    // curTex — no read-after-write hazard, no need to copy the scene. Render
+    // directly onto curFbo with alpha blending.
     this.perfMonitor.incGlassElement()
-    this.perfMonitor.incPingPong()
     if (skipPingPong) {
+      this.perfMonitor.incSkipPingPong()
       this.bindFBO(curFbo)
       // Blending is already enabled from the element loop setup.
     } else {
+      this.perfMonitor.incPingPong()
       this.bindFBO(otherFbo)
       this.drawCopy(curTex)
       this.perfMonitor.incDrawCall() // fullscreen blit
@@ -528,11 +542,26 @@ export const glassRenderMethods = {
       elFboH: 0,
     }
 
-    // --- Step 2a: Shadow pass (to otherFbo, on top of copied scene) ---
+    // --- Step 2a: Shadow pass (to the render target, on top of scene) ---
+    // For skipPingPong: target is curFbo (alpha blend shadow onto scene).
+    // For ping-pong: target is otherFbo (shadow on top of copied scene).
     this.renderGlassShadowPass(state)
 
     // --- Step 2b: Element pass (refraction + vibrancy + tint) ---
-    if (el.useSeparableBlur && el.blurRadius >= 0.5 && this.quickToggles.backdropBlur) {
+    // skipPingPong (independent) path: the shader samples the CLEAN wallpaper
+    // via uSampleWallpaper=1, using its internal poisson-disc blur (16-tap).
+    // No blurTexture call needed — the shader handles blur inside sampleBackdrop.
+    // The curTex passed here is NOT read by the shader (uSampleWallpaper=1
+    // bypasses uBackdrop), so it's just a placeholder to satisfy the binding.
+    //
+    // Ping-pong path: use the original blurTexture pipeline (separable Gaussian
+    // on the scene FBO or dialogBackdropTex).
+    if (skipPingPong) {
+      // Independent element: shader samples wallpaper internally. Pass curTex
+      // as the backdrop binding (unused when uSampleWallpaper=1, but the
+      // texture unit must be bound to something valid).
+      this.renderGlassElementPass(state, curTex)
+    } else if (el.useSeparableBlur && el.blurRadius >= 0.5 && this.quickToggles.backdropBlur) {
       const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr
       // Isolate backdrop: sample bgOnlyTex (wallpaper + non-glass UI) instead
       // of curTex (which includes other glass). backdropFbo elements keep
@@ -580,10 +609,14 @@ export const glassRenderMethods = {
     // elements + the final blit to the default framebuffer) ---
     gl.disable(gl.SCISSOR_TEST)
 
-    // --- Step 3: Swap curFbo ↔ otherFbo ---
-    // otherFbo now contains: previous scene + shadow + glass body +
-    // press glow + white overlay + foreground + rim highlight. It
-    // becomes the new "current scene" for subsequent elements to sample.
+    // --- Step 3: Swap curFbo ↔ otherFbo (ping-pong only) ---
+    // For skipPingPong: curFbo was the render target all along (shadow +
+    // element + post passes composited onto it via alpha blending). No swap.
+    // For ping-pong: otherFbo now contains the new scene — swap so it becomes
+    // the "current scene" for subsequent elements to sample.
+    if (skipPingPong) {
+      return { curFbo, curTex, otherFbo, otherTex }
+    }
     return {
       curFbo: otherFbo,
       curTex: otherTex,
@@ -746,18 +779,22 @@ export const glassRenderMethods = {
     // shrinking the sampling source. Keeping the source fullscreen preserves
     // correctness for free.
     //
-    // For useSeparableBlur elements, blur the fullscreen curTex (same as the
-    // ping-pong path). blurTexture writes into blurFboB (fullscreen) and
-    // restores the FBO binding.
+    // INDEPENDENT elements (state.independent=true): the shader samples the
+    // CLEAN wallpaper via uSampleWallpaper=1 (set in renderGlassElementPass),
+    // using its internal poisson-disc blur. No blurTexture call needed — the
+    // curTex passed here is NOT read by the shader. This makes independent
+    // elements not refract/blur each other's glass bodies (matching the
+    // original Android app's LayerBackdrop).
     //
-    // backdropFbo elements (dialog card): blur the dialogBackdropTex
-    // (wallpaper+scrim+colorControls opaque layer) instead of the scene FBO —
-    // same logic as the ping-pong path's Step 2b. Then temporarily disable
-    // backdropFbo on the element state so renderGlassElementPass binds the
-    // blurred texture as uBackdrop instead of the raw dialogBackdropTex.
+    // Non-independent useSeparableBlur elements: blur the fullscreen curTex
+    // (or dialogBackdropTex for backdropFbo elements) via blurTexture.
     let backdropTex: WebGLTexture
     let passState = state
-    if (el.useSeparableBlur && el.blurRadius >= 0.5 && this.quickToggles.backdropBlur) {
+    if (independent) {
+      // Independent: shader samples wallpaper internally. curTex is a placeholder
+      // (unused when uSampleWallpaper=1, but TEXTURE0 must be bound to something).
+      backdropTex = curTex
+    } else if (el.useSeparableBlur && el.blurRadius >= 0.5 && this.quickToggles.backdropBlur) {
       const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr
       // Isolate backdrop: sample bgOnlyTex (wallpaper + non-glass UI) instead
       // of curTex (which includes other glass). backdropFbo elements keep

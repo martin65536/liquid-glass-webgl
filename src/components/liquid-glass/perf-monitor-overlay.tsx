@@ -345,7 +345,7 @@ function Body({
         <Row
           label="Glass"
           value={String(snapshot.glassElements)}
-          hint={`FBO ${snapshot.perElementFboCount} · ping-pong ${snapshot.pingPongCount}`}
+          hint={`PEF ${snapshot.perElementFboCount} · skip ${snapshot.skipPingPongCount} · pp ${snapshot.pingPongCount}`}
         />
         <Row label="Non-glass" value={String(snapshot.nonGlassElements)} />
         <Row label="Blur passes" value={String(snapshot.blurPasses)} />
