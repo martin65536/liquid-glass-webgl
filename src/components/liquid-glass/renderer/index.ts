@@ -115,9 +115,11 @@ export class LiquidGlassRenderer {
    *  element list rebuilt). Makes every element count as dirty for one frame. */
   dirtyElementIds = new Set<string>()
   allDirty = true
-  /** Debug overlay: when true, draw a colored marker on each element
-   *  indicating its dirty status this frame (green=clean, red=dirty).
-   *  Toggled from the perf-monitor overlay. */
+  /** Debug overlay: when true, draw a blinking red dot on each element
+   *  that actually re-rasterized its glass body this frame (cache MISS).
+   *  Toggled from the perf-monitor overlay. The overlay consumes the
+   *  markers after each rAF tick, so dots only appear when a render has
+   *  just occurred — no stale red when the renderer is idle. */
   showDirtyMarkers = false
   /** Debug overlay data — the dirty status of each element this frame,
    *  pushed during render() for the overlay to read. "dirty" here means
@@ -126,7 +128,13 @@ export class LiquidGlassRenderer {
    *  driven + signature-diff cache scheme, an element can be re-rasterized
    *  without being in dirtyElementIds (e.g. position changed → elFboCache
    *  position check misses → re-rasterize). The marker reflects the TRUE
-   *  GPU work, which is what the user wants to see during optimization. */
+   *  GPU work, which is what the user wants to see during optimization.
+   *
+   *  LIFECYCLE: cleared at the start of each render(), repopulated during
+   *  the element loop, then CONSUMED (length=0) by the overlay's rAF after
+   *  drawing. This means the list is non-empty only on rAF ticks that
+   *  immediately follow a render — idle frames see an empty list and draw
+   *  nothing, which is how the "no stale red when idle" behavior works. */
   debugDirtyMarkers: Array<{ x: number; y: number; w: number; h: number; dirty: boolean }> = []
   /** Internal scratch slot — set by renderGlassElementPerFbo to indicate
    *  whether the just-rendered glass element hit its elFboCache (true =

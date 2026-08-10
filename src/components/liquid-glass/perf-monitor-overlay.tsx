@@ -621,7 +621,7 @@ function DebugToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
       </button>
       <button
         onClick={flipDirty}
-        title="Draw a colored border on each element: green=clean (unchanged this frame), red=dirty (updated). Use to see which elements actually changed."
+        title="Draw a blinking red dot on each element that actually re-rasterized its glass body this frame (cache MISS). The dot blinks every frame and disappears when the renderer is idle — no stale red when nothing is rendering."
         style={debugBtnStyle(showDirty)}
       >
         <span>Show dirty markers</span>

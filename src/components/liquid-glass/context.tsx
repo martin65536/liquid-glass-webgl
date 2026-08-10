@@ -344,7 +344,13 @@ export function LiquidGlassCanvas({
     const renderer = rendererRefInternal.current
     if (!renderer) return
     let raf = 0
+    // Blink toggle for dirty markers — alternates each rAF tick so the red
+    // dot visibly flashes at ~30Hz when renders are happening. Combined
+    // with the consume-after-draw below, this gives the user a clear
+    // "renders are occurring" signal that disappears when idle.
+    let dirtyBlinkOn = false
     const draw = () => {
+      dirtyBlinkOn = !dirtyBlinkOn
       const oc = overlayCanvasRef.current
       const mc = canvasRef.current
       if (oc && mc && renderer) {
@@ -386,19 +392,32 @@ export function LiquidGlassCanvas({
             }
           }
           if (renderer.showDirtyMarkers) {
+            // Blinking red dot per dirty element.
+            //
+            // SEMANTICS: a "dirty" element is one whose glass body was
+            // actually re-rasterized this render frame (elFboCache MISS).
+            // The renderer clears + repopulates debugDirtyMarkers during
+            // each render(); we consume the list here (length = 0) after
+            // drawing, so:
+            //   - On rAF ticks that follow a render → list is populated →
+            //     draw red dots (only on alternate ticks → visible blink).
+            //   - On rAF ticks with no new render (idle) → list is empty →
+            //     draw nothing → no stale red dots linger on idle frames.
             const markers = renderer.debugDirtyMarkers
-            for (let i = 0; i < markers.length; i++) {
-              const m = markers[i]
-              // Green solid border = clean (unchanged), red = dirty (updated).
-              ctx.strokeStyle = m.dirty ? 'rgba(255, 110, 110, 0.95)' : 'rgba(120, 230, 130, 0.85)'
-              ctx.lineWidth = m.dirty ? 2 : 1
-              ctx.strokeRect(m.x + 0.5, m.y + 0.5, m.w - 1, m.h - 1)
-              if (m.dirty) {
-                ctx.fillStyle = 'rgba(255, 110, 110, 0.95)'
-                ctx.font = 'bold 9px ui-monospace, monospace'
-                ctx.fillText('●', m.x + m.w - 12, m.y + 10)
+            if (dirtyBlinkOn && markers.length > 0) {
+              ctx.fillStyle = 'rgba(255, 70, 70, 0.95)'
+              for (let i = 0; i < markers.length; i++) {
+                const m = markers[i]
+                if (!m.dirty) continue
+                // Red dot in the top-right corner of the element's bbox.
+                ctx.beginPath()
+                ctx.arc(m.x + m.w - 7, m.y + 7, 4, 0, Math.PI * 2)
+                ctx.fill()
               }
             }
+            // Consume the markers so idle frames (no new render between
+            // rAF ticks) draw nothing — fixes "red still shows when idle".
+            markers.length = 0
           }
         }
       }
