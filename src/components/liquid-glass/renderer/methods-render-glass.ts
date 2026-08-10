@@ -557,10 +557,15 @@ export const glassRenderMethods = {
     // Ping-pong path: use the original blurTexture pipeline (separable Gaussian
     // on the scene FBO or dialogBackdropTex).
     if (skipPingPong) {
-      // Independent element: shader samples wallpaper internally. Pass curTex
-      // as the backdrop binding (unused when uSampleWallpaper=1, but the
-      // texture unit must be bound to something valid).
-      this.renderGlassElementPass(state, curTex)
+      // Independent element: shader samples wallpaper internally (uSampleWallpaper=1),
+      // so uBackdrop is not read. BUT we must NOT bind curTex here — curTex is
+      // curFbo's own texture, and binding it while rendering into curFbo creates
+      // a WebGL feedback loop (undefined behavior, even if the shader doesn't
+      // sample it). The GPU's feedback-loop detection is based on texture
+      // binding, not actual shader reads. Bind otherTex (the other FBO's
+      // texture) instead — it's a valid texture, not attached to curFbo, and
+      // the shader won't read it anyway (uSampleWallpaper=1 bypasses uBackdrop).
+      this.renderGlassElementPass(state, otherTex)
     } else if (el.useSeparableBlur && el.blurRadius >= 0.5 && this.quickToggles.backdropBlur) {
       const blurRadiusPx = el.blurRadius * state.layerScale * this.dpr
       // Isolate backdrop: sample bgOnlyTex (wallpaper + non-glass UI) instead
