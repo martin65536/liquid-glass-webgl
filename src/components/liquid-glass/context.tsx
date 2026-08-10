@@ -458,12 +458,17 @@ export function LiquidGlassCanvas({
                   : m.y + m.h + 11  // just below bbox
                 const label = m.reason
                 const tw = ctx.measureText(label).width
+                // Clamp X so the label + background never overflows the
+                // right edge of the canvas (long reasons like
+                // "backdrop_overlap:glass:bottom-tabs-3-container" can be
+                // wider than the element's bbox).
+                const labelX = Math.max(0, Math.min(m.x, oc.width - tw - 9))
                 // Dark background rect for readability over any content.
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.72)'
-                ctx.fillRect(m.x, labelY - 9, tw + 6, 12)
+                ctx.fillRect(labelX, labelY - 9, tw + 6, 12)
                 // Yellow reason text.
                 ctx.fillStyle = 'rgba(255, 220, 80, 0.98)'
-                ctx.fillText(label, m.x + 3, labelY)
+                ctx.fillText(label, labelX + 3, labelY)
               }
               missLog.length = 0
             }

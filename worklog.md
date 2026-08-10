@@ -857,3 +857,51 @@ Stage Summary:
     - 如果 4tabs 显示 backdrop_overlap → 3tabs 的 dirtyRect 与 4tabs 的 backdrop 采样区域空间重叠
     - 如果 4tabs 显示 invalidated → 有代码在调 markElementDirty(4tabs)
 - lint 干净，dev.log 编译正常。未使用 Agent Browser（遵用户指示）。
+
+---
+Task ID: 14
+Agent: main
+Task: 追查 bottom tabs 不停触发 backdrop_overlap 的根因 — 给 dirtyRectsThisFrame 加 source 追踪
+
+Work Log:
+- 根因分析：bottom tabs 的 independentBackdrop = false（build-bottom-tabs.ts:112,234），
+  所以它们是非 independent 元素，采样 curTex（累积场景）作为 backdrop。
+  非独立元素在 elFboCache 命中测试中检查 dirtyRectsThisFrame —— 如果有任何 dirty rect
+  与该元素的 inflatedOutputRect 空间重叠，就判 miss，reason = 'backdrop_overlap'。
+
+- 之前的 reason 只是 'backdrop_overlap'，不告诉你是 WHO 推了那个 dirty rect：
+    可能是 allDirty 推的全屏 rect（markAllDirty 触发）
+    可能是 scrollY 变化推的全屏 rect
+    可能是某个 glass 元素 cache miss 推的它的 inflatedOutputRect
+    可能是某个 non-glass 元素 event-dirty 推的它的 inflatedOutputRect
+    可能是 ping-pong 路径推的（PEF 关时所有 glass 元素都推）
+  用户看到 'backdrop_overlap' 无法定位根因。
+
+- 修复：给 dirtyRectsThisFrame 每个条目加 source: string 字段，标识推它的来源：
+    'all_dirty'         — markAllDirty() 触发的全屏 rect
+    'scroll'            — scrollY 变化触发的全屏 rect
+    'glass:<id>'        — glass 元素 <id> cache miss（PEF 路径）
+    'nonglass:<id>'     — non-glass 元素 <id> event-dirty
+    'pingpong:<id>'     — glass 元素 <id> 走 ping-pong 路径（PEF 关）
+
+- 实现：
+  - index.ts: dirtyRectsThisFrame 类型加 source 字段 + 文档
+  - methods-render.ts: 全屏 rect push 加 source = allDirty ? 'all_dirty' : 'scroll'
+  - methods-render.ts: 两处 non-glass push 加 source = `nonglass:${el.id}`
+  - methods-render-glass.ts: PEF miss push 加 source = `glass:${el.id}`
+  - methods-render-glass.ts: ping-pong push 加 source = `pingpong:${el.id}`
+  - methods-render-glass.ts: backdrop_overlap 检查改为 find overlapping rect，
+    reason = `backdrop_overlap:${overlap.source}`
+  - context.tsx overlay: 加右边缘 clamping（长 reason 不会溢出 canvas）
+
+Stage Summary:
+- 现在打开 showDirtyMarkers 后，backdrop_overlap 的 reason 会直接告诉你是谁导致的：
+    backdrop_overlap:all_dirty       → 有东西在调 markAllDirty()（找 setBackgroundColor /
+                                        wallpaper reload / cornerStyle effect / PEF toggle）
+    backdrop_overlap:scroll          → scrollY 在变（scroll velocity decay / 程序滚动）
+    backdrop_overlap:glass:<id>      → 元素 <id> 在 cache miss（看它的 reason 找根因）
+    backdrop_overlap:nonglass:<id>   → non-glass 元素 <id> 被 event-dirty
+    backdrop_overlap:pingpong:<id>   → PEF 没开，<id> 走 ping-pong 永远 miss
+- 这直接回答用户的问题：「为什么 tabs 没有交互却不停触发 backdrop_overlap」——
+  现在 reason 会告诉你是 all_dirty / scroll / 还是某个特定元素在不停 miss。
+- lint 干净，dev.log 编译正常。未使用 Agent Browser。

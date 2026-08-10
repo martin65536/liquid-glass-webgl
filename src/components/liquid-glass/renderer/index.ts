@@ -149,8 +149,18 @@ export class LiquidGlassRenderer {
    *  backdrop sampling region, the cached glass body is still valid and can be
    *  composited without re-rasterizing the backdrop blur. This is SPATIAL, not
    *  global: a tab bar animating on the left does NOT invalidate a static bar
-   *  on the right, because their rects don't overlap. */
-  dirtyRectsThisFrame: Array<{ x: number; y: number; w: number; h: number }> = []
+   *  on the right, because their rects don't overlap.
+   *
+   *  Each entry carries a `source` tag identifying WHO pushed it:
+   *    'all_dirty'      — markAllDirty() fired (global invalidation)
+   *    'scroll'         — scrollY changed (scrolling elements moved)
+   *    'glass:<id>'     — glass element <id> cache-missed (re-rasterized)
+   *    'nonglass:<id>'  — non-glass element <id> was event-dirty
+   *    'pingpong:<id>'  — glass element <id> on ping-pong path (PEF off)
+   *  This source is surfaced in the debugCacheMissLog reason as
+   *  `backdrop_overlap:<source>` so you can see EXACTLY which element or
+   *  global event caused a non-independent element to miss its cache. */
+  dirtyRectsThisFrame: Array<{ x: number; y: number; w: number; h: number; source: string }> = []
   /** Last frame's scrollY — when it changes, scrolling elements move and every
    *  non-independent element whose backdrop overlaps them must re-rasterize.
    *  Represented by pushing a full-screen rect into dirtyRectsThisFrame. */
@@ -164,7 +174,9 @@ export class LiquidGlassRenderer {
    *    'invalidated'        — entry.valid=false (markElementDirty/markAllDirty)
    *    'wallpaper_version'  — wallpaper reloaded
    *    'dpr'                — devicePixelRatio changed
-   *    'backdrop_overlap'   — a dirtyRect overlaps this element's backdrop
+   *    'backdrop_overlap:<source>' — a dirtyRect overlaps this element's
+   *      backdrop. <source> identifies WHO pushed the overlapping rect:
+   *      all_dirty / scroll / glass:<id> / nonglass:<id> / pingpong:<id>
    *    'non_cacheable'      — cacheable=false (no wallpaper / backdropFbo / SDF)
    *    'ping_pong'          — PEF toggle off, ping-pong path (never cached) */
   debugCacheMissLog: Array<{ id: string; reason: string; x: number; y: number; w: number; h: number }> = []

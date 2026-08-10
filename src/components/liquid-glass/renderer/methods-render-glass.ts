@@ -512,7 +512,10 @@ export const glassRenderMethods = {
     // non-independent glass elements whose backdrop samples this region
     // know to re-rasterize too (spatial, not global — only overlapping
     // elements are affected).
-    this.dirtyRectsThisFrame.push(inflatedOutputRect(el, sx, sy, sw, sh, togglePressProgress))
+    this.dirtyRectsThisFrame.push({
+      ...inflatedOutputRect(el, sx, sy, sw, sh, togglePressProgress),
+      source: `pingpong:${el.id}`,
+    })
 
     // --- Step 1: Blit curFbo → otherFbo (FULLSCREEN ping-pong) ---
     // Copy the entire accumulated scene into otherFbo so the element can
@@ -843,9 +846,21 @@ export const glassRenderMethods = {
         missReason = 'wallpaper_version'
       } else if (entry.dpr !== this.dpr) {
         missReason = 'dpr'
-      } else if (!independent && this.dirtyRectsThisFrame.some(r =>
-        rectsOverlap(r, inflatedOutputRect(el, sx, sy, sw, sh, togglePressProgress)))) {
-        missReason = 'backdrop_overlap'
+      } else if (!independent) {
+        // Check if any dirty rect overlaps this element's backdrop sampling
+        // region. If so, the cached glass body is stale (the backdrop it was
+        // rasterized against has changed). Include the SOURCE of the
+        // overlapping rect in the reason so the user can see WHO caused it:
+        //   backdrop_overlap:all_dirty       — markAllDirty() fired
+        //   backdrop_overlap:scroll          — scrollY changed
+        //   backdrop_overlap:glass:<id>      — element <id> cache-missed
+        //   backdrop_overlap:nonglass:<id>   — non-glass element <id> was dirty
+        //   backdrop_overlap:pingpong:<id>   — element <id> on ping-pong path
+        const myRect = inflatedOutputRect(el, sx, sy, sw, sh, togglePressProgress)
+        const overlap = this.dirtyRectsThisFrame.find(r => rectsOverlap(r, myRect))
+        if (overlap) {
+          missReason = `backdrop_overlap:${overlap.source}`
+        }
       }
       if (missReason && this.showDirtyMarkers) {
         this.debugCacheMissLog.push({ id: el.id, reason: missReason, x: sx, y: sy, w: sw, h: sh })
@@ -962,7 +977,10 @@ export const glassRenderMethods = {
       // whose backdrop sampling overlaps it know to re-rasterize too.
       // This is SPATIAL: a static bar elsewhere on the page whose bbox
       // doesn't overlap this one still hits its cache.
-      this.dirtyRectsThisFrame.push(inflatedOutputRect(el, sx, sy, sw, sh, togglePressProgress))
+      this.dirtyRectsThisFrame.push({
+        ...inflatedOutputRect(el, sx, sy, sw, sh, togglePressProgress),
+        source: `glass:${el.id}`,
+      })
       // --- Step 2: Backdrop texture for the element pass ---
       // KEY DESIGN: the element pass samples the FULLSCREEN scene texture
       // (curTex), NOT a cropped region. This is what makes PEF correct: the

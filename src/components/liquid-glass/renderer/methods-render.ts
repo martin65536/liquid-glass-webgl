@@ -63,7 +63,10 @@ export const renderMethods = {
     this.debugCacheMissLog.length = 0
     this.debugDirtySourceLog.length = 0
     if (this.allDirty || this.scrollY !== this.lastRenderedScrollY) {
-      this.dirtyRectsThisFrame.push({ x: 0, y: 0, w: this.cssWidth, h: this.cssHeight })
+      this.dirtyRectsThisFrame.push({
+        x: 0, y: 0, w: this.cssWidth, h: this.cssHeight,
+        source: this.allDirty ? 'all_dirty' : 'scroll',
+      })
     }
     this.lastRenderedScrollY = this.scrollY
 
@@ -239,7 +242,10 @@ export const renderMethods = {
         // glass elements whose backdrop samples it know to re-rasterize.
         // Static redraws (same content) leave pixels identical, so only push
         // when the event-flag says this element actually changed.
-        if (dirty) this.dirtyRectsThisFrame.push(inflatedOutputRect(el, r.x, r.y, r.w, r.h))
+        if (dirty) this.dirtyRectsThisFrame.push({
+          ...inflatedOutputRect(el, r.x, r.y, r.w, r.h),
+          source: `nonglass:${el.id}`,
+        })
         // Isolate backdrop: also composite non-glass elements into bgOnlyFbo
         // so glass elements sampling bgOnlyFbo see the non-glass UI.
         if (isolate && this.bgOnlyFbo) {
@@ -321,7 +327,10 @@ export const renderMethods = {
         if (this.showDirtyMarkers) {
           this.debugDirtyMarkers.push({ x: r.x, y: r.y, w: r.w, h: r.h, dirty })
         }
-        if (dirty) this.dirtyRectsThisFrame.push(inflatedOutputRect(el, r.x, r.y, r.w, r.h))
+        if (dirty) this.dirtyRectsThisFrame.push({
+          ...inflatedOutputRect(el, r.x, r.y, r.w, r.h),
+          source: `nonglass:${el.id}`,
+        })
         if (isolate && this.bgOnlyFbo) {
           this.renderNonGlassElement(el, r, st, this.bgOnlyFbo)
         }
