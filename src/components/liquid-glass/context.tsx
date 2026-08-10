@@ -484,17 +484,24 @@ export function LiquidGlassCanvas({
               }
               const panelW = maxW + 16
               const panelH = lines.length * 15 + 12
+              // Anchor the info panel at the BOTTOM-left so it doesn't cover
+              // the element under test when the element is near the top of the
+              // viewport (e.g. a card bg scrolled partially off-screen). The
+              // element's rect outline + bottom line are the primary visual;
+              // the panel is supplementary reference data.
+              const panelX = 8
+              const panelY = oc.height - panelH - 8
               ctx.fillStyle = 'rgba(0, 0, 0, 0.82)'
-              ctx.fillRect(8, 8, panelW, panelH)
+              ctx.fillRect(panelX, panelY, panelW, panelH)
               ctx.strokeStyle = c.culled ? 'rgba(255, 80, 80, 0.6)' : 'rgba(80, 230, 130, 0.6)'
               ctx.lineWidth = 1
-              ctx.strokeRect(8.5, 8.5, panelW - 1, panelH - 1)
+              ctx.strokeRect(panelX + 0.5, panelY + 0.5, panelW - 1, panelH - 1)
               for (let li = 0; li < lines.length; li++) {
                 const isStatus = li === lines.length - 1
                 ctx.fillStyle = isStatus
                   ? (c.culled ? 'rgba(255, 130, 130, 1)' : 'rgba(130, 255, 150, 1)')
                   : 'rgba(230, 230, 230, 0.95)'
-                ctx.fillText(lines[li], 16, 24 + li * 15)
+                ctx.fillText(lines[li], panelX + 8, panelY + 16 + li * 15)
               }
             }
             // NOTE: do NOT consume — structural overlay (persists across

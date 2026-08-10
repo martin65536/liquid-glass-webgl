@@ -1973,3 +1973,82 @@ Stage Summary:
 - 修复：把 isBottomTabIndicator 排除出 cacheable，强制每帧 Step 3 重新渲染
 - Task 29（外圈 rim highlight）+ Task 30（inner rim highlight + 内容层）共同
   解决了 bottomtabs 的两个 PEF-only 症状
+
+---
+Task ID: 31
+Agent: main
+Task: 修复 settings-card-rendering-bg 莫名消失问题（检查 PEF/scissor/elFbo 三个可能原因）
+
+Work Log:
+- 用户要求继续修 settings-card-rendering-bg 莫名消失的问题，检查之前提到的
+  三个可能原因：PEF composite position / scissor / elFbo cache
+
+- 调查 plainRect 渲染路径（methods-render.ts L528-604）：
+  - plainRect 直接画到 curFbo，不走 PEF / elFbo cache
+  - setSdfUniforms 用 r2（enterProgress 调整后的 rect）
+  - blendFuncSeparate(SRC_ALPHA, ONE_MINUS_SRC_ALPHA, ONE, ONE_MINUS_SRC_ALPHA)
+  - settings 卡片无 enterProgress → enterA=1，color=[1,1,1,1] → 应画白色
+
+- 调查 scissor 状态：
+  - ping-pong 路径：L619 enable / L738 disable（正确配对）
+  - PEF 路径：L1179 enable / L1334 disable（正确配对）
+  - blurTexture：保存/恢复 scissor（L917-962）
+  - 无 early-return 跳过 disable → scissor 不是元凶
+
+- 调查 elFbo cache：
+  - settings 页 backgroundColor=[0.94,0.94,0.96]（solid bg），但 wallpaperTexture
+    也已加载 → cacheable=true（glass 元素可缓存）
+  - BUT usePerElementFbo=false（PEF 开关关闭）→ glass 元素走 ping-pong，
+    不走 PEF cache → elFboCache.size=0
+  - plainRect 本身不走 elFbo cache → elFbo cache 不是元凶
+
+- 三个可能原因全部排除。card 是 plainRect，直接画到 curFbo，不涉及 PEF/scissor/cache
+
+- 复现 + 诊断（Agent Browser + VLM + 像素级分析）：
+  - 临时暴露 window.__lg + 添加 ?dest=Settings URL 参数直接跳转设置页
+  - 在 renderNonGlassElement 添加 console.log 确认 card draw call 执行
+  - 日志确认：card IS drawn，ry=-172（scroll 300），color=[1,1,1,1]，enterA=1，
+    scissor=false，blend=true → draw call 正确执行
+  - 像素扫描（PIL 读取截图 PNG）发现 card 区域 (100,30) = (46,46,46) 暗灰
+  - 但 (300,80) = (255,255,255) 白色 → card 部分白部分暗
+  - 暗灰 (46,46,46) = rgba(0,0,0,0.82) 叠在白色 (255) 上 = 0*0.82+255*0.18 = 46
+  → 暗灰区域 = cull debug overlay 的 info panel（半透明黑底）
+
+- 根因：
+  showCullDebug overlay 的 info panel 画在 (8,8)，尺寸 ~216×132px，
+  rgba(0,0,0,0.82)。当 card 上滑到顶部时，panel 正好覆盖 card 的可见部分
+  （card 可见 y=0..120，panel 覆盖 y=8..140）→ card 看起来"消失"
+  实际上 card 一直在正确渲染（白色），被 overlay panel 遮住了
+
+  Task 26 的诊断"卡片视觉提前消失时 cull overlay 应仍显示 GREEN(KEPT)"
+  已经暗示了这一点——GREEN rect 正确显示，但 card 的白色被 panel 盖住
+
+- 验证（关闭 showCullDebug 后）：
+  - scrollY=300: (100,60)=(255,255,255) 白色 ✓
+  - scrollY=0/100/200/300/400: top 200px 白像素数 1579/3418/3984/3881/3881 ✓
+  - VLM 确认所有 card background 可见 ✓
+
+- 修复（context.tsx showCullDebug overlay，L485-505）：
+  把 info panel 从 (8,8) 移到 (8, oc.height-panelH-8) 即左下角
+  - card 在顶部滚动时，panel 在底部，不遮挡 card
+  - element rect outline + bottom line 仍在原位（主视觉）
+  - panel 是辅助参考数据，放底部不影响判断 KEPT/CULLD
+
+- 清理：
+  - 移除 renderNonGlassElement 的 console.log 调试代码
+  - 移除 window.__lg 临时暴露
+  - 保留 ?dest= URL 参数（无害，便于测试）
+
+- 验证：
+  - lint 干净
+  - dev.log 编译正常
+  - Agent Browser + VLM 确认：showCullDebug=ON + scroll 300 时 card 顶部
+    白色可见 + panel 在底部 ✓
+
+Stage Summary:
+- 三个可能原因（PEF composite / scissor / elFbo cache）全部排除：
+  plainRect 不走 PEF/cache，scissor 正确配对
+- 真正原因：cull debug overlay 的 info panel（rgba(0,0,0,0.82) @ (8,8)）
+  覆盖了 card 上滑时的可见部分 → card 看起来"消失"
+- 修复：info panel 移到左下角，不遮挡顶部 card
+- card 本身一直在正确渲染（白色，正确位置，正确 alpha）

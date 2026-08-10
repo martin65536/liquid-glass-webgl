@@ -53,7 +53,15 @@ export default function Page() {
   const theme: Theme = userOverride ?? systemTheme
   const isLightTheme = theme === 'light'
 
-  const [destination, setDestination] = React.useState<CatalogDestination>(CatalogDestination.Home)
+  const [destination, setDestination] = React.useState<CatalogDestination>(() => {
+    if (typeof window !== 'undefined') {
+      const d = new URLSearchParams(window.location.search).get('dest')
+      const valid = Object.values(CatalogDestination).filter((v): v is CatalogDestination => typeof v === 'number')
+      const found = valid.find(v => CatalogDestination[v as unknown as keyof typeof CatalogDestination] === d)
+      if (found !== undefined) return found
+    }
+    return CatalogDestination.Home
+  })
   // Load persisted Settings fields from localStorage (customDpr,
   // globalSeparableBlur, blurTapCap, blurDownsample). These are the
   // user's preferences and should survive page reloads.
