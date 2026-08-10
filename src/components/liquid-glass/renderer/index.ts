@@ -115,7 +115,6 @@ export class LiquidGlassRenderer {
    *  element list rebuilt). Makes every element count as dirty for one frame. */
   dirtyElementIds = new Set<string>()
   allDirty = true
-  _dbgMarkAllDirtyLogged = false  // TEMP DEBUG
   /** Debug overlay: when true, draw a colored marker on each element
    *  indicating its dirty status this frame (green=clean, red=dirty).
    *  Toggled from the perf-monitor overlay. */

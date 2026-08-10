@@ -119,7 +119,7 @@ export const animationMethods = {
       }
 
       // --- Toggle group springs (faithful port of DampedDragAnimation.kt) ---
-      for (const tg of this.toggleStates.values()) {
+      for (const [groupId, tg] of this.toggleStates) {
         let groupDirty = false
         // Auto-release press when fraction has nearly settled (mirrors the
         // original `release()` which awaits `value` near `targetValue`).
@@ -314,9 +314,9 @@ export const animationMethods = {
           tg.panelOffsetVelocity = 0
         }
         // Toggle group animation affects knob + track + content + indicator.
-        // Marking all dirty is simpler than resolving groupId → element ids,
-        // and toggle animations are short + infrequent.
-        if (groupDirty) this.markAllDirty()
+        // markGroupDirty resolves groupId → element ids so only the affected
+        // group's elements are marked — unrelated independent caches stay valid.
+        if (groupDirty) this.markGroupDirty(groupId)
       }
 
       // --- Scroll inertia (no spring rebound) ---
@@ -336,7 +336,10 @@ export const animationMethods = {
           this.scrollVelocity *= Math.exp(-SCROLL_DECAY * dt)
         }
         stillAnimating = true
-        this.markAllDirty()
+        // No markAllDirty — same rationale as setScrollY: scroll-enabled
+        // elements' cache entries miss via the ex0/ey0Top position check,
+        // while non-scrolling independent elements keep hitting. Inertia
+        // previously force-invalidated every cache every tick of the decay.
       } else {
         this.scrollVelocity = 0
       }

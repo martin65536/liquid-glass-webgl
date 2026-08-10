@@ -136,7 +136,7 @@ export const toggleMethods = {
       st.targetScaleX = st.pressedScale
       st.targetScaleY = st.pressedScale
     }
-    this.markAllDirty()
+    this.markGroupDirty(groupId)
     this.startAnimation()
   },
 
@@ -159,7 +159,7 @@ export const toggleMethods = {
     st.targetVelocity = 0
     st.velocity = 0
     st.velocityVelocity = 0
-    this.markAllDirty()
+    this.markGroupDirty(groupId)
     this.startAnimation()
   },
 
@@ -191,7 +191,7 @@ export const toggleMethods = {
     const delta = (currentX - startX) / Math.max(1, dragWidth)
     const newTarget = Math.max(0, Math.min(1, startFraction + delta))
     st.targetFraction = newTarget
-    this.markAllDirty()
+    this.markGroupDirty(groupId)
     this.startAnimation()
   },
 
@@ -222,7 +222,7 @@ export const toggleMethods = {
     st.trackVelocityAfterRelease = true
     // Don't release press here — auto-release will fire when fraction
     // settles near finalTarget.
-    this.markAllDirty()
+    this.markGroupDirty(groupId)
     this.startAnimation()
     return finalTarget
   },
@@ -246,7 +246,7 @@ export const toggleMethods = {
     st.trackVelocityAfterRelease = true
     // Don't release press here — auto-release will fire when fraction
     // settles near finalTarget.
-    this.markAllDirty()
+    this.markGroupDirty(groupId)
     this.startAnimation()
     return finalTarget
   },
@@ -272,7 +272,7 @@ export const toggleMethods = {
     const clamped = Math.max(0, Math.min(1, fraction))
     if (st.targetFraction !== clamped) {
       st.targetFraction = clamped
-      this.markAllDirty()
+      this.markGroupDirty(groupId)
       this.startAnimation()
     }
   },

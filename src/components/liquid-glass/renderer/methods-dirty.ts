@@ -20,6 +20,21 @@ declare module './index' {
      *  so the next render re-rasterizes everything. Does NOT delete the FBO
      *  GPU resources — they stay allocated for reuse, just flagged stale. */
     markAllDirty(): void
+    /** Mark only the elements belonging to a toggle/tab group dirty.
+     *  Replaces the previous markAllDirty() calls in toggle/tab setters +
+     *  the group spring tick — those needlessly invalidated EVERY
+     *  independent element's elFbo cache, even though only the group's
+     *  own knob/track/content/indicator actually changed. The affected
+     *  elements are non-cacheable (excluded by isToggleKnob /
+     *  isBottomTabIndicator / isBottomTabContent), so this is mostly a
+     *  semantic mark for perfMonitor/debug — its real value is leaving
+     *  unrelated independent caches valid. */
+    markGroupDirty(groupId: string): void
+    /** Mark only elements with useGravityAngle=true dirty. Replaces the
+     *  markAllDirty() in setGravityAngle — device motion only affects the
+     *  rim-highlight angle of gravity-aware elements, so there is no reason
+     *  to invalidate every independent element's cache. */
+    markGravityDirty(): void
     /** True if any element is dirty (per-id set non-empty OR allDirty flag set).
      *  Used by the animation loop to decide whether to request a render. */
     hasDirtyElements(): boolean
@@ -42,12 +57,6 @@ export const dirtyTrackingMethods = {
   },
 
   markAllDirty(this: LiquidGlassRenderer) {
-    // TEMP DEBUG
-    if (!this._dbgMarkAllDirtyLogged) {
-      this._dbgMarkAllDirtyLogged = true
-      console.log('[markAllDirty] caller:', new Error().stack?.split('\n').slice(1, 4).join(' | '))
-      setTimeout(() => { this._dbgMarkAllDirtyLogged = false }, 500)
-    }
     this.allDirty = true
     this.dirtyElementIds.clear()
     // Invalidate every cached elFbo. The entries stay allocated (GPU memory
@@ -56,6 +65,37 @@ export const dirtyTrackingMethods = {
     // state changes (wallpaper reload, quickToggle flip, element rebuild),
     // not on the per-frame hot path.
     for (const entry of this.elFboCache.values()) entry.valid = false
+  },
+
+  markGroupDirty(this: LiquidGlassRenderer, groupId: string) {
+    // Iterate the current element list and mark every element that belongs
+    // to this toggle/tab group. Affected elements are typically non-glass
+    // (track/content/fill) or non-cacheable glass (knob/indicator) — so this
+    // mark is mostly semantic — but the CRITICAL effect is that we do NOT
+    // call markAllDirty(), which means every OTHER independent element's
+    // elFbo cache entry stays valid and keeps hitting on the next frame.
+    for (const el of this.buttonConfigs) {
+      if (
+        (el.isToggleKnob?.groupId === groupId) ||
+        (el.isToggleTrack?.groupId === groupId) ||
+        (el.isSliderFill?.groupId === groupId) ||
+        (el.isBottomTabContainer?.groupId === groupId) ||
+        (el.isBottomTabContent?.groupId === groupId) ||
+        (el.isBottomTabIndicator?.groupId === groupId)
+      ) {
+        this.markElementDirty(el.id)
+      }
+    }
+  },
+
+  markGravityDirty(this: LiquidGlassRenderer) {
+    // Only gravity-aware elements (useGravityAngle=true) read
+    // this.gravityAngle at render time — their rim-highlight direction
+    // changes. Every other element is unaffected, so we must NOT blanket-
+    // invalidate independent caches.
+    for (const el of this.buttonConfigs) {
+      if (el.useGravityAngle) this.markElementDirty(el.id)
+    }
   },
 
   hasDirtyElements(this: LiquidGlassRenderer) {

@@ -690,3 +690,32 @@ Stage Summary:
 - Task 1（事件驱动 dirty tracking）在上一轮会话已完成并 commit（`95aff4f`）。本轮做完整审计确认所有 setter + spring tick 入口都已改为 `markElementDirty` / `markAllDirty`，无 hash 残留，lint + 浏览器验证通过。
 - 当前 dirty 标记的用途：仅 (a) perf monitor 的 dirty/total 计数 + (b) debug overlay 的脏元素标记。**不**用于跳过渲染——render() 仍每帧渲染所有可见元素。跳过渲染属于 Task 2（per-element 帧缓存方案）范畴。
 - 关键文件：methods-dirty.ts（API 定义）、index.ts（dirtyElementIds + allDirty 字段）、methods-elements.ts / methods-scroll.ts / methods-toggle.ts / methods-tabs.ts / methods-wallpaper.ts（setter 标记）、methods-animation.ts（spring tick 标记）、methods-render.ts（消费 + 清除）。
+
+---
+Task ID: 9
+Agent: main
+Task: 减少 markAllDirty 误伤——滚动/惯性、toggle group 动画、重力传感器三处不再全局失效 independent 元素的 elFbo 缓存
+
+Work Log:
+- 审计确认：independent 元素采样壁纸用 coverUv(canvasPx)，canvasPx = uSceneRectOffset + localCoord。元素滚动时 uSceneRectOffset(ex0/ey0Top) 变 → 采样区域变 → 缓存内容确实需要更新。但 elFboCache 命中条件已含 ex0/ey0Top 位置校验（methods-render-glass.ts:760-764），位置变 → 自然 miss → 重新光栅化 → 更新缓存。所以滚动元素不需要 markAllDirty 来失效缓存。
+- 核心矛盾：旧逻辑 setScrollY/setScrollVelocity/惯性 tick 调 markAllDirty，把所有 entry.valid=false，导致位置没变的 non-scroll independent 元素也被迫重新光栅化（浪费）。
+- methods-dirty.ts：新增 markGroupDirty(groupId) — 遍历 buttonConfigs 找 isToggleKnob/isToggleTrack/isSliderFill/isBottomTabContainer/isBottomTabContent/isBottomTabIndicator 的 groupId 匹配项，只 mark 这些元素。新增 markGravityDirty() — 只 mark useGravityAngle=true 的元素。删除 markAllDirty 里的 TEMP DEBUG console.log。
+- index.ts：删除 _dbgMarkAllDirtyLogged 字段。
+- methods-scroll.ts：
+  - setScrollY: markAllDirty() → 删除（位置校验自然处理 scroll 元素 miss，non-scroll 元素继续命中）
+  - setScrollVelocity: markAllDirty() → 删除（同上，惯性 tick 每帧推进 scrollY）
+  - setGravityAngle: markAllDirty() → markGravityDirty()（只影响 useGravityAngle 元素的 rim-highlight 角度）
+  - setBackgroundColor: 保留 markAllDirty()（切页 Home↔CC 翻转 independent 状态，所有元素 backdrop 源变了，真正的全局失效）
+- methods-animation.ts：
+  - group spring tick: `for (const tg of this.toggleStates.values())` → `for (const [groupId, tg] of this.toggleStates)`，`markAllDirty()` → `markGroupDirty(groupId)`（只 mark 该 group 的 knob/track/content/indicator）
+  - 惯性 tick: markAllDirty() → 删除（同 setScrollY 理由）
+- methods-toggle.ts: 6 处 markAllDirty() → markGroupDirty(groupId)（setToggleTarget/beginToggleDrag/dragToggle/endToggleDrag/endSliderDrag/setSliderDragPosition）
+- methods-tabs.ts: 4 处 markAllDirty() → markGroupDirty(groupId)（setTabSelected/beginTabDrag/dragTab/endTabDrag）
+- methods-elements.ts setButtons + methods-wallpaper.ts (loadWallpaper/resize): 保留 markAllDirty()（元素列表重建 / 壁纸重载 / 缓存尺寸错，真正的全局失效）
+
+Stage Summary:
+- markAllDirty 调用点从 ~18 处降到 4 处（setButtons / setBackgroundColor / wallpaper load / wallpaper resize），全部是真正的全局状态变化。
+- 滚动/惯性期间：scroll=true 元素通过 ex0/ey0Top 位置校验自然 miss 重新光栅化；non-scroll independent 元素 valid 保持 true 继续命中缓存 → 跳过 Step 2(blur)+Step 3(element pass)。这是交互期间最大的缓存命中提升。
+- toggle/tab 动画期间：只有该 group 的元素被 mark，其他 independent 元素缓存不失效。
+- 重力传感器：只有 useGravityAngle=true 的元素被 mark。
+- lint 干净，dev.log 编译正常无报错。

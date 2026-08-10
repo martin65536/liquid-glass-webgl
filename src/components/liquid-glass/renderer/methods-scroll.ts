@@ -35,8 +35,14 @@ export const scrollMethods = {
   setScrollY(this: LiquidGlassRenderer, y: number) {
     this.scrollVelocity = 0
     this.scrollY = this.clampScrollValue(y)
-    // Scroll affects all scroll-enabled elements' effective position.
-    this.markAllDirty()
+    // NOTE: deliberately NOT markAllDirty(). Scrolling only moves
+    // scroll-enabled elements' effective position; their elFbo cache
+    // entries naturally MISS via the ex0/ey0Top position check (the
+    // element's screen rect changed → entry.ex0/ey0Top no longer match
+    // → re-rasterize → cache updated). Non-scrolling independent elements
+    // keep their position unchanged → their cache stays valid → they HIT.
+    // Previously markAllDirty() here invalidated EVERY cache entry, forcing
+    // a full re-rasterize every drag frame even for elements that didn't move.
     this.requestRender()
   },
 
@@ -51,7 +57,9 @@ export const scrollMethods = {
     // Clamp to a sane max to avoid absurd flicks.
     const MAX_VEL = 4000
     this.scrollVelocity = Math.max(-MAX_VEL, Math.min(MAX_VEL, v))
-    this.markAllDirty()
+    // No markAllDirty — the inertia tick in methods-animation.ts advances
+    // scrollY each frame, and position-driven cache misses handle invalidation
+    // the same way as setScrollY (only scroll-enabled elements re-rasterize).
     this.startAnimation()
   },
 
@@ -112,7 +120,10 @@ export const scrollMethods = {
     const THRESHOLD = 0.02 // ~1.1 degrees
     if (Math.abs(this.gravityAngle - angleRad) < THRESHOLD) return
     this.gravityAngle = angleRad
-    this.markAllDirty()
+    // Only gravity-aware elements (useGravityAngle=true) read this value;
+    // marking every element dirty would needlessly invalidate independent
+    // caches that don't depend on the highlight angle at all.
+    this.markGravityDirty()
     this.requestRender()
   },
 }
