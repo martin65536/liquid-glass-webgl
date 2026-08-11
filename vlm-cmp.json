@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "(1) No, the icon did not change (it remains a moon icon in both).\n(2) Yes, the glass card and the two top-corner circular buttons are still rendering with frosted-glass blur.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1786407459,
+  "id": "202608110817387dd10db77f784b5a",
+  "model": "glm-5v-turbo",
+  "object": "chat.completion",
+  "request_id": "202608110817387dd10db77f784b5a",
+  "usage": {
+    "completion_tokens": 45,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 847,
+    "prompt_tokens_details": {
+      "cached_tokens": 2
+    },
+    "total_tokens": 892
+  }
+}

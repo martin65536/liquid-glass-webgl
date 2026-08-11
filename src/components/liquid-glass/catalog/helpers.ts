@@ -299,9 +299,15 @@ export function makeButton(
     showChevron: false,
     isInteractive: true,
     scroll,
-    // Most buttons sample the wallpaper directly (matching the original's
-    // LayerBackdrop). Ignored on solid-background pages (Home/Settings/About).
-    independentBackdrop: true,
+    // Buttons use the NON-independent backdrop path so they pick up the
+    // separable 2-pass Gaussian blur (useSeparableBlur, set globally in
+    // catalog/index.ts). On solid-background pages `independent` is forced
+    // false anyway (backgroundColor is set), so this only changes wallpaper
+    // pages: there, buttons now sample the scene FBO (curTex) instead of the
+    // raw wallpaper. Enable the `isolateBackdrop` quick-toggle to make them
+    // sample the wallpaper snapshot (bgOnlyTex) instead — faithful to the
+    // original LayerBackdrop, with separableBlur quality.
+    independentBackdrop: false,
   }
 }
 
@@ -695,14 +701,13 @@ export function makeBackButton(
     cornerRadius: size / 2, // circular
     tintColor: [0, 0, 0, 0],
     surfaceColor: palette.buttonSurface,
-    // Same as makeButton: the back button samples the wallpaper directly
-    // (LayerBackdrop). Without this, `independent` is false in the render
-    // path → cacheable is false → the back button is re-rasterized from
-    // scratch on EVERY render instead of hitting the elFbo cache like all
-    // other glass buttons. (Home/Settings/About use a solid background, so
-    // `independent` is false there regardless — this only helps on wallpaper
-    // pages where caching actually applies.)
-    independentBackdrop: true,
+    // Use the separable-blur backdrop path (see makeButton). The previous
+    // independentBackdrop=true was for elFbo caching, but `cacheable` no
+    // longer depends on `independent` (see methods-render-glass.ts), so this
+    // is safe. Non-independent buttons still cache-hit when idle; they miss
+    // on backdrop_overlap (scroll / overlapping element changes), same as
+    // the dialog card and bottom-tab container.
+    independentBackdrop: false,
     highlight: null, // no edge highlight on the back button
     outerShadow: { ...DEFAULT_SHADOW }, // faithful to drawBackdrop default: Shadow.Default
     label: '', // no text label — icon replaces it
@@ -752,10 +757,8 @@ export function makeThemeToggleButton(
     cornerRadius: size / 2, // circular
     tintColor: [0, 0, 0, 0],
     surfaceColor: palette.buttonSurface,
-    // See makeBackButton: without independentBackdrop=true the theme toggle
-    // is non-cacheable and re-rasterized every frame (the "主题按钮一直在更新"
-    // symptom).
-    independentBackdrop: true,
+    // Use the separable-blur backdrop path (see makeButton / makeBackButton).
+    independentBackdrop: false,
     highlight: null, // no edge highlight (matches back button)
     outerShadow: { ...DEFAULT_SHADOW }, // faithful to drawBackdrop default: Shadow.Default
     label: '',

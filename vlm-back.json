@@ -1,0 +1,28 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "message": {
+        "content": "This screenshot shows a **HOME page with a list of selectable demo items** (a navigation menu/list) titled \"液态玻璃目录\" (Liquid Glass Catalog) containing various UI component categories like buttons, switches, sliders, etc.",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1786407505,
+  "id": "2026081108182477f8b4dc048e49ea",
+  "model": "glm-5v-turbo",
+  "object": "chat.completion",
+  "request_id": "2026081108182477f8b4dc048e49ea",
+  "usage": {
+    "completion_tokens": 48,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "prompt_tokens": 432,
+    "prompt_tokens_details": {
+      "cached_tokens": 2
+    },
+    "total_tokens": 480
+  }
+}
