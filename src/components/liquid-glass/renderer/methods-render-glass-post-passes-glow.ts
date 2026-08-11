@@ -37,11 +37,17 @@ export function renderGlassGlowAndOverlays(
   const layerScaleY = state.layerScaleY
 
   // --- Step 2c: Press glow (button + bottom-tab container) ---
+  // Gated by quickToggles.highlight — this glow uses the highlightProgram
+  // (radial Plus-blend) and is a highlight-class effect. Without this gate
+  // the perf-monitor "Highlight" toggle couldn't disable the bottom-tabs
+  // container glow (光晕), which uses a non-standard path separate from
+  // Step 2f rim highlight.
   const isContainer = !!el.isBottomTabContainer
   const glowP = isButton ? p : (isContainer ? togglePressProgress : 0)
   if (
-    (isButton && el.isInteractive && st && p > 0.001) ||
-    (isContainer && togglePressProgress > 0.001)
+    renderer.quickToggles.highlight &&
+    ((isButton && el.isInteractive && st && p > 0.001) ||
+      (isContainer && togglePressProgress > 0.001))
   ) {
     // a. Flat white overlay
     gl.useProgram(renderer.tintProgram)
