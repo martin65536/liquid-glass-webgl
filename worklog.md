@@ -549,54 +549,23 @@ Stage Summary:
 
 ---
 Task ID: 45
-Agent: main (gate bottom-tabs non-standard highlights under perf-monitor Highlight toggle)
+Agent: main (REVERTED — gate broke bottom-tabs rendering)
 Task: 修复 perf monitor 里无法开关 bottomtabs 的光晕和 indicator 内 highlight 的问题
 
 Work Log:
-- 用户指出 perf-monitor 的 Highlight toggle 关不掉 bottomtabs 的两个效果：
-  (1) 容器光晕（press glow）；(2) indicator 内 highlight（内层背景板 rim highlight）。
-  关键提示：bottomtabs 这两个用的不是寻常的 highlight 和 outerShadow 路径。
-- 调查现有 quickToggles.highlight 的覆盖范围：
-  * Step 2f rim highlight (methods-render-glass-post-passes-rim-highlight.ts L34):
-    `if (!el.highlight || alpha<=0.001 || !renderer.quickToggles.highlight) return`
-    ✓ 已 gate
-  * element-pass 的 uHighlightAlpha (methods-render-glass-element-pass.ts):
-    通过 ctx.elHighlightAlpha 传入，普通元素 = el.highlight.alpha；
-    toggle knob / indicator = base*progress。未 gate quickToggles。
-  * Step 2c press glow (methods-render-glass-post-passes-glow.ts):
-    flat-white Plus-blend + radial highlightProgram，用于 button + bottom-tab
-    container。完全没有 quickToggles gate。✗ 这就是光晕关不掉的原因。
-  * indicator inner stroke mask (methods-render-glass-element-pass-indicator.ts):
-    generateInnerStrokeMask() 生成 Canvas2D stroke mask → uInnerStrokeMask
-    纹理 → element shader 采样。完全独立于 Step 2f，没有 quickToggles gate。
-    ✗ 这就是内 highlight 关不掉的原因。
-- 修复 1（methods-render-glass-post-passes-glow.ts Step 2c）：
-  在外层 if 条件加 `renderer.quickToggles.highlight &&`。整个 glow 块
-  （flat white overlay + radial highlight）在 Highlight OFF 时跳过。
-  注释说明：glow 用 highlightProgram + Plus-blend，属于 highlight-class 效果。
-- 修复 2（methods-render-glass-element-pass-indicator.ts）：
-  (a) ctx.elHighlightAlpha 在 Highlight OFF 时强制为 0（原本 = base*progress）。
-      这让 element-pass 的 uHighlightAlpha=0（内 highlight 不渲染）+ Step 2f
-      early-return（一致性）。
-  (b) generateInnerStrokeMask() 在 Highlight OFF 时跳过（避免 Canvas2D
-      rasterization + GPU texture upload 的功耗），改为设 safe-default
-      uniforms（uInnerStrokeMaskOffset/Size = 1,1）让 shader 采样返回 0。
-- bun run lint：通过（0 errors）
-- Agent Browser 验证（viewport 390×844）：
-  * BottomTabs 页 + perf monitor 开启：Highlight toggle 显示 ON → 点击 →
-    显示 OFF ✓
-  * Highlight ON 时：两个 tab bar 的 indicator 有白色 rim highlight +
-    container 有 glow/aura（VLM 确认 "visible white rim highlight" +
-    "soft white outer glow"）✓
-  * Highlight OFF 时：VLM 确认效果消失/明显减弱 ✓
-  * 无 console error / page error
-- 已 commit (9fe858f) + push GitHub origin/main ✓
+- 初次尝试（commit 9fe858f）给 Step 2c press glow + indicator inner stroke
+  mask 加了 quickToggles.highlight gate。
+- 用户反馈「哦不，revert 回去，你搞坏了」——gate 逻辑破坏了 bottom-tabs
+  的正常渲染（可能是把不该归到 highlight toggle 的效果也关了，导致视觉
+  退化/异常）。
+- 已 git revert 9fe858f（commit a946278），代码回到 Task 44 后的状态。
+- 教训：bottomtabs 的光晕和 indicator 内 highlight 虽然视觉上是
+  highlight-class，但它们和 Step 2f rim highlight 不是同一套东西，强行
+  塞进同一个 toggle 会破坏语义。后续若要单独控制，应新增独立的
+  quickToggles 条目（如 bottomTabsGlow / indicatorInnerHighlight），
+  而不是复用 highlight。
 
 Stage Summary:
-- 根因：bottomtabs 的光晕（Step 2c press glow）和 indicator 内 highlight
-  （uInnerStrokeMask element-pass 路径）是两条非标准 highlight 路径，
-  完全独立于 Step 2f rim highlight，没有被 quickToggles.highlight 覆盖。
-- 修复：Step 2c 外层 if 加 quickToggles.highlight gate；indicator 的
-  elHighlightAlpha 在 OFF 时强制 0 + 跳过 mask 生成。
-- 改动 ~31 行（glow +10 / indicator +21 -2）。无新增字段、无新分支。
-- perf-monitor Highlight toggle 现在能完整关掉 bottomtabs 的光晕 + 内 highlight。
+- 9fe858f 已 revert（a946278）。代码状态 = Task 44 后。
+- bottomtabs 光晕 + indicator 内 highlight 暂时无法通过 perf-monitor
+  toggle 单独控制，保持原状。
