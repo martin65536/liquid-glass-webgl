@@ -172,7 +172,20 @@ export function resolveBackdropTex(
   // uSampleWallpaper=0 (passState.independent=false), so the shader samples
   // the pre-blurred wallpaper via sceneUv instead of doing inline poisson-
   // disc blur on the raw wallpaper.
-  if (independent && el.blurRadius >= 0.5 && this.quickToggles.backdropBlur) {
+  //
+  // EXCLUSION: knobs, indicators, sampleWallpaper & SDF-texture elements must
+  // NOT enter this branch. They rely on the shader sampling the CLEAN wallpaper
+  // (via uWallpaperSampler) with their own inline poisson-disc blur — e.g. the
+  // slider knob's 8*(1-pressProgress) blur modulation, or the toggle knob's
+  // sampleToggleBackdrop (wallpaper + scaled track color). Pre-blurring the
+  // wallpaper into a static texture would zero their inlineBlurRadius and
+  // destroy the press-animated frosted look. shouldUseSeparableBlur() already
+  // returns false for these, so reuse it as the gate here too.
+  if (
+    independent &&
+    shouldUseSeparableBlur(el, state) &&
+    this.quickToggles.backdropBlur
+  ) {
     const gl = this.gl
     // Step 1: render wallpaper cover-fitted into gpElementFbo (reusing the
     // currently-unused GP element FBO). This preserves the cover-fit aspect

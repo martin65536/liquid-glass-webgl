@@ -350,3 +350,38 @@ Stage Summary:
 - 行为零变化（knob 本就走 inline blur），但可读性 + 防回归性大幅提升
 - worklog 体积 -82%（124KB→22KB），后续 agent 读取更快
 - 准备 commit + push
+
+---
+Task ID: 41
+Agent: main (fix slider knob background regression)
+Task: 修复 slider knob 背景在 separable-blur 改造后真正坏掉的问题
+
+Work Log:
+- 根因定位（上次只改了注释，没找到真正的 bug）：
+  * slider knob 用 makeGlassShape → independentBackdrop=true
+  * 在 wallpaper 页面上 state.independent=true
+  * Task 39 新增的 `if (independent && el.blurRadius >= 0.5 && ...)` 分支
+    只检查了 independent + blurRadius，没有排除 isToggleKnob！
+  * slider knob (independent=true, blurRadius=8) 误入此分支 →
+    passState.independent=false → uSampleWallpaper=0 → shader 不再采样
+    clean wallpaper，而是采样被预模糊的 wallpaper 纹理，且
+    inlineBlurRadius=0（shouldUseSeparableBlur 对 knob 返回 false，但
+    此分支根本没用 shouldUseSeparableBlur 作 gate）→ knob 的
+    8*(1-pressProgress) press 动画 blur 完全消失，背景看起来是坏的
+- 修复：把 independent+blur 分支的 gate 从
+    `independent && el.blurRadius >= 0.5`
+  改为
+    `independent && shouldUseSeparableBlur(el, state) && ...`
+  shouldUseSeparableBlur 对 isToggleKnob/isBottomTabIndicator/
+  sampleWallpaper/isSdfTexture 全部返回 false，所以这些元素不会进入
+  预模糊分支，保持 inline poisson-disc blur 不变
+- 加了详细的 EXCLUSION 注释说明为什么这些元素不能走预模糊路径
+- bun run lint 通过
+
+Stage Summary:
+- 真正的根因：Task 39 的 independent+blur 分支 gate 不够严，漏掉了
+  isToggleKnob 排除，导致 slider knob（independent + blurRadius=8）
+  误入预模糊路径，press 动画 blur 被清零
+- 修复：gate 改用 shouldUseSeparableBlur()，统一排除规则
+- knob 现在恢复正确的 inline blur 行为（8*(1-pressProgress) 调制）
+- 准备 commit + push
