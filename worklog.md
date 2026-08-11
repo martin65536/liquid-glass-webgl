@@ -489,3 +489,60 @@ Stage Summary:
 - ON 路径完全不变（仍用 pow2 pool + log2(R/6) 选级）。
 - 用户上一轮结论得到落实：要省电 → OFF 即严格旧版（固定 max-ds）；
   要画质 → ON（小半径全分辨率）。
+
+---
+Task ID: 44
+Agent: main (revert settings bg + fix ds toggle animation)
+Task: 不要改设置页的背景，修复 ds toggle 点击后视觉无反应，做好推 gh
+
+Work Log:
+- 上一轮（commit e97f5fb）为了让用户在 Settings 页「看到」ds 滑块/动态
+  toggle 的效果，做了两件事：(1) 把 Settings 页背景从 solid gray 改成
+  wallpaper；(2) 在卡片之间加了一个 blurRadius=48dp 的 glass 预览方块。
+  用户明确反对改背景，且反馈 ds toggle 点击后视觉无反应。
+- 根因调查（ds toggle 无反应）：
+  * toggle knob 的视觉位置由 renderer.toggleStates[groupId] 驱动，
+    通过 context.tsx 的 useEffect 把 React toggleTargets →
+    r.setToggleTarget(groupId, target) 同步过去。
+  * page.tsx 的 toggleTargets useMemo（Settings 分支）列了 8 个 toggle
+    target，但唯独漏了 'settings-blur-dynamic-ds'！
+  * 且 useMemo 依赖数组里也没有 state.dynamicBlurDownsample。
+  * 结果：tap toggle → React state 更新 → 但 toggleTargets 对象不变 →
+    useEffect 不 re-run → setToggleTarget 永不调用 → knob 冻在原地。
+- 修复 1（page.tsx 背景还原）：
+  * useSolidBg 重新加上 destination === CatalogDestination.Settings
+  * backgroundColor useMemo 重新加上 Settings 专属的
+    [0.94, 0.94, 0.96]（light）/ [0,0,0]（dark）灰底
+  * 注释还原为「Home + Settings + About 用 solid background」
+- 修复 2（page.tsx toggleTargets 同步）：
+  * Settings 分支加 targets['settings-blur-dynamic-ds'] =
+    state.dynamicBlurDownsample ? 1 : 0
+  * useMemo 依赖数组加 state.dynamicBlurDownsample
+  * 现在 tap toggle → state 变 → toggleTargets 重算 → useEffect 调
+    setToggleTarget → knob spring 动画到新位置 ✓
+- 修复 3（build-settings.ts 清理）：
+  * 背景还原成 solid gray 后，blur preview glass 方块（blurRadius=48dp
+    放在 wallpaper 上才有意义）失去作用——在 solid gray 上 blur 灰色
+    还是灰色，看不出效果。删除该 preview 方块。
+  * 删除随之变成 unused 的 import：makeGlassShape、DEFAULT_HIGHLIGHT
+- bun run lint：通过（0 errors）
+- Agent Browser + VLM 验证（viewport 390×844）：
+  * Settings 页背景：VLM 确认 "solid light gray" ✓（不再是 wallpaper）
+  * 无 blur preview 方块：VLM 确认 "No large glass blur preview square
+    between the cards" ✓
+  * ds toggle 动画：tap 一次 → dynamicBlurDownsample true→false，
+    VLM 确认 knob 从 RIGHT(ON) 移到 LEFT(OFF/gray) ✓；
+    再 tap 一次 → false→true，knob 从 LEFT 移回 RIGHT ✓
+  * localStorage 持久化：每次 tap 后 liquid-glass-settings 正确更新 ✓
+  * GP 页 smoke test：正常渲染，无 error
+  * 全程无 console error / page error
+- 已 commit (d1f55e5) + push GitHub origin/main ✓
+
+Stage Summary:
+- 根因：toggleTargets useMemo 漏了 'settings-blur-dynamic-ds' 条目 +
+  依赖数组漏了 state.dynamicBlurDownsample，导致 tap 后 React state
+  更新但 renderer knob 永不动画（冻在原地）。
+- 修复：补齐 toggleTargets 条目 + 依赖；还原 Settings solid gray 背景；
+  删除失去意义的 blur preview 方块 + unused imports。
+- 改动 ~12 行（page.tsx +8 / build-settings.ts -42 删 preview）。
+- 用户两个诉求全部落实：背景没动（还原灰底）+ ds toggle 点击有视觉反应。
