@@ -367,6 +367,24 @@ export function buildSettings(
     elements.push(dsLabelEl)
     nextY += dsLabelH
 
+    // Dynamic blur downsample toggle — when ON, each blur call picks its ds
+    // based on the radius (small radius → low ds → crisp, large radius → high
+    // ds → fast). Full card width row like the global blur toggle above.
+    const dynDsToggle = makeSettingsToggle(
+      'settings-blur-dynamic-ds',
+      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT + ITEM_GAP },
+      t('settings_dynamic_downsample', locale),
+      state.dynamicBlurDownsample,
+      () => setState((prev) => ({ dynamicBlurDownsample: !prev.dynamicBlurDownsample })),
+      palette,
+      rendererRef,
+      true,
+      labelPad,
+    )
+    elements.push(...dynDsToggle.elements)
+    Object.assign(interactions, dynDsToggle.interactions)
+    nextY += BUTTON_HEIGHT + ITEM_GAP
+
     // Update card background height
     cardBgEl.rect.h = nextY - cardStartY
     nextY += CARD_GAP
@@ -555,7 +573,7 @@ export function buildSettings(
     elements.push(resetBtn)
     interactions['settings-reset'] = {
       onTap: () => {
-        setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 9, blurDownsample: 4, capsuleShape: true, hideOverlayButtons: false, locale: 'zh', pageTransition: true, liveDpr: null, liveTapCap: null, liveBlurDownsample: null, showFps: false, showPerfMonitor: false, highlightAa: true, usePerElementFbo: false, perfProgress: null, perfDone: false, perfResultDpr: 0, perfStatusText: '' })
+        setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 9, blurDownsample: 4, dynamicBlurDownsample: false, capsuleShape: true, hideOverlayButtons: false, locale: 'zh', pageTransition: true, liveDpr: null, liveTapCap: null, liveBlurDownsample: null, showFps: false, showPerfMonitor: false, highlightAa: true, usePerElementFbo: false, perfProgress: null, perfDone: false, perfResultDpr: 0, perfStatusText: '' })
         try { window.localStorage.removeItem('liquid-glass-perf-dpr') } catch {}
         const d = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
         const dprFrac = (d - 0.5) / Math.max(0.0001, d - 0.5)

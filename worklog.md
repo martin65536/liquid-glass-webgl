@@ -385,3 +385,49 @@ Stage Summary:
 - 修复：gate 改用 shouldUseSeparableBlur()，统一排除规则
 - knob 现在恢复正确的 inline blur 行为（8*(1-pressProgress) 调制）
 - 准备 commit + push
+
+---
+Task ID: 42
+Agent: main (dynamic blur downsample)
+Task: 把降采样值改成动态的（按 blur radius 自动选 ds），加一个开关控制是否启用
+
+Work Log:
+- 现状分析：effectiveBlurDownsample 在 resizeFBOs 里一次性算出（= blurDownsample × dpr），
+  所有 blurTexture/blurHighlightMask 调用都渲染到同一个 max-ds buffer。小半径 blur
+  也被迫用 max-ds buffer → 半分辨率 → 小半径 glass 画质偏糊/有锯齿。
+- 设计：多级 dsBlurFbo pool，按 2 的幂次建 {ds=1, 2, 4, ..., largestPow2 ≤ effectiveDs}。
+  pickDsBlurLevel(radius) 按半径选 level：usedDs = clamp(2^floor(log2(R/6)), 1, maxDs)。
+  R≈6px → ds=1（全分辨率，锐利）；R≈12 → ds=2；R≈24 → ds=4；R≈48 → ds=8。
+  这样小半径走全分辨率 buffer（画质好），大半径走高 ds buffer（性能好）。
+- 渲染器改动（index.ts + methods-fbo.ts）：
+  * 新增 dynamicBlurDownsample: boolean（默认 false，保持旧行为）
+  * 新增 dsBlurLevels: DsBlurLevel[] pool（每级 {ds, fboA, texA, fboB, texB, w, h}）
+  * resizeFBOs 建 pool：for d in [1,2,4,...,≤effectiveDs] createFBO pair
+  * dsBlurFboA/B/W/H 仍保留，alias 到 max-ds level（debug overlay + fallback 用）
+  * 新增 pickDsBlurLevel(radius)：OFF → 返回 max-ds level；ON → 按 log2(R/6) 选级
+  * blurTexture/blurHighlightMask 改用 pickDsBlurLevel(radius) 选 buffer，
+    radius 仍按 1/level.ds 缩放（visual radius 不变）
+  * dispose 清理 pool
+- 上下文/设置改动：
+  * context.tsx: 新增 dynamicBlurDownsample prop + effect sync（无需 rebuild FBO，
+    pool 已含所有 pow2 level，flip picker 即可）
+  * types.ts: CatalogState 新增 dynamicBlurDownsample: boolean（默认 false）
+  * build-settings.ts: 模糊卡片底部加「动态降采样」toggle（makeSettingsToggle），
+    reset 按钮也重置该字段
+  * i18n.ts: 新增 settings_dynamic_downsample（zh: 动态降采样, en: Dynamic downsample）
+  * page.tsx: 传 dynamicBlurDownsample prop + localStorage 持久化
+- bun run lint 通过
+- Agent Browser + VLM 验证：
+  * Settings 页：模糊卡片底部出现「动态降采样」toggle（OFF 状态）✓
+  * GP（动态 ON，大半径 blur）：frosted blur 平滑无 artifact ✓
+  * Slider（动态 ON，knob 8dp 小半径）：knob 边缘锐利无 pixelation（ds=1 全分辨率）✓
+  * GP（动态 OFF，legacy ds=4）：frosted blur 正常 ✓
+  * 无 console error / page error
+- 已 commit + push GitHub
+
+Stage Summary:
+- 降采样现在是动态的：小半径 blur 走全分辨率 buffer（画质好），大半径 blur 走高 ds
+  buffer（性能好），按 2^floor(log2(R/6)) 自动选级
+- 新增「动态降采样」开关（Settings 模糊卡片底部），OFF 时保持旧行为（全用 max-ds）
+- pool 在 resizeFBOs 一次建好（pow2 level），toggle 切换零开销（不 rebuild FBO）
+- 小半径 glass（slider knob 8dp）现在画质明显提升（全分辨率 vs 之前 1/4 分辨率）

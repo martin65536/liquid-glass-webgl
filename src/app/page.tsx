@@ -77,6 +77,7 @@ export default function Page() {
         globalSeparableBlur: typeof parsed.globalSeparableBlur === 'boolean' ? parsed.globalSeparableBlur : true,
         blurTapCap: typeof parsed.blurTapCap === 'number' ? parsed.blurTapCap : 9,
         blurDownsample: typeof parsed.blurDownsample === 'number' ? Math.max(1, Math.min(8, parsed.blurDownsample)) : 4,
+        dynamicBlurDownsample: typeof parsed.dynamicBlurDownsample === 'boolean' ? parsed.dynamicBlurDownsample : false,
         capsuleShape: typeof parsed.capsuleShape === 'boolean' ? parsed.capsuleShape : true,
         locale: (parsed.locale === 'zh' || parsed.locale === 'en') ? parsed.locale : 'zh',
         pageTransition: typeof parsed.pageTransition === 'boolean' ? parsed.pageTransition : true,
@@ -525,6 +526,7 @@ export default function Page() {
         if (typeof window !== 'undefined' &&
             (p.customDpr !== undefined || p.globalSeparableBlur !== undefined ||
              p.blurTapCap !== undefined || p.blurDownsample !== undefined ||
+             p.dynamicBlurDownsample !== undefined ||
              p.capsuleShape !== undefined || p.hideOverlayButtons !== undefined ||
              p.locale !== undefined || p.pageTransition !== undefined ||
              p.showFps !== undefined || p.usePerElementFbo !== undefined ||
@@ -535,6 +537,7 @@ export default function Page() {
               globalSeparableBlur: next.globalSeparableBlur,
               blurTapCap: next.blurTapCap,
               blurDownsample: next.blurDownsample,
+              dynamicBlurDownsample: next.dynamicBlurDownsample,
               capsuleShape: next.capsuleShape,
               hideOverlayButtons: next.hideOverlayButtons,
               locale: next.locale,
@@ -1029,6 +1032,7 @@ export default function Page() {
           dpr={state.customDpr}
           blurTapCap={state.blurTapCap}
           blurDownsample={state.blurDownsample}
+          dynamicBlurDownsample={state.dynamicBlurDownsample}
           usePerElementFbo={perfMeasuring ? false : state.usePerElementFbo}
           perfMonitorEnabled={state.showPerfMonitor}
           className="w-full h-full"

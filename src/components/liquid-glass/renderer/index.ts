@@ -298,6 +298,28 @@ export class LiquidGlassRenderer {
    *  high DPR (8+) = 64. No min clamp — the slider min (1, full-res) is the
    *  floor and DPR ≥ 1 so effectiveDs ≥ 1 always. */
   effectiveBlurDownsample = 4
+  /** Dynamic blur downsample toggle (Settings). When ON, blurTexture/
+   *  blurHighlightMask pick the downsample factor PER CALL based on the blur
+   *  radius: small radii use a low-ds (high-quality) buffer, large radii use a
+   *  high-ds (fast) buffer. This keeps small-radius glass crisp (no half-res
+   *  pixelation) while still cutting fragment invocations on big blurs.
+   *
+   *  Implementation: a small pool of dsBlurFboA/B pairs at power-of-two ds
+   *  levels {1, 2, 4, ..., largestPow2 ≤ effectiveBlurDownsample} is created in
+   *  resizeFBOs. pickDsBlurLevel(radius) selects the level:
+   *    usedDs = clamp(2^floor(log2(radius / 6)), 1, maxLevelDs)
+   *  so radius=6px → ds=1, 12px → ds=2, 24px → ds=4, 48px → ds=8.
+   *
+   *  When OFF (default), the legacy behavior is used: every blur call renders
+   *  into the single max-ds buffer (effectiveBlurDownsample). */
+  dynamicBlurDownsample = false
+  /** Pool of downsampled blur FBO pairs at power-of-two ds levels, populated
+   *  by resizeFBOs. Index 0 is always ds=1 (full-res, largest), last index is
+   *  the max ds (= effectiveBlurDownsample, smallest). blurTexture/
+   *  blurHighlightMask pick from this pool when dynamicBlurDownsample is ON;
+   *  otherwise they use the last entry (max ds) for backward compatibility.
+   *  dsBlurFboA/B/W/H below alias the MAX-ds entry for debug + legacy refs. */
+  dsBlurLevels: { ds: number; fboA: WebGLFramebuffer; texA: WebGLTexture; fboB: WebGLFramebuffer; texB: WebGLTexture; w: number; h: number }[] = []
   /** Corner style: 0 = circular, 1 = continuous (squircle). Set from
    *  CatalogState.capsuleShape. Default 1 (Continuous, matching original). */
   cornerStyle = 1
@@ -943,22 +965,72 @@ export class LiquidGlassRenderer {
     this.blurPrograms.set(tapCount, { hProg, vProg, uH, uV, aPosH: 0, aPosV: 0 })
   }
 
+  /** Pick the downsampled blur FBO level for a given radius.
+   *
+   *  - dynamicBlurDownsample OFF: returns the MAX-ds level (legacy behavior —
+   *    every blur renders into the smallest buffer, maximum speed, lowest
+   *    quality for small radii).
+   *  - dynamicBlurDownsample ON: picks usedDs = clamp(2^floor(log2(R/6)), 1,
+   *    maxLevelDs). Small radii (R≈6px) → ds=1 (full-res, crisp); large radii
+   *    (R≈48px+) → ds=maxLevelDs (fast). Falls back to max-ds if the pool is
+   *    empty or radius is degenerate.
+   *
+   *  The returned level's fboA/fboB are sized floor(fboW/level.ds) ×
+   *  floor(fboH/level.ds); callers scale radius by 1/level.ds. */
+  pickDsBlurLevel(radius: number): { ds: number; fboA: WebGLFramebuffer; texA: WebGLTexture; fboB: WebGLFramebuffer; texB: WebGLTexture; w: number; h: number } {
+    const levels = this.dsBlurLevels
+    if (levels.length === 0) {
+      // Pool not yet built (shouldn't happen post-resizeFBOs). Fall back to
+      // the legacy single buffers to avoid a crash.
+      return {
+        ds: this.effectiveBlurDownsample || 1,
+        fboA: this.dsBlurFboA!, texA: this.dsBlurFboATex!,
+        fboB: this.dsBlurFboB!, texB: this.dsBlurFboBTex!,
+        w: this.dsBlurFboW || this.fboW, h: this.dsBlurFboH || this.fboH,
+      }
+    }
+    if (!this.dynamicBlurDownsample) return levels[levels.length - 1]
+    // Dynamic: pick the largest power-of-two ds whose blur still looks crisp.
+    // Threshold 6px: a blur of ~6 device-px in the downsampled space already
+    // has enough taps to look smooth, so ds=1 is only needed for R<6. Beyond
+    // that, doubling ds every time R doubles keeps the downsampled radius
+    // near 6px — constant visual quality, fragment cost scales with R (not R²).
+    const r = Math.max(0.5, radius)
+    const maxDs = levels[levels.length - 1].ds
+    let usedDs = 1
+    if (r >= 6) {
+      const exp = Math.floor(Math.log2(r / 6))
+      usedDs = Math.pow(2, exp)
+    }
+    if (usedDs > maxDs) usedDs = maxDs
+    if (usedDs < 1) usedDs = 1
+    // Find the level with this ds (pool stores exact power-of-two ds values).
+    for (let i = levels.length - 1; i >= 0; i--) {
+      if (levels[i].ds <= usedDs) return levels[i]
+    }
+    return levels[0]
+  }
+
   /** 2-pass blur a source texture by `radius` px. Reads srcTex, writes the
    *  blurred result into dsBlurFboB, returns dsBlurFboBTex.
    *  Saves/restores the currently-bound framebuffer.
    *  Uses this.blurTapCap to cap 1D tap count (performance knob).
    *
-   *  Downsample: dsBlurFboA/dsBlurFboB are sized floor(fboW/ds) × floor(fboH/ds).
-   *  `radius` is scaled by 1/ds (half-res pixels are twice as wide, so
-   *  radius/ds px covers the same screen distance). This preserves the
-   *  visual blur radius while cutting fragment invocations by ds². The
-   *  element pass samples dsBlurFboBTex with UV 0-1 (LINEAR filtering
+   *  Downsample: when dynamicBlurDownsample is ON, the buffer is picked per
+   *  call by pickDsBlurLevel(radius) — small radii use a low-ds (crisp) buffer,
+   *  large radii use a high-ds (fast) buffer. When OFF, the max-ds buffer is
+   *  always used (legacy). `radius` is scaled by 1/level.ds (half-res pixels
+   *  are twice as wide, so radius/ds px covers the same screen distance). This
+   *  preserves the visual blur radius while cutting fragment invocations by
+   *  ds². The element pass samples the result tex with UV 0-1 (LINEAR filtering
    *  upsamples back to full-res), so no caller changes needed. */
   blurTexture(srcTex: WebGLTexture, radius: number): WebGLTexture {
     const gl = this.gl
-    const ds = this.effectiveBlurDownsample
-    const w = this.dsBlurFboW || this.fboW
-    const h = this.dsBlurFboH || this.fboH
+    // Pick the downsample level (dynamic per-radius when enabled, else max-ds).
+    const lvl = this.pickDsBlurLevel(radius)
+    const ds = lvl.ds
+    const w = lvl.w
+    const h = lvl.h
     // Scale radius to the downsampled space (1/ds). Visual radius preserved.
     // CLAMP: when ds > 1, ensure dsRadius >= 0.6 so the blur shader always
     // runs (its early-return threshold is uRadius < 0.5). Without this clamp,
@@ -977,24 +1049,26 @@ export class LiquidGlassRenderer {
     const savedFb = gl.getParameter(gl.FRAMEBUFFER_BINDING)
     // CRITICAL: disable scissor during the blur passes. The caller (PEF +
     // ping-pong paths) enables scissor with FULL-RES device-px coords for the
-    // element's bbox. But dsBlurFboA/B are half-res — the full-res scissor rect
-    // applied to a half-res FBO clips to the wrong region (only a corner gets
-    // written, the rest stays transparent). This was the root cause of the
-    // "only a small block is normal, the rest is transparent" downsample bug.
-    // ds=1 happened to work because blurFbo was full-res so the scissor coords
-    // matched. Save/restore so the caller's scissor state is unchanged on exit.
+    // element's bbox. But the downsampled FBOs are half-res — the full-res
+    // scissor rect applied to a half-res FBO clips to the wrong region (only a
+    // corner gets written, the rest stays transparent). This was the root
+    // cause of the "only a small block is normal, the rest is transparent"
+    // downsample bug. ds=1 happened to work because the FBO was full-res so
+    // the scissor coords matched. Save/restore so the caller's scissor state
+    // is unchanged on exit.
     const savedScissor = gl.isEnabled(gl.SCISSOR_TEST)
     gl.disable(gl.SCISSOR_TEST)
     gl.disable(gl.BLEND)
 
-    // Pass 1: horizontal — srcTex → dsBlurFboA (half-res)
-    // uTexSize = (w,h) = dsBlurFbo size: shader computes uv = gl_FragCoord/uTexSize.
-    // gl_FragCoord is in the CURRENT render-target (dsBlurFboA, half-res) space,
-    // so uTexSize MUST be the half-res size to map FragCoord → uv 0..1. The src
-    // texture (fullscreen) is then sampled with uv 0..1 (LINEAR upsamples fine).
+    // Pass 1: horizontal — srcTex → level.fboA (downsampled)
+    // uTexSize = (w,h) = the level's FBO size: shader computes uv =
+    // gl_FragCoord/uTexSize. gl_FragCoord is in the CURRENT render-target
+    // (level.fboA, downsampled) space, so uTexSize MUST be the downsampled
+    // size to map FragCoord → uv 0..1. The src texture (fullscreen) is then
+    // sampled with uv 0..1 (LINEAR upsamples fine).
     // pxToUv = uRadius/uTexSize = (radius/ds)/(fboW/ds) = radius/fboW → the UV
     // offset corresponds to `radius` source pixels, preserving visual radius.
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.dsBlurFboA)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, lvl.fboA)
     gl.viewport(0, 0, w, h)
     gl.useProgram(entry.hProg)
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
@@ -1007,29 +1081,30 @@ export class LiquidGlassRenderer {
     gl.uniform1f(entry.uH['uRadius'], dsRadius)
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 
-    // Pass 2: vertical — dsBlurFboATex → dsBlurFboB (both half-res)
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.dsBlurFboB)
+    // Pass 2: vertical — level.texA → level.fboB (both downsampled)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, lvl.fboB)
     gl.viewport(0, 0, w, h)
     gl.useProgram(entry.vProg)
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
     gl.enableVertexAttribArray(entry.aPosV)
     gl.vertexAttribPointer(entry.aPosV, 2, gl.FLOAT, false, 0, 0)
     gl.activeTexture(gl.TEXTURE0)
-    gl.bindTexture(gl.TEXTURE_2D, this.dsBlurFboATex!)
+    gl.bindTexture(gl.TEXTURE_2D, lvl.texA)
     gl.uniform1i(entry.uV['uTexture'], 0)
     gl.uniform2f(entry.uV['uTexSize'], w, h)
     gl.uniform1f(entry.uV['uRadius'], dsRadius)
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 
     // NOTE: no mipmap generation here — WebGL1 forbids mipmaps on NPOT
-    // textures and dsBlurFboB is almost always NPOT (floor(fboW/ds)×floor(fboH/ds)).
-    // generateMipmap + LINEAR_MIPMAP_LINEAR on an NPOT texture makes it
-    // incomplete → sampling returns 0 → glass renders solid gray. The element
-    // pass upsamples with plain LINEAR (2×2 bilinear); acceptable at ds≤2.
+    // textures and the downsampled FBO is almost always NPOT
+    // (floor(fboW/ds)×floor(fboH/ds)). generateMipmap + LINEAR_MIPMAP_LINEAR
+    // on an NPOT texture makes it incomplete → sampling returns 0 → glass
+    // renders solid gray. The element pass upsamples with plain LINEAR
+    // (2×2 bilinear); acceptable at ds≤2.
     gl.bindFramebuffer(gl.FRAMEBUFFER, savedFb)
     gl.viewport(0, 0, this.fboW, this.fboH)
     if (savedScissor) gl.enable(gl.SCISSOR_TEST)
-    return this.dsBlurFboBTex!
+    return lvl.texB
   }
 
   /** Lazy-compile highlight blur programs (alpha-blurring, sigma semantics).
@@ -1076,13 +1151,16 @@ export class LiquidGlassRenderer {
    *    - sigma = blurRadiusPx (the Android radius param IS sigma)
    *    - convolves the mask's ALPHA with a Gaussian kernel
    *    - sub-pixel sigma (0.25px) still blurs (no 0.5 early-return)
-   *  Reads srcTex (alpha mask), writes dsBlurFboB, returns dsBlurFboBTex.
+   *  Reads srcTex (alpha mask), writes the picked level's fboB, returns
+   *  its tex. Uses pickDsBlurLevel(sigmaPx) so dynamicBlurDownsample applies
+   *  here too (small sigma → crisp low-ds buffer, big sigma → fast high-ds).
    *  Saves/restores the currently-bound framebuffer. */
   blurHighlightMask(srcTex: WebGLTexture, sigmaPx: number): WebGLTexture {
     const gl = this.gl
-    const ds = this.effectiveBlurDownsample
-    const w = this.dsBlurFboW || this.fboW
-    const h = this.dsBlurFboH || this.fboH
+    const lvl = this.pickDsBlurLevel(sigmaPx)
+    const ds = lvl.ds
+    const w = lvl.w
+    const h = lvl.h
     // Scale sigma to downsampled space (visual radius preserved).
     // CLAMP: same rationale as blurTexture — ensure the blur always runs to
     // smooth the upsampling. The highlight shader's threshold is 0.01 (much
@@ -1095,13 +1173,13 @@ export class LiquidGlassRenderer {
     const entry = this.highlightBlurPrograms.get(taps)!
     const savedFb = gl.getParameter(gl.FRAMEBUFFER_BINDING)
     // Disable scissor — same reason as blurTexture (caller's full-res scissor
-    // coords don't match the half-res dsBlurFbo coordinate space).
+    // coords don't match the downsampled FBO coordinate space).
     const savedScissor = gl.isEnabled(gl.SCISSOR_TEST)
     gl.disable(gl.SCISSOR_TEST)
     gl.disable(gl.BLEND)
 
-    // Pass 1: horizontal — srcTex → dsBlurFboA (half-res)
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.dsBlurFboA)
+    // Pass 1: horizontal — srcTex → level.fboA (downsampled)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, lvl.fboA)
     gl.viewport(0, 0, w, h)
     gl.useProgram(entry.hProg)
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
@@ -1114,15 +1192,15 @@ export class LiquidGlassRenderer {
     gl.uniform1f(entry.uH['uRadius'], dsSigma)
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 
-    // Pass 2: vertical — dsBlurFboATex → dsBlurFboB (both half-res)
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.dsBlurFboB)
+    // Pass 2: vertical — level.texA → level.fboB (both downsampled)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, lvl.fboB)
     gl.viewport(0, 0, w, h)
     gl.useProgram(entry.vProg)
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
     gl.enableVertexAttribArray(entry.aPosV)
     gl.vertexAttribPointer(entry.aPosV, 2, gl.FLOAT, false, 0, 0)
     gl.activeTexture(gl.TEXTURE0)
-    gl.bindTexture(gl.TEXTURE_2D, this.dsBlurFboATex!)
+    gl.bindTexture(gl.TEXTURE_2D, lvl.texA)
     gl.uniform1i(entry.uV['uTexture'], 0)
     gl.uniform2f(entry.uV['uTexSize'], w, h)
     gl.uniform1f(entry.uV['uRadius'], dsSigma)
@@ -1132,7 +1210,7 @@ export class LiquidGlassRenderer {
     gl.bindFramebuffer(gl.FRAMEBUFFER, savedFb)
     gl.viewport(0, 0, this.fboW, this.fboH)
     if (savedScissor) gl.enable(gl.SCISSOR_TEST)
-    return this.dsBlurFboBTex!
+    return lvl.texB
   }
 
   dispose() {
@@ -1168,6 +1246,17 @@ export class LiquidGlassRenderer {
     if (this.dsBlurFboATex) gl.deleteTexture(this.dsBlurFboATex)
     if (this.dsBlurFboB) gl.deleteFramebuffer(this.dsBlurFboB)
     if (this.dsBlurFboBTex) gl.deleteTexture(this.dsBlurFboBTex)
+    // Free the level pool (each level's FBOs are independent of the alias
+    // above — the alias points at the max level, which resizeFBOs already
+    // freed from the pool, but GL.deleteX of already-deleted handles is a
+    // safe no-op).
+    for (const lvl of this.dsBlurLevels) {
+      gl.deleteFramebuffer(lvl.fboA)
+      gl.deleteTexture(lvl.texA)
+      gl.deleteFramebuffer(lvl.fboB)
+      gl.deleteTexture(lvl.texB)
+    }
+    this.dsBlurLevels = []
     this.gpElementFbo = this.blurFboA = this.blurFboB = this.dsBlurFboA = this.dsBlurFboB = null
     this.gpElementTex = this.blurFboATex = this.blurFboBTex = this.dsBlurFboATex = this.dsBlurFboBTex = null
     if (this.highlightMaskFbo) gl.deleteFramebuffer(this.highlightMaskFbo)

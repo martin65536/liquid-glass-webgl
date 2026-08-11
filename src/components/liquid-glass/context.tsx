@@ -69,6 +69,12 @@ export interface LiquidGlassCanvasProps {
    *  quarter-res low quality). Cuts blur fragment invocations by ds².
    *  Applied on renderer init + when it changes (triggers blur FBO rebuild). */
   blurDownsample?: number
+  /** Dynamic blur downsample toggle. When true, blurTexture/blurHighlightMask
+   *  pick the downsample factor PER CALL based on the blur radius (small radii
+   *  → low-ds crisp buffer, large radii → high-ds fast buffer). When false
+   *  (default), every blur uses the max blurDownsample (legacy). Applied on
+   *  renderer init + when it changes (no FBO rebuild — just flips the picker). */
+  dynamicBlurDownsample?: boolean
   /** Corner style: 0 = circular, 1 = continuous (squircle). */
   cornerStyle?: number
   /** Per-element FBO optimization toggle. When true (default), each glass
@@ -161,6 +167,7 @@ export function LiquidGlassCanvas({
   dpr,
   blurTapCap,
   blurDownsample,
+  dynamicBlurDownsample,
   cornerStyle,
   showPefBboxOverlay = false,
   usePerElementFbo,
@@ -227,6 +234,9 @@ export function LiquidGlassCanvas({
     // Apply blur downsample (Settings slider). Must be set BEFORE resizeFBOs
     // so the blur FBOs are created at the downsampled size on first init.
     if (blurDownsample != null) renderer.blurDownsample = Math.max(1, Math.min(8, blurDownsample))
+    // Dynamic downsample toggle (just flips the picker — no FBO rebuild needed
+    // since the level pool already spans all pow2 ds up to effectiveDs).
+    if (dynamicBlurDownsample != null) renderer.dynamicBlurDownsample = dynamicBlurDownsample
     if (cornerStyle != null) renderer.cornerStyle = cornerStyle
     if (usePerElementFbo != null) renderer.usePerElementFbo = usePerElementFbo
     if (perfMonitorEnabled != null) renderer.perfMonitor.enabled = perfMonitorEnabled
@@ -293,6 +303,17 @@ export function LiquidGlassCanvas({
     renderer.resizeFBOs(renderer.fboW, renderer.fboH, true)
     renderer.requestRender()
   }, [blurDownsample])
+
+  // Apply dynamic blur downsample toggle when it changes (Settings). This
+  // just flips the per-call picker — no FBO rebuild needed because the level
+  // pool (built in resizeFBOs) already contains every pow2 ds up to
+  // effectiveDs, so both modes share the same buffers.
+  React.useEffect(() => {
+    const renderer = rendererRefInternal.current
+    if (!renderer || dynamicBlurDownsample == null) return
+    renderer.dynamicBlurDownsample = dynamicBlurDownsample
+    renderer.requestRender()
+  }, [dynamicBlurDownsample])
 
   // Apply corner style when it changes (Settings page toggle).
   React.useEffect(() => {

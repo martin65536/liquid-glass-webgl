@@ -505,6 +505,12 @@ export interface CatalogState {
   // floor(fboH/effectiveDs) where effectiveDs = blurDownsample × dpr
   // (DPR-adapted for consistent visual quality across devices).
   blurDownsample: number
+  // Settings — dynamic blur downsample toggle. When ON, each blur call picks
+  // its downsample factor based on the radius (small radius → low ds → crisp,
+  // large radius → high ds → fast). When OFF, every blur uses the max
+  // blurDownsample (legacy). The level pool (pow2 ds up to effectiveDs) is
+  // always built, so toggling is free (no FBO rebuild).
+  dynamicBlurDownsample: boolean
   // Settings — corner style: true = continuous (squircle, faithful to original
   // Capsule's ContinuousCurvature), false = circular (standard arc).
   // Settings — capsule shape via continuous-curvature SDF texture. When true,
@@ -610,6 +616,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   globalSeparableBlur: true,
   blurTapCap: 9,
   blurDownsample: 4,
+  dynamicBlurDownsample: false,
   capsuleShape: true,
   liveDpr: null,
   liveTapCap: null,
