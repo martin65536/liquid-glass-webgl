@@ -2271,3 +2271,38 @@ Stage Summary:
 - 行为零变化：所有逻辑逐字搬迁，仅删除已迁移代码 + 加 re-export
 - 外部 import 路径完全不变（re-export 兼容）
 - renderGlassElement 现在只剩编排逻辑（PEF 分派 + Step 1-3 + swap），transform 计算交给 computeElementTransform()
+
+---
+Task ID: 37
+Agent: main (refactor deep split)
+Task: 把 methods-render-glass.ts 真正拆掉——上一轮只剥了外围，969 行的两个主方法还死守在原文件
+
+Work Log:
+- 重新审视 969 行的主文件：renderGlassElement (~235 行 ping-pong 入口) + renderGlassElementPerFbo (~670 行 PEF 路径) 两个大方法，且 buildGlassRenderState 在两处重复
+- 新建 methods-render-glass-backdrop.ts (164 行)：buildGlassRenderState() + resolveBackdropTex() —— 两个主方法共享的 state 构建 + backdrop 三分支解析（independent / useSeparableBlur / direct）
+- 新建 methods-render-glass-pef-cache.ts (304 行)：computeElFboGeometry() + computeCacheFlags() + resolveElFboCache() —— PEF 的几何双矩形 + 三个缓存标志位 + 缓存命中瀑布解析（no_entry → size_mismatch → position_mismatch → invalidated → wallpaper_version → dpr → backdrop_overlap）
+- 新建 methods-render-glass-pef.ts (193 行)：renderGlassElementPerFbo 作为独立函数 —— 瘦身后只剩 5 步编排（shadow / backdrop+element / composite / post-passes / debug log）
+- 新建 methods-render-glass-pingpong.ts (136 行)：renderGlassElement 作为独立函数 —— 只剩 PEF 分派 + ping-pong Step 1-3 编排
+- methods-render-glass.ts 从 969 → 48 行：纯聚合文件（re-export + 组装 glassRenderMethods 对象 + side-effect import 触发模块增强）
+- bun run lint 通过
+- Agent Browser 验证：页面正常加载，无 console error，HMR 多次重建成功，截图与拆分前一致（47KB）
+
+Stage Summary:
+- methods-render-glass.ts: 969 → 48 行（-95%，从"还有 1000 行"变成纯聚合入口）
+- 新增 4 个文件，每个单一职责：
+  * backdrop.ts (164): 共享 state 构建 + backdrop 解析（消除两处重复）
+  * pef-cache.ts (304): PEF 几何 + 缓存判定 + 缓存命中解析（最复杂的逻辑独立成模块）
+  * pef.ts (193): PEF 5 步编排
+  * pingpong.ts (136): ping-pong 入口 + 编排
+- glass 方法族文件全景（按职责）：
+  * geometry.ts (162)  — 纯几何工具
+  * state.ts (99)      — 类型 + 模块增强
+  * shadow.ts (100)    — 阴影绘制
+  * transform.ts (289) — layerBlock 数学
+  * backdrop.ts (164)  — 共享 state/backdrop
+  * pef-cache.ts (304) — PEF 几何+缓存
+  * pef.ts (193)       — PEF 编排
+  * pingpong.ts (136)  — ping-pong 编排
+  * glass.ts (48)      — 聚合入口
+- 外部 import 路径完全不变（re-export 兼容，4 处外部引用零修改）
+- 行为零变化：所有逻辑逐字搬迁，仅去重 + 拆函数
