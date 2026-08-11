@@ -4,7 +4,6 @@ import type { GlassElementConfig, LiquidGlassRenderer } from '../renderer'
 import {
   BUTTON_HEIGHT,
   DP,
-  DEFAULT_HIGHLIGHT,
   TEXT_FONT_SIZE_PX,
   type CatalogResult,
   type CatalogState,
@@ -12,7 +11,6 @@ import {
 } from './types'
 import {
   makeBackButton,
-  makeGlassShape,
   makeLiquidSlider,
   makePlainRect,
   makeSettingsToggle,
@@ -402,39 +400,6 @@ export function buildSettings(
     // Update card background height
     cardBgEl.rect.h = nextY - cardStartY
     nextY += CARD_GAP
-  }
-
-  // ====================================================================
-  // Blur preview — a glass square placed directly on the wallpaper
-  // (between cards, NOT inside a card so the wallpaper shows through).
-  // Lets the user SEE the effect of the ds slider + dynamic toggle
-  // immediately on the Settings page without navigating away.
-  //
-  // blurRadius=48dp is chosen so pickDsBlurLevel picks ds=max in ON mode
-  // (r=48 → r/6=8 → log2(8)=3 → 2^3=8), making the ds slider ALWAYS have a
-  // visible effect on this preview in both OFF and ON modes:
-  //   OFF: preview ds = effectiveDs (raw, follows slider 1:1)
-  //   ON:  preview ds = min(8, maxPow2≤effectiveDs) (follows slider cap)
-  // At ds=1 the preview is crisp; at ds=8 it's pixelated/blocky — the
-  // visual gap makes the slider's effect obvious.
-  // ====================================================================
-  {
-    const previewH = 100 * DP
-    const previewEl = makeGlassShape(
-      'settings-blur-preview',
-      { x: pad, y: nextY, w: W - 2 * pad, h: previewH },
-      {
-        cornerRadius: 20 * DP,
-        refractionHeight: 0,
-        refractionAmount: 0,
-        blurRadius: 48 * DP,
-        saturation: 1.5,
-        surfaceColor: [0, 0, 0, 0],
-        highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, alpha: 0.38 },
-      }
-    )
-    elements.push(previewEl)
-    nextY += previewH + CARD_GAP
   }
 
   // ====================================================================

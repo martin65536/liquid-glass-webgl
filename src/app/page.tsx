@@ -736,16 +736,15 @@ export default function Page() {
 
   // Home page background: faithful to the original Android app.
   // HomeContent.kt does NOT wrap content in BackdropDemoScaffold, so the
-  // Home + About use a solid background (the Activity's windowBackground)
-  // instead of the wallpaper image:
+  // Home + Settings + About use a solid background (the Activity's
+  // windowBackground) instead of the wallpaper image:
   //   - Light theme: themes.xml → @android:color/white  → #FFFFFF
   //   - Dark  theme: values-night/themes.xml → @android:color/black → #000000
-  // Settings now uses the wallpaper background so the user can SEE the blur
-  // preview (and the slider/toggle knobs) react to the ds slider + dynamic
-  // downsample toggle. Other destinations (Toggle/Slider/...) also show the
-  // wallpaper image — pass `null` to use the wallpaper.
+  // Other destinations (Toggle/Slider/...) DO wrap in BackdropDemoScaffold
+  // and thus show the wallpaper image — pass `null` to use the wallpaper.
   const useSolidBg =
     destination === CatalogDestination.Home ||
+    destination === CatalogDestination.Settings ||
     destination === CatalogDestination.About
   // useMemo to avoid creating a new array on every render — the old inline
   // [1,1,1]/[0,0,0] was a new reference each time, causing the useEffect
@@ -753,6 +752,11 @@ export default function Page() {
   // setBackgroundColor() → requestRender() unnecessarily.
   const backgroundColor: [number, number, number] | null = React.useMemo(() => {
     if (!useSolidBg) return null
+    // Settings page uses a light gray background in light mode so cards
+    // (white) stand out.  Home & About keep pure white/black.
+    if (destination === CatalogDestination.Settings) {
+      return isLightTheme ? [0.94, 0.94, 0.96] : [0, 0, 0]
+    }
     return isLightTheme ? [1, 1, 1] : [0, 0, 0]
   }, [useSolidBg, isLightTheme, destination])
 
@@ -795,6 +799,7 @@ export default function Page() {
       targets['settings-blur-downsample'] = Math.max(0, Math.min(1, (8 - state.blurDownsample) / 7))
       // Settings toggle switches
       targets['settings-blur-global'] = state.globalSeparableBlur ? 1 : 0
+      targets['settings-blur-dynamic-ds'] = state.dynamicBlurDownsample ? 1 : 0
       targets['settings-shape-capsule'] = state.capsuleShape ? 1 : 0
       targets['settings-ui-hide-overlays'] = state.hideOverlayButtons ? 1 : 0
       targets['settings-transition-toggle'] = state.pageTransition ? 1 : 0
@@ -804,7 +809,7 @@ export default function Page() {
       targets['settings-perf-monitor-toggle'] = state.showPerfMonitor ? 1 : 0
     }
     return targets
-  }, [destination, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration, state.customDpr, state.blurTapCap, state.blurDownsample, state.globalSeparableBlur, state.capsuleShape, state.hideOverlayButtons, state.pageTransition, state.showFps, state.highlightAa, state.usePerElementFbo, state.showPerfMonitor])
+  }, [destination, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration, state.customDpr, state.blurTapCap, state.blurDownsample, state.globalSeparableBlur, state.dynamicBlurDownsample, state.capsuleShape, state.hideOverlayButtons, state.pageTransition, state.showFps, state.highlightAa, state.usePerElementFbo, state.showPerfMonitor])
 
   // Tab targets use a separate prop because they need setTabSelected
   // (which sets pressedScale=78/56, not toggle's 1.5).
