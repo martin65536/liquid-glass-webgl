@@ -217,10 +217,13 @@ export class LiquidGlassRenderer {
   //   blurTexture — must stay full-res to avoid the downsample viewport
   //   mismatch that broke dialog backdrops (only a small corner was written,
   //   the rest stayed transparent).
-  // dsBlurFboA/dsBlurFboB: downsampled (floor(fboW/ds)×floor(fboH/ds)) ping-pong
-  //   for blurTexture/blurHighlightMask. Half-res pixels are ds× wider, so
-  //   radius is scaled by 1/ds to preserve the visual blur radius while
-  //   cutting fragment invocations by ds².
+  // dsBlurFboA/dsBlurFboB: LEGACY downsampled ping-pong pair, sized
+  //   floor(fboW/effectiveDs) × floor(fboH/effectiveDs) (RAW ds, NOT pow2-
+  //   clamped). Used by the OFF path of blurTexture/blurHighlightMask (and as
+  //   the empty-pool fallback) so OFF matches the pre-dynamic OLD behavior
+  //   exactly. The ON path uses the dsBlurLevels pool instead. Half-res pixels
+  //   are ds× wider, so radius is scaled by 1/ds to preserve the visual blur
+  //   radius while cutting fragment invocations by ds².
   gpElementFbo: WebGLFramebuffer | null = null
   gpElementTex: WebGLTexture | null = null
   blurFboA: WebGLFramebuffer | null = null
@@ -311,14 +314,17 @@ export class LiquidGlassRenderer {
    *  so radius=6px → ds=1, 12px → ds=2, 24px → ds=4, 48px → ds=8.
    *
    *  When OFF (default), the legacy behavior is used: every blur call renders
-   *  into the single max-ds buffer (effectiveBlurDownsample). */
+   *  into the SINGLE legacy dsBlurFboA/B pair with ds = effectiveBlurDownsample
+   *  (RAW value, including non-pow2 like 6/12 — matches OLD exactly, so OFF
+   *  never silently rounds the ds up to a pow2). */
   dynamicBlurDownsample = false
   /** Pool of downsampled blur FBO pairs at power-of-two ds levels, populated
    *  by resizeFBOs. Index 0 is always ds=1 (full-res, largest), last index is
-   *  the max ds (= effectiveBlurDownsample, smallest). blurTexture/
-   *  blurHighlightMask pick from this pool when dynamicBlurDownsample is ON;
-   *  otherwise they use the last entry (max ds) for backward compatibility.
-   *  dsBlurFboA/B/W/H below alias the MAX-ds entry for debug + legacy refs. */
+   *  the max pow2 ds (≤ effectiveBlurDownsample, smallest). blurTexture/
+   *  blurHighlightMask pick from this pool ONLY when dynamicBlurDownsample is
+   *  ON. When OFF, they bypass the pool and use the separate legacy
+   *  dsBlurFboA/B pair below (sized at RAW effectiveDs, not pow2-clamped) so
+   *  the buffer resolution + radius scaling match the pre-dynamic OLD path. */
   dsBlurLevels: { ds: number; fboA: WebGLFramebuffer; texA: WebGLTexture; fboB: WebGLFramebuffer; texB: WebGLTexture; w: number; h: number }[] = []
   /** Corner style: 0 = circular, 1 = continuous (squircle). Set from
    *  CatalogState.capsuleShape. Default 1 (Continuous, matching original). */
@@ -978,10 +984,15 @@ export class LiquidGlassRenderer {
    *  The returned level's fboA/fboB are sized floor(fboW/level.ds) ×
    *  floor(fboH/level.ds); callers scale radius by 1/level.ds. */
   pickDsBlurLevel(radius: number): { ds: number; fboA: WebGLFramebuffer; texA: WebGLTexture; fboB: WebGLFramebuffer; texB: WebGLTexture; w: number; h: number } {
-    const levels = this.dsBlurLevels
-    if (levels.length === 0) {
-      // Pool not yet built (shouldn't happen post-resizeFBOs). Fall back to
-      // the legacy single buffers to avoid a crash.
+    // OFF (legacy): use effectiveBlurDownsample directly with the dedicated
+    // legacy dsBlurFboA/B pair (sized floor(fboW/effectiveDs) ×
+    // floor(fboH/effectiveDs)). This matches the pre-dynamic OLD behavior
+    // EXACTLY, including non-pow2 effectiveDs values (e.g. dpr=3 ×
+    // blurDownsample=4 = 12 → ds=12, not the pow2-clamped 8). The legacy
+    // buffers are allocated separately in resizeFBOs so OFF doesn't silently
+    // round the ds up — both buffer resolution AND radius scaling (1/ds) stay
+    // identical to OLD. This is also the empty-pool fallback.
+    if (!this.dynamicBlurDownsample || this.dsBlurLevels.length === 0) {
       return {
         ds: this.effectiveBlurDownsample || 1,
         fboA: this.dsBlurFboA!, texA: this.dsBlurFboATex!,
@@ -989,7 +1000,7 @@ export class LiquidGlassRenderer {
         w: this.dsBlurFboW || this.fboW, h: this.dsBlurFboH || this.fboH,
       }
     }
-    if (!this.dynamicBlurDownsample) return levels[levels.length - 1]
+    const levels = this.dsBlurLevels
     // Dynamic: pick the largest power-of-two ds whose blur still looks crisp.
     // Threshold 6px: a blur of ~6 device-px in the downsampled space already
     // has enough taps to look smooth, so ds=1 is only needed for R<6. Beyond
@@ -1012,21 +1023,23 @@ export class LiquidGlassRenderer {
   }
 
   /** 2-pass blur a source texture by `radius` px. Reads srcTex, writes the
-   *  blurred result into dsBlurFboB, returns dsBlurFboBTex.
+   *  blurred result into the picked level's fboB, returns its tex.
    *  Saves/restores the currently-bound framebuffer.
    *  Uses this.blurTapCap to cap 1D tap count (performance knob).
    *
-   *  Downsample: when dynamicBlurDownsample is ON, the buffer is picked per
-   *  call by pickDsBlurLevel(radius) — small radii use a low-ds (crisp) buffer,
-   *  large radii use a high-ds (fast) buffer. When OFF, the max-ds buffer is
-   *  always used (legacy). `radius` is scaled by 1/level.ds (half-res pixels
-   *  are twice as wide, so radius/ds px covers the same screen distance). This
-   *  preserves the visual blur radius while cutting fragment invocations by
-   *  ds². The element pass samples the result tex with UV 0-1 (LINEAR filtering
-   *  upsamples back to full-res), so no caller changes needed. */
+   *  Downsample: when dynamicBlurDownsample is OFF (default/legacy), the
+   *  single legacy dsBlurFboA/B pair is used with ds = effectiveBlurDownsample
+   *  (RAW value, including non-pow2 like 6/12 — matches OLD exactly). When ON,
+   *  the buffer is picked per-call by pickDsBlurLevel(radius) — small radii
+   *  use a low-ds (crisp) buffer, large radii use a high-ds (fast) buffer.
+   *  `radius` is scaled by 1/level.ds (half-res pixels are twice as wide, so
+   *  radius/ds px covers the same screen distance). This preserves the visual
+   *  blur radius while cutting fragment invocations by ds². The element pass
+   *  samples the result tex with UV 0-1 (LINEAR filtering upsamples back to
+   *  full-res), so no caller changes needed. */
   blurTexture(srcTex: WebGLTexture, radius: number): WebGLTexture {
     const gl = this.gl
-    // Pick the downsample level (dynamic per-radius when enabled, else max-ds).
+    // Pick the downsample level (OFF → legacy raw-ds; ON → per-radius pow2).
     const lvl = this.pickDsBlurLevel(radius)
     const ds = lvl.ds
     const w = lvl.w
@@ -1151,9 +1164,10 @@ export class LiquidGlassRenderer {
    *    - sigma = blurRadiusPx (the Android radius param IS sigma)
    *    - convolves the mask's ALPHA with a Gaussian kernel
    *    - sub-pixel sigma (0.25px) still blurs (no 0.5 early-return)
-   *  Reads srcTex (alpha mask), writes the picked level's fboB, returns
-   *  its tex. Uses pickDsBlurLevel(sigmaPx) so dynamicBlurDownsample applies
-   *  here too (small sigma → crisp low-ds buffer, big sigma → fast high-ds).
+   *  Reads srcTex (alpha mask), writes the picked level's fboB, returns its
+   *  tex. Uses pickDsBlurLevel(sigmaPx): OFF → legacy single buffer with RAW
+   *  effectiveDs (matches OLD exactly, incl. non-pow2); ON → per-sigma pow2
+   *  level (small sigma → crisp low-ds, big sigma → fast high-ds).
    *  Saves/restores the currently-bound framebuffer. */
   blurHighlightMask(srcTex: WebGLTexture, sigmaPx: number): WebGLTexture {
     const gl = this.gl

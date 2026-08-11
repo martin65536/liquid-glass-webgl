@@ -128,18 +128,40 @@ export const fboMethods = {
     this.blurFboATex = ba.tex
     this.blurFboB = bb.fb
     this.blurFboBTex = bb.tex
+    // Legacy single-pair dsBlurFboA/B sized at the RAW effectiveDs (NOT
+    // pow2-clamped). This matches the pre-dynamic OLD behavior exactly — for
+    // non-pow2 effectiveDs (e.g. dpr=3 × blurDownsample=4 = 12, or dpr=1.5 ×
+    // ds=4 = 6), the buffer is floor(fboW/12) × floor(fboH/12), and radius is
+    // scaled by 1/12. Used by the OFF path (pickDsBlurLevel returns this pair
+    // with ds = effectiveBlurDownsample) and as the empty-pool fallback.
+    // Allocated separately from the pool so OFF doesn't silently round ds up
+    // to a pow2 (which would change both the buffer resolution and the radius
+    // scaling — i.e. a different "range sampling" than OLD).
+    const legacyW = Math.max(1, Math.floor(w / ds))
+    const legacyH = Math.max(1, Math.floor(h / ds))
+    const legacyA = this.createFBO(legacyW, legacyH)
+    const legacyB = this.createFBO(legacyW, legacyH)
+    this.dsBlurFboA = legacyA.fb
+    this.dsBlurFboATex = legacyA.tex
+    this.dsBlurFboB = legacyB.fb
+    this.dsBlurFboBTex = legacyB.tex
+    this.dsBlurFboW = legacyW
+    this.dsBlurFboH = legacyH
+
     // Build the downsampled blur FBO level pool. We create one pair per
     // power-of-two ds from 1 (full-res) up to the largest pow2 ≤ effectiveDs.
     // blurTexture/blurHighlightMask pick the level per-call when
     // dynamicBlurDownsample is ON (small radius → low ds → crisp; large → high
-    // ds → fast). When OFF, they always use the max-ds level (legacy).
+    // ds → fast). When OFF, they skip the pool and use the legacy pair above
+    // (matches OLD exactly, incl. non-pow2 effectiveDs).
     // Levels are stored ascending by ds: [ds=1, ds=2, ds=4, ..., ds=maxPow2].
     const levels: number[] = []
     for (let d = 1; d <= ds; d *= 2) levels.push(d)
     // Edge case: if effectiveDs is not a power of two (e.g. dpr=1.5 × ds=4 =
     // 6), the loop ends at 4 (< 6). That's fine — the max LEVEL ds is 4, but
-    // effectiveBlurDownsample stays 6 for the debug overlay. The level pool
-    // only needs pow2 entries for the log2 selection in pickDsBlurLevel.
+    // effectiveBlurDownsample stays 6 for the debug overlay + legacy path.
+    // The level pool only needs pow2 entries for the log2 selection in
+    // pickDsBlurLevel (ON path).
     for (const d of levels) {
       const lw = Math.max(1, Math.floor(w / d))
       const lh = Math.max(1, Math.floor(h / d))
@@ -147,16 +169,6 @@ export const fboMethods = {
       const lb = this.createFBO(lw, lh)
       this.dsBlurLevels.push({ ds: d, fboA: la.fb, texA: la.tex, fboB: lb.fb, texB: lb.tex, w: lw, h: lh })
     }
-    // Alias the MAX-ds level into the legacy single-buffer fields so the
-    // debug overlay (debugBlurRegions reads dsBlurFboW/H + effectiveDs) and
-    // pickDsBlurLevel's empty-pool fallback still work.
-    const maxLvl = this.dsBlurLevels[this.dsBlurLevels.length - 1]
-    this.dsBlurFboA = maxLvl.fboA
-    this.dsBlurFboATex = maxLvl.texA
-    this.dsBlurFboB = maxLvl.fboB
-    this.dsBlurFboBTex = maxLvl.texB
-    this.dsBlurFboW = maxLvl.w
-    this.dsBlurFboH = maxLvl.h
     // NOTE: dsBlurFboB is sampled by the element pass at full-res UVs (upscale
     // by effectiveDs). A mipmap-based trilinear upscaling would smooth the
     // blocking/jaggies, BUT WebGL1 forbids mipmaps on NPOT textures and

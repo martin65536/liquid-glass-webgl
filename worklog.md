@@ -431,3 +431,61 @@ Stage Summary:
 - 新增「动态降采样」开关（Settings 模糊卡片底部），OFF 时保持旧行为（全用 max-ds）
 - pool 在 resizeFBOs 一次建好（pow2 level），toggle 切换零开销（不 rebuild FBO）
 - 小半径 glass（slider knob 8dp）现在画质明显提升（全分辨率 vs 之前 1/4 分辨率）
+
+---
+Task ID: 43
+Agent: main (OFF = OLD exact match)
+Task: 把「动态降采样」关闭时改成与旧版（pre-dynamic）完全相同的范围采样
+
+Work Log:
+- 用户在上一轮对话里对比了旧版（固定 max-ds）和动态版（ON）的耗电/画质：
+  旧版更省电，动态版用耗电换画质。用户决定：OFF 时应当严格还原旧版行为
+  （即用 effectiveBlurDownsample 直接值，不经过 pow2 取整）。
+- 根因调查（对比 commit 81dfdab 旧版 vs 当前实现）：
+  旧版 blurTexture 用 `const ds = this.effectiveBlurDownsample` —— RAW 值，
+  可以是非 2 的幂（比如 dpr=3 × blurDownsample=4 = 12，或 dpr=1.5 × 4 = 6）。
+  buffer = floor(fboW/ds)，radius 按 1/ds 缩放。
+  当前 OFF 路径走 `pickDsBlurLevel(radius)` → 返回 `levels[length-1]`
+  （最大的 pow2 ≤ effectiveDs）。对 dpr=3 × ds=4：旧版用 ds=12，当前 OFF
+  用 ds=8。差异：buffer 大 1/8 vs 1/12，radius 缩放 1/8 vs 1/12。
+  整数 dpr (1, 2, 4) 时 effectiveDs 本就是 pow2，两者一致；问题只在
+  dpr=3（手机/Retina 常见）或分数 dpr (1.5, 2.5)。
+- 修复 1（methods-fbo.ts resizeFBOs）：
+  不再把 `dsBlurFboA/B/W/H` 别名到 max-pow2 level。改为单独分配一对
+  legacy buffer，按 RAW effectiveDs 算 size（floor(fboW/ds) × floor(fboH/ds)）。
+  pool（pow2 levels）仍照旧建好（ON 路径用）。两者完全独立，dispose 路径
+  本就分别 delete，无 double-free。
+- 修复 2（index.ts pickDsBlurLevel）：
+  把 OFF 分支 + 空 pool fallback 合并：返回 legacy buffer + RAW
+  effectiveBlurDownsample（不再返回 pow2 max level）。ON 分支保持原样
+  （log2(R/6) 选 pow2 level）。
+- 注释更新（4 处）：
+  * index.ts dynamicBlurDownsample 字段：说明 OFF 用 RAW effectiveDs
+    （非 pow2）+ 与 OLD 完全一致
+  * index.ts dsBlurLevels 字段：说明 ON 才用 pool，OFF 用 legacy pair
+  * index.ts dsBlurFboA/B 字段：标注 "LEGACY" + 说明用途
+  * blurTexture / blurHighlightMask docstring：OFF → legacy raw-ds；
+    ON → per-radius pow2
+  * context.tsx dynamicBlurDownsample prop：更新说明（toggle 仍零开销，
+    因为 legacy pair + pool 都在 resizeFBOs 一次性建好）
+- bun run lint：通过（0 errors）
+- Agent Browser + VLM 验证（viewport 390×844）：
+  * GP（OFF 默认）：中心 glass square frosted blur ✓，顶钮 frosted ✓，
+    无 artifact / pixelation / blank
+  * Buttons（OFF）：所有按钮 frosted blur ✓，无 artifact
+  * Dialog（OFF）：中心 dialog card frosted blur ✓，无 artifact
+  * GP（动态 ON，localStorage 切换）：中心 square frosted ✓，顶钮 frosted ✓，
+    切换无 error —— ON 路径未受影响
+  * 全程无 console error / page error / warning
+  * dev.log 编译正常，多次 HMR 重建成功
+
+Stage Summary:
+- 修复：OFF 路径不再走 pow2-clamped max level，而是用单独的 legacy
+  dsBlurFboA/B pair（按 RAW effectiveDs 分配 size）+ RAW effectiveDs 作为
+  ds 值。对 dpr=3 × blurDownsample=4 的常见 Retina 场景，OFF 现在严格
+  匹配旧版（ds=12, buffer 1/12, radius 1/12），不再被悄悄取整到 ds=8。
+- 改动 ~20 行（resizeFBOs 重新分配 legacy pair 不再 alias +
+  pickDsBlurLevel OFF 分支返回 legacy）。无新增字段、无新分支。
+- ON 路径完全不变（仍用 pow2 pool + log2(R/6) 选级）。
+- 用户上一轮结论得到落实：要省电 → OFF 即严格旧版（固定 max-ds）；
+  要画质 → ON（小半径全分辨率）。

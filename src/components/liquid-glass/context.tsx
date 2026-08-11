@@ -72,8 +72,11 @@ export interface LiquidGlassCanvasProps {
   /** Dynamic blur downsample toggle. When true, blurTexture/blurHighlightMask
    *  pick the downsample factor PER CALL based on the blur radius (small radii
    *  → low-ds crisp buffer, large radii → high-ds fast buffer). When false
-   *  (default), every blur uses the max blurDownsample (legacy). Applied on
-   *  renderer init + when it changes (no FBO rebuild — just flips the picker). */
+   *  (default), every blur uses the single legacy pair with the RAW
+   *  effectiveBlurDownsample (matches the pre-dynamic OLD behavior exactly,
+   *  including non-pow2 ds like 6/12 from fractional/high DPR). Applied on
+   *  renderer init + when it changes (no FBO rebuild — both the legacy pair
+   *  AND the pow2 pool are always allocated in resizeFBOs). */
   dynamicBlurDownsample?: boolean
   /** Corner style: 0 = circular, 1 = continuous (squircle). */
   cornerStyle?: number
