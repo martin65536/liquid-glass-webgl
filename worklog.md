@@ -2306,3 +2306,97 @@ Stage Summary:
   * glass.ts (48)      — 聚合入口
 - 外部 import 路径完全不变（re-export 兼容，4 处外部引用零修改）
 - 行为零变化：所有逻辑逐字搬迁，仅去重 + 拆函数
+
+---
+Task ID: 38
+Agent: main (refactor round 3 — split the top-3 largest files)
+Task: 拆前三个，认真拆，然后推 — 把 glass 方法族里最大的三个文件继续拆细
+
+Work Log:
+- 盘点 glass 方法族当前文件行数，确认三个最大文件：
+  * methods-render-glass-element-pass.ts  625 行（单方法 renderGlassElementPass）
+  * methods-render-glass-post-passes.ts   539 行（单方法 renderGlassPostPasses）
+  * methods-render-glass-pef-cache.ts     304 行（3 函数 + 3 接口）
+- File 1: methods-render-glass-element-pass.ts (625 → 342)
+  * 新建 methods-render-glass-element-pass-context.ts (92 行)
+    — ElementPassContext 接口 + createElementPassContext 工厂
+    — 承载 toggle/indicator 子步骤的可变状态（refraction/blur/highlight/content-scale
+       + CombinedBackdrop 输出 toggle/indicator 全部 uniform 参数）
+  * 新建 methods-render-glass-element-pass-toggle.ts (141 行)
+    — applyToggleKnobBackdrop()：toggle knob CombinedBackdrop（track color lerp +
+       scaled track center/half/corner + solidBackdrop 分支 + content scale）
+  * 新建 methods-render-glass-element-pass-indicator.ts (276 行)
+    — applyIndicatorBackdrop()：bottom-tab indicator 调制 + CombinedBackdrop +
+       tab content 纹理绑定 + 内层背景板 stroke mask 生成（Canvas2D + GPU 上传）
+    — 非 indicator 元素走 default 分支（设零值 uniform）
+  * 主文件 methods-render-glass-element-pass.ts (342 行)：GL setup + base uniform +
+    调用两个 helper + CombinedBackdrop uniform + shading uniform（refraction/blur/
+    tint/highlight/SDF/magnifier）+ drawArrays
+- File 2: methods-render-glass-post-passes.ts (539 → 96)
+  * 新建 methods-render-glass-post-passes-inner-shadow.ts (142 行)
+    — renderGlassInnerShadowPass()：Step 2b 内阴影（Canvas2D ring mask +
+       InnerShadowMaskComposite shader）+ quickToggles.innershadow 短路
+  * 新建 methods-render-glass-post-passes-glow.ts (182 行)
+    — renderGlassGlowAndOverlays()：Step 2c press glow（flat white + radial
+       highlight）+ Step 2d toggle knob white overlay + Step 2d2 indicator dim
+  * 新建 methods-render-glass-post-passes-rim-highlight.ts (249 行)
+    — renderGlassRimHighlight()：Step 2f rim highlight（Canvas2D stroke mask
+       生成 + 缓存 + StrokeMaskComposite shader）+ ambient/plus blend 分支
+  * 主文件 methods-render-glass-post-passes.ts (96 行)：orchestration + Step 2e
+    foreground pass（label/icon）
+- File 3: methods-render-glass-pef-cache.ts (304 → 21 barrel)
+  * 新建 methods-render-glass-pef-geometry.ts (121 行)
+    — ElFboGeometry 接口 + computeElFboGeometry()（两个解耦矩形：shadow bbox +
+       elFbo rect，SIZE 从本地几何算稳定，POSITION 用 raw 未 clamp 值）
+  * 新建 methods-render-glass-pef-cache-flags.ts (50 行)
+    — CacheFlags 接口 + computeCacheFlags()（cacheable / positionInvariant /
+       scrollInvariant 三个布尔）
+  * 新建 methods-render-glass-pef-cache-resolve.ts (162 行)
+    — CacheResolution 接口 + resolveElFboCache()（miss 原因瀑布：no_entry →
+       size_mismatch → position_mismatch → invalidated → wallpaper_version →
+       dpr → backdrop_overlap + 缓存命中/未命中 FBO 分配）
+  * methods-render-glass-pef-cache.ts (21 行)：纯 barrel re-export，保持
+    methods-render-glass-pef.ts 的 import 路径不变
+- bun run lint：通过（0 errors）
+- dev server：编译成功，无运行时错误
+- Agent Browser 验证（关键 — 之前用了错误的 dest 参数名）：
+  * CatalogDestination enum 的 key 是 Buttons/Toggle/BottomTabs/Dialog（不是
+    button/toggle/bottom-tabs/dialog），URL 必须用 ?dest=Buttons 等
+  * 4 个页面截图全部不同（224-262KB，含复杂玻璃内容）：
+    - Buttons (262KB): 彩色壁纸 + 多个 frosted glass 按钮 ✓
+    - Toggle (249KB): glass toggle switches + frosted blur ✓
+    - BottomTabs (258KB): 两个 pill-shaped glass tab bar ✓
+    - Dialog (225KB): frosted glass dialog card ✓
+  * VLM 确认所有页面 glass 元素正确渲染，无 blank/broken/misaligned
+  * 无 console error / page error
+- 已 commit + push GitHub
+
+Stage Summary:
+- 三个最大文件全部拆完，每个子文件 ≤ 342 行（之前最大 625 行）：
+  * element-pass.ts:    625 → 342(main) + 141(toggle) + 276(indicator) + 92(context)
+  * post-passes.ts:     539 → 96(main) + 142(inner-shadow) + 182(glow) + 249(rim-highlight)
+  * pef-cache.ts:       304 → 21(barrel) + 121(geometry) + 50(flags) + 162(resolve)
+- 行为零变化：所有逻辑逐字搬迁，仅去重 + 拆函数 + 用 ElementPassContext 解耦
+- 外部 import 路径完全不变（pef-cache.ts 保留为 barrel；element-pass/post-passes
+  仍导出 glassElementPassMethods / glassPostPassMethods）
+- glass 方法族文件全景（13 个文件，最大 342 行，全部 ≤ 350）：
+  * glass.ts (48)               — 聚合入口
+  * state.ts (99)               — 类型 + 模块增强
+  * geometry.ts (162)           — 纯几何工具
+  * shadow.ts (100)             — 阴影绘制
+  * transform.ts (289)          — layerBlock 数学
+  * backdrop.ts (164)           — 共享 state/backdrop
+  * pef-cache.ts (21 barrel)    — PEF 缓存 barrel
+  * pef-geometry.ts (121)       — PEF 几何
+  * pef-cache-flags.ts (50)     — PEF 缓存标志
+  * pef-cache-resolve.ts (162)  — PEF 缓存解析
+  * pef.ts (193)                — PEF 编排
+  * pingpong.ts (136)           — ping-pong 编排
+  * element-pass-context.ts (92)  — element-pass 共享上下文
+  * element-pass-toggle.ts (141)  — toggle knob CombinedBackdrop
+  * element-pass-indicator.ts (276) — indicator CombinedBackdrop + 内层 stroke mask
+  * element-pass.ts (342)         — element-pass 主编排
+  * post-passes-inner-shadow.ts (142) — Step 2b 内阴影
+  * post-passes-glow.ts (182)       — Step 2c/2d/2d2 glow + overlay
+  * post-passes-rim-highlight.ts (249) — Step 2f rim highlight
+  * post-passes.ts (96)             — post-passes 主编排 + Step 2e foreground
