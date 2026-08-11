@@ -854,8 +854,21 @@ export const glassRenderMethods = {
     // little empty area is harmless — and the cache key stays stable,
     // which beats the old per-frame shrink that re-rastered on every
     // edge-exit frame).
-    const ex0 = Math.max(0, Math.min(this.fboW - elFboRectW, Math.round((sx - elFboMarginCss) * this.dpr)))
-    const ey0Top = Math.max(0, Math.min(this.fboH - elFboRectH, Math.round((sy - elFboMarginCss) * this.dpr)))
+    //
+    // partiallyOffscreen: true when the clamp actually changed the value
+    // (raw !== clamped), i.e. the element straddles a canvas edge. In that
+    // case ex0/ey0Top are pinned and stop tracking the element's true
+    // position, so the elFboCache position_mismatch check below would
+    // otherwise see no change and reuse a STALE cache entry → rendering
+    // artifacts (e.g. scroll-container cards going blank/wrong as they
+    // scroll past the top/bottom edge). partiallyOffscreen forces a
+    // position_mismatch every frame while any pixel of the element is on
+    // screen, so the elFbo is re-rasterized with the current geometry.
+    const rawEx0 = Math.round((sx - elFboMarginCss) * this.dpr)
+    const rawEy0Top = Math.round((sy - elFboMarginCss) * this.dpr)
+    const ex0 = Math.max(0, Math.min(this.fboW - elFboRectW, rawEx0))
+    const ey0Top = Math.max(0, Math.min(this.fboH - elFboRectH, rawEy0Top))
+    const partiallyOffscreen = rawEx0 !== ex0 || rawEy0Top !== ey0Top
     const ex1 = Math.min(this.fboW, ex0 + elFboRectW)
     const ey1Top = Math.min(this.fboH, ey0Top + elFboRectH)
     const elFboScissorY = Math.max(0, this.fboH - ey1Top)
@@ -1038,7 +1051,7 @@ export const glassRenderMethods = {
         missReason = 'no_entry'
       } else if (entry.w !== elFboRectW || entry.h !== elFboRectH) {
         missReason = 'size_mismatch'
-      } else if (!skipPosition && (entry.ex0 !== ex0 || entry.ey0Top !== ey0Top)) {
+      } else if (!skipPosition && (partiallyOffscreen || entry.ex0 !== ex0 || entry.ey0Top !== ey0Top)) {
         missReason = 'position_mismatch'
       } else if (!entry.valid) {
         missReason = 'invalidated'
