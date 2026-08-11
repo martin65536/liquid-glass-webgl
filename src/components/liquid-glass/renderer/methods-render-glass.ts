@@ -855,23 +855,30 @@ export const glassRenderMethods = {
     // which beats the old per-frame shrink that re-rastered on every
     // edge-exit frame).
     //
-    // partiallyOffscreen: true when the clamp actually changed the value
-    // (raw !== clamped), i.e. the element straddles a canvas edge. In that
-    // case ex0/ey0Top are pinned and stop tracking the element's true
-    // position, so the elFboCache position_mismatch check below would
-    // otherwise see no change and reuse a STALE cache entry → rendering
-    // artifacts (e.g. scroll-container cards going blank/wrong as they
-    // scroll past the top/bottom edge). partiallyOffscreen forces a
-    // position_mismatch every frame while any pixel of the element is on
-    // screen, so the elFbo is re-rasterized with the current geometry.
+    // sceneRectOffset (the value passed to the element shader to reconstruct
+    // screenCoord) MUST use the UNCLAMPED raw position. The shader computes
+    // elementCenter from uElementOffset (the element's true sx/sy), and
+    // screenCoord = uSceneRectOffset + localCoord. If we passed the clamped
+    // offset here while the element straddles a canvas edge, screenCoord and
+    // elementCenter would be in DIFFERENT coordinate frames → SDF positioning
+    // + backdrop sampling would be off → rendering artifacts. The clamped
+    // ex0/ey0Top are only for SCISSOR + COMPOSITE (limiting where the elFbo
+    // is drawn onto curFbo), not for coordinate reconstruction.
+    //
+    // Using raw for the offset also makes the cache key (entry.ex0/ey0Top
+    // compared against the offset) track the true position, so
+    // position_mismatch fires correctly while scrolling past an edge.
     const rawEx0 = Math.round((sx - elFboMarginCss) * this.dpr)
     const rawEy0Top = Math.round((sy - elFboMarginCss) * this.dpr)
     const ex0 = Math.max(0, Math.min(this.fboW - elFboRectW, rawEx0))
     const ey0Top = Math.max(0, Math.min(this.fboH - elFboRectH, rawEy0Top))
-    const partiallyOffscreen = rawEx0 !== ex0 || rawEy0Top !== ey0Top
     const ex1 = Math.min(this.fboW, ex0 + elFboRectW)
     const ey1Top = Math.min(this.fboH, ey0Top + elFboRectH)
     const elFboScissorY = Math.max(0, this.fboH - ey1Top)
+    // sceneRectOffset uses the RAW (unclamped) position so screenCoord
+    // reconstruction stays in the same frame as elementCenter.
+    const sceneOffsetX = rawEx0
+    const sceneOffsetY = rawEy0Top
 
     // Debug: record the actual elFbo rect (the tight PEF box) so the overlay
     // visualizes how small the per-element FBO really is.
@@ -1051,7 +1058,7 @@ export const glassRenderMethods = {
         missReason = 'no_entry'
       } else if (entry.w !== elFboRectW || entry.h !== elFboRectH) {
         missReason = 'size_mismatch'
-      } else if (!skipPosition && (partiallyOffscreen || entry.ex0 !== ex0 || entry.ey0Top !== ey0Top)) {
+      } else if (!skipPosition && (entry.ex0 !== sceneOffsetX || entry.ey0Top !== sceneOffsetY)) {
         missReason = 'position_mismatch'
       } else if (!entry.valid) {
         missReason = 'invalidated'
@@ -1102,8 +1109,8 @@ export const glassRenderMethods = {
         // purely for bookkeeping consistency + so that if the element later
         // becomes position-dependent, the entry has the right starting pos).
         if (positionInvariant || scrollInvariant) {
-          entry.ex0 = ex0
-          entry.ey0Top = ey0Top
+          entry.ex0 = sceneOffsetX
+          entry.ey0Top = sceneOffsetY
         }
         this.perfMonitor.incCachedElement()
       } else {
@@ -1114,7 +1121,7 @@ export const glassRenderMethods = {
           this.elFboCache.set(el.id, {
             fb: created.fb, tex: created.tex,
             w: elFboRectW, h: elFboRectH,
-            ex0, ey0Top,
+            ex0: sceneOffsetX, ey0Top: sceneOffsetY,
             valid: false,
             wallpaperVersion: this.wallpaperVersion,
             dpr: this.dpr,
@@ -1130,8 +1137,8 @@ export const glassRenderMethods = {
           entry.h = elFboRectH
         }
         const e = this.elFboCache.get(el.id)!
-        e.ex0 = ex0
-        e.ey0Top = ey0Top
+        e.ex0 = sceneOffsetX
+        e.ey0Top = sceneOffsetY
         e.valid = false  // will flip to true after Step 3 completes
         e.wallpaperVersion = this.wallpaperVersion
         e.dpr = this.dpr
@@ -1211,8 +1218,8 @@ export const glassRenderMethods = {
       // elFbo rect's top-left in scene device px (top-left origin) — the rect
       // hugs the glass shape (+AA pad), NOT the shadow bbox.
       usePerElementFbo: true,
-      sceneRectOffsetX: ex0,
-      sceneRectOffsetY: ey0Top,
+      sceneRectOffsetX: sceneOffsetX,
+      sceneRectOffsetY: sceneOffsetY,
       elFboW,
       elFboH,
     }
