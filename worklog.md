@@ -2187,3 +2187,64 @@ Stage Summary:
   wallpaper-only。
 - 收益：所有按钮 + adaptive luminance glass 现在走 separable 2-pass Gaussian，模糊质量
   显著优于 poisson-disc（adaptive luminance glass 尤为明显：moderate→strong）。
+
+---
+Task ID: 35
+Agent: main (Z.ai Code)
+Task: 修复滚动容器元素部分出屏渲染异常（正确解法：sceneRectOffset 用未 clamp 的真实位置）
+
+Work Log:
+- 用户指出上一个修复（Task 34，partiallyOffscreen 强制 miss）是错的——不应该
+  强制 miss 掩盖症状，而应该找到为什么部分出屏时渲染异常。
+
+- 真正根因（element.ts L50-51 + L79）：
+  shader 重建坐标：
+    screenCoord = uSceneRectOffset + vec2(gl_FragCoord.x, uElFboSize.y - gl_FragCoord.y)
+  算 SDF 中心：
+    elementCenter = uElementOffset + uElementSize * 0.5
+  - uSceneRectOffset = ex0/ey0Top（之前用 clamp 后的值）
+  - uElementOffset = sx*dpr, sy*dpr（真实位置，未 clamp）
+  当元素部分出屏（sy<0），ey0Top 被 clamp 到 0，但 uElementOffset.y 还是真实负值。
+  → screenCoord（基于 clamp）和 elementCenter（基于真实）不在同一坐标系
+  → centeredScreen = screenCoord - elementCenter 算错
+  → SDF 定位错位 + backdrop 采样错位 → 渲染异常。
+  同时 cache key（entry.ex0/ey0Top）用 clamp 后的值，部分出屏时不再随 sy 变化
+  → position_mismatch 不触发 → stale cache（用户原始症状）。
+
+- 正确修复（methods-render-glass.ts）：
+  拆成两个变量：
+  - ex0/ey0Top（clamp 后）—— 只用于 scissor + composite（限制 elFbo 画在可见区域）
+  - sceneOffsetX/Y（raw 未 clamp）—— 用于 sceneRectOffset（shader 坐标重建）
+    AND cache key（entry.ex0/ey0Top）
+  四处改动：
+  1. L867-881: 提取 rawEx0/rawEy0Top，算 sceneOffsetX/Y = raw
+  2. L1061: position_mismatch 比较 entry.ex0/ey0Top vs sceneOffsetX/Y
+  3. L1112/1124/1140: cache entry 存 sceneOffsetX/Y
+  4. L1221: state.sceneRectOffsetX/Y = sceneOffsetX/Y
+
+- 为什么这是对的：
+  - screenCoord = sceneOffset(raw) + localCoord → 和 elementCenter(真实) 同坐标系
+    → SDF/backdrop 采样正确
+  - cache key 用真实位置 → 部分出屏时随 sy 变化 → position_mismatch 正常触发
+  - cache 内容正确（coordinate frame 一致）→ cache hit 复用合法
+  - 静态全屏内元素 raw === clamped → 行为不变，cache 仍 hit
+
+- 撤销 Task 34 的错误修复（partiallyOffscreen 强制 miss）——那个方案每帧重新
+  栅格化浪费性能，且没解决坐标系不一致的根因。
+
+- 验证（Agent Browser + VLM，viewport 390×844）：
+  - ScrollContainer：滚动到顶部边界（卡片部分出顶）+ 底部边界（卡片部分出底）
+    → VLM 确认所有可见卡片 frosted-glass blur 正确，部分出屏卡片可见部分
+    "properly aligned, no blank/broken/misaligned"。
+  - 回归 Dialog / Buttons / AdaptiveLuminanceGlass / BottomTabs：全部正常。
+  - 全程无 console error / page error。lint 干净。dev.log 编译正常。
+
+- 已 commit (262dca0) + push GitHub。
+
+Stage Summary:
+- 根因：sceneRectOffset 用 clamp 后的 ex0/ey0Top，但 elementCenter 用真实 sx/sy，
+  两者坐标系不一致 → 部分出屏时 SDF/backdrop 采样错位 → 渲染异常。cache key
+  也用 clamp 值 → position_mismatch 不触发 → stale cache。
+- 修复：sceneRectOffset + cache key 改用未 clamp 的真实位置（sceneOffsetX/Y），
+  clamp 后的 ex0/ey0Top 只用于 scissor + composite。改动 ~7 行。
+- 撤销 Task 34 错误修复。性能：部分出屏元素现在能正确 cache hit（之前被强制 miss）。
