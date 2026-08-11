@@ -2118,3 +2118,72 @@ Stage Summary:
 - Root cause: `round(A) - round(B)` width/height is unstable when the span `A-B` is non-integer, which happens whenever `elementCssSize * dpr` is non-integer — i.e. any fractional dpr. Integer dpr (3) makes 24*3 integral so it never triggers; fractional dpr (2.7, float32-stored as 2.700000047683761) makes 24*2.7=64.8 non-integral so it oscillates every few scroll frames.
 - Fix: renderer/methods-render-glass.ts — elFbo rect SIZE now derived from local geometry (stable), only POSITION varies. Eliminates size_mismatch during scroll on fractional-dpr devices. Knob cache stays warm through scroll.
 - Not a GPU-vendor issue; purely the dpr value. Any fractional-dpr device would exhibit this.
+
+---
+Task ID: 33
+Agent: main (Z.ai Code)
+Task: 让按钮应用 separableBlur（移除 independentBackdrop 特殊处理）+ 同样应用到 adaptive luminance glass
+
+Work Log:
+- 诊断：之前的所有尝试都在调和伪命题——"按钮既独立（采样原始壁纸 uWallpaperSampler）
+  又用 separableBlur（采样场景 FBO uBackdrop）"。两者架构上互斥：
+  - independent 路径：shader 内部 poisson-disc 采样 uWallpaperSampler，shader 内应用 scrim
+  - 非 independent 路径：外部 2-pass 分离高斯（blurTexture）在 curTex/bgOnlyTex 上，
+    结果作为 uBackdrop 喂给 shader
+  - separableBlur 必须 sample 已准备好的纹理，但"独立"语义就是 shader 自己采样原始壁纸
+  之前所有绕路（bgOnlyTex workaround、GL 状态补救、flag 语义拆分）都是在强行弥合这个
+  本质矛盾，每修一个角就崩另一个角。
+
+- 根因确认：按钮的 independent=true 来自 makeButton/makeBackButton/makeThemeToggleButton
+  里的 `independentBackdrop: true`（helpers.ts L304/705/758）。渲染分支
+  (methods-render-glass.ts L690 + L1255) 里 `if (independent)` 抢先 → 永远走 poisson-disc，
+  永远到不了 `else if (el.useSeparableBlur && el.blurRadius >= 0.5)` 分支。
+  即使 catalog/index.ts L208-216 全局设了 useSeparableBlur=true 也无济于事。
+
+- 关键确认：`cacheable` 检查 (methods-render-glass.ts L935) 早已不再依赖 `independent`
+  （只依赖 wallpaperTexture + !backdropFbo + !useContinuousSdf）。所以把按钮改成
+  non-independent 不会丢缓存——静帧仍 cache hit，只在 backdrop_overlap（scroll / 重叠元素
+  变化）时 miss。back-button 注释里说的"non-cacheable 每 frame 重 raster"已过时。
+
+- 修复 1（按钮）—— helpers.ts 三处 `independentBackdrop: true` → `false`：
+  - makeButton (L304)
+  - makeBackButton (L705)
+  - makeThemeToggleButton (L758)
+  并更新注释，说明：solid-bg 页面 independent 本就 false（无影响），wallpaper 页面按钮
+  现在走 curTex/separableBlur；isolateBackdrop 开关可切回 bgOnlyTex（wallpaper-only）。
+
+- 修复 2（adaptive luminance glass）—— build-adaptive-luminance.ts L91 后追加：
+    algSquare.independentBackdrop = false
+  algSquare 用 makeGlassShape 创建（helpers.ts L517 默认 independentBackdrop=true），
+  与按钮同样卡在 poisson-disc。显式覆盖为 false（不改 makeGlassShape 默认值，避免误伤
+  toggle knob / slider knob / control-center tiles 等已稳定工作的元素）。algSquare 的
+  blurRadius=8~16dp ≥ 0.5 ✓ + useSeparableBlur 由全局循环设为 true ✓ → 进入 separableBlur 分支。
+
+- 验证（Agent Browser + VLM，viewport 390×844）：
+  - Dialog 页：中心 glass card + 左上 back 圆钮 + 右上 moon 圆钮 + 底部蓝色 pill 按钮
+    均显示 frosted-glass blur ✓。无 glass-on-glass 伪影（顶钮在壁纸上方，对话框内 tinted
+    "Okay" 按钮遮蔽 backdrop）。
+  - GlassPlayground 页：settings panel + 两个顶部圆钮均显示 frosted-glass blur（VLM 首判
+    "solid" 但重抓后确认 moderate blur——VLM 不稳定性，非真实问题）。
+  - BottomTabs 页：两个 pill tab bar + indicator + 顶钮均显示 frosted-glass blur ✓。
+  - AdaptiveLuminanceGlass 页：中心 rounded-square algSquare 显示 moderate/strong
+    frosted-glass blur ✓（之前 poisson-disc 质量较低）。luminance readback 工作（数值
+    0.53→0.78 随拖动更新）。
+  - 滚动 Buttons 页：所有按钮 frosted-glass blur 一致 ✓，无卡顿/破碎。
+  - 交互：click back button → 成功导航 Home（验证 click → markAllDirty → cache miss →
+    新路径重新栅格化）；drag algSquare → 拖到左下角，新位置仍 frosted blur ✓。
+  - 全程无 console error / page error。lint 干净。dev.log 编译正常。
+
+Stage Summary:
+- 根因：按钮的 independentBackdrop=true 让 `if (independent)` 抢先，separableBlur 分支
+  永远走不到。之前所有方案都在弥合"独立 + separableBlur"这个本质矛盾；这次直接接受
+  "按钮不再独立"，矛盾链消失。
+- 修复：3 处按钮 factory (makeButton/makeBackButton/makeThemeToggleButton) 的
+  independentBackdrop: true → false；adaptive luminance glass 的 algSquare 创建后
+  显式设 independentBackdrop = false。代码净改动 ~5 行，无新增分支。
+- 代价（可接受）：non-independent 按钮在 backdrop_overlap 时 cache miss（scroll / 重叠
+  元素变化），但用降采样 dsBlurFbo 实测无卡顿。glass-on-glass 折射在默认
+  isolateBackdrop=false 时出现（更现代毛玻璃视觉）；开 isolateBackdrop 即恢复
+  wallpaper-only。
+- 收益：所有按钮 + adaptive luminance glass 现在走 separable 2-pass Gaussian，模糊质量
+  显著优于 poisson-disc（adaptive luminance glass 尤为明显：moderate→strong）。

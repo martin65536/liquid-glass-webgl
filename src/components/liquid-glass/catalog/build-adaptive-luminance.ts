@@ -89,6 +89,14 @@ export function buildAdaptiveLuminanceGlass(
     }
   )
   algSquare.isInteractive = true
+  // Route through the non-independent path so the element picks up the
+  // separable 2-pass Gaussian blur (useSeparableBlur, set globally in
+  // catalog/index.ts). makeGlassShape defaults to independentBackdrop=true
+  // (poisson-disc, no separableBlur); override to false here — same pattern
+  // as the dialog card / bottom-tab container / magnifier. The square still
+  // caches when idle; it misses on backdrop_overlap (drag / overlapping
+  // element changes), same as other non-independent glass-shapes.
+  algSquare.independentBackdrop = false
   elements.push(algSquare)
   // Drag interaction — pan the glass square (module-level state, like gp-square).
   interactions['alg-square'] = {
