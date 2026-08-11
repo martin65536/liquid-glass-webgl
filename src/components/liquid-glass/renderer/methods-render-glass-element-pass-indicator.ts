@@ -65,17 +65,7 @@ export function applyIndicatorBackdrop(
   ctx.elRefractionHeight = el.refractionHeight * progress
   ctx.elRefractionAmount = el.refractionAmount * progress
   ctx.elBlurRadius = 0 // indicator has NO blur (original only has lens)
-  // Quick power-save: when quickToggles.highlight is OFF, force the inner
-  // backdrop plate rim highlight alpha to 0. This disables BOTH the element-
-  // pass inner highlight (uHighlightAlpha → 0) AND the post-pass outer rim
-  // highlight (Step 2f reads elHighlightAlpha and early-returns when ≤0).
-  // Without this, the perf-monitor "Highlight" toggle couldn't disable the
-  // indicator's 内highlight (inner backdrop plate rim highlight), which uses
-  // a non-standard path (uInnerStrokeMask texture in the element shader)
-  // separate from Step 2f.
-  ctx.elHighlightAlpha = renderer.quickToggles.highlight
-    ? (el.highlight?.alpha ?? 0) * progress
-    : 0
+  ctx.elHighlightAlpha = (el.highlight?.alpha ?? 0) * progress
 
   // --- CombinedBackdrop (faithful to LiquidBottomTabs.kt 指示器) ---
   if (el.isBottomTabIndicator.accentColor && el.isBottomTabIndicator.containerRect) {
@@ -165,18 +155,7 @@ export function applyIndicatorBackdrop(
   // These are the same values passed to uContainerRect/uContainerCornerRadius.
   // The mask is cached in strokeMaskCache — it's stable across frames because
   // the inner backdrop capsule dimensions don't change (only panelOffset shifts).
-  //
-  // Quick power-save: skip mask generation entirely when highlight is OFF
-  // (elHighlightAlpha was already forced to 0 above, so the shader won't
-  // render anything visible). This avoids the Canvas2D rasterization + GPU
-  // texture upload cost during power A/B testing. Set safe-default uniforms
-  // so the shader's texture2D(uInnerStrokeMask,...) returns 0.
-  if (renderer.quickToggles.highlight) {
-    generateInnerStrokeMask(renderer, ctx)
-  } else {
-    gl.uniform2f(renderer.uEl['uInnerStrokeMaskOffset'], 1, 1)
-    gl.uniform2f(renderer.uEl['uInnerStrokeMaskSize'], 1, 1)
-  }
+  generateInnerStrokeMask(renderer, ctx)
 }
 
 /** Generate (or reuse from cache) the inner backdrop capsule rim-highlight
