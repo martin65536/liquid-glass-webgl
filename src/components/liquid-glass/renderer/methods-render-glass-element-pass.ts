@@ -176,12 +176,14 @@ export const glassElementPassMethods = {
     //     the shader samples uBackdrop via sceneUv instead of uWallpaperSampler)
     // In both cases, inlineBlurRadius=0 avoids double-blurring.
     //
-    // EXCEPTION: elements whose shader samples the CLEAN wallpaper directly
-    // (el.sampleWallpaper, toggle knob CombinedBackdrop, indicator
-    // CombinedBackdrop, SDF-texture glass) keep the inline shader blur
-    // (poisson-disc on the wallpaper texture) because the 2-pass blurTexture
-    // pipeline is SKIPPED for them. shouldUseSeparableBlur() returns false for
-    // these, so inlineBlurRadius = ctx.elBlurRadius (the real radius).
+    // EXCEPTION (guaranteed inline): slider & toggle knobs, bottom-tab
+    // indicators, sampleWallpaper elements, and SDF-texture glass keep the
+    // inline shader blur (poisson-disc on the wallpaper/scene texture).
+    // shouldUseSeparableBlur() returns false for ALL of these (knob/indicator
+    // is a HARD first-line exclusion), so inlineBlurRadius = ctx.elBlurRadius.
+    // For knobs specifically, ctx.elBlurRadius was overridden by
+    // applyToggleKnobBackdrop to 8*(1-pressProgress) — the frosted-at-rest /
+    // clear-when-pressed modulation that MUST stay in-shader.
     const useSampleWallpaper = el.sampleWallpaper || state.independent
     const inlineBlurRadius =
       shouldUseSeparableBlur(el, state)

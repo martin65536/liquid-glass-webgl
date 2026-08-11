@@ -36,14 +36,19 @@ export function shouldUseSeparableBlur(
   el: GlassElementConfig,
   state: GlassRenderState
 ): boolean {
+  // HARD EXCLUSION (checked first, non-negotiable): slider & toggle knobs
+  // ALWAYS use inline shader blur. Their CombinedBackdrop (wallpaper +
+  // scaled track color) cannot be pre-blurred as a single texture, and the
+  // knob's press-modulated blur (8 * (1 - progress)) must stay in-shader so
+  // it animates smoothly with the press spring. Separable blur on the knob
+  // would zero uBlurRadius and destroy the frosted pebble look at rest.
+  // This covers both LiquidToggle.kt knobs and LiquidSlider.kt knobs (both
+  // set el.isToggleKnob).
+  if (el.isToggleKnob || el.isBottomTabIndicator) return false
   if (el.blurRadius < 0.5) return false
   // sampleWallpaper elements (dialog card, back button on dimmed scenes)
   // use their own backdropFbo path (renderDialogBackdrop + 2-pass blur).
-  // Toggle knobs / indicators use CombinedBackdrop (wallpaper + track color)
-  // which can't be pre-blurred as a single texture. SDF-texture glass uses
-  // sampleWallpaperBlurred inline. These keep inline shader blur.
   if (el.sampleWallpaper) return false
-  if (el.isToggleKnob || el.isBottomTabIndicator) return false
   if (el.isSdfTexture) return false
   // independent elements (LayerBackdrop = wallpaper) now go through the
   // wallpaper pre-blur path in resolveBackdropTex — separable blur IS
