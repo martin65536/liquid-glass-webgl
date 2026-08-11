@@ -2400,3 +2400,40 @@ Stage Summary:
   * post-passes-glow.ts (182)       — Step 2c/2d/2d2 glow + overlay
   * post-passes-rim-highlight.ts (249) — Step 2f rim highlight
   * post-passes.ts (96)             — post-passes 主编排 + Step 2e foreground
+
+---
+Task ID: 39
+Agent: main (separable blur for all)
+Task: 把所有blur都应用separableblur设置 — make ALL glass blur use the separable 2-pass Gaussian pipeline instead of inline poisson-disc shader blur
+
+Work Log:
+- 调查现状：separable blur 只在 `el.useSeparableBlur && el.blurRadius >= 0.5` 时触发（仅 GP square + dialog card + globalSeparableBlur 开关开启时的按钮）。其他元素（buttons, glass-shapes, independent elements）使用 shader 内 poisson-disc blur。
+- 新建 `shouldUseSeparableBlur(el, state)` helper（methods-render-glass-backdrop.ts）：
+  * 返回 true 的条件：blurRadius >= 0.5 + 非 sampleWallpaper + 非 toggleKnob/indicator + 非 SDF-texture
+  * independent 元素不再被排除 —— 它们现在走 wallpaper pre-blur 路径
+  * 替代了 renderer 中所有 `el.useSeparableBlur` 检查（catalog 里的 useSeparableBlur 标志现在变成 no-op，仅为向后兼容保留）
+- resolveBackdropTex 改造（methods-render-glass-backdrop.ts）：
+  * 新增 independent + blur 分支：把 wallpaper cover-fit 渲染到 gpElementFbo（之前分配但从未使用的 canvas-sized FBO），然后用 blurTexture 2-pass Gaussian blur，返回 dsBlurFboBTex 作为 backdropTex
+  * passState.independent = false → element pass 设 uSampleWallpaper=0 → shader 通过 sceneUv 采样 uBackdrop（blurred wallpaper）而非 coverUv 采样 uWallpaperSampler（raw wallpaper）
+  * shouldUseSeparableBlur(passState) = true → inlineBlurRadius=0（不 double-blur）
+  * independent + no-blur (blurRadius < 0.5) 仍走原路径（curTex placeholder + uSampleWallpaper=1 + inline blur radius < 0.5 → shader early-return）
+- renderGlassElementPass 更新（methods-render-glass-element-pass.ts）：
+  * inlineBlurRadius 条件从 `el.useSeparableBlur && ...` 改为 `shouldUseSeparableBlur(el, state)`
+  * uSkipColorControls 条件从 `el.backdropFbo && el.useSeparableBlur && ...` 改为 `el.backdropFbo && shouldUseSeparableBlur(el, state)`
+  * 注释更新：说明 independent 元素现在走 wallpaper pre-blur 路径
+- bun run lint 通过
+- Agent Browser + VLM 验证（viewport 390×844）：
+  * GlassPlayground：GP square frosted blur ✓（调 blur slider 到 24dp → 强模糊 ✓），GP sheet frosted blur ✓，橙色按钮可见 ✓
+  * Buttons / Toggle / Dialog / BottomTabs / LockScreen / ControlCenter / ScrollContainer：全部正常，无 console error / page error
+  * ScrollContainer 部分出屏卡片：可见部分 blur 正确 ✓
+- 已 commit + push GitHub
+
+Stage Summary:
+- 所有 glass blur 现在统一使用 separable 2-pass Gaussian pipeline：
+  * 非独立元素（buttons, glass-shapes without independentBackdrop）：blurTexture(curTex) — blur 场景纹理
+  * 独立元素（GP square, GP sheet, independent buttons）：blurTexture(gpElementTex) — 先把 wallpaper cover-fit 渲染到 gpElementFbo，再 blur
+  * sampleWallpaper 元素（dialog card）：保持 backdropFbo 路径（renderDialogBackdrop + blur）
+  * toggle knob / indicator / SDF-texture：保持 inline shader blur（CombinedBackdrop / sampleWallpaperBlurred 无法预模糊为单一纹理）
+- shouldUseSeparableBlur() 是唯一的 blur 决策函数，替代了所有 el.useSeparableBlur 检查
+- gpElementFbo（之前分配但从未使用）现在用作 wallpaper pre-blur 的中间缓冲
+- 行为变化：independent 元素从 inline poisson-disc blur 改为 separable 2-pass Gaussian blur，blur 质量更平滑

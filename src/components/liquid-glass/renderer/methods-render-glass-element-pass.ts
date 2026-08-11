@@ -6,6 +6,7 @@ import {
 } from './methods-render-glass-element-pass-context'
 import { applyToggleKnobBackdrop } from './methods-render-glass-element-pass-toggle'
 import { applyIndicatorBackdrop } from './methods-render-glass-element-pass-indicator'
+import { shouldUseSeparableBlur } from './methods-render-glass-backdrop'
 
 declare module './index' {
   interface LiquidGlassRenderer {
@@ -167,21 +168,23 @@ export const glassElementPassMethods = {
       this.uEl['uChromaticAberration'],
       (el.chromaticAberration && this.quickToggles.chromatic) ? 1 : 0
     )
-    // Blur radius: for useSeparableBlur elements with blurRadius >= 0.5,
-    // the blur is normally applied as a separate 2-pass post-process on the
-    // scene texture (blurTexture), so the inline shader blur is disabled
-    // (uBlurRadius=0) to avoid double-blurring.
+    // Blur radius: when shouldUseSeparableBlur() is true, the backdrop was
+    // already blurred via the 2-pass Gaussian pipeline in resolveBackdropTex:
+    //   - Non-independent elements: blurTexture on curTex (scene)
+    //   - Independent elements: blurTexture on gpElementTex (wallpaper rendered
+    //     cover-fitted into gpElementFbo, with passState.independent=false so
+    //     the shader samples uBackdrop via sceneUv instead of uWallpaperSampler)
+    // In both cases, inlineBlurRadius=0 avoids double-blurring.
     //
-    // EXCEPTION: when uSampleWallpaper is active (independent backdrop or
-    // el.sampleWallpaper), the shader samples the CLEAN wallpaper texture
-    // directly via sampleBackdrop()'s wallpaper branch — the 2-pass
-    // blurTexture pipeline is SKIPPED for independent elements (they don't
-    // read curTex). So the inline shader blur (poisson-disc on the wallpaper
-    // texture) is the ONLY blur that runs. We must keep the real radius here,
-    // otherwise independent glass elements lose their backdrop blur entirely.
+    // EXCEPTION: elements whose shader samples the CLEAN wallpaper directly
+    // (el.sampleWallpaper, toggle knob CombinedBackdrop, indicator
+    // CombinedBackdrop, SDF-texture glass) keep the inline shader blur
+    // (poisson-disc on the wallpaper texture) because the 2-pass blurTexture
+    // pipeline is SKIPPED for them. shouldUseSeparableBlur() returns false for
+    // these, so inlineBlurRadius = ctx.elBlurRadius (the real radius).
     const useSampleWallpaper = el.sampleWallpaper || state.independent
     const inlineBlurRadius =
-      (el.useSeparableBlur && el.blurRadius >= 0.5 && !useSampleWallpaper)
+      shouldUseSeparableBlur(el, state)
         ? 0
         : ctx.elBlurRadius
     gl.uniform1f(this.uEl['uBlurRadius'], inlineBlurRadius * layerScale * this.dpr)
@@ -295,13 +298,14 @@ export const glassElementPassMethods = {
       gl.uniform1f(this.uEl['uUseMagnifier'], 0.0)
     }
 
-    // uSkipColorControls: when useSeparableBlur is active on a backdropFbo
-    // element, colorControls was already applied as a fullscreen pass BEFORE
-    // the 2-pass blur (in renderDialogBackdrop + renderGlassElement's blur
-    // branch), matching the original's colorControls→blur order. Skip it here.
+    // uSkipColorControls: when a backdropFbo element goes through the
+    // separable blur pipeline, colorControls was already applied as a
+    // fullscreen pass BEFORE the 2-pass blur (in renderDialogBackdrop),
+    // matching the original's colorControls→blur order. Skip it here to
+    // avoid double-applying. For inline-blur elements, apply here.
     gl.uniform1f(
       this.uEl['uSkipColorControls'],
-      (el.backdropFbo && el.useSeparableBlur && el.blurRadius >= 0.5) ? 1.0 : 0.0
+      (el.backdropFbo && shouldUseSeparableBlur(el, state)) ? 1.0 : 0.0
     )
 
     // uSampleWallpaper: when 1.0, sampleBackdrop() uses the wallpaper texture
