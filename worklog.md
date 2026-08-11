@@ -2248,3 +2248,26 @@ Stage Summary:
 - 修复：sceneRectOffset + cache key 改用未 clamp 的真实位置（sceneOffsetX/Y），
   clamp 后的 ex0/ey0Top 只用于 scissor + composite。改动 ~7 行。
 - 撤销 Task 34 错误修复。性能：部分出屏元素现在能正确 cache hit（之前被强制 miss）。
+
+---
+Task ID: 36
+Agent: main (refactor)
+Task: 拆分 1529 行的 methods-render-glass.ts，提升可维护性（不改运行时行为）
+
+Work Log:
+- 分析原文件结构：5 个职责块（几何工具 / 类型 + 模块增强 / renderGlassElement 入口 / renderGlassElementPerFbo / renderGlassShadowPass）揉在一个文件里
+- 扫描外部引用：仅 4 处（index.ts 引 glassRenderMethods、methods-render.ts 引 inflatedOutputRect、两个 pass 文件引 GlassRenderState type）
+- 新建 methods-render-glass-geometry.ts（162 行）：computeScissorMarginCss / inflatedOutputRect / shadowBboxCss / rectsOverlap + ScissorMarginToggles
+- 新建 methods-render-glass-state.ts（99 行）：GlassRenderState 接口 + LiquidGlassRenderer 模块增强（3 个方法声明）
+- 新建 methods-render-glass-shadow.ts（100 行）：renderGlassShadowPass 整体抽出
+- 新建 methods-render-glass-transform.ts（289 行）：从 renderGlassElement 开头抽出 computeElementTransform() —— 200+ 行 layerBlock 数学（button press / enter progress / toggle knob / bottom-tab container/content/indicator / arbitrary scale / independent 判定）
+- 重写 methods-render-glass.ts（969 行）：只剩 renderGlassElement + renderGlassElementPerFbo 两个方法 + re-export（保持外部 import 路径不变）
+- bun run lint 通过
+- Agent Browser 验证：页面正常加载，无 console error，Canvas 渲染器存在，HMR 多次重建成功
+
+Stage Summary:
+- methods-render-glass.ts: 1529 → 969 行（-36%）
+- 新增 4 个文件，每个单一职责，最大 289 行（transform），最小 99 行（state）
+- 行为零变化：所有逻辑逐字搬迁，仅删除已迁移代码 + 加 re-export
+- 外部 import 路径完全不变（re-export 兼容）
+- renderGlassElement 现在只剩编排逻辑（PEF 分派 + Step 1-3 + swap），transform 计算交给 computeElementTransform()
