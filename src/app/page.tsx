@@ -736,15 +736,16 @@ export default function Page() {
 
   // Home page background: faithful to the original Android app.
   // HomeContent.kt does NOT wrap content in BackdropDemoScaffold, so the
-  // Home + Settings + About use a solid background (the Activity's
-  // windowBackground) instead of the wallpaper image:
+  // Home + About use a solid background (the Activity's windowBackground)
+  // instead of the wallpaper image:
   //   - Light theme: themes.xml → @android:color/white  → #FFFFFF
   //   - Dark  theme: values-night/themes.xml → @android:color/black → #000000
-  // Other destinations (Toggle/Slider/...) DO wrap in BackdropDemoScaffold
-  // and thus show the wallpaper image — pass `null` to use the wallpaper.
+  // Settings now uses the wallpaper background so the user can SEE the blur
+  // preview (and the slider/toggle knobs) react to the ds slider + dynamic
+  // downsample toggle. Other destinations (Toggle/Slider/...) also show the
+  // wallpaper image — pass `null` to use the wallpaper.
   const useSolidBg =
     destination === CatalogDestination.Home ||
-    destination === CatalogDestination.Settings ||
     destination === CatalogDestination.About
   // useMemo to avoid creating a new array on every render — the old inline
   // [1,1,1]/[0,0,0] was a new reference each time, causing the useEffect
@@ -752,11 +753,6 @@ export default function Page() {
   // setBackgroundColor() → requestRender() unnecessarily.
   const backgroundColor: [number, number, number] | null = React.useMemo(() => {
     if (!useSolidBg) return null
-    // Settings page uses a light gray background in light mode so cards
-    // (white) stand out.  Home & About keep pure white/black.
-    if (destination === CatalogDestination.Settings) {
-      return isLightTheme ? [0.94, 0.94, 0.96] : [0, 0, 0]
-    }
     return isLightTheme ? [1, 1, 1] : [0, 0, 0]
   }, [useSolidBg, isLightTheme, destination])
 

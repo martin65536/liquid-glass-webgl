@@ -4,6 +4,7 @@ import type { GlassElementConfig, LiquidGlassRenderer } from '../renderer'
 import {
   BUTTON_HEIGHT,
   DP,
+  DEFAULT_HIGHLIGHT,
   TEXT_FONT_SIZE_PX,
   type CatalogResult,
   type CatalogState,
@@ -11,6 +12,7 @@ import {
 } from './types'
 import {
   makeBackButton,
+  makeGlassShape,
   makeLiquidSlider,
   makePlainRect,
   makeSettingsToggle,
@@ -330,8 +332,33 @@ export function buildSettings(
     elements.push(tapCapLabelEl)
     nextY += tapCapLabelH
 
+    // Dynamic blur downsample toggle — placed BEFORE the ds slider so the
+    // user picks the mode first, then adjusts the ds value/cap below.
+    //   OFF (default): all blur uses the raw effectiveDs (= blurDownsample ×
+    //     dpr). Matches the pre-dynamic OLD behavior. Most power-efficient.
+    //   ON: each blur call picks its ds based on radius — small radius →
+    //     ds=1 (full-res, crisp), large radius → high ds (fast). The ds
+    //     slider below becomes a CAP (max pow2 level) instead of a flat ds.
+    const dynDsToggle = makeSettingsToggle(
+      'settings-blur-dynamic-ds',
+      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT + ITEM_GAP },
+      t('settings_dynamic_downsample', locale),
+      state.dynamicBlurDownsample,
+      () => setState((prev) => ({ dynamicBlurDownsample: !prev.dynamicBlurDownsample })),
+      palette,
+      rendererRef,
+      true,
+      labelPad,
+    )
+    elements.push(...dynDsToggle.elements)
+    Object.assign(interactions, dynDsToggle.interactions)
+    nextY += BUTTON_HEIGHT + ITEM_GAP
+
     // Blur downsample slider — continuous: left = low quality (ds=8, fastest),
     // right = high quality (ds=1, full-res). Stepless float ds 1.0–8.0.
+    //   OFF: controls the raw effectiveDs (ALL blur uses this ds).
+    //   ON: controls the max pow2 cap (only large-radius blur is capped;
+    //     small radius always uses ds=1 for crispness, ignoring this slider).
     const dsTrackY = nextY + (24 - 6) / 2
     const dsSlider = makeLiquidSlider(
       'settings-blur-downsample',
@@ -353,9 +380,14 @@ export function buildSettings(
     Object.assign(interactions, dsSlider.interactions)
     nextY += 24 + 4
 
-    // Downsample label (hint text — lighter, interactive for press tint)
+    // Downsample label — text changes based on dynamic mode so the user
+    // knows what the slider controls in the current mode:
+    //   OFF: "降采样: X× (左=提速/低画质, 右=全画质)"
+    //   ON:  "降采样上限: X× (小半径模糊始终全分辨率)"
     const displayDs = state.liveBlurDownsample != null ? state.liveBlurDownsample : state.blurDownsample
-    const dsLabelText = `${t('settings_downsample_label', locale)}: ${displayDs.toFixed(1)}×  ${t('settings_downsample_hint', locale)}`
+    const dsLabelKey = state.dynamicBlurDownsample ? 'settings_downsample_label_dynamic' : 'settings_downsample_label'
+    const dsHintKey = state.dynamicBlurDownsample ? 'settings_downsample_hint_dynamic' : 'settings_downsample_hint'
+    const dsLabelText = `${t(dsLabelKey, locale)}: ${displayDs.toFixed(1)}×  ${t(dsHintKey, locale)}`
     const dsLabelH = 16 + CARD_PAD
     const dsLabelEl = makeText(
       'settings-blur-downsample-label',
@@ -367,27 +399,42 @@ export function buildSettings(
     elements.push(dsLabelEl)
     nextY += dsLabelH
 
-    // Dynamic blur downsample toggle — when ON, each blur call picks its ds
-    // based on the radius (small radius → low ds → crisp, large radius → high
-    // ds → fast). Full card width row like the global blur toggle above.
-    const dynDsToggle = makeSettingsToggle(
-      'settings-blur-dynamic-ds',
-      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT + ITEM_GAP },
-      t('settings_dynamic_downsample', locale),
-      state.dynamicBlurDownsample,
-      () => setState((prev) => ({ dynamicBlurDownsample: !prev.dynamicBlurDownsample })),
-      palette,
-      rendererRef,
-      true,
-      labelPad,
-    )
-    elements.push(...dynDsToggle.elements)
-    Object.assign(interactions, dynDsToggle.interactions)
-    nextY += BUTTON_HEIGHT + ITEM_GAP
-
     // Update card background height
     cardBgEl.rect.h = nextY - cardStartY
     nextY += CARD_GAP
+  }
+
+  // ====================================================================
+  // Blur preview — a glass square placed directly on the wallpaper
+  // (between cards, NOT inside a card so the wallpaper shows through).
+  // Lets the user SEE the effect of the ds slider + dynamic toggle
+  // immediately on the Settings page without navigating away.
+  //
+  // blurRadius=48dp is chosen so pickDsBlurLevel picks ds=max in ON mode
+  // (r=48 → r/6=8 → log2(8)=3 → 2^3=8), making the ds slider ALWAYS have a
+  // visible effect on this preview in both OFF and ON modes:
+  //   OFF: preview ds = effectiveDs (raw, follows slider 1:1)
+  //   ON:  preview ds = min(8, maxPow2≤effectiveDs) (follows slider cap)
+  // At ds=1 the preview is crisp; at ds=8 it's pixelated/blocky — the
+  // visual gap makes the slider's effect obvious.
+  // ====================================================================
+  {
+    const previewH = 100 * DP
+    const previewEl = makeGlassShape(
+      'settings-blur-preview',
+      { x: pad, y: nextY, w: W - 2 * pad, h: previewH },
+      {
+        cornerRadius: 20 * DP,
+        refractionHeight: 0,
+        refractionAmount: 0,
+        blurRadius: 48 * DP,
+        saturation: 1.5,
+        surfaceColor: [0, 0, 0, 0],
+        highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, alpha: 0.38 },
+      }
+    )
+    elements.push(previewEl)
+    nextY += previewH + CARD_GAP
   }
 
   // ====================================================================
