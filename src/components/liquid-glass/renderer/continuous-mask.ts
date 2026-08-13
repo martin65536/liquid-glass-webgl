@@ -24,6 +24,17 @@ import { continuousCurvatureRoundedRectPath } from './continuous-curve'
 
 const maskCache = new Map<string, { tex: Uint8Array; texSize: number }>()
 
+/* Reusable scratch buffers for generateContinuousCurvatureMask.
+ * Allocated once at module load and reused across every call — avoids
+ * ~1MB of per-call allocation (alpha + inside + outside + tex) that
+ * triggers major GC pauses during slider drags. GC pauses show up as
+ * random 10-50ms spikes in fwdPass/bwdPass/pack timings. Grows lazily
+ * if a larger texSize is requested. */
+let _alphaBuf = new Uint8Array(256 * 256)
+let _insideBuf = new Int32Array(256 * 256)
+let _outsideBuf = new Int32Array(256 * 256)
+let _texBuf = new Uint8Array(256 * 256 * 4)
+
 /* ------------------------------------------------------------------ *
  * Profiling — per-step timings for each capsule SDF generation.
  * Ring buffer of the last 32 generations. The debug layer polls
@@ -142,9 +153,16 @@ export function generateContinuousCurvatureMask(
   // avoids the floating-point special-value (NaN/Infinity) fast path in
   // the JIT, which is measurably faster for the distance transform.
   const N = texSize * texSize
-  const alpha = new Uint8Array(N)
-  const inside = new Int32Array(N)
-  const outside = new Int32Array(N)
+
+  // --- Reusable scratch buffers (module-level, see *_BUF constants above).
+  // Avoid per-call allocation of ~1MB (alpha + inside + outside + tex) which
+  // triggers major GC pauses during slider drags — GC shows up as random
+  // 10-50ms spikes in fwdPass/bwdPass/pack timings. Buffers grow lazily to
+  // the largest texSize seen; smaller requests reuse the tail.
+  if (_alphaBuf.length < N) { _alphaBuf = new Uint8Array(N); _insideBuf = new Int32Array(N); _outsideBuf = new Int32Array(N); _texBuf = new Uint8Array(N * 4); }
+  const alpha = _alphaBuf
+  const inside = _insideBuf
+  const outside = _outsideBuf
   const INF = 0x7fffffff   // max int32 (avoid 1e10 float)
   // Little-endian RGBA layout: pixel = 0xAABBGGRR, alpha = bits 24-31.
   const data32 = new Uint32Array(imageData.data.buffer)
@@ -270,8 +288,9 @@ export function generateContinuousCurvatureMask(
   // Write via Uint32Array view — one 32-bit store per pixel instead of
   // four byte stores. Little-endian: 0xAABBGGRR.
   //   A=255 (bits 24-31), B=0 (bits 16-23), G=sdf (bits 8-15), R=alpha (bits 0-7)
+  // tex buffer is reused across calls (module-level _texBuf) to avoid GC.
   const refDist = drawRadius
-  const tex = new Uint8Array(N * 4)
+  const tex = _texBuf
   const tex32 = new Uint32Array(tex.buffer)
   const ALPHA_OPAQUE = 0xff000000   // A=255, B=0
   for (let i = 0; i < N; i++) {
@@ -283,7 +302,10 @@ export function generateContinuousCurvatureMask(
 
   const t8 = performance.now()
 
-  maskCache.set(key, { tex, texSize })
+  // IMPORTANT: _texBuf is reused across calls — must snapshot a copy into
+  // the cache, otherwise the next generation would overwrite this entry.
+  const texCopy = tex.slice(0, N * 4)
+  maskCache.set(key, { tex: texCopy, texSize })
 
   // Record timing. (stepInitArrays=0: merged into stepAlphaExtract.)
   if (capsuleSdfTimings.length >= TIMING_RING_SIZE) capsuleSdfTimings.shift()
