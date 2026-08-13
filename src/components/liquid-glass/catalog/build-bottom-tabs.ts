@@ -110,6 +110,9 @@ export function buildBottomTabs(W: number, H: number, onBack: () => void, state:
     containerEl.isBottomTabContainer = { groupId: idPrefix, tabsCount }
     // Container needs the scene FBO for correct compositing with tab content.
     containerEl.independentBackdrop = false
+    // Capsule shape: container is a 64dp capsule (cornerRadius=32). When
+    // capsuleShape is on, use the G2 continuous-curvature SDF texture.
+    if (state.capsuleShape) containerEl.useContinuousSdf = true
     elements.push(containerEl)
 
     // === Layer 2: Tab content (icons + labels) ===
@@ -268,6 +271,9 @@ export function buildBottomTabs(W: number, H: number, onBack: () => void, state:
     // Indicator is decorative — no interactions. It sits on top in z-order
     // so it refracts + tints the tab content beneath, but taps fall through
     // to the tab items (which have interactions).
+    // Capsule shape: indicator is a 56dp capsule (cornerRadius=28). When
+    // capsuleShape is on, use the G2 continuous-curvature SDF texture.
+    if (state.capsuleShape) indicatorEl.useContinuousSdf = true
     elements.push(indicatorEl)
   }
 

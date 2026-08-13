@@ -2,40 +2,27 @@
 
 import * as React from 'react'
 import type { LiquidGlassRenderer } from './renderer'
-import { getCapsuleSdfTimings, type CapsuleSdfTiming } from './renderer/continuous-mask'
+import {
+  getCapsuleSdfTimings,
+  getMaskCacheEntries,
+  type CapsuleSdfTiming,
+  type MaskCacheEntry,
+} from './renderer/continuous-mask'
 
 /* ------------------------------------------------------------------ *
  * CapsuleSdfDebugOverlay
  *
  * Debug overlay for capsule SDF texture generation profiling. Shows
  * per-step timings for each generateContinuousCurvatureMask call +
- * GPU upload time (texImage2D + gl.finish).
+ * GPU upload time, plus an optional "pack images" view that renders
+ * the CPU-side RGBA cache (R=coverage, G=SDF) so you can visually
+ * inspect what each cache entry looks like.
  *
- * Toggled via URL param ?capsuleDebug=1 (not in Settings — debug only).
+ * Toggled from the Performance Monitor panel's "DEBUG OVERLAYS" section.
  *
- * Layout:
- *   ┌──────────────────────────────────────┐
- *   │ Capsule SDF Debug            [-] [x] │
- *   ├──────────────────────────────────────┤
- *   │ Pool: 3 textures   Cache hits: 12    │  pool stats
- *   │ Last gen:  8.32ms (CPU)              │  last generation summary
- *   │ Last upload: 2.15ms (GPU)            │
- *   │ Last key: 256,256,48,1               │
- *   ├──────────────────────────────────────┤
- *   │ Recent generations (newest first):   │  timing breakdown table
- *   │  #0  8.3ms  key=256,256,48  [MISS]   │
- *   │      canvas:    0.12                 │
- *   │      pathDraw:  1.05                 │
- *   │      getImage:  3.21  ← bottleneck   │
- *   │      alpha:     0.08                 │
- *   │      init:      0.15                 │
- *   │      fwdPass:   1.82                 │
- *   │      bwdPass:   1.71                 │
- *   │      pack:      0.16                 │
- *   │      upload:    2.15  (GPU)          │
- *   │  #1  0.0ms  key=256,256,46  [HIT]    │
- *   │  ...                                 │
- *   └──────────────────────────────────────┘
+ * Dragging: pointer events with setPointerCapture + touch-action:none
+ * so it works on both mouse and touch. The collapsed badge and the
+ * expanded header are both draggable.
  *
  * Polls every 200ms (decoupled from render loop).
  * ------------------------------------------------------------------ */
@@ -54,6 +41,8 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
   const [lastUploadMs, setLastUploadMs] = React.useState(0)
   const [lastKey, setLastKey] = React.useState('')
   const [collapsed, setCollapsed] = React.useState(false)
+  const [showPackImages, setShowPackImages] = React.useState(false)
+  const [maskEntries, setMaskEntries] = React.useState<MaskCacheEntry[]>([])
   const [pos, setPos] = React.useState({ x: -1, y: 120 })
 
   React.useEffect(() => {
@@ -61,21 +50,30 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
       const r = rendererRef.current
       if (!r) return
       const all = getCapsuleSdfTimings()
-      // Show only generations (skip cache hits for the table, but count them)
       setTimings(all.slice(-MAX_ROWS).reverse())
       setPoolSize(r.continuousSdfPool.size)
       setLastGenMs(r._lastCapsuleGenMs)
       setLastUploadMs(r._lastCapsuleUploadMs)
       setLastKey(r._lastCapsuleKey || '')
+      // Only read mask cache when the user wants to see pack images —
+      // avoids Array.from on every poll otherwise.
+      if (showPackImages) setMaskEntries(getMaskCacheEntries())
     }, POLL_MS)
     return () => clearInterval(id)
-  }, [rendererRef])
+  }, [rendererRef, showPackImages])
 
-  // --- Dragging ---
+  // --- Dragging (mouse + touch) ---
+  // touch-action:none on the drag handle prevents the browser from
+  // interpreting a touch drag as a page scroll / pull-to-refresh, so the
+  // pointer events reach our handlers. setPointerCapture ensures we keep
+  // receiving pointermove even if the finger leaves the handle element.
   const dragRef = React.useRef<{ sx: number; sy: number; px: number; py: number } | null>(null)
   const onPointerDown = (e: React.PointerEvent) => {
+    // Don't start a drag when the user clicks a button inside the header
+    // (the collapse "-" button). Those stop propagation on their own.
+    if ((e.target as HTMLElement).closest('button')) return
     const el = e.currentTarget as HTMLElement
-    el.setPointerCapture(e.pointerId)
+    try { el.setPointerCapture(e.pointerId) } catch { /* ignore */ }
     dragRef.current = { sx: e.clientX, sy: e.clientY, px: pos.x, py: pos.y }
   }
   const onPointerMove = (e: React.PointerEvent) => {
@@ -85,9 +83,11 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
     const newX = dragRef.current.px === -1
       ? window.innerWidth - 360 + dx  // approximate; will snap on release
       : dragRef.current.px + dx
-    setPos({ x: Math.max(0, newX), y: Math.max(0, dragRef.current.py + dy) })
+    const newY = Math.max(0, Math.min(window.innerHeight - 40, dragRef.current.py + dy))
+    setPos({ x: Math.max(0, newX), y: newY })
   }
   const onPointerUp = () => { dragRef.current = null }
+  const onPointerCancel = () => { dragRef.current = null }
 
   const left = pos.x === -1 ? undefined : pos.x
   const right = pos.x === -1 ? 8 : undefined
@@ -95,14 +95,20 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
   if (collapsed) {
     return (
       <div
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
+        onClick={() => setCollapsed(false)}
         style={{
           position: 'absolute', top: pos.y, left, right,
           background: 'rgba(0,0,0,0.85)', color: '#0f0',
           font: 'bold 12px monospace', padding: '6px 10px',
-          borderRadius: 6, zIndex: 60, cursor: 'pointer',
+          borderRadius: 6, zIndex: 60, cursor: 'grab',
           border: '1px solid #0f0',
+          touchAction: 'none',  // critical for touch drag
+          userSelect: 'none',
         }}
-        onClick={() => setCollapsed(false)}
       >
         Capsule SDF [{poolSize}] {(lastGenMs + lastUploadMs).toFixed(1)}ms
       </div>
@@ -136,23 +142,37 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
         boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
       }}
     >
-      {/* Header */}
+      {/* Header — drag handle */}
       <div
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
         style={{
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           padding: '6px 10px', background: 'rgba(0,255,0,0.15)',
-          cursor: 'move', borderBottom: '1px solid rgba(0,255,0,0.3)',
+          cursor: 'grab', borderBottom: '1px solid rgba(0,255,0,0.3)',
           fontWeight: 'bold', fontSize: 12,
+          touchAction: 'none',  // critical for touch drag
+          userSelect: 'none',
         }}
       >
         <span>Capsule SDF Debug</span>
-        <span style={{ display: 'flex', gap: 8 }}>
+        <span style={{ display: 'flex', gap: 6 }}>
           <button
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => setShowPackImages(v => !v)}
+            title="Toggle visualization of cached RGBA pack textures (R=coverage, G=SDF)"
+            style={{
+              background: showPackImages ? 'rgba(255,170,0,0.3)' : 'none',
+              border: '1px solid #0f0', color: showPackImages ? '#fa0' : '#0f0',
+              cursor: 'pointer', fontSize: 10, padding: '0 4px', borderRadius: 3,
+            }}
+          >img</button>
+          <button
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={() => setCollapsed(true)}
-            style={{ background: 'none', border: '1px solid #0f0', color: '#0f0', cursor: 'pointer', fontSize: 11, padding: '0 4px' }}
+            style={{ background: 'none', border: '1px solid #0f0', color: '#0f0', cursor: 'pointer', fontSize: 11, padding: '0 4px', borderRadius: 3 }}
           >-</button>
         </span>
       </div>
@@ -219,6 +239,88 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
           </div>
         ))}
       </div>
+
+      {/* Pack images visualization — toggled by the "img" button in the header.
+          Renders each maskCache entry as two side-by-side canvases:
+            left  = R channel (coverage, browser-native AA)
+            right = G channel (SDF, 128=gray=boundary) */}
+      {showPackImages && (
+        <div style={{ padding: '8px 10px', borderTop: '1px solid rgba(0,255,0,0.2)' }}>
+          <div style={{ color: '#888', marginBottom: 6 }}>
+            Pack images ({maskEntries.length}):
+          </div>
+          {maskEntries.length === 0 && (
+            <div style={{ color: '#666' }}>No cached textures yet.</div>
+          )}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {maskEntries.map((e, i) => (
+              <PackImage key={e.key} entry={e} index={i} />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Renders one maskCache entry as two small canvases (R + G channels). */
+function PackImage({ entry, index }: { entry: MaskCacheEntry; index: number }) {
+  const rCanvasRef = React.useRef<HTMLCanvasElement>(null)
+  const gCanvasRef = React.useRef<HTMLCanvasElement>(null)
+  const { tex, texSize, key } = entry
+
+  React.useEffect(() => {
+    // R channel = coverage (alpha-derived, already in R)
+    const rc = rCanvasRef.current
+    if (rc) {
+      rc.width = texSize; rc.height = texSize
+      const ctx = rc.getContext('2d')!
+      const img = ctx.createImageData(texSize, texSize)
+      for (let i = 0; i < texSize * texSize; i++) {
+        const v = tex[i * 4]       // R = coverage
+        img.data[i * 4] = v
+        img.data[i * 4 + 1] = v
+        img.data[i * 4 + 2] = v
+        img.data[i * 4 + 3] = 255
+      }
+      ctx.putImageData(img, 0, 0)
+    }
+    // G channel = SDF (128 = boundary)
+    const gc = gCanvasRef.current
+    if (gc) {
+      gc.width = texSize; gc.height = texSize
+      const ctx = gc.getContext('2d')!
+      const img = ctx.createImageData(texSize, texSize)
+      for (let i = 0; i < texSize * texSize; i++) {
+        const v = tex[i * 4 + 1]   // G = SDF
+        img.data[i * 4] = v
+        img.data[i * 4 + 1] = v
+        img.data[i * 4 + 2] = v
+        img.data[i * 4 + 3] = 255
+      }
+      ctx.putImageData(img, 0, 0)
+    }
+  }, [tex, texSize])
+
+  // Parse key for display: "w,h,radius,texSize"
+  const parts = key.split(',')
+  const label = parts.length >= 3 ? `${parts[0]}×${parts[1]} r${Math.round(parseFloat(parts[2]))}` : key
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+      <div style={{ display: 'flex', gap: 2 }}>
+        <canvas
+          ref={rCanvasRef}
+          title={`#${index} R (coverage) — ${key}`}
+          style={{ width: 56, height: 56, imageRendering: 'pixelated', background: '#000', border: '1px solid #080', borderRadius: 3 }}
+        />
+        <canvas
+          ref={gCanvasRef}
+          title={`#${index} G (SDF) — ${key}`}
+          style={{ width: 56, height: 56, imageRendering: 'pixelated', background: '#000', border: '1px solid #08f', borderRadius: 3 }}
+        />
+      </div>
+      <span style={{ fontSize: 9, color: '#888' }}>#{index} {label}</span>
     </div>
   )
 }

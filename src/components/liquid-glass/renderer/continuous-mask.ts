@@ -68,6 +68,20 @@ export function getCapsuleSdfTimings(): CapsuleSdfTiming[] {
   return capsuleSdfTimings
 }
 
+/** Snapshot of the CPU-side mask cache (Uint8Array RGBA), for the debug
+ *  overlay's "show pack images" feature. Returns entries in insertion
+ *  order; the overlay renders R (coverage) and G (SDF) channels. */
+export interface MaskCacheEntry {
+  key: string
+  tex: Uint8Array   // RGBA, texSize×texSize
+  texSize: number
+}
+export function getMaskCacheEntries(): MaskCacheEntry[] {
+  return Array.from(maskCache.entries()).map(([key, v]) => ({
+    key, tex: v.tex, texSize: v.texSize,
+  }))
+}
+
 /** Generate a dual-channel (coverage + SDF) texture for a continuous-curvature
  *  rounded rect. R = coverage [0,255], G = SDF [0,255] (128 = edge). */
 export function generateContinuousCurvatureMask(

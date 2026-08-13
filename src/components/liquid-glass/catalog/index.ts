@@ -78,7 +78,7 @@ export function buildCatalog(
       result = buildHome(W, onNavigate, palette, locale)
       break
     case CatalogDestination.Buttons:
-      result = buildButtons(W, H, onBack, palette)
+      result = buildButtons(W, H, onBack, state, palette)
       break
     case CatalogDestination.Toggle:
       result = buildToggle(W, H, onBack, state, setState, rendererRef, palette)
@@ -111,10 +111,10 @@ export function buildCatalog(
       result = buildProgressiveBlur(W, H, onBack, palette)
       break
     case CatalogDestination.ScrollContainer:
-      result = buildScrollContainer(W, onBack, 20, palette)
+      result = buildScrollContainer(W, onBack, 20, state, palette)
       break
     case CatalogDestination.LazyScrollContainer:
-      result = buildScrollContainer(W, onBack, 100, palette)
+      result = buildScrollContainer(W, onBack, 100, state, palette)
       break
     case CatalogDestination.Settings:
       result = buildSettings(W, H, onBack, state, setState, rendererRef, palette)

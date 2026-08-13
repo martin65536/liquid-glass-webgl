@@ -6,6 +6,7 @@ import {
   DP,
   TEXT_FONT_SIZE_PX,
   type CatalogResult,
+  type CatalogState,
   type ThemePalette,
   measureTextWidth,
 } from './types'
@@ -20,7 +21,7 @@ import { applyVerticalCenter, makeBackButton, makeButton } from './helpers'
  *   3. Tinted blue (#0088FF)
  *   4. Tinted orange (#FF8D28)
  * ------------------------------------------------------------------ */
-export function buildButtons(W: number, H: number, onBack: () => void, palette: ThemePalette): CatalogResult {
+export function buildButtons(W: number, H: number, onBack: () => void, state: CatalogState, palette: ThemePalette): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
 
@@ -69,7 +70,12 @@ export function buildButtons(W: number, H: number, onBack: () => void, palette: 
     const textW = measureTextWidth(spec.label, TEXT_FONT_SIZE_PX)
     const w = Math.ceil(textW + 2 * BUTTON_HORIZONTAL_PADDING)
     const x = (W - w) / 2
-    elements.push(makeButton(spec.id, { x, y: cursorY, w, h: BUTTON_HEIGHT }, spec))
+    const btn = makeButton(spec.id, { x, y: cursorY, w, h: BUTTON_HEIGHT }, spec)
+    // Capsule shape: buttons are capsule (cornerRadius = h/2). When the
+    // global capsuleShape toggle is on, sample the G2 continuous-curvature
+    // SDF texture instead of the default circular-arc sdRoundedRect.
+    if (state.capsuleShape) btn.useContinuousSdf = true
+    elements.push(btn)
     cursorY += BUTTON_HEIGHT + spacing
   }
   const contentHeight = cursorY - spacing

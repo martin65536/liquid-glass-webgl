@@ -217,6 +217,9 @@ export function buildToggle(
     trackOriginalY: t1TrackY,
     // No solidBackdropColor → samples wallpaper texture (LayerBackdrop case).
   }
+  // Capsule shape: knob is a 40×24dp capsule (cornerRadius=12). When
+  // capsuleShape is on, use the G2 continuous-curvature SDF texture.
+  if (state.capsuleShape) t1KnobEl.useContinuousSdf = true
   elements.push(t1KnobEl)
 
   // --- White card with toggle 2 (faithful to ToggleContent.kt) ---
@@ -307,6 +310,9 @@ export function buildToggle(
     // texture for the outer backdrop portion of the CombinedBackdrop.
     solidBackdropColor: cardBg,
   }
+  // Capsule shape: knob is a 40×24dp capsule (cornerRadius=12). When
+  // capsuleShape is on, use the G2 continuous-curvature SDF texture.
+  if (state.capsuleShape) t2KnobEl.useContinuousSdf = true
   elements.push(t2KnobEl)
 
   // --- Interactions ---
