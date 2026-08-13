@@ -569,3 +569,26 @@ Stage Summary:
 - 9fe858f 已 revert（a946278）。代码状态 = Task 44 后。
 - bottomtabs 光晕 + indicator 内 highlight 暂时无法通过 perf-monitor
   toggle 单独控制，保持原状。
+
+---
+Task ID: 46 (REVERTED — did not solve the problem)
+Agent: main
+Task: 重写 Glass Playground 页面玻璃渲染（cap zoom + 砍旋转）
+
+Work Log:
+- 改了 build-glass-playground.ts：cap gpZoom ∈ [0.5, 2.0] + 删 elementRotation
+  赋值 + 删 no-op useSeparableBlur。
+- 用户反馈「没有解决任何问题，退回」——cap zoom + 砍旋转不是真正的解法。
+- git revert 92c0df4（→ 610c9f6），代码回到 Task 44/45 后的状态。
+- 教训：问题的本质不是 zoom 上限，而是 renderer 内部 elFboRectW = sw*dpr
+  把视觉缩放和渲染像素硬绑定——只要玻璃放大，elFbo 就跟着涨。page 侧
+  cap zoom 只是回避问题（不让用户放大），没解决「放大时像素浪费」。
+  真正的解法在 renderer 侧：让 elFbo 渲染分辨率独立于视觉缩放
+  （如把 elFbo 渲染到固定 max 尺寸，composite 时按 scaleX/Y 缩放贴回），
+  或者把 blur/refraction 这种高成本 pass 从 per-fragment 改成
+  downsampled offscreen pass。这是 renderer 层面的改动，不是 page 层面。
+
+Stage Summary:
+- 92c0df4 已 revert（610c9f6）。代码状态 = Task 44/45 后。
+- Glass Playground 放大像素增长问题仍未解决，需要 renderer 层面的
+  elFbo 渲染分辨率与视觉缩放解耦（后续 task）。
