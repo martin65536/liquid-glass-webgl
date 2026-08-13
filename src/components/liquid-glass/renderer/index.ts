@@ -612,6 +612,20 @@ export class LiquidGlassRenderer {
   _lastCapsuleUploadMs = 0     // GPU: texImage2D + gl.finish() sync
   _lastCapsuleKey = ''
 
+  /** Clear the GPU-side capsule SDF texture pool + reset binding. The CPU-side
+   *  mask cache (continuous-mask.ts) must be cleared separately via
+   *  clearMaskCache(). Next render re-generates textures on demand. */
+  clearCapsuleSdfPool(): void {
+    const gl = this.gl
+    for (const { tex } of this.continuousSdfPool.values()) gl.deleteTexture(tex)
+    this.continuousSdfPool.clear()
+    this.continuousSdfTexture = null
+    this.continuousSdfKey = null
+    this._lastCapsuleGenMs = 0
+    this._lastCapsuleUploadMs = 0
+    this._lastCapsuleKey = ''
+  }
+
   // Offscreen 2D canvas for the foreground (label + chevron). Reused
   // across buttons — we re-rasterize + re-upload per button per frame.
   fgCanvas: HTMLCanvasElement

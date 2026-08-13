@@ -190,6 +190,10 @@ export function buildCatalog(
       },
       false // scroll = false (fixed at bottom)
     )
+    // Capsule shape: pick-image is a 56dp capsule (cornerRadius = h/2 = 28).
+    // When capsuleShape is on, use the G2 continuous-curvature SDF texture
+    // for smoother corners — matches the other capsule buttons.
+    if (state.capsuleShape) pickBtn.useContinuousSdf = true
     result.elements.push(pickBtn)
     result.interactions['__pickimage__'] = {
       onTap: () => onPickImage(),

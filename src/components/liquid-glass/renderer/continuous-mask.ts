@@ -82,6 +82,18 @@ export function getMaskCacheEntries(): MaskCacheEntry[] {
   }))
 }
 
+/** Clear the CPU-side mask cache AND the timing ring buffer. The GPU-side
+ *  texture pool (renderer.continuousSdfPool) is NOT cleared here — call
+ *  renderer.clearCapsuleSdfPool() for that. Provided for the debug overlay's
+ *  "clear cache" button so the user can force re-generation to measure
+ *  cold-start timings. Returns the number of entries evicted. */
+export function clearMaskCache(): number {
+  const n = maskCache.size
+  maskCache.clear()
+  capsuleSdfTimings.length = 0
+  return n
+}
+
 /** Generate a dual-channel (coverage + SDF) texture for a continuous-curvature
  *  rounded rect. R = coverage [0,255], G = SDF [0,255] (128 = edge). */
 export function generateContinuousCurvatureMask(

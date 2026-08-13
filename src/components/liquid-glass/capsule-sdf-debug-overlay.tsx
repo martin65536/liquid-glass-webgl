@@ -5,6 +5,7 @@ import type { LiquidGlassRenderer } from './renderer'
 import {
   getCapsuleSdfTimings,
   getMaskCacheEntries,
+  clearMaskCache,
   type CapsuleSdfTiming,
   type MaskCacheEntry,
 } from './renderer/continuous-mask'
@@ -161,6 +162,24 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
         <span style={{ display: 'flex', gap: 6 }}>
           <button
             onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => {
+              // Clear BOTH the CPU mask cache (Uint8Array entries) and the
+              // GPU texture pool (WebGLTextures). Next render re-generates
+              // everything on demand — useful to measure cold-start timings
+              // or to verify the SDF texture is actually being used.
+              clearMaskCache()
+              rendererRef.current?.clearCapsuleSdfPool()
+              setMaskEntries([])
+              rendererRef.current?.requestRender?.()
+            }}
+            title="Clear both CPU mask cache + GPU texture pool. Forces re-generation on next render."
+            style={{
+              background: 'rgba(255,68,68,0.2)', border: '1px solid #f44',
+              color: '#f88', cursor: 'pointer', fontSize: 10, padding: '0 4px', borderRadius: 3,
+            }}
+          >clr</button>
+          <button
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={() => setShowPackImages(v => !v)}
             title="Toggle visualization of cached RGBA pack textures (R=coverage, G=SDF)"
             style={{
@@ -270,7 +289,8 @@ function PackImage({ entry, index }: { entry: MaskCacheEntry; index: number }) {
   const { tex, texSize, key } = entry
 
   React.useEffect(() => {
-    // R channel = coverage (alpha-derived, already in R)
+    // R channel = coverage. Render as RED (R=v, G=0, B=0) so the channel
+    // identity is visually obvious — matches the "R" label.
     const rc = rCanvasRef.current
     if (rc) {
       rc.width = texSize; rc.height = texSize
@@ -278,14 +298,14 @@ function PackImage({ entry, index }: { entry: MaskCacheEntry; index: number }) {
       const img = ctx.createImageData(texSize, texSize)
       for (let i = 0; i < texSize * texSize; i++) {
         const v = tex[i * 4]       // R = coverage
-        img.data[i * 4] = v
-        img.data[i * 4 + 1] = v
-        img.data[i * 4 + 2] = v
-        img.data[i * 4 + 3] = 255
+        img.data[i * 4] = v        // R
+        img.data[i * 4 + 1] = 0    // G
+        img.data[i * 4 + 2] = 0    // B
+        img.data[i * 4 + 3] = 255  // A
       }
       ctx.putImageData(img, 0, 0)
     }
-    // G channel = SDF (128 = boundary)
+    // G channel = SDF (128 = boundary). Render as GREEN (R=0, G=v, B=0).
     const gc = gCanvasRef.current
     if (gc) {
       gc.width = texSize; gc.height = texSize
@@ -293,10 +313,10 @@ function PackImage({ entry, index }: { entry: MaskCacheEntry; index: number }) {
       const img = ctx.createImageData(texSize, texSize)
       for (let i = 0; i < texSize * texSize; i++) {
         const v = tex[i * 4 + 1]   // G = SDF
-        img.data[i * 4] = v
-        img.data[i * 4 + 1] = v
-        img.data[i * 4 + 2] = v
-        img.data[i * 4 + 3] = 255
+        img.data[i * 4] = 0        // R
+        img.data[i * 4 + 1] = v    // G
+        img.data[i * 4 + 2] = 0    // B
+        img.data[i * 4 + 3] = 255  // A
       }
       ctx.putImageData(img, 0, 0)
     }
