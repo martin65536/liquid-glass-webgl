@@ -28,12 +28,18 @@ export function generateContinuousCurvatureMask(
   radius: number,
   dpr: number = 1
 ): { tex: Uint8Array; texSize: number } {
+  // Quantize radius to 2px steps — human eye can't distinguish <2px corner
+  // radius differences, but each unique float radius forces a full distance-
+  // transform recompute (cache miss). Quantizing to 2px steps cuts cache misses
+  // ~8× during slider drag (128px range → 64 unique values vs continuous float).
+  const qRadius = Math.round(radius / 2) * 2
   // texSize: match element device-pixel size (no extra *2 oversampling — LINEAR
   // filtering in the shader provides smooth SDF interpolation, and Canvas2D
-  // coverage AA at 1:1 device-pixel ratio is already sufficient). Cap at 512
-  // to keep the chamfer distance transform fast (~3M ops vs ~12M at 1024).
-  const texSize = Math.min(512, Math.max(128, Math.round(Math.max(w, h) * dpr)))
-  const key = `${w},${h},${radius},${texSize}`
+  // coverage AA at 1:1 device-pixel ratio is already sufficient). Cap at 256
+  // (was 512) — distance transform is O(texSize²), 256 vs 384 is 2.25× faster,
+  // and LINEAR filtering interpolates the SDF smoothly enough at 256.
+  const texSize = Math.min(256, Math.max(128, Math.round(Math.max(w, h) * dpr)))
+  const key = `${w},${h},${qRadius},${texSize}`
   const cached = maskCache.get(key)
   if (cached) return { tex: cached.tex, texSize }
 
@@ -54,7 +60,7 @@ export function generateContinuousCurvatureMask(
   const offsetX = (texSize - drawW) / 2
   const offsetY = (texSize - drawH) / 2
   const scale = drawW / w
-  const drawRadius = radius * scale
+  const drawRadius = qRadius * scale
 
   // Draw the continuous-curvature path — browser does native AA on edges.
   const path = continuousCurvatureRoundedRectPath(ctx, drawW, drawH, drawRadius)
