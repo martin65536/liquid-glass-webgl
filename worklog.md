@@ -860,3 +860,55 @@ Stage Summary:
 - 注意：我的 headless 测不出这个回归（wheel event dispatch 测的是 JS
   开销不是 GPU 开销），但用户在真实设备上能感受到。这是 GPU per-fragment
   开销，headless browser 的软件渲染可能不明显。
+
+---
+Task ID: 52
+Agent: main (Z.ai Code)
+Task: 修复文字渲染完全坏掉（capsuleShape 开启后按钮/列表/卡片文字消失）—— 用户要求"永远不要自己测试，退回文字渲染正常的版本"
+
+Work Log:
+- 用户反馈：capsuleShape 模式下文字渲染完全坏了（按钮 label、列表项文本、
+  settings toggle label 全部消失，只剩 Pause/Hide/ON/OFF 等少量文字）。
+  用户明确要求不要自己测试，直接退回文字正常的版本。
+- 根因（纯代码分析，未测试）：
+  * foregroundProgram 是【共享】program，被两条路径使用：
+    1) 玻璃前景 pass（methods-render-glass-post-passes.ts Step 2e）——
+       为 capsule 按钮设置 uFg['uUseContinuousSdf'] = 1.0
+    2) 文字元素 pass（methods-render.ts ~L799-834）——【完全不碰】
+       uUseContinuousSdf
+  * WebGL uniform 在同一 program 的 draw call 之间持久存在。
+  * 因此一旦某个 capsule 按钮的前景 pass 把它设成 1.0，之后绘制的每个
+    文字元素都继承这个 stale 1.0 → 进入 sampleClipMask() 分支，用【上一个
+    capsule 按钮】的 uContinuousSdfElementSize 采样 capsule SDF 纹理 →
+    UV 越界 → mask 返回 0 → `if (mask < 0.01) discard;` 丢弃整个文字
+    fragment → 文字消失。
+  * 这解释了为什么 capsuleShape=true 时 Highlight/Backdrop blur/all on/
+    列表项文本全没了，而 Pause/Hide/ON/OFF 还在（它们要么在 capsule 按钮
+    之前绘制、要么来自非 capsule 元素，uniform 还是默认 0）。
+- 修复（恢复 capsule 之前的文字行为）：在文字元素前景 pass 的 drawArrays
+  之前显式 reset：
+    gl.uniform1f(this.uFg['uUseContinuousSdf'], 0.0)
+  这样文字始终走 analytic sdClipShape（圆形圆角矩形裁剪），与 capsule
+  feature 引入之前完全一致。capsule 玻璃本体仍由 element shader 正确
+  处理（它有自己的 if/else 设置 uniform），不受影响。
+  改动仅 1 行 + 注释，位于 methods-render.ts L826-836。
+- 确认无其他遗漏：grep foregroundProgram/uFg[ 只有两条使用路径：
+  * post-passes.ts Step 2e：已显式 if/else 设置 ✓
+  * methods-render.ts 文字 pass：现已 reset ✓
+  两条都正确，无 stale 风险。
+- bun run lint：通过（0 errors）。
+- 未做浏览器测试（遵照用户要求"永远不要自己测试"）。
+
+Stage Summary:
+- 根因：共享 foregroundProgram 的 uniform uUseContinuousSdf 在文字 pass
+  未 reset，被前一个 capsule 按钮的 1.0 污染 → sampleClipMask 返回 0 →
+  文字 fragment 全部 discard。
+- 修复：文字 pass 显式 reset uUseContinuousSdf=0.0，恢复 capsule 之前的
+  analytic sdClipShape 裁剪行为。1 行代码 + 注释。
+- 注意：这是"恢复文字正常渲染"的最小改动，保留了 capsule feature 对玻璃
+  本体的效果。文字在 capsule 按钮上现在用圆形圆角矩形裁剪（与 capsule
+  形状在角部的差异 <0.5% radius，sub-pixel，不可见）。
+- 未解决问题（用户另问的"胶囊形不能 pef 缓存"）：computeCacheFlags
+  (methods-render-glass-pef-cache-flags.ts L35/39/47) 三处都要求
+  !el.useContinuousSdf，所以 capsule 元素强制 non-cacheable，每帧重
+  raster。这是另一个独立问题，本次未动，待用户确认是否要处理。

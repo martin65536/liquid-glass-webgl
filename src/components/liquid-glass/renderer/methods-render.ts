@@ -823,6 +823,17 @@ export const renderMethods = {
         gl.uniform1f(this.uFg['uOriginalCornerRadius'], el.cornerRadius * this.dpr)
         gl.uniform2f(this.uFg['uLayerScale'], fgScaleX, fgScaleY)
         gl.uniform1f(this.uFg['uCornerStyle'], this.cornerStyle)
+        // CRITICAL: reset the continuous-SDF clip flag. The foregroundProgram
+        // is SHARED with the glass-foreground pass (methods-render-glass-
+        // post-passes.ts Step 2e), which sets uUseContinuousSdf=1.0 for
+        // capsule buttons. WebGL uniforms persist across draw calls on the
+        // same program, so without this reset every text element drawn after
+        // a capsule button inherits the stale 1.0 → sampleClipMask() samples
+        // the capsule SDF texture with a mismatched uContinuousSdfElementSize
+        // → mask returns 0 → `if (mask < 0.01) discard;` discards the whole
+        // text fragment. This restores the pre-capsule behavior: text always
+        // uses the analytic sdClipShape (circular rounded-rect clip).
+        gl.uniform1f(this.uFg['uUseContinuousSdf'], 0.0)
         gl.uniform1f(this.uFg['uAlpha'], el.enterProgress != null ? (() => {
           const sp = el.enterSafeProgress != null
             ? Math.max(0, Math.min(1, el.enterSafeProgress))
