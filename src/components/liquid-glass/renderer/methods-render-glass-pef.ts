@@ -146,13 +146,30 @@ export function renderGlassElementPerFbo(
     }
   }
 
-  // --- Step 4: Composite renderTex → curFbo at the elFbo rect (SrcOver) ---
-  // Scissor to the tight elFbo rect (not the shadow bbox): the tex is
-  // transparent outside the glass shape, so a wider scissor wastes blends.
+  // --- Step 4: Composite renderTex → curFbo at the element's rotated rect (SrcOver) ---
+  // The elFbo is at baseline resolution; composite applies rotation + zoom.
+  // Scissor to the ROTATED AABB of the SCALED element (covers all non-transparent
+  // pixels regardless of rotation angle).
+  const rot = el.elementRotation ?? 0
+  const rotCos = Math.abs(Math.cos(rot))
+  const rotSin = Math.abs(Math.sin(rot))
+  const rotAabbW = computed.sw * rotCos + computed.sh * rotSin  // CSS px
+  const rotAabbH = computed.sw * rotSin + computed.sh * rotCos
+  const elemCx = computed.sx + computed.sw / 2  // element center (CSS px, top-left origin)
+  const elemCy = computed.sy + computed.sh / 2
+  const scX = Math.max(0, Math.round((elemCx - rotAabbW / 2) * this.dpr))
+  const scY = Math.max(0, Math.round((this.cssHeight - (elemCy + rotAabbH / 2)) * this.dpr))
+  const scW = Math.min(this.fboW - scX, Math.round(rotAabbW * this.dpr))
+  const scH = Math.min(this.fboH - scY, Math.round(rotAabbH * this.dpr))
   this.bindFBO(curFbo)
   gl.enable(gl.SCISSOR_TEST)
-  gl.scissor(geom.scissorX, geom.elFboScissorY, geom.scissorW, geom.scissorH)
-  this.drawElFboComposite(cache.renderTex, cache.elFboW, cache.elFboH, geom.ex0, geom.ey0Top, geom.elFboRectW, geom.elFboRectH)
+  gl.scissor(scX, scY, scW, scH)
+  this.drawElFboComposite(
+    cache.renderTex, cache.elFboW, cache.elFboH,
+    elemCx * this.dpr, elemCy * this.dpr,  // element center (device px, top-left origin)
+    computed.sw * this.dpr, computed.sh * this.dpr,  // SCALED element size (device px)
+    rot
+  )
 
   // --- Step 5: Post passes → curFbo (scissor back to shadow bbox) ---
   // Post passes are NOT cached — drawn directly onto curFbo every frame on

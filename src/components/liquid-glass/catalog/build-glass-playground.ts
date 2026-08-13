@@ -58,9 +58,12 @@ export function buildGlassPlayground(W: number, H: number, onBack: () => void, s
   // dark theme (Material3 default). We mirror that here.
   const labelColor = palette.backIconColor
 
-  // Glass square (256dp, corner radius from slider) — draggable + transformable
+  // Glass square (256dp BASELINE, corner radius from slider) — draggable +
+  // pinch-zoom + rotate. Zoom goes through elementScaleX/Y (NOT rect.w) so
+  // the renderer's elFbo stays at baseline resolution regardless of zoom.
+  // Rotation goes through elementRotation, handled at composite time.
   const baseSize = 256 * DP
-  const squareSize = baseSize * state.gpZoom
+  const squareSize = baseSize  // FIXED baseline — elFbo ∝ this, not zoom
   const squareX = (W - squareSize) / 2 + state.gpOffsetX
   const squareY = 0 + state.gpOffsetY
   const cornerRadius = (squareSize / 2) * state.cornerRadiusFrac
@@ -80,9 +83,11 @@ export function buildGlassPlayground(W: number, H: number, onBack: () => void, s
       chromaticAberration: state.chromaticAberration > 0,
     }
   )
-  // Apply rotation (radians) — the renderer reads elementRotation to rotate
-  // the SDF + refraction sampling. Faithful to graphicsLayer { rotationZ }.
-  ;(gpSquare as GlassElementConfig & { elementRotation?: number }).elementRotation = state.gpRotation
+  // Zoom via elementScale (visual scale, elFbo stays baseline), rotation via
+  // elementRotation (handled at composite, elFbo contains un-rotated glass).
+  gpSquare.elementScaleX = state.gpZoom
+  gpSquare.elementScaleY = state.gpZoom
+  gpSquare.elementRotation = state.gpRotation
   gpSquare.isInteractive = true
   gpSquare.scroll = false
   // Use separable 2-pass blur: element pass renders to a dedicated FBO (clear

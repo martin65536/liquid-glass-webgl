@@ -28,12 +28,16 @@ declare module './index' {
       blurRadius: number
     ): WebGLTexture
     /** Composite the per-element FBO texture (elFboTex) onto the currently-bound
-     *  (fullscreen) scene FBO at dstRect (top-left origin, device px). Uses
-     *  SrcOver alpha blending. Caller should set scissor to dstRect for safety. */
+     *  (fullscreen) scene FBO at the element's SCALED + ROTATED on-screen
+     *  position. The elFbo contains un-rotated glass at baseline resolution;
+     *  this shader applies rotation + zoom + translation. Caller should set
+     *  scissor to the rotated AABB of the scaled element. */
     drawElFboComposite(
       srcTex: WebGLTexture,
       srcW: number, srcH: number,
-      dstX: number, dstY: number, dstW: number, dstH: number
+      elementCenterX: number, elementCenterY: number,
+      elementW: number, elementH: number,
+      rotation: number
     ): void
   }
 }
@@ -385,13 +389,19 @@ export const fboMethods = {
   },
 
   /** Composite the per-element FBO texture onto the currently-bound (fullscreen)
-   *  scene FBO at dstRect (top-left origin, device px). SrcOver alpha blending.
-   *  Caller should set scissor to dstRect + have blending enabled. */
+   *  scene FBO at the element's SCALED + ROTATED on-screen position. The elFbo
+   *  contains un-rotated glass at baseline resolution; this shader applies
+   *  rotation + zoom + translation to place it on screen.
+   *
+   *  Caller should set scissor to the rotated AABB of the scaled element
+   *  (sw*|cos|+sh*|sin| × sw*|sin|+sh*|cos|) + have blending enabled. */
   drawElFboComposite(
     this: LiquidGlassRenderer,
     srcTex: WebGLTexture,
     srcW: number, srcH: number,
-    dstX: number, dstY: number, dstW: number, dstH: number
+    elementCenterX: number, elementCenterY: number,
+    elementW: number, elementH: number,
+    rotation: number
   ): void {
     const gl = this.gl
     gl.useProgram(this.elFboCompositeProgram)
@@ -402,19 +412,11 @@ export const fboMethods = {
     gl.bindTexture(gl.TEXTURE_2D, srcTex)
     gl.uniform1i(this.uEf['uTexture'], 0)
     gl.uniform2f(this.uEf['uCanvasSize'], this.fboW, this.fboH)
-    gl.uniform4f(this.uEf['uDstRect'], dstX, dstY, dstW, dstH)
+    gl.uniform2f(this.uEf['uElementCenter'], elementCenterX, elementCenterY)
+    gl.uniform2f(this.uEf['uElementSize'], elementW, elementH)
+    gl.uniform1f(this.uEf['uRotation'], rotation)
     gl.uniform2f(this.uEf['uSrcSize'], srcW, srcH)
     gl.enable(gl.BLEND)
-    // glBlendFuncSeparate: correct SrcOver on the alpha channel (ONE instead
-    // of SRC_ALPHA for the src alpha factor) so curFbo's alpha stays at 1.0
-    // when translucent glass (alpha<1) composites onto it. With plain
-    // glBlendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA), the alpha channel would
-    // square (out.a = src.a² + dst.a*(1-src.a)), decaying curFbo.alpha below
-    // 1. Subsequent glass elements sampling curTex would then see backdrop.a<1,
-    // making their own shader output alpha<1 → cascading darkening.
-    // RGB is unchanged (SRC_ALPHA, ONE_MINUS_SRC_ALPHA = standard SrcOver).
-    // This mirrors the plain-rect pass (renderNonGlassElement) which already
-    // uses glBlendFuncSeparate for the same reason.
     gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
     gl.drawArrays(gl.TRIANGLES, 0, 6)
   },

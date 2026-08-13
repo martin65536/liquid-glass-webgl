@@ -42,52 +42,48 @@ ${COVER_GLSL}
 ${utilsGlsl}
 
 void main() {
-    // gl_FragCoord origin is bottom-left in WebGL; flip to top-left.
-    // Per-element FBO path: gl_FragCoord ranges over the small element FBO
-    // (size uElFboSize), so we offset by uSceneRectOffset to reconstruct the
-    // full-canvas top-left-origin coordinate the rest of the shader expects.
+    // --- Coordinate reconstruction ---
+    // Two paths: PEF (elFbo at BASELINE resolution) vs ping-pong (fullscreen).
+    //
+    // PEF path: elFbo is at baseline (origW*dpr + pad), NOT scaled by zoom.
+    // gl_FragCoord ranges over [0, uElFboSize]. We compute:
+    //   1. centeredOrigRot — un-rotated original-space coord (for SDF)
+    //   2. screenCoord — rotated+scaled canvas position (for backdrop sampling)
+    // The elFbo contains UN-ROTATED glass; rotation is applied at composite.
+    // Backdrop sampling still needs the correct (rotated) screen position.
+    //
+    // Ping-pong path: fullscreen, rotation baked in shader (legacy).
     vec2 screenCoord;
+    vec2 centeredOrigRot;  // un-rotated original-space coord for SDF
+    vec2 elementCenter = uElementOffset + uElementSize * 0.5;
+    vec2 layerScale = max(uLayerScale, vec2(1e-4));
+    float rot = uElementRotation;
+
     if (uUsePerElementFbo > 0.5) {
-        screenCoord = uSceneRectOffset + vec2(gl_FragCoord.x, uElFboSize.y - gl_FragCoord.y);
+        // elFbo fragment → centered local coord (Y-down, elFbo px)
+        vec2 fboCenter = uElFboSize * 0.5;
+        vec2 localUp = gl_FragCoord.xy - fboCenter;  // Y-up (gl_FragCoord BL origin)
+        vec2 localDown = vec2(localUp.x, -localUp.y);  // Y-down (top-left origin)
+        // Scale elFbo px → original px (accounts for AA pad: elFbo > origSize)
+        vec2 origScale = uOriginalSize / uElFboSize;
+        centeredOrigRot = localDown * origScale;  // un-rotated original space
+        // Map to screen: rotate by +rot, scale by layerScale, translate to center
+        screenCoord = elementCenter + rotateBy(centeredOrigRot, rot) * layerScale;
     } else {
+        // Ping-pong: fullscreen, rotation in shader (legacy path)
         screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
+        vec2 centeredScreen = screenCoord - elementCenter;
+        vec2 centeredOrig = centeredScreen / layerScale;
+        centeredOrigRot = rotateBy(centeredOrig, -rot);
     }
+
     // Content scale (non-uniform): when < 1.0, compress the backdrop UV toward
-    // the element center. Faithful to LiquidToggle.kt / LiquidSlider.kt:
-    //   scale(scaleX, scaleY) { drawBackdrop() }
-    // At rest (progress=0), Y scale = 0 → degenerate (single horizontal line),
-    // but the white overlay hides it. When pressed, scales to full.
+    // the element center. Faithful to LiquidToggle.kt / LiquidSlider.kt.
     vec2 contentScale = vec2(uContentScaleX, uContentScaleY);
     vec2 sampleCoord = screenCoord;
     if (uContentScaleX < 0.999 || uContentScaleY < 0.999) {
-        vec2 elementCenter = uElementOffset + uElementSize * 0.5;
         sampleCoord = elementCenter + (screenCoord - elementCenter) * contentScale;
     }
-
-    // --- ORIGINAL-SPACE SDF (faithful to graphicsLayer { scaleX, scaleY }) ---
-    // The original applies the refraction shader at the ORIGINAL element size,
-    // THEN scales the entire rendered layer by (scaleX, scaleY). To replicate
-    // this in a single-pass shader, we:
-    //   1. Compute the centered coord in SCREEN space (relative to element center)
-    //   2. Divide by uLayerScale to map back to ORIGINAL space
-    //   3. Compute SDF/refraction in ORIGINAL space (shape is correct, not stretched)
-    //   4. Map the refraction offset back to SCREEN space for backdrop sampling
-    //      (offset_screen = offset_orig * uLayerScale)
-    //
-    // elementCenter is the SAME for scaled and original rects (scaling is around
-    // the center), so uElementOffset + uElementSize*0.5 gives the correct center.
-    vec2 elementCenter = uElementOffset + uElementSize * 0.5;
-    vec2 centeredScreen = screenCoord - elementCenter;
-    // Map to original space (guard against divide-by-zero).
-    vec2 layerScale = max(uLayerScale, vec2(1e-4));
-    vec2 centeredOrig = centeredScreen / layerScale;
-    // Apply element rotation (graphicsLayer rotationZ). Un-rotate the sample
-    // coord into the element's local space so the SDF shape appears rotated
-    // by +rotation. The layer is rotated AFTER shading, so we shade in local
-    // (un-rotated) space. Refraction offsets computed in local space are
-    // rotated BACK to screen space (by +rotation) before sampling the backdrop.
-    float rot = uElementRotation;
-    vec2 centeredOrigRot = rotateBy(centeredOrig, -rot);
 
     vec2 origHalfSize = uOriginalSize * 0.5;
     float origRadius = uOriginalCornerRadius;

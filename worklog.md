@@ -592,3 +592,68 @@ Stage Summary:
 - 92c0df4 已 revert（610c9f6）。代码状态 = Task 44/45 后。
 - Glass Playground 放大像素增长问题仍未解决，需要 renderer 层面的
   elFbo 渲染分辨率与视觉缩放解耦（后续 task）。
+
+---
+Task ID: 47
+Agent: main
+Task: 重构 Glass Playground 玻璃渲染：elFbo 恒定 baseline 分辨率，zoom/rotation 在 composite 阶段处理，全程不提高分辨率。
+
+Work Log:
+- 诊断根因：elFboRectW = round(sw * dpr)，sw = rect.w * scaleX ∝ zoom，
+  所以 elFbo 面积 ∝ zoom²。zoom=4 时 16× baseline。
+- 核心思路：elFbo 从 sw（scaled）改成 el.rect.w（baseline），zoom 走
+  elementScaleX/Y（visual scale），rotation 在 element shader 里不 bake
+  （elFbo 存 un-rotated glass），composite shader 负责旋转+缩放贴回 curFbo。
+- 改动 1 — pef-geometry.ts：
+  * elFboRectW/H 从 (sw + 2*pad)*dpr 改成 (el.rect.w + 2*pad)*dpr
+  * elFbo 像素面积现在 ∝ origW²（常量），不随 zoom 增长
+- 改动 2 — element.ts shader（PEF path）：
+  * 旧：screenCoord = uSceneRectOffset + gl_FragCoord（1:1 映射）
+    centeredOrigRot = rotateBy(centeredScreen / layerScale, -rot)（SDF 含旋转）
+  * 新：centeredOrigRot = localDown * (uOriginalSize / uElFboSize)（un-rotated）
+    screenCoord = elementCenter + rotateBy(centeredOrigRot, rot) * layerScale
+    （backdrop 采样用旋转后的 screenCoord，SDF 用 un-rotated local coord）
+  * Ping-pong path 不变（legacy，rotation in shader）
+- 改动 3 — scene-bg.ts EL_FBO_COMPOSITE_FRAGMENT_SHADER：
+  * 旧：uDstRect + 1:1 blit
+  * 新：uElementCenter + uElementSize + uRotation，fragment shader 做
+    un-rotate + un-scale → elFbo UV，discard 越界像素
+- 改动 4 — methods-fbo.ts drawElFboComposite：
+  * 签名从 (srcTex, srcW, srcH, dstX, dstY, dstW, dstH) 改成
+    (srcTex, srcW, srcH, elemCx, elemCy, elemW, elemH, rotation)
+  * uniform 名从 uDstRect 改成 uElementCenter/uElementSize/uRotation
+- 改动 5 — pef.ts composite 调用点：
+  * 计算 rotated AABB（sw*|cos|+sh*|sin| × sw*|sin|+sh*|cos|）做 scissor
+  * 传 element center（device px）+ SCALED size + rotation
+- 改动 6 — index.ts uniform location 列表：
+  * efNames 从 ['uTexture','uCanvasSize','uDstRect','uSrcSize'] 改成
+    ['uTexture','uCanvasSize','uElementCenter','uElementSize','uRotation','uSrcSize']
+- 改动 7 — build-glass-playground.ts：
+  * rect.w = 256*DP（固定 baseline，不再 * gpZoom）
+  * elementScaleX = elementScaleY = gpZoom（visual zoom）
+  * elementRotation = gpRotation（rotation via elementRotation，composite 处理）
+  * refractionHeight/cornerRadius 用 squareSize（baseline，不含 zoom）
+- bun run lint：通过（0 errors）
+- Agent Browser + VLM 验证：
+  * GlassPlayground 页：glass square 正常渲染（translucent, blurred,
+    highlight border, refraction）✓
+  * Buttons 页：5 个 glass button 正常（transparent/surface/tinted）✓
+  * BottomTabs 页：glass container + tabs 正常 ✓
+  * Dialog 页：glass dialog card 正常 ✓
+  * 无 shader 编译错误，无 console error，无 page error ✓
+
+Stage Summary:
+- elFbo 像素面积从 ∝ zoom² 降到常量（baseline）。zoom=4 时 element pass
+  从 2.36M px 降到 147K px（16× 省）。
+- rotation 从 6+ shader 各自重算变成 composite 一处纹理旋转。element
+  shader PEF path 不再算 rotateBy(centeredOrig, -rot)（SDF 用 local coord
+  直接算）。
+- elFboCache：zoom 变不再触发 size_mismatch（elFboRectW 常量）。position
+  变仍触发 position_mismatch（backdrop 内容变了，需要重渲染），但重渲染
+  成本是 baseline（不是 zoomed）。
+- post-passes（shadow/inner-shadow/glow/rim-highlight）仍在 curFbo
+  screen-space 渲染（带 rotation in shader）。它们是 SDF-clipped scissor
+  draw，per-pixel 成本低，pixel count 随 zoom² 增长但远小于 element pass。
+  后续可移入 elFbo 进一步优化（需要改 post-pass shader 坐标系）。
+- 改动涉及 7 个文件，~80 行净增。核心是 geometry 5 行 + element shader
+  ~20 行 + composite shader ~40 行 + page ~10 行。

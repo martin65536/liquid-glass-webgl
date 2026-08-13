@@ -83,10 +83,17 @@ export function computeElFboGeometry(
   )
   const bboxScissorY = Math.max(0, this.fboH - by0Top - bboxH)
 
-  // elFbo rect SIZE from local geometry (stable under scroll).
-  const elFboRectW = Math.max(1, Math.round((sw + 2 * elFboMarginCss) * this.dpr))
-  const elFboRectH = Math.max(1, Math.round((sh + 2 * elFboMarginCss) * this.dpr))
+  // elFbo rect SIZE from BASELINE (origW/origH = el.rect.w/h), NOT sw/sh.
+  // This decouples elFbo pixel count from visual scale (zoom). elFbo area
+  // is now ∝ origW² (constant), not ∝ sw² (∝ zoom²). The composite pass
+  // scales+rotates the baseline elFbo texture to the on-screen rect.
+  // AA pad (elFboMarginCss) is included — it does NOT scale with zoom.
+  const elFboRectW = Math.max(1, Math.round((el.rect.w + 2 * elFboMarginCss) * this.dpr))
+  const elFboRectH = Math.max(1, Math.round((el.rect.h + 2 * elFboMarginCss) * this.dpr))
   // POSITION (raw, unclamped) — used for composite destination + scene offset.
+  // NOTE: with baseline elFbo, the elFbo is centered on the element center
+  // (not the elFbo rect's top-left). The composite shader uses elementCenter,
+  // not ex0/ey0Top, for placement. ex0/ey0Top is kept for cache key + debug.
   const rawEx0 = Math.round((sx - elFboMarginCss) * this.dpr)
   const rawEy0Top = Math.round((sy - elFboMarginCss) * this.dpr)
   const ex0 = rawEx0

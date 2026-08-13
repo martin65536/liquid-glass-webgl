@@ -928,7 +928,7 @@ export class LiquidGlassRenderer {
     for (const n of ccNames) this.uCc[n] = gl.getUniformLocation(this.colorControlsProgram, n)
     const stNames = ['uTexture', 'uCanvasSize', 'uTintColor']
     for (const n of stNames) this.uSt[n] = gl.getUniformLocation(this.sceneTintProgram, n)
-    const efNames = ['uTexture', 'uCanvasSize', 'uDstRect', 'uSrcSize']
+    const efNames = ['uTexture', 'uCanvasSize', 'uElementCenter', 'uElementSize', 'uRotation', 'uSrcSize']
     for (const n of efNames) this.uEf[n] = gl.getUniformLocation(this.elFboCompositeProgram, n)
     const ecNames = ['uTexture', 'uSrcOffset', 'uSrcSize', 'uDstSize']
     for (const n of ecNames) this.uEc[n] = gl.getUniformLocation(this.elFboCropProgram, n)

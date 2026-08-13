@@ -106,47 +106,61 @@ void main() {
 `
 
 /* ------------------------------------------------------------------ *
- * EL_FBO_COMPOSITE_FRAGMENT_SHADER — draw a small per-element FBO texture
- * into a rectangular region of the (fullscreen) scene FBO. Used by the
- * per-element FBO optimization to composite an element's rendered glass body
- * back onto the accumulation target (curFbo) at the element's bbox position.
+ * EL_FBO_COMPOSITE_FRAGMENT_SHADER — composite a baseline-resolution elFbo
+ * texture onto the fullscreen scene FBO at the element's SCALED + ROTATED
+ * on-screen position.
  *
- * The source texture is the element FBO (size uSrcSize, in device px). The
- * destination rectangle is uDstRect = (x, y, w, h) in device px, top-left
- * origin, where the element sits in the scene. Only pixels inside uDstRect
- * are written (caller also sets scissor to uDstRect for safety).
+ * The elFbo contains UN-ROTATED glass at baseline (origW*dpr + pad) resolution.
+ * This shader maps each destination fragment back to the elFbo source UV by:
+ *   1. Compute fragment's offset from element center (screen space, Y-down)
+ *   2. Un-rotate by -uRotation → local screen-space offset
+ *   3. Un-scale by uSrcSize/uElementSize → elFbo-space offset (baseline px)
+ *   4. Discard if outside elFbo bounds
+ *   5. Map to UV (Y-flip: elFbo texture is bottom-left origin)
  *
- * UV mapping: gl_FragCoord is in device px of the bound (fullscreen) FBO.
- *   - If gl_FragCoord is outside uDstRect, discard.
- *   - Otherwise map to source UV: (gl_FragCoord - dstOrigin) / uSrcSize,
- *     with Y flipped because WebGL framebuffer origin is bottom-left while
- *     the element FBO was rendered in the same bottom-left convention, so
- *     no flip is needed — the source texel row aligns directly. Actually
- *     both FBOs use gl_FragCoord bottom-left origin, so the source row y
- *     maps as (dstTopInBl - gl_FragCoord.y ... ) — handled below.
+ * Uniforms:
+ *   uElementCenter — element center in canvas px (top-left origin, device px)
+ *   uElementSize   — SCALED element size (sw*dpr, sh*dpr) — for scale ratio
+ *   uRotation      — element rotation in radians
+ *   uSrcSize       — elFbo texture size (baseline, device px)
  * ------------------------------------------------------------------ */
 export const EL_FBO_COMPOSITE_FRAGMENT_SHADER = /* glsl */ `
 precision highp float;
 
 uniform sampler2D uTexture;
-uniform vec2 uCanvasSize;   // bound FBO size in device px
-uniform vec4 uDstRect;      // (x, y, w, h) top-left origin, device px
-uniform vec2 uSrcSize;      // source texture size in device px
+uniform vec2 uCanvasSize;     // bound FBO size in device px
+uniform vec2 uElementCenter;  // element center (top-left origin, device px)
+uniform vec2 uElementSize;    // SCALED element size (device px)
+uniform float uRotation;      // element rotation in radians
+uniform vec2 uSrcSize;        // elFbo texture size (baseline, device px)
+
+// rotateBy — standard 2D rotation (counter-clockwise, math convention).
+// Used consistently in Y-down (top-left origin) space — the Y-flip cancels
+// because both element shader and composite use the same convention.
+vec2 rotateBy(vec2 v, float angle) {
+    float c = cos(angle);
+    float s = sin(angle);
+    return vec2(v.x * c - v.y * s, v.x * s + v.y * c);
+}
 
 void main() {
-    // gl_FragCoord: bottom-left origin, device px of the bound FBO.
-    // Convert to top-left origin to compare with uDstRect.
+    // gl_FragCoord: bottom-left origin. Convert to top-left origin (Y-down).
     vec2 fragTopLeft = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
-    if (fragTopLeft.x < uDstRect.x || fragTopLeft.x >= uDstRect.x + uDstRect.z ||
-        fragTopLeft.y < uDstRect.y || fragTopLeft.y >= uDstRect.y + uDstRect.w) {
-        discard;
-    }
-    // Map to source UV. Source texture was rendered with gl_FragCoord (bottom-left).
-    // The destination top-left corner corresponds to source top-left.
-    // Source uv: x = localX / srcW, y = 1 - localY/srcH (flip Y since texture
-    // rows are bottom-up but our localY is top-down from dstRect.y).
-    vec2 local = fragTopLeft - uDstRect.xy;
-    vec2 uv = vec2(local.x / uSrcSize.x, 1.0 - local.y / uSrcSize.y);
+    // Offset from element center (Y-down, screen px)
+    vec2 centered = fragTopLeft - uElementCenter;
+    // Un-rotate: screen → local (undo the element's rotation)
+    vec2 localCentered = rotateBy(centered, -uRotation);
+    // Un-scale: screen px → elFbo px (baseline). Ratio = srcSize / elementSize.
+    vec2 srcCentered = localCentered * uSrcSize / uElementSize;
+    // Bounds check: discard if outside elFbo
+    vec2 halfSrc = uSrcSize * 0.5;
+    if (abs(srcCentered.x) > halfSrc.x || abs(srcCentered.y) > halfSrc.y) discard;
+    // Map to UV. elFbo texture: UV (0,0) = gl_FragCoord (0,0) = bottom-left.
+    // srcCentered is Y-down (top-left origin). Flip Y for texture UV.
+    vec2 uv = vec2(
+        (srcCentered.x + halfSrc.x) / uSrcSize.x,
+        (halfSrc.y - srcCentered.y) / uSrcSize.y
+    );
     gl_FragColor = texture2D(uTexture, uv);
 }
 `
