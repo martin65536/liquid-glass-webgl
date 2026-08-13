@@ -770,3 +770,43 @@ Stage Summary:
   build-glass-playground.ts）。
 - 改动涉及 4 个文件，~92 行净增。核心是 geometry 15 行 + pef 15 行 +
   page 30 行 + build-gp 5 行。
+
+---
+Task ID: 50
+Agent: main
+Task: 回退不必要的全局改动（GP state localStorage 持久化），修复 composite scissor 过大
+
+Work Log:
+- 用户反馈：scrollcontainers + Settings 页卡顿，且明确说不是 localStorage 问题。
+  质疑：只改 GP 为什么要改全局？
+- 调查：
+  * git stash + checkout 28b54cc（pre-fd3dcbd renderer files）测 Home scroll FPS = 17fps
+  * restore current → Home scroll FPS = 21fps
+  * 结论：Home scroll 本来就 ~17-21fps（不是我的改动导致的回归），但我的改动
+    没有改善它，而且 composite scissor 从 tight (sw×sh) 变成 wide
+    (sw+2*margin × sh+2*margin) 确实增加了 fragment eval（虽然 discard）。
+- 修复 1（composite scissor 收紧）：
+  * 旧：composite 用 rotScX/Y/W/H（含 shadow margin 的 rotated AABB）
+  * 新：composite 用 compScX/Y/W/H（TIGHT rotated AABB，只 sw×sh，无 margin）
+    — composite shader 本来就 discard elFbo bounds 外的像素，tight scissor
+    避免 eval 那些必然 discard 的 margin 区域。shadow + post-passes 仍用
+    wide scissor（它们需要 margin 区域来画 shadow/highlight）。
+  * 对 un-rotated 元素（Settings/Home 所有元素）：compAabbW = sw，
+    scissor = (sx, sy, sw, sh) — 与重构前完全一致。
+- 修复 2（回退 GP state localStorage 持久化）：
+  * 用户明确说不是 localStorage 问题，且 GP state 持久化是 scope creep。
+  * 回退 loadPersistedSettings 里的 gpZoom/gpRotation/gpOffsetX/Y 读取
+  * 回退 setState 里的 GP state 写入逻辑 + debounce refs
+  * page.tsx 的 setState 回到 Task 48 之前的逻辑（只 persist Settings 字段）
+- bun run lint：通过（0 errors）
+- Agent Browser 验证：
+  * Home 页 scroll FPS：21fps（与 baseline 17fps 相当，无回归）
+  * Settings 页：正常渲染
+  * GP 页：glass 正常渲染，capsule + rotation + shadow + highlight 都正常
+  * 无 console error / page error
+
+Stage Summary:
+- composite scissor 从 wide (sw+2*margin) 收紧到 tight (sw×sh)，避免 eval
+  必然 discard 的 margin 区域。un-rotated 元素与重构前完全一致。
+- 回退 GP state localStorage 持久化（scope creep，用户明确不需要）。
+- Home scroll FPS ~17-21fps 是 baseline 性能（不是我的改动导致的回归）。

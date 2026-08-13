@@ -172,14 +172,21 @@ export function renderGlassElementPerFbo(
 
   // --- Step 4: Composite renderTex → curFbo at the element's rotated rect (SrcOver) ---
   // The elFbo is at baseline resolution; composite applies rotation + zoom.
-  // Reuse the ROTATED AABB scissor (with shadow margin) computed above — the
-  // composite shader discards pixels outside the elFbo bounds anyway, so the
-  // extra margin area is harmless (a few extra fragment evals that discard).
+  // Use a TIGHT rotated AABB (just sw×sh, no shadow margin) — the composite
+  // shader discards everything outside the elFbo bounds anyway, so the tight
+  // scissor avoids evaluating fragments in the shadow-margin area that would
+  // all discard. (The shadow + post-passes use the wider rotScX/Y/W/H.)
   const elemCx = bboxCx  // element center (CSS px, top-left origin)
   const elemCy = bboxCy
+  const compAabbW = computed.sw * rotCosAbs + computed.sh * rotSinAbs
+  const compAabbH = computed.sw * rotSinAbs + computed.sh * rotCosAbs
+  const compScX = Math.max(0, Math.min(this.fboW, Math.round((elemCx - compAabbW / 2) * this.dpr)))
+  const compScY = Math.max(0, Math.min(this.fboH, Math.round((this.cssHeight - (elemCy + compAabbH / 2)) * this.dpr)))
+  const compScW = Math.max(0, Math.min(this.fboW - compScX, Math.round(compAabbW * this.dpr)))
+  const compScH = Math.max(0, Math.min(this.fboH - compScY, Math.round(compAabbH * this.dpr)))
   this.bindFBO(curFbo)
   gl.enable(gl.SCISSOR_TEST)
-  gl.scissor(rotScX, rotScY, rotScW, rotScH)
+  gl.scissor(compScX, compScY, compScW, compScH)
   this.drawElFboComposite(
     cache.renderTex, cache.elFboW, cache.elFboH,
     elemCx * this.dpr, elemCy * this.dpr,  // element center (device px, top-left origin)
@@ -187,12 +194,12 @@ export function renderGlassElementPerFbo(
     rot
   )
 
-  // --- Step 5: Post passes → curFbo (same ROTATED AABB scissor) ---
+  // --- Step 5: Post passes → curFbo (wide rotated AABB with shadow margin) ---
   // Post passes are NOT cached — drawn directly onto curFbo every frame on
   // top of the composited glass body. Cheap SDF-clipped draws; caching would
   // require a larger cached FBO (shadow bbox) + coordinate remapping.
-  // Same rotated AABB scissor as the shadow pass so the rim-highlight /
-  // inner-shadow / glow aren't clipped at the corners when rotated.
+  // Use the wide rotated AABB scissor (with shadow margin) so the rim-highlight
+  // / inner-shadow / glow aren't clipped at the corners when rotated.
   gl.scissor(rotScX, rotScY, rotScW, rotScH)
   this.renderGlassPostPasses(state)
 
