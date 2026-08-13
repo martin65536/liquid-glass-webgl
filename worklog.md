@@ -657,3 +657,52 @@ Stage Summary:
   后续可移入 elFbo 进一步优化（需要改 post-pass shader 坐标系）。
 - 改动涉及 7 个文件，~80 行净增。核心是 geometry 5 行 + element shader
   ~20 行 + composite shader ~40 行 + page ~10 行。
+
+---
+Task ID: 48
+Agent: main
+Task: 修复 Task 47 重构后 Glass Playground 缩放移动触控处理坏了的问题；然后给玻璃应用 capsule 形状（和原版一致）。
+
+Work Log:
+- 根因诊断（触控失效）：
+  * Task 47 重构后，gp-square 的 rect.w 固定为 256*DP（baseline），
+    zoom 走 elementScaleX/Y（visual scale，composite 阶段缩放）。
+  * 但 context.tsx 的 hit-test（L896-935）只 un-rotate 指针点，
+    没有 un-scale。当 gpZoom > 1 时，视觉玻璃超出 256×256 的
+    hit-test rect → 在视觉边缘触摸时 hit-test miss → 触控失效。
+  * 重构前 rect.w = 256*DP*gpZoom（zoom bake 进 rect），hit-test
+    rect 自然覆盖整个视觉区域，所以触控正常。
+- 修复 1（context.tsx hit-test）：
+  * 旧：只读 elementRotation，un-rotate 指针点 around rect center
+  * 新：读 elementRotation + elementScaleX/Y，先 un-rotate 再
+    un-scale 指针点 around rect center，然后 test against baseline rect
+  * 三个字段都在 GlassElementConfig 接口上（L215/222/223），不需要 cast
+  * 零缩放/零旋转时走原路径（if 条件短路）
+- 修复 2（build-glass-playground.ts 应用 capsule）：
+  * gp-square：在 elements.push 前加 if (state.capsuleShape)
+    { gpSquare.useContinuousSdf = true }，匹配 build-dialog.ts /
+    build-control-center.ts 的模式
+  * gp-sheet：把 elements.push(makeGlassShape(...)) 改成先存变量，
+    加同样的 capsule 条件，再 push
+  * useContinuousSdf 字段在 GlassElementConfig L500，renderer 的
+    loadContinuousSdf 在 methods-render.ts L317-318 主循环里调用
+    （PEF + ping-pong 路径都经过），element pass 在
+    methods-render-glass-element-pass.ts L270-287 绑定 continuousSdfTexture
+- bun run lint：通过（0 errors）
+- Agent Browser + VLM 验证（viewport 390×844，gpZoom=2.5）：
+  * 触控修复：用户确认"非常好，正常了"（zoom 2.5x 下边缘触摸命中 ✓）
+  * Capsule ON（capsuleShape=true）：VLM 确认主玻璃 square 角是
+    "smooth continuous-curvature squircle corners (G2-continuous)" ✓
+  * Capsule OFF（capsuleShape=false，对照）：VLM 确认主玻璃 square 角是
+    "standard circular-arc rounded rectangle corners" ✓
+  * toggle 验证证明 capsule 确实在生效（ON=smooth squircle / OFF=circular arc）
+  * 无 console error / page error / shader 编译错误 ✓
+  * Dialog 页 capsule 未受影响（仍正常）✓
+
+Stage Summary:
+- 触控修复：hit-test 从只 un-rotate 改成 un-rotate + un-scale，
+  匹配 Task 47 的 elementScale 视觉缩放架构。~15 行改动（context.tsx）。
+- Capsule 应用：gp-square + gp-sheet 都加 useContinuousSdf=true
+  （when state.capsuleShape），~15 行改动（build-glass-playground.ts）。
+  匹配 build-dialog.ts / build-control-center.ts 的既有模式。
+- 主玻璃 square 的 squircle 角通过 VLM 双盲验证（ON vs OFF）确认生效。

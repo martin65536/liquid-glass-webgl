@@ -93,6 +93,15 @@ export function buildGlassPlayground(W: number, H: number, onBack: () => void, s
   // Use separable 2-pass blur: element pass renders to a dedicated FBO (clear
   // refraction), then that FBO is 2-pass blurred and composited back.
   gpSquare.useSeparableBlur = true
+  // Capsule shape: when state.capsuleShape is true, sample a precomputed
+  // continuous-curvature SDF texture (G2-continuous Bezier path) for the
+  // square's shape — pixel-perfect squircle corners, vs the analytic
+  // sdRoundedRect which uses a circular arc. Matches build-dialog.ts /
+  // build-control-center.ts. The renderer's loadContinuousSdf() is called
+  // from the render loop before rendering this element.
+  if (state.capsuleShape) {
+    gpSquare.useContinuousSdf = true
+  }
   elements.push(gpSquare)
   // Drag + transform interaction — pan (1 finger) / pinch zoom + rotate (2 fingers).
   // Faithful to GlassPlaygroundContent.kt's detectTransformGestures:
@@ -159,21 +168,24 @@ export function buildGlassPlayground(W: number, H: number, onBack: () => void, s
     const sheetY = H - bottomBtnSpace - sheetH
 
     // Sheet glass card
-    elements.push(
-      makeGlassShape(
-        'gp-sheet',
-        { x: sheetX, y: sheetY, w: sheetW, h: sheetH },
-        {
-          cornerRadius: sheetRadius,
-          refractionHeight: 16 * DP,
-          refractionAmount: -32 * DP,
-          blurRadius: 4 * DP,
-          saturation: 1.5,
-          surfaceColor: palette.tabsContainer,
-          highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, alpha: 0.38 },
-        }
-      )
+    const gpSheet = makeGlassShape(
+      'gp-sheet',
+      { x: sheetX, y: sheetY, w: sheetW, h: sheetH },
+      {
+        cornerRadius: sheetRadius,
+        refractionHeight: 16 * DP,
+        refractionAmount: -32 * DP,
+        blurRadius: 4 * DP,
+        saturation: 1.5,
+        surfaceColor: palette.tabsContainer,
+        highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, alpha: 0.38 },
+      }
     )
+    // Capsule shape for the sheet card (same as the square above).
+    if (state.capsuleShape) {
+      gpSheet.useContinuousSdf = true
+    }
+    elements.push(gpSheet)
 
     let rowY = sheetY + GP_INNER_PAD
     let sliderIdx = 0
