@@ -67,14 +67,24 @@ void main() {
         // Scale elFbo px → original px (accounts for AA pad: elFbo > origSize)
         vec2 origScale = uOriginalSize / uElFboSize;
         centeredOrigRot = localDown * origScale;  // un-rotated original space
-        // Map to screen: rotate by +rot, scale by layerScale, translate to center
-        screenCoord = elementCenter + rotateBy(centeredOrigRot, rot) * layerScale;
+        // Map to screen for backdrop sampling. When rot≈0 (common case), skip
+        // rotateBy entirely (4 mul + cos/sin per fragment saved). When rot≠0,
+        // apply rotation to map local-space coord to screen-space sample point.
+        if (abs(rot) > 0.001) {
+            screenCoord = elementCenter + rotateBy(centeredOrigRot, rot) * layerScale;
+        } else {
+            screenCoord = elementCenter + centeredOrigRot * layerScale;
+        }
     } else {
         // Ping-pong: fullscreen, rotation in shader (legacy path)
         screenCoord = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
         vec2 centeredScreen = screenCoord - elementCenter;
         vec2 centeredOrig = centeredScreen / layerScale;
-        centeredOrigRot = rotateBy(centeredOrig, -rot);
+        if (abs(rot) > 0.001) {
+            centeredOrigRot = rotateBy(centeredOrig, -rot);
+        } else {
+            centeredOrigRot = centeredOrig;
+        }
     }
 
     // Content scale (non-uniform): when < 1.0, compress the backdrop UV toward

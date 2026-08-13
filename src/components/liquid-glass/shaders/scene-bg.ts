@@ -148,8 +148,16 @@ void main() {
     vec2 fragTopLeft = vec2(gl_FragCoord.x, uCanvasSize.y - gl_FragCoord.y);
     // Offset from element center (Y-down, screen px)
     vec2 centered = fragTopLeft - uElementCenter;
-    // Un-rotate: screen → local (undo the element's rotation)
-    vec2 localCentered = rotateBy(centered, -uRotation);
+    // Un-rotate: screen → local (undo the element's rotation).
+    // When rot≈0 (common case — all non-GP elements), skip rotateBy entirely
+    // (4 mul + cos/sin per fragment saved). This makes the composite shader
+    // as cheap as the old 1:1 blit for the vast majority of elements.
+    vec2 localCentered;
+    if (abs(uRotation) > 0.001) {
+        localCentered = rotateBy(centered, -uRotation);
+    } else {
+        localCentered = centered;
+    }
     // Un-scale: screen px → elFbo px (baseline). Ratio = srcSize / elementSize.
     vec2 srcCentered = localCentered * uSrcSize / uElementSize;
     // Bounds check: discard if outside elFbo

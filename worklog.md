@@ -810,3 +810,53 @@ Stage Summary:
   必然 discard 的 margin 区域。un-rotated 元素与重构前完全一致。
 - 回退 GP state localStorage 持久化（scope creep，用户明确不需要）。
 - Home scroll FPS ~17-21fps 是 baseline 性能（不是我的改动导致的回归）。
+
+---
+Task ID: 51
+Agent: main
+Task: 修复 scrollcontainers + Settings 卡顿 + 功耗升高（GP 重构后的回归）
+
+Work Log:
+- 用户反馈：scrollcontainers + Settings 变卡了，以前能跑满帧功耗更低。
+  用户有历史版本对比，不是 localStorage 问题。
+- 根因分析：
+  * Task 47（GP renderer refactor）改了两个全局 shader，影响所有页面的所有
+    glass element：
+    1. element.ts PEF path：screenCoord 从 uSceneRectOffset + gl_FragCoord
+       （简单加法）改成 elementCenter + rotateBy(centeredOrigRot, rot) * layerScale
+       （每个 fragment 都跑 rotateBy：cos/sin + 4 mul，即使 rot=0）
+    2. scene-bg.ts EL_FBO_COMPOSITE：从简单 1:1 blit（uv = local/srcSize）
+       改成 rotate + scale texture mapping（每个 fragment 跑 rotateBy +
+       uSrcSize/uElementSize 除法 + abs bounds check）
+  * 这两个 shader 在每个 glass element 的每个 fragment 上运行。Home 页有
+    ~15 个 glass element，每个 element 的 elFbo 有几千个 fragment，每帧
+    多几十万次 rotateBy/cos/sin → GPU 负载上升 → 帧率下降 + 功耗升高。
+  * rot=0 是绝大多数 element 的状态（只有 GP square 有 rotation），
+    但旧代码无条件跑 rotateBy。
+- 修复：给两个 shader 加 rot≈0 短路：
+  * element.ts PEF path：if (abs(rot) > 0.001) 跑 rotateBy，否则直接
+    screenCoord = elementCenter + centeredOrigRot * layerScale（省 cos/sin
+    + 4 mul per fragment）
+  * element.ts ping-pong path：同样短路
+  * scene-bg.ts composite：if (abs(uRotation) > 0.001) 跑 rotateBy，
+    否则 localCentered = centered（省 cos/sin + 4 mul per fragment）
+  * rot=0 时（所有非 GP element），两个 shader 的 per-fragment 算术降到
+    与 Task 47 之前等价（只剩 layerScale 乘法 + uSrcSize/uElementSize 除法，
+    后者在 origW==sw 时 ratio=1，GPU 可能 still 有开销但无法在 shader 里
+    short-circuit uniform 除法）。
+- bun run lint：通过（0 errors）
+- Agent Browser 验证：
+  * Home 页正常渲染，无 error
+  * GP 页正常渲染（capsule + rotation + shadow + highlight 都正常）
+  * 无 console error / page error / shader 编译错误
+
+Stage Summary:
+- 根因：Task 47 的两个全局 shader（element + composite）在每个 fragment
+  无条件跑 rotateBy（cos/sin + 4 mul），即使 rot=0。Home/Settings 所有
+  element 都是 rot=0，但都付这个开销。
+- 修复：rot≈0 短路，跳过 rotateBy。rot=0 时 per-fragment 算术与 Task 47
+  之前等价。
+- 改动 ~20 行（element.ts ~16 行 + scene-bg.ts ~12 行）。
+- 注意：我的 headless 测不出这个回归（wheel event dispatch 测的是 JS
+  开销不是 GPU 开销），但用户在真实设备上能感受到。这是 GPU per-fragment
+  开销，headless browser 的软件渲染可能不明显。
