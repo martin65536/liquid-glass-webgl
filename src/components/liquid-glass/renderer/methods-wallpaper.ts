@@ -98,18 +98,31 @@ export const wallpaperMethods = {
     // Pool: each unique (w,h,radius,dpr) gets its own texture.
     let entry = this.continuousSdfPool.get(key)
     if (!entry) {
+      const genStart = performance.now()
       const { tex, texSize } = generateContinuousCurvatureMask(w, h, radius, this.dpr)
+      const genEnd = performance.now()
       const gl = this.gl
       const texObj = gl.createTexture()!
       gl.bindTexture(gl.TEXTURE_2D, texObj)
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true)
+      const uploadStart = performance.now()
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, texSize, texSize, 0, gl.RGBA, gl.UNSIGNED_BYTE, tex)
+      // Force GPU sync so the upload time is measured accurately (otherwise
+      // texImage2D may defer and the time shows up in a later draw call).
+      gl.finish()
+      const uploadEnd = performance.now()
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
       entry = { tex: texObj, texSize }
       this.continuousSdfPool.set(key, entry)
+
+      // Record GPU upload timing alongside the CPU generation timing.
+      this._lastCapsuleUploadMs = uploadEnd - uploadStart
+      this._lastCapsuleGenMs = genEnd - genStart
+      this._lastCapsuleKey = key
+
       // Evict oldest if pool too large
       if (this.continuousSdfPool.size > 16) {
         const oldest = this.continuousSdfPool.keys().next().value
@@ -119,6 +132,10 @@ export const wallpaperMethods = {
           this.continuousSdfPool.delete(oldest)
         }
       }
+    } else {
+      this._lastCapsuleUploadMs = 0
+      this._lastCapsuleGenMs = 0
+      this._lastCapsuleKey = key + ' (pool hit)'
     }
     this.continuousSdfTexture = entry.tex
     this.continuousSdfTexSize = [entry.texSize, entry.texSize]

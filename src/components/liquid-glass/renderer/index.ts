@@ -606,6 +606,12 @@ export class LiquidGlassRenderer {
   continuousSdfTexSize: [number, number] = [256, 256]
   continuousSdfKey: string | null = null
 
+  // --- Capsule SDF profiling (debug layer) ---
+  // Last generation's timings (ms). 0 when pool hit (no generation/upload).
+  _lastCapsuleGenMs = 0        // CPU: generateContinuousCurvatureMask total
+  _lastCapsuleUploadMs = 0     // GPU: texImage2D + gl.finish() sync
+  _lastCapsuleKey = ''
+
   // Offscreen 2D canvas for the foreground (label + chevron). Reused
   // across buttons — we re-rasterize + re-upload per button per frame.
   fgCanvas: HTMLCanvasElement

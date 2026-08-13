@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { LiquidGlassCanvas } from '@/components/liquid-glass/context'
 import { PerfMonitorOverlay } from '@/components/liquid-glass/perf-monitor-overlay'
+import { CapsuleSdfDebugOverlay } from '@/components/liquid-glass/capsule-sdf-debug-overlay'
 import {
   buildCatalog,
   CatalogDestination,
@@ -88,6 +89,15 @@ export default function Page() {
     } catch { return {} }
   }
   const [state, setStateRaw] = React.useState<CatalogState>({ ...DEFAULT_CATALOG_STATE, ...loadPersistedSettings() })
+  // Capsule SDF debug overlay — toggled via ?capsuleDebug=1 URL param (debug only)
+  const [capsuleDebug, setCapsuleDebug] = React.useState(false)
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return
+    const check = () => setCapsuleDebug(new URLSearchParams(window.location.search).get('capsuleDebug') === '1')
+    check()
+    window.addEventListener('popstate', check)
+    return () => window.removeEventListener('popstate', check)
+  }, [])
   const [frameSize, setFrameSize] = React.useState({ w: 420, h: 900 })
   const [rendererReady, setRendererReady] = React.useState(false)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
@@ -1069,6 +1079,11 @@ export default function Page() {
             visible={state.showPerfMonitor}
             rafFps={fpsDisplay}
           />
+        )}
+        {/* Capsule SDF debug overlay — per-step timing breakdown for each
+            capsule SDF texture generation. Toggled via ?capsuleDebug=1. */}
+        {rendererReady && capsuleDebug && (
+          <CapsuleSdfDebugOverlay rendererRef={rendererRef} />
         )}
         {/* Progress bar is now rendered in the canvas (plain-rect elements) */}
         {/* Hidden file input for "Pick an image" — triggered by the canvas button */}

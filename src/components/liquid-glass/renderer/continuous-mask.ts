@@ -14,11 +14,48 @@
  * shapes are always identical — no mismatch.
  *
  * Cached by (w, h, radius, dpr) so each unique element size generates once.
+ *
+ * PROFILING: every generation records per-step timings into
+ * capsuleSdfTimings (module-level ring buffer). The debug layer reads
+ * this to show which step is the bottleneck.
  * ------------------------------------------------------------------ */
 
 import { continuousCurvatureRoundedRectPath } from './continuous-curve'
 
 const maskCache = new Map<string, { tex: Uint8Array; texSize: number }>()
+
+/* ------------------------------------------------------------------ *
+ * Profiling — per-step timings for each capsule SDF generation.
+ * Ring buffer of the last 32 generations. The debug layer polls
+ * getCapsuleSdfTimings() to display a breakdown.
+ * ------------------------------------------------------------------ */
+export interface CapsuleSdfTiming {
+  timestamp: number
+  key: string               // cache key (w,h,radius,texSize)
+  w: number
+  h: number
+  radius: number
+  texSize: number
+  cacheHit: boolean         // true = maskCache hit (no generation)
+  // Per-step durations (ms). Only meaningful when cacheHit=false.
+  stepCanvasSetup: number   // createElement('canvas') + getContext('2d')
+  stepPathDraw: number      // continuousCurvatureRoundedRectPath + ctx.fill
+  stepGetImageData: number  // ctx.getImageData (GPU→CPU readback)
+  stepAlphaExtract: number  // loop: imageData → alpha Uint8Array
+  stepInitArrays: number    // inside/outside Float32Array alloc + init
+  stepForwardPass: number   // chamfer distance transform forward pass
+  stepBackwardPass: number  // chamfer distance transform backward pass
+  stepPack: number          // pack RGBA Uint8Array
+  stepTotal: number         // sum of above (excluding cacheHit check)
+}
+
+const TIMING_RING_SIZE = 32
+const capsuleSdfTimings: CapsuleSdfTiming[] = []
+
+/** Get the last N timing records (newest first). For the debug layer. */
+export function getCapsuleSdfTimings(): CapsuleSdfTiming[] {
+  return capsuleSdfTimings
+}
 
 /** Generate a dual-channel (coverage + SDF) texture for a continuous-curvature
  *  rounded rect. R = coverage [0,255], G = SDF [0,255] (128 = edge). */
@@ -28,15 +65,30 @@ export function generateContinuousCurvatureMask(
   radius: number,
   dpr: number = 1
 ): { tex: Uint8Array; texSize: number } {
-  // texSize: distance transform is O(texSize²), so keep it small. Cap at 64
-  // (was 256) — LINEAR filtering in the shader interpolates the SDF smoothly
-  // enough at 64×64, and 64² is 16× faster than 256². Canvas2D coverage AA
-  // at 64px is acceptable because the shape is upscaled via LINEAR sampling.
-  const texSize = 64
+  // texSize: distance transform is O(texSize²). 256² gives good SDF quality;
+  // LINEAR filtering interpolates smoothly. Profiling shows the bottleneck is
+  // NOT distance transform but getImageData readback + texImage2D upload —
+  // see capsuleSdfTimings in the debug layer.
+  const texSize = 256
   const key = `${w},${h},${radius},${texSize}`
   const cached = maskCache.get(key)
-  if (cached) return { tex: cached.tex, texSize }
+  if (cached) {
+    // Record cache hit (no work done).
+    if (capsuleSdfTimings.length >= TIMING_RING_SIZE) capsuleSdfTimings.shift()
+    capsuleSdfTimings.push({
+      timestamp: performance.now(),
+      key, w, h, radius, texSize,
+      cacheHit: true,
+      stepCanvasSetup: 0, stepPathDraw: 0, stepGetImageData: 0,
+      stepAlphaExtract: 0, stepInitArrays: 0, stepForwardPass: 0,
+      stepBackwardPass: 0, stepPack: 0, stepTotal: 0,
+    })
+    return { tex: cached.tex, texSize }
+  }
 
+  const t0 = performance.now()
+
+  // --- Step 1: Canvas setup ---
   const maxDim = Math.max(w, h)
   const aspectW = w / maxDim
   const aspectH = h / maxDim
@@ -47,6 +99,8 @@ export function generateContinuousCurvatureMask(
   const ctx = canvas.getContext('2d')!
   ctx.clearRect(0, 0, texSize, texSize)
 
+  const t1 = performance.now()
+
   // Scale shape to fill texture with a small margin.
   const margin = 4
   const drawW = (texSize - 2 * margin) * aspectW
@@ -56,21 +110,29 @@ export function generateContinuousCurvatureMask(
   const scale = drawW / w
   const drawRadius = radius * scale
 
-  // Draw the continuous-curvature path — browser does native AA on edges.
+  // --- Step 2: Draw Bezier path (browser-native AA) ---
   const path = continuousCurvatureRoundedRectPath(ctx, drawW, drawH, drawRadius)
   ctx.fillStyle = 'white'
   ctx.translate(offsetX, offsetY)
   ctx.fill(path)
   ctx.translate(-offsetX, -offsetY)
 
-  // Read the alpha mask (coverage).
+  const t2 = performance.now()
+
+  // --- Step 3: getImageData readback (GPU→CPU, synchronous blocking) ---
   const imageData = ctx.getImageData(0, 0, texSize, texSize)
+
+  const t3 = performance.now()
+
+  // --- Step 4: Extract alpha channel ---
   const alpha = new Uint8Array(texSize * texSize)
   for (let i = 0; i < texSize * texSize; i++) {
     alpha[i] = imageData.data[i * 4 + 3]
   }
 
-  // Compute SDF via chamfer distance transform (5-7-11 kernel).
+  const t4 = performance.now()
+
+  // --- Step 5: Init distance transform arrays ---
   const inside = new Float32Array(texSize * texSize)
   const outside = new Float32Array(texSize * texSize)
   const INF = 1e10
@@ -85,7 +147,9 @@ export function generateContinuousCurvatureMask(
     }
   }
 
-  // Forward pass.
+  const t5 = performance.now()
+
+  // --- Step 6: Forward pass (chamfer distance transform) ---
   for (let y = 0; y < texSize; y++) {
     for (let x = 0; x < texSize; x++) {
       const idx = y * texSize + x
@@ -115,7 +179,10 @@ export function generateContinuousCurvatureMask(
       }
     }
   }
-  // Backward pass.
+
+  const t6 = performance.now()
+
+  // --- Step 7: Backward pass ---
   for (let y = texSize - 1; y >= 0; y--) {
     for (let x = texSize - 1; x >= 0; x--) {
       const idx = y * texSize + x
@@ -146,7 +213,9 @@ export function generateContinuousCurvatureMask(
     }
   }
 
-  // Pack: R = coverage, G = SDF (normalized to [0,255], 128 = edge).
+  const t7 = performance.now()
+
+  // --- Step 8: Pack RGBA (R=coverage, G=SDF, B=0, A=255) ---
   const refDist = drawRadius
   const tex = new Uint8Array(texSize * texSize * 4)
   for (let i = 0; i < texSize * texSize; i++) {
@@ -158,6 +227,26 @@ export function generateContinuousCurvatureMask(
     tex[i * 4 + 3] = 255
   }
 
+  const t8 = performance.now()
+
   maskCache.set(key, { tex, texSize })
+
+  // Record timing.
+  if (capsuleSdfTimings.length >= TIMING_RING_SIZE) capsuleSdfTimings.shift()
+  capsuleSdfTimings.push({
+    timestamp: t8,
+    key, w, h, radius, texSize,
+    cacheHit: false,
+    stepCanvasSetup: t1 - t0,
+    stepPathDraw: t2 - t1,
+    stepGetImageData: t3 - t2,
+    stepAlphaExtract: t4 - t3,
+    stepInitArrays: t5 - t4,
+    stepForwardPass: t6 - t5,
+    stepBackwardPass: t7 - t6,
+    stepPack: t8 - t7,
+    stepTotal: t8 - t0,
+  })
+
   return { tex, texSize }
 }
