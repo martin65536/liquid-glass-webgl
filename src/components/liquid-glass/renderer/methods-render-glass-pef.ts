@@ -53,6 +53,28 @@ export function renderGlassElementPerFbo(
   // --- Compute the two decoupled rectangles (shadow bbox + elFbo rect) ---
   const geom = computeElFboGeometry.call(this, el, computed.sx, computed.sy, computed.sw, computed.sh, layerScale)
 
+  // --- Rotated AABB scissor (for shadow + composite + post-passes) ---
+  // When the element has elementRotation, the UN-ROTATED bbox (geom.bx0/bboxW)
+  // clips the rotated shadow at its corners. Instead, compute the ROTATED AABB
+  // of the (sw + 2*margin) × (sh + 2*margin) rect — this covers the full
+  // rotated shadow + highlight extent regardless of rotation angle.
+  // The same scissor is used for all three curFbo passes (shadow, composite,
+  // post-passes) so the shadow never gets clipped by an un-rotated rectangle.
+  const rot = el.elementRotation ?? 0
+  const rotCosAbs = Math.abs(Math.cos(rot))
+  const rotSinAbs = Math.abs(Math.sin(rot))
+  const m = geom.scissorMarginCss
+  const fullW = computed.sw + 2 * m
+  const fullH = computed.sh + 2 * m
+  const rotBboxW = fullW * rotCosAbs + fullH * rotSinAbs
+  const rotBboxH = fullW * rotSinAbs + fullH * rotCosAbs
+  const bboxCx = computed.sx + computed.sw / 2
+  const bboxCy = computed.sy + computed.sh / 2
+  const rotScX = Math.max(0, Math.round((bboxCx - rotBboxW / 2) * this.dpr))
+  const rotScY = Math.max(0, Math.round((this.cssHeight - (bboxCy + rotBboxH / 2)) * this.dpr))
+  const rotScW = Math.min(this.fboW - rotScX, Math.round(rotBboxW * this.dpr))
+  const rotScH = Math.min(this.fboH - rotScY, Math.round(rotBboxH * this.dpr))
+
   // Debug: record the actual elFbo rect so the overlay visualizes how small
   // the per-element FBO really is.
   if (this.showPefBbox) {
@@ -89,12 +111,14 @@ export function renderGlassElementPerFbo(
   // Patch elFboW/H into the state (needed by the element pass for uElFboSize).
   state = { ...state, elFboW: cache.elFboW, elFboH: cache.elFboH }
 
-  // --- Step 1: Shadow pass → curFbo (scissor to bbox) ---
+  // --- Step 1: Shadow pass → curFbo (scissor to ROTATED bbox) ---
   // Shadow is NEVER cached — cheap (1 drawArrays, no texture fetches) and
   // re-rendering keeps it correct when the element beneath in z-order changes.
+  // Scissor to the ROTATED AABB (not the un-rotated bbox) so the shadow isn't
+  // clipped at the corners when the element is rotated.
   this.bindFBO(curFbo)
   gl.enable(gl.SCISSOR_TEST)
-  gl.scissor(geom.bx0, geom.bboxScissorY, geom.bboxW, geom.bboxH)
+  gl.scissor(rotScX, rotScY, rotScW, rotScH)
   gl.enable(gl.BLEND)
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
   this.renderGlassShadowPass(state)
@@ -148,22 +172,14 @@ export function renderGlassElementPerFbo(
 
   // --- Step 4: Composite renderTex → curFbo at the element's rotated rect (SrcOver) ---
   // The elFbo is at baseline resolution; composite applies rotation + zoom.
-  // Scissor to the ROTATED AABB of the SCALED element (covers all non-transparent
-  // pixels regardless of rotation angle).
-  const rot = el.elementRotation ?? 0
-  const rotCos = Math.abs(Math.cos(rot))
-  const rotSin = Math.abs(Math.sin(rot))
-  const rotAabbW = computed.sw * rotCos + computed.sh * rotSin  // CSS px
-  const rotAabbH = computed.sw * rotSin + computed.sh * rotCos
-  const elemCx = computed.sx + computed.sw / 2  // element center (CSS px, top-left origin)
-  const elemCy = computed.sy + computed.sh / 2
-  const scX = Math.max(0, Math.round((elemCx - rotAabbW / 2) * this.dpr))
-  const scY = Math.max(0, Math.round((this.cssHeight - (elemCy + rotAabbH / 2)) * this.dpr))
-  const scW = Math.min(this.fboW - scX, Math.round(rotAabbW * this.dpr))
-  const scH = Math.min(this.fboH - scY, Math.round(rotAabbH * this.dpr))
+  // Reuse the ROTATED AABB scissor (with shadow margin) computed above — the
+  // composite shader discards pixels outside the elFbo bounds anyway, so the
+  // extra margin area is harmless (a few extra fragment evals that discard).
+  const elemCx = bboxCx  // element center (CSS px, top-left origin)
+  const elemCy = bboxCy
   this.bindFBO(curFbo)
   gl.enable(gl.SCISSOR_TEST)
-  gl.scissor(scX, scY, scW, scH)
+  gl.scissor(rotScX, rotScY, rotScW, rotScH)
   this.drawElFboComposite(
     cache.renderTex, cache.elFboW, cache.elFboH,
     elemCx * this.dpr, elemCy * this.dpr,  // element center (device px, top-left origin)
@@ -171,11 +187,13 @@ export function renderGlassElementPerFbo(
     rot
   )
 
-  // --- Step 5: Post passes → curFbo (scissor back to shadow bbox) ---
+  // --- Step 5: Post passes → curFbo (same ROTATED AABB scissor) ---
   // Post passes are NOT cached — drawn directly onto curFbo every frame on
   // top of the composited glass body. Cheap SDF-clipped draws; caching would
   // require a larger cached FBO (shadow bbox) + coordinate remapping.
-  gl.scissor(geom.bx0, geom.bboxScissorY, geom.bboxW, geom.bboxH)
+  // Same rotated AABB scissor as the shadow pass so the rim-highlight /
+  // inner-shadow / glow aren't clipped at the corners when rotated.
+  gl.scissor(rotScX, rotScY, rotScW, rotScH)
   this.renderGlassPostPasses(state)
 
   gl.disable(gl.SCISSOR_TEST)

@@ -62,10 +62,18 @@ export function buildGlassPlayground(W: number, H: number, onBack: () => void, s
   // pinch-zoom + rotate. Zoom goes through elementScaleX/Y (NOT rect.w) so
   // the renderer's elFbo stays at baseline resolution regardless of zoom.
   // Rotation goes through elementRotation, handled at composite time.
+  //
+  // Positioned at the CENTER of the available space (screen minus the bottom
+  // button row). This keeps the glass on-screen at moderate zoom levels so
+  // the shadow + highlight aren't clipped by the screen edge. The user can
+  // still drag it anywhere via gpOffsetX/Y.
   const baseSize = 256 * DP
   const squareSize = baseSize  // FIXED baseline — elFbo ∝ this, not zoom
+  const toggleBtnSize = 56 * DP
+  const bottomBtnSpace = 20 * DP + toggleBtnSize + 12 * DP
+  const availableH = H - bottomBtnSpace
   const squareX = (W - squareSize) / 2 + state.gpOffsetX
-  const squareY = 0 + state.gpOffsetY
+  const squareY = (availableH - squareSize) / 2 + state.gpOffsetY
   const cornerRadius = (squareSize / 2) * state.cornerRadiusFrac
   const minDim = squareSize
   const gpSquare = makeGlassShape(
@@ -81,6 +89,7 @@ export function buildGlassPlayground(W: number, H: number, onBack: () => void, s
       highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, alpha: 0.38 },
       depthEffect: true,
       chromaticAberration: state.chromaticAberration > 0,
+      outerShadow: { ...DEFAULT_SHADOW, alpha: 0.4 },
     }
   )
   // Zoom via elementScale (visual scale, elFbo stays baseline), rotation via
@@ -143,8 +152,8 @@ export function buildGlassPlayground(W: number, H: number, onBack: () => void, s
 
   // Control sheet (bottom, glass card with sliders) — only when expanded
   const ORANGE = [0xff / 255, 0x8d / 255, 0x28 / 255, 1] as [number, number, number, number]
-  const toggleBtnSize = 56 * DP
-  const bottomBtnSpace = 20 * DP + toggleBtnSize + 12 * DP
+  // toggleBtnSize + bottomBtnSpace already computed above (before the glass
+  // square, so the square can be centered in the available space).
   if (state.gpSheetExpanded) {
     const sheetX = 16 * DP
     const sheetW = W - 2 * sheetX

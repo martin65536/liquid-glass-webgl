@@ -84,6 +84,11 @@ export default function Page() {
         showFps: typeof parsed.showFps === 'boolean' ? parsed.showFps : false,
         usePerElementFbo: typeof parsed.usePerElementFbo === 'boolean' ? parsed.usePerElementFbo : true,
         showPerfMonitor: typeof parsed.showPerfMonitor === 'boolean' ? parsed.showPerfMonitor : false,
+        // Glass Playground transform state (persists across reloads)
+        gpZoom: typeof parsed.gpZoom === 'number' ? parsed.gpZoom : 1,
+        gpRotation: typeof parsed.gpRotation === 'number' ? parsed.gpRotation : 0,
+        gpOffsetX: typeof parsed.gpOffsetX === 'number' ? parsed.gpOffsetX : 0,
+        gpOffsetY: typeof parsed.gpOffsetY === 'number' ? parsed.gpOffsetY : 0,
       }
     } catch { return {} }
   }
@@ -530,7 +535,9 @@ export default function Page() {
              p.capsuleShape !== undefined || p.hideOverlayButtons !== undefined ||
              p.locale !== undefined || p.pageTransition !== undefined ||
              p.showFps !== undefined || p.usePerElementFbo !== undefined ||
-             p.showPerfMonitor !== undefined)) {
+             p.showPerfMonitor !== undefined ||
+             p.gpZoom !== undefined || p.gpRotation !== undefined ||
+             p.gpOffsetX !== undefined || p.gpOffsetY !== undefined)) {
           try {
             window.localStorage.setItem(SETTINGS_KEY, JSON.stringify({
               customDpr: next.customDpr,
@@ -545,6 +552,10 @@ export default function Page() {
               showFps: next.showFps,
               usePerElementFbo: next.usePerElementFbo,
               showPerfMonitor: next.showPerfMonitor,
+              gpZoom: next.gpZoom,
+              gpRotation: next.gpRotation,
+              gpOffsetX: next.gpOffsetX,
+              gpOffsetY: next.gpOffsetY,
             }))
           } catch { /* ignore quota errors */ }
         }

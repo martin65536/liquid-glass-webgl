@@ -29,6 +29,7 @@ export interface ElFboGeometry {
   elFboScissorY: number // BL-origin Y for gl.scissor
   sceneOffsetX: number // = ex0 (named alias for shader uniform)
   sceneOffsetY: number // = ey0Top
+  scissorMarginCss: number // shadow reach margin (for rotated AABB scissor)
 }
 
 /** Compute the two decoupled rectangles for the PEF path.
@@ -124,5 +125,6 @@ export function computeElFboGeometry(
     elFboScissorY,
     sceneOffsetX,
     sceneOffsetY,
+    scissorMarginCss,
   }
 }
