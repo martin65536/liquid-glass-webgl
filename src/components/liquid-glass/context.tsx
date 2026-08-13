@@ -899,24 +899,35 @@ export function LiquidGlassCanvas({
         // This lets slider tracks (visually 6dp tall) have a ~48dp touch target.
         const hr = el.hitRect ?? el.rect
         const visibleHY = el.scroll ? hr.y - scrollY : hr.y
-        // If the element has a rotation (e.g. Glass Playground square), the
-        // visual shape is rotated but the hit-test rect is the un-rotated
-        // AABB. To match the visual shape, un-rotate the pointer point
-        // around the rect center, then test against the un-rotated rect.
-        // Faithful to graphicsLayer { rotationZ } which rotates the visual
-        // but not the touch target (Compose's pointerInput works in the
-        // un-rotated local space).
+        // The visual shape may be rotated (elementRotation) and/or scaled
+        // (elementScaleX/Y) around the rect center. Glass Playground's
+        // transformable square uses a fixed baseline rect.w with
+        // elementScale for zoom (so the renderer's elFbo stays at baseline
+        // resolution regardless of zoom) + elementRotation for rotation.
+        // To match the visual shape, un-rotate AND un-scale the pointer
+        // point around the rect center, then test against the baseline rect.
+        // Faithful to graphicsLayer { rotationZ, scaleX, scaleY } which
+        // transforms the visual but not the touch target (Compose's
+        // pointerInput works in the un-transformed local space).
         let testX = x, testY = y
-        const elRot = (el as GlassElementConfig & { elementRotation?: number }).elementRotation
-        if (elRot && Math.abs(elRot) > 0.001) {
+        const elRot = el.elementRotation ?? 0
+        const elSx = el.elementScaleX ?? 1
+        const elSy = el.elementScaleY ?? 1
+        if (Math.abs(elRot) > 0.001 || Math.abs(elSx - 1) > 0.001 || Math.abs(elSy - 1) > 0.001) {
           const cx = hr.x + hr.w * 0.5
           const cy = (el.scroll ? hr.y - scrollY : hr.y) + hr.h * 0.5
           const dx = x - cx
           const dy = y - cy
+          // Un-rotate around center.
           const cos = Math.cos(-elRot)
           const sin = Math.sin(-elRot)
-          testX = cx + dx * cos - dy * sin
-          testY = cy + dx * sin + dy * cos
+          let rx = dx * cos - dy * sin
+          let ry = dx * sin + dy * cos
+          // Un-scale around center (guard against zero scale).
+          if (Math.abs(elSx) > 0.001) rx /= elSx
+          if (Math.abs(elSy) > 0.001) ry /= elSy
+          testX = cx + rx
+          testY = cy + ry
         }
         if (
           testX >= hr.x &&
