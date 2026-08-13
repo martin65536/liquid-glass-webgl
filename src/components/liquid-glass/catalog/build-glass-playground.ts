@@ -43,6 +43,27 @@ const REFRESH_ICON_PATH =
  * Layout: a 256dp transformable glass square + a bottom control sheet
  * with 5 sliders (corner radius, blur, refraction height, refraction
  * amount, chromatic aberration) + a Reset button.
+ *
+ * PIXEL BUDGET (zoom cap):
+ *   The renderer's per-element FBO (elFbo) size is computed from the
+ *   element's on-screen rect (sw/sh) in computeElFboGeometry:
+ *     elFboRectW = round(sw * dpr)
+ *   So elFbo pixel area ∝ sw² ∝ gpZoom² — QUADRATIC growth. At zoom=4
+ *   with dpr=1.5, a 256dp square becomes a 1536px elFbo = 2.36M px
+ *   (16× the zoom=1 baseline). Every elFbo-sized pass (element pass,
+ *   composite, shadow, post-passes) scales with this area.
+ *
+ *   Capping gpZoom to [0.5, 2.0] bounds the worst case to 4× baseline.
+ *   The blur pipeline itself is NOT zoom-dependent (2-pass Gaussian
+ *   runs on curTex at 1/4 downsample, bounded by canvas size).
+ *
+ * ROTATION (temporarily cut):
+ *   Rotation was cut because (a) it expands the shadow/scissor bbox by
+ *   up to √2 at 45°, further growing the elFbo-adjacent passes, and
+ *   (b) it adds a per-fragment rotation matrix (sin/cos + mat2 multiply)
+ *   in 6+ shaders (element, shadow, inner-shadow, glow, rim-highlight).
+ *   The gpRotation state field is KEPT (defaults to 0) so re-enabling
+ *   later is trivial — just reassign elementRotation + ungate gestureRotate.
  * ------------------------------------------------------------------ */
 export function buildGlassPlayground(W: number, H: number, onBack: () => void, state: CatalogState, setState: (patch: Partial<CatalogState> | ((prev: CatalogState) => Partial<CatalogState>)) => void, rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> | null = null, palette: ThemePalette = LIGHT_PALETTE): CatalogResult {
   const elements: GlassElementConfig[] = []
@@ -58,7 +79,11 @@ export function buildGlassPlayground(W: number, H: number, onBack: () => void, s
   // dark theme (Material3 default). We mirror that here.
   const labelColor = palette.backIconColor
 
-  // Glass square (256dp, corner radius from slider) — draggable + transformable
+  // Glass square (256dp, corner radius from slider) — draggable + pinch-zoom.
+  // ROTATION CUT: elementRotation is NOT assigned (gpRotation stays 0).
+  // See file header comment for the pixel-budget rationale.
+  const GP_ZOOM_MIN = 0.5
+  const GP_ZOOM_MAX = 2.0  // bounds elFbo area to 4× baseline (was unbounded)
   const baseSize = 256 * DP
   const squareSize = baseSize * state.gpZoom
   const squareX = (W - squareSize) / 2 + state.gpOffsetX
@@ -80,20 +105,19 @@ export function buildGlassPlayground(W: number, H: number, onBack: () => void, s
       chromaticAberration: state.chromaticAberration > 0,
     }
   )
-  // Apply rotation (radians) — the renderer reads elementRotation to rotate
-  // the SDF + refraction sampling. Faithful to graphicsLayer { rotationZ }.
-  ;(gpSquare as GlassElementConfig & { elementRotation?: number }).elementRotation = state.gpRotation
+  // NOTE: elementRotation intentionally NOT assigned (rotation cut).
+  // gpRotation state field is kept (defaults to 0) for future re-enable.
   gpSquare.isInteractive = true
   gpSquare.scroll = false
-  // Use separable 2-pass blur: element pass renders to a dedicated FBO (clear
-  // refraction), then that FBO is 2-pass blurred and composited back.
-  gpSquare.useSeparableBlur = true
+  // NOTE: useSeparableBlur flag removed — it's a no-op now (separable blur
+  // is the renderer default for all scene-reading elements with blurRadius
+  // >= 0.5; see shouldUseSeparableBlur in methods-render-glass-backdrop.ts).
   elements.push(gpSquare)
-  // Drag + transform interaction — pan (1 finger) / pinch zoom + rotate (2 fingers).
-  // Faithful to GlassPlaygroundContent.kt's detectTransformGestures:
-  //   targetZoom = zoom * gestureZoom
-  //   targetRotation = rotation + gestureRotate
-  //   targetOffset = offset + pan.rotateBy(targetRotation) * targetZoom
+  // Drag + pinch-zoom interaction (pan + zoom, NO rotate).
+  // Faithful to GlassPlaygroundContent.kt's detectTransformGestures minus
+  // the rotation dimension (temporarily cut — see file header).
+  //   targetZoom = clamp(zoom * gestureZoom, GP_ZOOM_MIN, GP_ZOOM_MAX)
+  //   targetOffset = offset + pan  (screen-space, composes directly)
   // (module-level drag state survives re-renders during the gesture)
   interactions['gp-square'] = {
     onDragStart: (pos) => {
@@ -109,19 +133,18 @@ export function buildGlassPlayground(W: number, H: number, onBack: () => void, s
       })
     },
     onDragEnd: () => {},
-    onTransform: (pan, gestureZoom, gestureRotate) => {
+    onTransform: (pan, gestureZoom, _gestureRotate) => {
       setState((prev) => {
-        const zoom = prev.gpZoom * gestureZoom
-        const rotation = prev.gpRotation + gestureRotate
+        const zoom = Math.max(GP_ZOOM_MIN, Math.min(GP_ZOOM_MAX, prev.gpZoom * gestureZoom))
         // The centroid pan is in SCREEN space, and gpOffsetX/Y is also in
         // screen space — so apply it directly (the glass follows the fingers).
         // Faithful to: translationX/Y in graphicsLayer is screen-space, and
         // the centroid delta is screen-space, so they compose directly.
+        // gestureRotate is intentionally ignored (rotation cut).
         return {
           gpOffsetX: prev.gpOffsetX + pan.x,
           gpOffsetY: prev.gpOffsetY + pan.y,
           gpZoom: zoom,
-          gpRotation: rotation,
         }
       })
     },

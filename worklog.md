@@ -569,3 +569,50 @@ Stage Summary:
 - 9fe858f 已 revert（a946278）。代码状态 = Task 44 后。
 - bottomtabs 光晕 + indicator 内 highlight 暂时无法通过 perf-monitor
   toggle 单独控制，保持原状。
+
+---
+Task ID: 46
+Agent: main
+Task: 重写 Glass Playground 页面的玻璃渲染，解决放大时渲染像素指数级增长问题，暂时砍掉旋转。
+
+Work Log:
+- 诊断根因：renderer 的 elFbo 大小由 computeElFboGeometry 中的
+  `elFboRectW = round(sw * dpr)` 决定，而 sw = rect.w * scaleX = 256*DP*gpZoom。
+  所以 elFbo 像素面积 ∝ gpZoom²（二次增长）。zoom=4 + dpr=1.5 时，
+  elFbo = 1536px = 2.36M px（baseline 的 16×）。所有 elFbo-sized pass
+  （element pass、composite、shadow、post-passes）都随面积增长。
+  旋转让情况更糟：bbox 最多膨胀 √2（45°时）+ 6+ 个 shader 每片段多一次
+  sin/cos mat2 旋转矩阵。
+- 确认约束：elFboRectW 在 renderer 内部和 sw/sh 硬绑定，page 侧无法
+  解耦视觉缩放和 elFbo 渲染尺寸（elementScaleX/Y 也走 sw = rect.w*scaleX
+  同一条路）。所以 page 侧唯一能做的是 cap zoom 限制最坏情况。
+- 改动 build-glass-playground.ts：
+  * 加 GP_ZOOM_MIN=0.5 / GP_ZOOM_MAX=2.0，onTransform 里 clamp
+    `zoom = max(MIN, min(MAX, prev.gpZoom * gestureZoom))`
+    → elFbo 面积上限 = 4× baseline（之前无上限，zoom=4 时 16×）
+  * 砍旋转：删除 `elementRotation = state.gpRotation` 赋值；
+    onTransform 的 gestureRotate 参数改名 _gestureRotate（不再累加到
+    gpRotation）；setState 不再返回 gpRotation。
+    gpRotation state 字段保留（默认 0），方便后续恢复。
+  * 删除 `useSeparableBlur = true`（no-op —— shouldUseSeparableBlur
+    已对所有 scene-reading element 默认开启 separable blur，
+    useSeparableBlur flag 仅保留向后兼容）。
+  * 文件头加详细注释解释 pixel budget + rotation cut 的 rationale。
+- bun run lint：通过（0 errors）
+- Agent Browser + VLM 验证（?dest=GlassPlayground）：
+  * 页面正常编译渲染（dev.log 无 error）
+  * VLM 确认 glass square 可见（top half，rounded-square，faint highlight
+    border，translucent frosted effect over wallpaper）
+  * VLM 确认 control sheet + 5 sliders + 2 orange buttons 均正常
+  * 无 console error / page error
+
+Stage Summary:
+- 根因：elFbo ∝ sw² ∝ gpZoom²（二次增长），page 侧无法解耦（renderer
+  硬绑定 elFboRectW = sw*dpr）。
+- 修复：cap gpZoom ∈ [0.5, 2.0]（elFbo 面积上限 4× baseline）+
+  砍旋转（删 elementRotation 赋值 + gestureRotate 不再累加）+
+  清理 no-op useSeparableBlur flag。
+- 改动 ~30 行（build-glass-playground.ts），只动 playground 页玻璃渲染，
+  不影响其他页面 / renderer。
+- blur pipeline 不受 zoom 影响（2-pass Gaussian 在 curTex 上 1/4 downsample
+  跑，bounded by canvas size），所以不需要动 blur 逻辑。
