@@ -96,7 +96,27 @@ export function inflatedOutputRect(
   }
   // +4 px headroom for SDF AA + sub-pixel rounding.
   const m = Math.max(blur, shadow, 3) + 4
-  return { x: x - m, y: y - m, w: w + 2 * m, h: h + 2 * m }
+  let rx = x - m, ry = y - m, rw = w + 2 * m, rh = h + 2 * m
+
+  // Rotation: when the element has elementRotation, the rotated corners stick
+  // out beyond the un-rotated AABB. Compute the rotated AABB so the dirty rect
+  // covers the full output area — otherwise elements sampling the backdrop near
+  // the rotated corners won't detect the overlap (stale backdrop).
+  const rot = el.elementRotation ?? 0
+  if (Math.abs(rot) > 0.001) {
+    const cx = x + w / 2
+    const cy = y + h / 2
+    const cosA = Math.abs(Math.cos(rot))
+    const sinA = Math.abs(Math.sin(rot))
+    const rotW = rw * cosA + rh * sinA
+    const rotH = rw * sinA + rh * cosA
+    rx = cx - rotW / 2
+    ry = cy - rotH / 2
+    rw = rotW
+    rh = rotH
+  }
+
+  return { x: rx, y: ry, w: rw, h: rh }
 }
 
 /** Compute the ACTUAL shadow bbox in CSS px (top-left origin), per-direction.

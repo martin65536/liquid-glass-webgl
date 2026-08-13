@@ -89,7 +89,6 @@ export function buildGlassPlayground(W: number, H: number, onBack: () => void, s
       highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, alpha: 0.38 },
       depthEffect: true,
       chromaticAberration: state.chromaticAberration > 0,
-      outerShadow: { ...DEFAULT_SHADOW, alpha: 0.4 },
     }
   )
   // Zoom via elementScale (visual scale, elFbo stays baseline), rotation via
@@ -177,6 +176,11 @@ export function buildGlassPlayground(W: number, H: number, onBack: () => void, s
     const sheetY = H - bottomBtnSpace - sheetH
 
     // Sheet glass card
+    // independentBackdrop=false so the sheet samples the SCENE FBO (which
+    // includes the composited gp-square), not the raw wallpaper. This makes
+    // the sheet's glass correctly refract the rotated/zoomed square when they
+    // overlap. The sheet re-rasterizes when the square moves (backdrop_overlap
+    // cache miss), which is the expected behavior.
     const gpSheet = makeGlassShape(
       'gp-sheet',
       { x: sheetX, y: sheetY, w: sheetW, h: sheetH },
@@ -190,6 +194,7 @@ export function buildGlassPlayground(W: number, H: number, onBack: () => void, s
         highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, alpha: 0.38 },
       }
     )
+    gpSheet.independentBackdrop = false
     // Capsule shape for the sheet card (same as the square above).
     if (state.capsuleShape) {
       gpSheet.useContinuousSdf = true

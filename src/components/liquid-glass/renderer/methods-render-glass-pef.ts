@@ -70,10 +70,10 @@ export function renderGlassElementPerFbo(
   const rotBboxH = fullW * rotSinAbs + fullH * rotCosAbs
   const bboxCx = computed.sx + computed.sw / 2
   const bboxCy = computed.sy + computed.sh / 2
-  const rotScX = Math.max(0, Math.round((bboxCx - rotBboxW / 2) * this.dpr))
-  const rotScY = Math.max(0, Math.round((this.cssHeight - (bboxCy + rotBboxH / 2)) * this.dpr))
-  const rotScW = Math.min(this.fboW - rotScX, Math.round(rotBboxW * this.dpr))
-  const rotScH = Math.min(this.fboH - rotScY, Math.round(rotBboxH * this.dpr))
+  const rotScX = Math.max(0, Math.min(this.fboW, Math.round((bboxCx - rotBboxW / 2) * this.dpr)))
+  const rotScY = Math.max(0, Math.min(this.fboH, Math.round((this.cssHeight - (bboxCy + rotBboxH / 2)) * this.dpr)))
+  const rotScW = Math.max(0, Math.min(this.fboW - rotScX, Math.round(rotBboxW * this.dpr)))
+  const rotScH = Math.max(0, Math.min(this.fboH - rotScY, Math.round(rotBboxH * this.dpr)))
 
   // Debug: record the actual elFbo rect so the overlay visualizes how small
   // the per-element FBO really is.

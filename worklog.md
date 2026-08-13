@@ -706,3 +706,67 @@ Stage Summary:
   （when state.capsuleShape），~15 行改动（build-glass-playground.ts）。
   匹配 build-dialog.ts / build-control-center.ts 的既有模式。
 - 主玻璃 square 的 squircle 角通过 VLM 双盲验证（ON vs OFF）确认生效。
+
+---
+Task ID: 49
+Agent: main
+Task: 修复 GP 旋转阴影/高光被矩形框裁切 + scrollcontainer 卡顿 + backdrop overlap 不更新
+
+Work Log:
+- 问题 1（阴影/高光被矩形裁切）：
+  * 根因：shadow pass (Step 1) + post-passes (Step 5) 用的是 UN-ROTATED
+    bbox scissor (geom.bx0/bboxW)，当 element 有 rotation 时，旋转后的
+    阴影/高光超出 un-rotated rect → 被裁切。
+  * 修复：在 PEF pipeline 里计算 ROTATED AABB scissor（用 sw+2*margin
+    和 sh+2*margin 的旋转 AABB），shadow/composite/post-passes 三个
+    curFbo pass 都用它。rot=0 时与旧 un-rotated bbox 完全一致。
+  * 同时修复了 scissor clamping：rotScX/Y 现在同时 clamp 到 [0, fboW/H]
+    （旧代码只 clamp max(0, ...)，元素超出右边/下边时 rotScW/H 会变负
+    → GL_INVALID_VALUE）。
+- 问题 2（backdrop overlap 不更新）：
+  * 根因 A：inflatedOutputRect 用 un-rotated rect，旋转元素的角超出
+    dirty rect → 其他元素采样这些角时检测不到 overlap → stale backdrop。
+  * 修复 A：inflatedOutputRect 现在是 rotation-aware。当 el.elementRotation
+    非零时，计算 inflated rect 的 rotated AABB 作为 dirty rect。rot=0 时
+    走原路径（if 短路，零开销）。
+  * 根因 B：gp-sheet 默认 independentBackdrop=true（makeGlassShape 默认值）
+    → 直接采样 wallpaper，永远看不到 composited 的 gp-square → 无论 square
+    怎么移动/旋转，sheet 的 backdrop 都不变。
+  * 修复 B：gpSheet.independentBackdrop = false → sheet 采样 scene FBO
+    （包含 composited gp-square），正确折射旋转/缩放的 square。
+- 问题 3（scrollcontainer 卡顿）：
+  * 根因：Task 48 给 GP state 加了 localStorage 持久化，但每次 setState
+    （包括 drag/pinch 的 60+ 次/秒 pointermove）都同步写 localStorage
+    （blocking）→ 主线程卡顿。
+  * 修复：GP transform state (gpZoom/gpRotation/gpOffsetX/Y) 改成 debounced
+    写入：每次 GP state change 只更新 snapshot ref + 重启 400ms timer，
+    只有 400ms 内无新 change 才真正写 localStorage。Settings changes
+    （toggles/sliders）仍立即写（频率低）。
+- 额外修复（GP 玻璃居中）：
+  * 旧：squareY = 0（顶部），zoom 时 glass+shadow 超出屏幕顶部 → 看起来
+    像被裁切。
+  * 新：squareY = (availableH - squareSize) / 2，在可用空间（屏幕减底部
+    按钮区）垂直居中。用户仍可通过 gpOffsetX/Y 拖动到任何位置。
+- bun run lint：通过（0 errors）
+- Agent Browser + VLM 验证：
+  * 默认状态（zoom 1, rot 0, capsule ON, sheet expanded）：glass square
+    居中，shadow 四边可见，highlight rim 完整，sheet 正确折射 square ✓
+  * 旋转状态（zoom 1.5, rot 0.5）：sheet 的 glass 正确折射旋转的 square
+    （VLM 确认 "refracted and distorted through it"）✓
+  * Home 页（scrollcontainer）：正常渲染，无 error ✓
+  * Dialog 页：正常渲染 ✓
+  * BottomTabs 页：正常渲染 ✓
+  * 无 console error / page error ✓
+
+Stage Summary:
+- 阴影/高光裁切：rotated AABB scissor 替换 un-rotated bbox（~15 行，
+  methods-render-glass-pef.ts）+ clamping 修复。
+- backdrop overlap：inflatedOutputRect rotation-aware（~15 行，
+  methods-render-glass-geometry.ts）+ gp-sheet independentBackdrop=false
+  （1 行，build-glass-playground.ts）。
+- scrollcontainer 卡顿：GP state localStorage debounced 写入（~30 行，
+  page.tsx），drag/pinch 时不再每帧同步写 localStorage。
+- GP 玻璃居中：squareY 从 0 改成 availableH 居中（~5 行，
+  build-glass-playground.ts）。
+- 改动涉及 4 个文件，~92 行净增。核心是 geometry 15 行 + pef 15 行 +
+  page 30 行 + build-gp 5 行。

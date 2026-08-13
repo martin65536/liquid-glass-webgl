@@ -515,6 +515,14 @@ export default function Page() {
   // luminance sampler reads from this to stay in sync with the displayed
   // wallpaper (not just the default /wallpaper/wallpaper_light.webp).
   const wallpaperUrlRef = React.useRef('/wallpaper/wallpaper_light.webp')
+  // Debounced localStorage persistence for GP transform state (gpZoom/
+  // gpRotation/gpOffsetX/Y). During drag/pinch, setState fires 60+ times/
+  // second; localStorage.setItem is synchronous + blocking. We debounce:
+  // gpPersistTimerRef holds the latest snapshot string, gpPersistRafRef holds
+  // the pending timeout ID (null = no pending write). The timeout fires 400ms
+  // after the last GP state change, coalescing rapid moves into one write.
+  const gpPersistTimerRef = React.useRef<string | null>(null)
+  const gpPersistRafRef = React.useRef<number | null>(null)
 
   // setState supports both a partial patch and a functional updater.
   // The functional form is critical for drag callbacks (slider, magnifier,
@@ -528,36 +536,59 @@ export default function Page() {
         const p = typeof patch === 'function' ? patch(prev) : patch
         const next = { ...prev, ...p }
         // Persist Settings fields to localStorage (skip live* display values).
-        if (typeof window !== 'undefined' &&
-            (p.customDpr !== undefined || p.globalSeparableBlur !== undefined ||
-             p.blurTapCap !== undefined || p.blurDownsample !== undefined ||
-             p.dynamicBlurDownsample !== undefined ||
-             p.capsuleShape !== undefined || p.hideOverlayButtons !== undefined ||
-             p.locale !== undefined || p.pageTransition !== undefined ||
-             p.showFps !== undefined || p.usePerElementFbo !== undefined ||
-             p.showPerfMonitor !== undefined ||
-             p.gpZoom !== undefined || p.gpRotation !== undefined ||
-             p.gpOffsetX !== undefined || p.gpOffsetY !== undefined)) {
-          try {
-            window.localStorage.setItem(SETTINGS_KEY, JSON.stringify({
-              customDpr: next.customDpr,
-              globalSeparableBlur: next.globalSeparableBlur,
-              blurTapCap: next.blurTapCap,
-              blurDownsample: next.blurDownsample,
-              dynamicBlurDownsample: next.dynamicBlurDownsample,
-              capsuleShape: next.capsuleShape,
-              hideOverlayButtons: next.hideOverlayButtons,
-              locale: next.locale,
-              pageTransition: next.pageTransition,
-              showFps: next.showFps,
-              usePerElementFbo: next.usePerElementFbo,
-              showPerfMonitor: next.showPerfMonitor,
-              gpZoom: next.gpZoom,
-              gpRotation: next.gpRotation,
-              gpOffsetX: next.gpOffsetX,
-              gpOffsetY: next.gpOffsetY,
-            }))
-          } catch { /* ignore quota errors */ }
+        // GP transform state (gpZoom/gpRotation/gpOffsetX/Y) is persisted via a
+        // debounced write — during drag/pinch, setState fires 60+ times/second,
+        // and localStorage.setItem is synchronous + blocking. Writing on every
+        // move causes jank. Instead, schedule a write 500ms after the last GP
+        // state change; rapid changes coalesce into one write.
+        const hasSettingsChange = (
+          p.customDpr !== undefined || p.globalSeparableBlur !== undefined ||
+          p.blurTapCap !== undefined || p.blurDownsample !== undefined ||
+          p.dynamicBlurDownsample !== undefined ||
+          p.capsuleShape !== undefined || p.hideOverlayButtons !== undefined ||
+          p.locale !== undefined || p.pageTransition !== undefined ||
+          p.showFps !== undefined || p.usePerElementFbo !== undefined ||
+          p.showPerfMonitor !== undefined
+        )
+        const hasGpTransformChange = (
+          p.gpZoom !== undefined || p.gpRotation !== undefined ||
+          p.gpOffsetX !== undefined || p.gpOffsetY !== undefined
+        )
+        if (typeof window !== 'undefined' && (hasSettingsChange || hasGpTransformChange)) {
+          const snapshot = JSON.stringify({
+            customDpr: next.customDpr,
+            globalSeparableBlur: next.globalSeparableBlur,
+            blurTapCap: next.blurTapCap,
+            blurDownsample: next.blurDownsample,
+            dynamicBlurDownsample: next.dynamicBlurDownsample,
+            capsuleShape: next.capsuleShape,
+            hideOverlayButtons: next.hideOverlayButtons,
+            locale: next.locale,
+            pageTransition: next.pageTransition,
+            showFps: next.showFps,
+            usePerElementFbo: next.usePerElementFbo,
+            showPerfMonitor: next.showPerfMonitor,
+            gpZoom: next.gpZoom,
+            gpRotation: next.gpRotation,
+            gpOffsetX: next.gpOffsetX,
+            gpOffsetY: next.gpOffsetY,
+          })
+          if (hasSettingsChange) {
+            // Settings changes (toggles, sliders) are infrequent → write immediately.
+            try { window.localStorage.setItem(SETTINGS_KEY, snapshot) } catch { /* quota */ }
+          } else {
+            // GP transform changes (drag/pinch) fire 60+ times/second → debounce.
+            // Cancel any pending timer + restart, so the write fires 400ms after
+            // the LAST change (not the first). Rapid moves coalesce into one write.
+            gpPersistTimerRef.current = snapshot
+            if (gpPersistRafRef.current !== null) {
+              window.clearTimeout(gpPersistRafRef.current)
+            }
+            gpPersistRafRef.current = window.setTimeout(() => {
+              gpPersistRafRef.current = null
+              try { window.localStorage.setItem(SETTINGS_KEY, gpPersistTimerRef.current!) } catch { /* quota */ }
+            }, 400)
+          }
         }
         return next
       })
