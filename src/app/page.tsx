@@ -89,7 +89,9 @@ export default function Page() {
     } catch { return {} }
   }
   const [state, setStateRaw] = React.useState<CatalogState>({ ...DEFAULT_CATALOG_STATE, ...loadPersistedSettings() })
-  // Capsule SDF debug overlay — toggled via ?capsuleDebug=1 URL param (debug only)
+  // Capsule SDF debug overlay — toggled from the Performance Monitor panel's
+  // "DEBUG OVERLAYS" section (a dedicated button). State lives here so the
+  // overlay component stays mounted/unmounted at the page level.
   const [capsuleDebug, setCapsuleDebug] = React.useState(false)
   React.useEffect(() => {
     if (typeof window === 'undefined') return
@@ -97,6 +99,18 @@ export default function Page() {
     check()
     window.addEventListener('popstate', check)
     return () => window.removeEventListener('popstate', check)
+  }, [])
+  const toggleCapsuleDebug = React.useCallback(() => {
+    setCapsuleDebug(prev => {
+      const next = !prev
+      if (typeof window !== 'undefined') {
+        const url = new URL(window.location.href)
+        if (next) url.searchParams.set('capsuleDebug', '1')
+        else url.searchParams.delete('capsuleDebug')
+        window.history.replaceState(null, '', url.toString())
+      }
+      return next
+    })
   }, [])
   const [frameSize, setFrameSize] = React.useState({ w: 420, h: 900 })
   const [rendererReady, setRendererReady] = React.useState(false)
@@ -1078,10 +1092,13 @@ export default function Page() {
             rendererRef={rendererRef}
             visible={state.showPerfMonitor}
             rafFps={fpsDisplay}
+            capsuleDebug={capsuleDebug}
+            onToggleCapsuleDebug={toggleCapsuleDebug}
           />
         )}
         {/* Capsule SDF debug overlay — per-step timing breakdown for each
-            capsule SDF texture generation. Toggled via ?capsuleDebug=1. */}
+            capsule SDF texture generation. Toggled from the Performance
+            Monitor panel's "DEBUG OVERLAYS" section. */}
         {rendererReady && capsuleDebug && (
           <CapsuleSdfDebugOverlay rendererRef={rendererRef} />
         )}

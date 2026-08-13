@@ -54,11 +54,16 @@ interface Props {
   /** Optional: rAF-based FPS (from page.tsx's existing counter) to show
    *  alongside the rendered FPS for comparison. */
   rafFps?: number
+  /** Capsule SDF debug overlay state (owned by page.tsx so the overlay
+   *  component can be mounted/unmounted at the page level). */
+  capsuleDebug?: boolean
+  /** Toggle handler for capsuleDebug. */
+  onToggleCapsuleDebug?: () => void
 }
 
 const POLL_MS = 250
 
-export function PerfMonitorOverlay({ rendererRef, visible, rafFps }: Props) {
+export function PerfMonitorOverlay({ rendererRef, visible, rafFps, capsuleDebug, onToggleCapsuleDebug }: Props) {
   const [snapshot, setSnapshot] = React.useState<PerfSnapshot | null>(null)
   const [collapsed, setCollapsed] = React.useState(false)
   const [paused, setPaused] = React.useState(false)
@@ -281,7 +286,7 @@ export function PerfMonitorOverlay({ rendererRef, visible, rafFps }: Props) {
 
       {snapshot ? (
         <div className="perfmon-scroll" style={scrollBodyStyle}>
-          <Body snapshot={snapshot} rafFps={rafFps} rendererRef={rendererRef} paused={paused} />
+          <Body snapshot={snapshot} rafFps={rafFps} rendererRef={rendererRef} paused={paused} capsuleDebug={capsuleDebug} onToggleCapsuleDebug={onToggleCapsuleDebug} />
         </div>
       ) : (
         <div style={{ padding: 12, color: '#888' }}>Waiting for samples…</div>
@@ -320,11 +325,15 @@ function Body({
   rafFps,
   rendererRef,
   paused,
+  capsuleDebug,
+  onToggleCapsuleDebug,
 }: {
   snapshot: PerfSnapshot
   rafFps?: number
   rendererRef: React.MutableRefObject<LiquidGlassRenderer | null>
   paused: boolean
+  capsuleDebug?: boolean
+  onToggleCapsuleDebug?: () => void
 }) {
   return (
     <>
@@ -372,7 +381,7 @@ function Body({
         <Row label="Max texture" value={String(snapshot.maxTextureSize)} hint={`exts ${snapshot.extensionCount}`} />
       </Section>
       <QuickToggles rendererRef={rendererRef} />
-      <DebugToggles rendererRef={rendererRef} />
+      <DebugToggles rendererRef={rendererRef} capsuleDebug={capsuleDebug} onToggleCapsuleDebug={onToggleCapsuleDebug} />
       <div style={{ display: 'flex', gap: 6, padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
         <button
           style={{ ...btnStyle, flex: 1 }}
@@ -548,7 +557,7 @@ function QuickToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
  * debug overlays drawn on top of the canvas. They read/write flags directly
  * on the renderer; the LiquidGlassCanvas's overlay rAF loop picks them up.
  */
-function DebugToggles({ rendererRef }: { rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> }) {
+function DebugToggles({ rendererRef, capsuleDebug, onToggleCapsuleDebug }: { rendererRef: React.MutableRefObject<LiquidGlassRenderer | null>; capsuleDebug?: boolean; onToggleCapsuleDebug?: () => void }) {
   const [showBbox, setShowBbox] = React.useState(false)
   const [showBlur, setShowBlur] = React.useState(false)
   const [showDirty, setShowDirty] = React.useState(false)
@@ -715,6 +724,16 @@ function DebugToggles({ rendererRef }: { rendererRef: React.MutableRefObject<Liq
         <span>Show dirty markers</span>
         <span style={{ color: showDirty ? '#fc6' : '#888', fontWeight: 700, fontSize: 10 }}>
           {showDirty ? 'ON' : 'OFF'}
+        </span>
+      </button>
+      <button
+        onClick={() => onToggleCapsuleDebug?.()}
+        title="Open the Capsule SDF debug overlay — shows per-step timing (Canvas2D fill / getImageData readback / alpha extract / distance-transform fwd+bwd pass / RGBA pack / GPU upload) for every capsule SDF texture generation. Use to find which step is the bottleneck when GP corner-radius slider feels laggy."
+        style={debugBtnStyle(!!capsuleDebug)}
+      >
+        <span>Capsule SDF debug</span>
+        <span style={{ color: capsuleDebug ? '#fa0' : '#888', fontWeight: 700, fontSize: 10 }}>
+          {capsuleDebug ? 'ON' : 'OFF'}
         </span>
       </button>
     </div>
