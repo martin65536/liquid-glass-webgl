@@ -663,7 +663,21 @@ export const renderMethods = {
       })() : 1
       gl.uniform4f(this.uPr['uColor'], c[0], c[1], c[2], c[3] * enterA)
       gl.uniform1f(this.uPr['uCornerStyle'], this.cornerStyle)
-      // Continuous-curvature mask for capsule plain-rects (toggle tracks, etc.)
+      // Continuous-curvature mask for capsule plain-rects (toggle tracks,
+      // slider tracks, toggle/slider cards, etc.).
+      //
+      // CRITICAL: call loadContinuousSdf() HERE for plainRects — not just for
+      // glass-shape elements. The glass path (methods-render.ts ~line 317)
+      // calls loadContinuousSdf before rendering, but plainRects go through
+      // THIS path which previously did NOT. Without this call, plainRects
+      // with useContinuousSdf=true would use whatever continuousSdfTexture
+      // was last loaded by a DIFFERENT glass element (wrong w/h/radius),
+      // causing the shape to be clipped to the wrong aspect ratio — the
+      // "全变成固定宽高比例" bug. loadContinuousSdf is cached, so calling it
+      // here is a no-op if the same (w,h,radius) was already loaded.
+      if (el.useContinuousSdf) {
+        this.loadContinuousSdf(r2.w, r2.h, el.cornerRadius)
+      }
       if (el.useContinuousSdf && this.continuousSdfTexture) {
         gl.activeTexture(gl.TEXTURE2)
         gl.bindTexture(gl.TEXTURE_2D, this.continuousSdfTexture)

@@ -175,6 +175,9 @@ export function buildToggle(
     offColor: TOGGLE_TRACK_T,
     onColor: [...TOGGLE_ACCENT_T, 1] as [number, number, number, number],
   }
+  // Smooth corners: track is a 64×28 capsule (cornerRadius=14) in the original.
+  // useContinuousSdf upgrades it from circular-arc to G2 continuous curvature.
+  if (state.capsuleShape) t1TrackEl.useContinuousSdf = true
   elements.push(t1TrackEl)
 
   // Knob: glass-shape with isToggleKnob marker
@@ -217,8 +220,8 @@ export function buildToggle(
     trackOriginalY: t1TrackY,
     // No solidBackdropColor → samples wallpaper texture (LayerBackdrop case).
   }
-  // Capsule shape: knob is a 40×24dp capsule (cornerRadius=12). When
-  // capsuleShape is on, use the G2 continuous-curvature SDF texture.
+  // Smooth corners: knob is a 40×24 capsule (cornerRadius=12) in the original.
+  // useContinuousSdf upgrades it from circular-arc to G2 continuous curvature.
   if (state.capsuleShape) t1KnobEl.useContinuousSdf = true
   elements.push(t1KnobEl)
 
@@ -241,7 +244,10 @@ export function buildToggle(
   // Card background color flips with theme (white ↔ #121212), matching
   // ToggleContent.kt's `backgroundColor`.
   const cardBg: [number, number, number, number] = CARD_BG_T
-  elements.push(makePlainRect('toggle-card', { x: cardX, y: cardY, w: cardW, h: cardH }, cardBg, cardRadius))
+  // Smooth corners: card is a RoundedRectangle(32dp) in the original.
+  const toggleCardEl = makePlainRect('toggle-card', { x: cardX, y: cardY, w: cardW, h: cardH }, cardBg, cardRadius)
+  if (state.capsuleShape) toggleCardEl.useContinuousSdf = true
+  elements.push(toggleCardEl)
 
   // Toggle 2 inside the card:
   //   Box default content alignment = TopStart.
@@ -268,6 +274,8 @@ export function buildToggle(
     offColor: TOGGLE_TRACK_T,
     onColor: [...TOGGLE_ACCENT_T, 1] as [number, number, number, number],
   }
+  // Smooth corners: track is a 64×28 capsule (cornerRadius=14) in the original.
+  if (state.capsuleShape) t2TrackEl.useContinuousSdf = true
   elements.push(t2TrackEl)
   const t2KnobEl = makeGlassShape(
     'toggle2-knob',
@@ -310,8 +318,7 @@ export function buildToggle(
     // texture for the outer backdrop portion of the CombinedBackdrop.
     solidBackdropColor: cardBg,
   }
-  // Capsule shape: knob is a 40×24dp capsule (cornerRadius=12). When
-  // capsuleShape is on, use the G2 continuous-curvature SDF texture.
+  // Smooth corners: knob is a 40×24 capsule (cornerRadius=12) in the original.
   if (state.capsuleShape) t2KnobEl.useContinuousSdf = true
   elements.push(t2KnobEl)
 

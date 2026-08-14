@@ -1573,3 +1573,82 @@ Stage Summary:
 - 新增 dialog Cancel/Okay 按钮的 per-builder useContinuousSdf 行
   （原版是 Capsule，之前被 catch-all 漏掉）。
 - 非胶囊元素不再被 SDF 纹理扭曲，恢复正确的宽高比和圆角形状。
+
+---
+Task ID: 63
+Agent: main (Z.ai Code)
+Task: 给开关、滑块、及其背景卡加上原版的平滑圆角（G2连续曲率）
+
+Work Log:
+- 用户要求：仔细看原版的平滑圆角设置，给开关、滑块、及它们的背景卡
+  加上平滑圆角。同时质疑"胶囊"是否是独立于"平滑圆角"的概念。
+
+- 概念澄清（回答用户的问题）：
+  * "胶囊"（Capsule）描述的是外形轮廓（药丸形：两端半圆+中间直线），
+    不是圆角几何类型。
+  * "平滑圆角"（continuous curvature / G2）描述的是圆角的曲率连续性：
+    标准圆弧是 G1（切线连续但曲率不连续），G2 Bezier 是曲率连续
+    （曲率从 0 平滑过渡到最大再回到 0）。
+  * 两者不互斥：一个"胶囊"轮廓可以有圆弧角（G1）或连续曲率角（G2）。
+  * 原版液态玻璃设计全部使用 G2 连续曲率，包括"胶囊"形的开关/滑块。
+  * useContinuousSdf = true 时，shader 从 sdRoundedRect（圆弧）切换到
+    sampleClipMask（采样 G2 Bezier 路径生成的 SDF 纹理）。
+
+- 根因发现（之前"全变成固定宽高比例"的 bug）：
+  * plainRect 元素（开关轨道、滑块轨道、背景卡）的渲染路径
+    (methods-render.ts renderNonGlassElement) 检查 el.useContinuousSdf
+    并绑定 this.continuousSdfTexture，但从来没有调用 loadContinuousSdf()！
+  * glass-shape 元素在 methods-render.ts ~line 317 会调用
+    loadContinuousSdf(el.rect.w, el.rect.h, el.cornerRadius) 来生成/缓存
+    正确尺寸的 SDF 纹理。但 plainRect 走的是另一条路径（line 577+），
+    那里没有这个调用。
+  * 结果：plainRect 用的是上一个 glass 元素加载的 SDF 纹理（错误尺寸），
+    导致形状被裁剪成错误的宽高比——这就是用户看到的"固定宽高比例"。
+
+- 修复 1 — methods-render.ts（根因修复）：
+  * 在 plainRect 渲染路径（line ~678）的 `if (el.useContinuousSdf && 
+    this.continuousSdfTexture)` 之前，加上 `loadContinuousSdf(r2.w, r2.h, 
+    el.cornerRadius)` 调用。
+  * loadContinuousSdf 是缓存的（按 w,h,radius,dpr,holeR,holeG 做 key），
+    对已加载的尺寸是 no-op，不会重复生成。
+  * 这让 plainRect 也能正确加载自己尺寸的 SDF 纹理。
+
+- 修复 2 — build-toggle.ts：
+  * toggle1-track：加 `if (state.capsuleShape) t1TrackEl.useContinuousSdf = true`
+    （64×28 胶囊，cornerRadius=14）
+  * toggle2-track：同上
+  * toggle-card：改为 `const toggleCardEl = makePlainRect(...)` + 
+    `if (state.capsuleShape) toggleCardEl.useContinuousSdf = true`
+    （176×76 圆角矩形，cornerRadius=32）
+  * t1KnobEl / t2KnobEl：已有 useContinuousSdf，仅更新注释措辞
+    （"Capsule shape" → "Smooth corners"）。
+
+- 修复 3 — build-slider.ts：
+  * slider1-knob / slider2-knob：加 useContinuousSdf
+    （40×24 胶囊，cornerRadius=12）
+  * slider1-track / slider2-track：加 useContinuousSdf
+    （~300×6 胶囊，cornerRadius=3）
+  * slider-card：改为 `const sliderCardEl = makePlainRect(...)` + 
+    useContinuousSdf（~328×72 圆角矩形，cornerRadius=32）
+  * slider1-fill / slider2-fill：跳过（isSliderFill 宽度每帧变化，
+    会 thrash SDF 缓存）。
+
+- Agent Browser 验证：
+  * Toggle 页：VLM 确认 — 两个胶囊形开关、白色圆角矩形背景卡、
+    所有角平滑圆润、无变形/拉伸/错误宽高比。✓
+  * Slider 页：VLM 确认 — 滑块旋钮是平滑椭圆、背景卡是圆角矩形、
+    角平滑、无视觉变形或宽高比问题。✓
+  * 拖拽滑块：无 WebGL 错误、无 console 错误。✓
+  * dev.log：干净，无 runtime error。✓
+
+- bun run lint：通过（0 errors）。
+
+Stage Summary:
+- 根因修复：plainRect 渲染路径加 loadContinuousSdf() 调用——之前只有
+  glass-shape 路径调用，plainRect 用的是错误尺寸的 SDF 纹理，导致
+  "固定宽高比例" bug。现在 plainRect 也正确加载自己尺寸的 SDF。
+- 给开关页的 track + card 加 G2（knob 已有）。
+- 给滑块页的 knob + track + card 加 G2（fill 跳过——宽度变化）。
+- "胶囊"和"平滑圆角"不是对立概念：胶囊是轮廓，平滑圆角是角几何。
+  原版液态玻璃所有形状都用 G2 连续曲率，包括胶囊形的开关/滑块。
+- VLM 验证两个页面渲染正确，角平滑，无变形。
