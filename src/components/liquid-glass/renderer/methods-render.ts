@@ -1,0 +1,405 @@
+import type { LiquidGlassRenderer } from './index'
+import type { GlassElementConfig } from './types'
+import { inflatedOutputRect } from './methods-render-glass'
+
+// NOTE: setSdfUniforms / renderBackground / renderDialogBackdrop live in
+// methods-render-background.ts; renderNonGlassElement + its 3 branches
+// (plain-rect / progressive-blur / text) live in methods-render-nonglass*.ts;
+// diagnosePlainRect lives in methods-render-diagnose.ts. They are merged onto
+// the prototype via Object.assign in index.ts, following the same pattern as
+// the other methods-*.ts files. This file now contains only the main render
+// loop.
+
+declare module './index' {
+  interface LiquidGlassRenderer {
+    render(): void
+  }
+}
+
+export const renderMethods = {
+  render(this: LiquidGlassRenderer) {
+    // PERFORMANCE: Skip render if nothing changed since last frame.
+    // This prevents redundant full-scene re-renders when rAF fires
+    // (e.g. from browser repaints) but no state actually changed.
+    if (!this.needsRedraw) return
+    this.needsRedraw = false
+
+    // dirtyRectsThisFrame: screen-space rects whose curFbo pixels changed
+    // this frame. Cleared at render start. When allDirty (global state
+    // change like wallpaper reload) or scrollY changed, a full-screen rect is
+    // pushed so every non-independent glass element's backdrop is considered
+    // dirty. Otherwise only elements that actually re-rasterize push their
+    // own bbox, and non-independent elements hit the cache iff no pushed rect
+    // overlaps their backdrop sampling region (spatial, not global).
+    this.dirtyRectsThisFrame.length = 0
+    this.debugCacheMissLog.length = 0
+    this.debugDirtySourceLog.length = 0
+    if (this.allDirty || this.scrollY !== this.lastRenderedScrollY) {
+      this.dirtyRectsThisFrame.push({
+        x: 0, y: 0, w: this.cssWidth, h: this.cssHeight,
+        source: this.allDirty ? 'all_dirty' : 'scroll',
+      })
+    }
+    this.lastRenderedScrollY = this.scrollY
+
+    // --- PerfMonitor: start frame timing + reset per-frame counters ---
+    // Push canvas info first so the snapshot includes it.
+    this.perfMonitor.canvasCssW = this.cssWidth
+    this.perfMonitor.canvasCssH = this.cssHeight
+    this.perfMonitor.canvasDevW = this.canvas.width
+    this.perfMonitor.canvasDevH = this.canvas.height
+    this.perfMonitor.dpr = this.dpr
+    this.perfMonitor.deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+    this.perfMonitor.frameStart()
+
+    // Debug lists: always clear at render start so the lists are repopulated
+    // from scratch this frame. The overlay then consumes them (length = 0)
+    // AFTER drawing — this consume-after-draw pattern is what keeps the data
+    // alive across the async gap between render() finishing and the overlay's
+    // rAF tick reading it. Previously these were gated on their respective
+    // show* flags, which meant: (1) when the flag was off the stale data from
+    // the last flagged-frame lingered, and (2) when a new render fired
+    // BETWEEN the overlay's rAF ticks, it cleared the list before the overlay
+    // could draw it → blank/flickering overlay (the blur-box display bug).
+    // Unconditional clear + overlay consume-after-draw fixes both.
+    this.debugPefBboxes.length = 0
+    this.debugBlurRegions.length = 0
+    this.debugShadowBboxes.length = 0
+    this.debugDirtyMarkers.length = 0
+    this.debugCullRects.length = 0
+    this.debugPefPasses.length = 0
+    this.debugPlainRects.length = 0
+
+    if (!this.wallpaperReady && !this.backgroundColor) {
+      this.perfMonitor.frameEnd()
+      return
+    }
+    const gl = this.gl
+    // Ensure FBOs exist (created lazily on first render after resize).
+    this.resizeFBOs(this.canvas.width, this.canvas.height)
+
+    // Re-rasterize any dirty foregrounds.
+    for (const cfg of this.buttonConfigs) {
+      if (this.fgDirtyIds.has(cfg.id)) {
+        this.rasterizeForeground(cfg)
+      }
+    }
+
+    // --- 1. Render background (wallpaper or solid color) into fboA ----
+    // fboA is the "current scene" — everything rendered so far. Glass
+    // elements will sample from fboA.texture to compute refraction of
+    // the actual colors behind them (track color, card background, etc).
+    this.renderBackground()
+    this.perfMonitor.incDrawCall() // wallpaper pass = 1 draw call
+
+    if (this.buttonConfigs.length === 0) {
+      // No elements — blit fboA to the default framebuffer and done.
+      this.bindFBO(null)
+      this.drawCopy(this.fboATex!)
+      this.perfMonitor.incDrawCall() // final blit
+      this.perfMonitor.frameEnd()
+      return
+    }
+
+    // --- Global backdrop blur (ControlCenter) ---
+    // Faithful to ControlCenterContent.kt: the backdrop Image has
+    //   .graphicsLayer { BlurEffect(4dp * progress) }
+    // which blurs the WALLPAPER (not the dim, not the tiles). We replicate
+    // by blurring fboA (wallpaper) right after renderBackground, BEFORE any
+    // element composites on top. The cc-dim element (drawn next) renders a
+    // crisp dim on top of the blurred wallpaper — matching the original's
+    // drawWithContent { drawContent(); drawRect(dim) } where drawContent()
+    // draws the blurred wallpaper and drawRect(dim) is crisp.
+    //
+    // sceneBlurRadius is set on the cc-dim element (CSS px). We scan for it
+    // here (once per frame) and blur fboA in-place (blurTexture → blurFboB,
+    // then drawCopy back to fboA).
+    const sceneBlurEl = this.buttonConfigs.find((e) => (e.sceneBlurRadius ?? 0) >= 0.5)
+    if (sceneBlurEl) {
+      const r = sceneBlurEl.sceneBlurRadius! * this.dpr
+      const blurred = this.blurTexture(this.fboATex!, r)
+      // blurTexture restored the FBO binding to fboA (what renderBackground
+      // bound). Rebind explicitly + copy blurred result back into fboA.
+      this.bindFBO(this.fboA!)
+      this.drawCopy(blurred)
+      this.perfMonitor.incBlurPass()
+      this.perfMonitor.incDrawCall(2) // blur = 2 passes + 1 copy
+    }
+
+    // Enable blending for the remaining passes.
+    gl.enable(gl.BLEND)
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+
+    // --- Isolate backdrop: snapshot the wallpaper into bgOnlyFbo ---
+    // When the isolateBackdrop quick-toggle is on, glass elements sample
+    // bgOnlyFbo (wallpaper + non-glass UI) instead of curTex (which also
+    // contains other glass). This snapshot seeds bgOnlyFbo with the
+    // wallpaper; non-glass elements rendered below also composite into it.
+    const isolate = this.quickToggles.isolateBackdrop
+    if (isolate && this.bgOnlyFbo && this.bgOnlyTex) {
+      this.bindFBO(this.bgOnlyFbo)
+      this.gl.viewport(0, 0, this.fboW, this.fboH)
+      this.drawCopy(this.fboATex!)
+      // drawCopy disables blend; re-enable for subsequent non-glass draws.
+      this.gl.enable(this.gl.BLEND)
+      this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA)
+    }
+
+    // Cull + iterate. We render elements in DECLARED ORDER (no Wave 1 /
+    // Wave 2 split) because the FBO ping-pong makes z-ordering faithful:
+    // each element composites on top of everything declared before it.
+    //
+    // CULL MARGIN: 120px accounts for outer shadows (~24dp), press/toggle
+    // scale (up to 1.5x), and foreground halo blur.
+    //
+    // CULL MARGIN UNITS: All comparisons are in VIEWPORT coords (y=0 is
+    // the top of the visible canvas, y=cssHeight is the bottom). Mixing
+    // viewport y with content y (which is offset by scrollY) was the
+    // cause of the long-standing "elements disappear before sliding off
+    // screen" bug.
+    const scrollY = this.scrollY
+    // Base cull margin: covers outer shadows (~24dp), press/toggle scale
+    // (up to 1.5x), and foreground halo blur.
+    const CULL_MARGIN = 120
+
+    // Per-element cull margin: max(CULL_MARGIN, el.rect.h). This keeps tall
+    // elements (e.g. settings card backgrounds, h=200-300px) visible until
+    // they are FULLY off-screen + CULL_MARGIN. Without this, a card background
+    // (h=300) would cull when its top reaches -120 (y+h < -120 → y+300<-120
+    // → y<-420... actually y+h<-120 means the element's BOTTOM is above -120),
+    // but its child elements (small h, positioned at the bottom of the card)
+    // would still be on-screen → children render without their card bg.
+    // Using el.rect.h as the margin ensures parent + child cull at the same
+    // scroll position (child's y+h culls when child fully passes -120, which
+    // is always AFTER the card bg fully passes -120+h_card).
+    const cullMarginFor = (el: GlassElementConfig) => Math.max(CULL_MARGIN, el.rect.h)
+
+    // Helper to compute the element's effective rect (with scroll offset).
+    const effRect = (el: GlassElementConfig) => {
+      const y = el.scroll ? el.rect.y - scrollY : el.rect.y
+      return { x: el.rect.x, y, w: el.rect.w, h: el.rect.h }
+    }
+
+    // Iterate elements in declared order. Track which FBO is "current"
+    // (i.e. contains the scene built up so far). Glass elements trigger
+    // a ping-pong; non-glass elements render directly to the current FBO.
+    let curFbo: WebGLFramebuffer = this.fboA!
+    let curTex: WebGLTexture = this.fboATex!
+    let otherFbo: WebGLFramebuffer = this.fboB!
+    let otherTex: WebGLTexture = this.fboBTex!
+
+    for (const el of this.buttonConfigs) {
+      // Skip renderOnTop elements — they are rendered in a second pass
+      // after all other elements (faithful to ControlCenterContent.kt's
+      // drawWithContent which draws the dim AFTER drawContent).
+      if (el.renderOnTop) continue
+
+      // Compute the element's effective y in VIEWPORT coords (after scroll).
+      const y = el.scroll ? el.rect.y - scrollY : el.rect.y
+      const margin = cullMarginFor(el)
+      const culled = y + el.rect.h < -margin || y > this.cssHeight + margin
+      if (this.showCullDebug) {
+        this.debugCullRects.push({
+          id: el.id, x: el.rect.x, y, w: el.rect.w, h: el.rect.h,
+          margin, culled, scroll: !!el.scroll, viewportH: this.cssHeight, pass: 'main',
+        })
+      }
+      if (culled) continue
+
+      const r = effRect(el)
+      const st = this.buttonStates.get(el.id)
+
+      // Dirty tracking (event-driven): check if this element was marked dirty
+      // since the last frame. Used for perfMonitor counters. NOTE: this is the
+      // EVENT-DRIVEN dirty flag, NOT the actual re-raster status — with the
+      // signature-diff + position-check cache scheme, an element can be
+      // re-rasterized without being event-marked dirty (e.g. position changed
+      // → elFboCache position check misses → re-rasterize). The debug overlay
+      // marker uses the TRUE re-raster status (populated after render for
+      // glass elements via _dbgLastGlassCacheHit).
+      const dirty = this.allDirty || this.dirtyElementIds.has(el.id)
+      this.perfMonitor.incTotal()
+      if (dirty) this.perfMonitor.incDirty()
+
+      // --- Non-glass elements: render directly to current FBO ---
+      if (this.renderNonGlassElement(el, r, st, curFbo)) {
+        // Non-glass elements don't go through the elFboCache — every visible
+        // non-glass element is redrawn each frame, so "dirty" = event-flag.
+        if (this.showDirtyMarkers) {
+          this.debugDirtyMarkers.push({ x: r.x, y: r.y, w: r.w, h: r.h, dirty })
+        }
+        // A dirty non-glass element (text/icon content changed) alters curFbo
+        // within its bbox → record the region so subsequent non-independent
+        // glass elements whose backdrop samples it know to re-rasterize.
+        // Static redraws (same content) leave pixels identical, so only push
+        // when the event-flag says this element actually changed.
+        if (dirty) this.dirtyRectsThisFrame.push({
+          ...inflatedOutputRect(el, r.x, r.y, r.w, r.h),
+          source: `nonglass:${el.id}`,
+        })
+        // Isolate backdrop: also composite non-glass elements into bgOnlyFbo
+        // so glass elements sampling bgOnlyFbo see the non-glass UI.
+        if (isolate && this.bgOnlyFbo) {
+          this.renderNonGlassElement(el, r, st, this.bgOnlyFbo)
+        }
+        continue
+      }
+
+      // --- Backdrop FBO: render wallpaper+scrim+colorControls into
+      // dialogBackdropFbo (cached) for backdropFbo elements. ---
+      if (el.backdropFbo && el.scrimColor) {
+        this.renderDialogBackdrop(el.scrimColor, el.brightness, el.contrast, el.saturation)
+      }
+
+      // --- Continuous-curvature SDF texture (capsule shape) ---
+      // For elements with useContinuousSdf=true, ensure the SDF texture for
+      // the element's (w, h, radius) is generated + uploaded BEFORE rendering.
+      // loadContinuousSdf() is cached — no-op if already loaded for this
+      // geometry. Generation is synchronous (Canvas2D raster + chamfer distance
+      // transform on a 128²/256²/512²/1024² grid, chosen dynamically by
+      // element device-px size) so it only happens once per (w, h, radius,
+      // dpr) tuple, on the first frame after a resize.
+      //
+      // CALLED even when noContinuousSdf is ON: the toggle now only skips the
+      // G channel (distance transform) inside generateContinuousCurvatureMask.
+      // The R channel (coverage, browser-native AA from the G2 Bezier path) is
+      // STILL generated and bound — capsule-shape clip + edgeAA rely on it.
+      // The shader's uNoContinuousSdfInRefraction=1 (set in element-pass.ts)
+      // forces analytic sdRoundedRect for the refraction SDF (which reads G),
+      // so the skipped G channel is never sampled. This is the "don't render
+      // G" half of the toggle; R is always rendered.
+      if (el.useContinuousSdf) {
+        this.loadContinuousSdf(el.rect.w, el.rect.h, el.cornerRadius)
+      }
+
+      // --- Glass elements (button / glass-shape): ping-pong ---
+      const result = this.renderGlassElement(el, st, curFbo, curTex, otherFbo, otherTex, r)
+      curFbo = result.curFbo
+      curTex = result.curTex
+      otherFbo = result.otherFbo
+      otherTex = result.otherTex
+      // Debug marker for glass elements: dirty = actually re-rasterized the
+      // glass body this frame (cache MISS). cacheHit=true means the elFboCache
+      // was reused → no GPU re-raster → marker shows green (clean).
+      if (this.showDirtyMarkers) {
+        this.debugDirtyMarkers.push({ x: r.x, y: r.y, w: r.w, h: r.h, dirty: !this._dbgLastGlassCacheHit })
+      }
+
+      // After the container glass is rendered (before tab-content), snapshot
+      // the scene (wallpaper + glass, no text) into tabsBackdropFbo. The
+      // indicator samples this to avoid the white/black tab text bleeding through.
+      if (el.isBottomTabContainer && this.tabsBackdropFbo && this.tabsBackdropTex) {
+        this.bindFBO(this.tabsBackdropFbo)
+        // Clear to transparent first (avoid stale black from previous frames).
+        this.gl.clearColor(0, 0, 0, 0)
+        this.gl.clear(this.gl.COLOR_BUFFER_BIT)
+        this.drawCopy(curTex)
+        // Re-bind curFbo for continued rendering (tab-content draws on top).
+        this.bindFBO(curFbo)
+        // drawCopy disables blend; re-enable for subsequent tab-content rendering.
+        this.gl.enable(this.gl.BLEND)
+        this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA)
+      }
+    }
+
+    // --- Second pass: render renderOnTop elements ---
+    // Faithful to ControlCenterContent.kt / DialogContent.kt's drawWithContent:
+    //   drawContent()  ← first pass (card/tiles)
+    //   drawRect(dim)  ← second pass (dim/scrim on top, like the original)
+    // Also renders glass renderOnTop elements (back button / theme toggle)
+    // via normal ping-pong — they composite on top of the scrim. If they
+    // have sampleWallpaper=true, the refraction samples the clean wallpaper
+    // (handled in renderGlassElementPass), so the scrim doesn't darken them.
+    for (const el of this.buttonConfigs) {
+      if (!el.renderOnTop) continue
+      const y = el.scroll ? el.rect.y - scrollY : el.rect.y
+      const margin = cullMarginFor(el)
+      const culled = y + el.rect.h < -margin || y > this.cssHeight + margin
+      if (this.showCullDebug) {
+        this.debugCullRects.push({
+          id: el.id, x: el.rect.x, y, w: el.rect.w, h: el.rect.h,
+          margin, culled, scroll: !!el.scroll, viewportH: this.cssHeight, pass: 'onTop',
+        })
+      }
+      if (culled) continue
+      const r = effRect(el)
+      const st = this.buttonStates.get(el.id)
+
+      // Dirty tracking for renderOnTop elements (same as the main loop).
+      const dirty = this.allDirty || this.dirtyElementIds.has(el.id)
+      this.perfMonitor.incTotal()
+      if (dirty) this.perfMonitor.incDirty()
+
+      // Non-glass renderOnTop elements (scrim/dim) render directly on curFbo.
+      if (this.renderNonGlassElement(el, r, st, curFbo)) {
+        if (this.showDirtyMarkers) {
+          this.debugDirtyMarkers.push({ x: r.x, y: r.y, w: r.w, h: r.h, dirty })
+        }
+        if (dirty) this.dirtyRectsThisFrame.push({
+          ...inflatedOutputRect(el, r.x, r.y, r.w, r.h),
+          source: `nonglass:${el.id}`,
+        })
+        if (isolate && this.bgOnlyFbo) {
+          this.renderNonGlassElement(el, r, st, this.bgOnlyFbo)
+        }
+        continue
+      }
+
+      // Glass renderOnTop elements (back button / theme toggle): normal
+      // ping-pong. The blit copies curTex (which now contains the scrim) to
+      // otherFbo, then the glass element renders on top. sampleWallpaper
+      // (if set) only changes the refraction sample, not the blit — so the
+      // scene is preserved and the button composites correctly on top.
+      const result = this.renderGlassElement(el, st, curFbo, curTex, otherFbo, otherTex, r)
+      curFbo = result.curFbo
+      curTex = result.curTex
+      otherFbo = result.otherFbo
+      otherTex = result.otherTex
+      if (this.showDirtyMarkers) {
+        this.debugDirtyMarkers.push({ x: r.x, y: r.y, w: r.w, h: r.h, dirty: !this._dbgLastGlassCacheHit })
+      }
+    }
+
+    // --- Final: blit curFbo → default framebuffer (visible canvas) ---
+    this.bindFBO(null)
+    this.drawCopy(curTex)
+    this.perfMonitor.incDrawCall() // final blit
+
+    // --- Debug: edge scan readback (if pending) ---
+    // MUST happen here — synchronously after drawCopy, while the drawing
+    // buffer is still valid (preserveDrawingBuffer:false clears it after
+    // the rAF callback returns). debugReadEdgeScanline() sets the pending
+    // flag; we flush it here, readPixels, and store the result for the
+    // overlay to poll.
+    if (this._pendingEdgeScan) {
+      this._debugFlushPendingEdgeScan()
+    }
+
+    // --- Clear event-driven dirty state (consumed by this frame) ---
+    this.dirtyElementIds.clear()
+    this.allDirty = false
+
+    // --- Bottom-tabs first-entry double-render ---
+    // On the first render after navigating to a bottom-tabs page, the
+    // indicator's elFbo may have been baked against a not-yet-stable
+    // tabsBackdropTex (the snapshot is captured mid-frame, and on the very
+    // first frame the container glass + FBOs are still initializing). Force
+    // ONE extra render: mark every bottom-tab indicator's group dirty so its
+    // elFbo cache misses on the next frame, then request a redraw. The second
+    // frame re-rasterizes the indicator against the now-stable tabsBackdropTex
+    // (captured during the first frame and still valid), producing a correct
+    // bake. After that, normal cache invalidation takes over.
+    if (this.pendingExtraRenders > 0) {
+      this.pendingExtraRenders--
+      for (const el of this.buttonConfigs) {
+        if (el.isBottomTabIndicator) {
+          this.markGroupDirty(el.isBottomTabIndicator.groupId)
+        }
+      }
+      this.requestRender()
+    }
+
+    // --- PerfMonitor: end frame timing + capture counters ---
+    this.perfMonitor.frameEnd()
+  },
+}
