@@ -1029,3 +1029,32 @@ Stage Summary:
   +20 行 SDF 绑定 if/else）。
 - 其他 pass（element/foreground/plain-rect/rim-highlight/inner-shadow/composite）
   经审查均已有正确的 capsule 处理，无需改动。
+
+---
+Task ID: 55
+Agent: main (Z.ai Code)
+Task: 回退 Task 54 对 shadow pass 的 capsule SDF 改动（用户反馈"阴影被你改坏了"）
+
+Work Log:
+- 用户反馈：Task 54 给 shadow pass 加 capsule SDF 绑定后，阴影反而坏了。
+  要求回退 shadow 的修改。
+- 回退 1（index.ts shNames）：删除 4 个 capsule uniform
+  （uUseContinuousSdf / uContinuousSdf / uContinuousSdfTexSize /
+  uContinuousSdfElementSize）。shadowProgram 不再查询这些 location。
+- 回退 2（methods-render-glass-shadow.ts）：删除 if/else capsule SDF 绑定块
+  （~20 行），恢复到 Task 54 之前的状态（只设 uCornerStyle，不碰 capsule）。
+- 正确性确认：shadow.ts 仍 include SDF_GLSL（声明了 uUseContinuousSdf
+  uniform），但 shadowProgram 不再 set 它 → GL 默认值 0.0 → sdShape() 走
+  sdRoundedRect 分支（圆形圆角矩形）。这是 Task 54 之前的原始行为，
+  shadow 用普通圆形圆角矩形，与 capsule 玻璃本体在角部有 <0.5% radius
+  的形状差异（sub-pixel，大多数情况不可见）。
+- bun run lint：通过（0 errors）。
+- 未做浏览器测试（遵照用户"不用改边缘裁切，只说说思路"的要求）。
+
+Stage Summary:
+- 回退 Task 54 的两处 shadow 改动（index.ts shNames -1 行 uniform +
+  methods-render-glass-shadow.ts -20 行绑定块）。
+- shadow pass 恢复到 capsule feature 引入前的行为：sdShape 走 sdRoundedRect
+  （圆形圆角矩形），uniform uUseContinuousSdf 保持 GL 默认 0.0。
+- 其他 pass（element / foreground / plain-rect）的 capsule SDF 绑定不动，
+  玻璃本体仍是 G2 capsule 形。
