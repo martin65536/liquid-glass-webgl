@@ -2544,3 +2544,29 @@ Stage Summary:
   * probe Map 的 key 是缓存 key（含 r/g flag），flipHole clear 避免跨状态累积。
 - 32MB 预算 ≈ 2.4× scratch buffer 预算（~13MB documented acceptable），
   足够保留 slider 拖动历史（drag-back hit-rate）同时防止泄漏。
+
+---
+Task ID: 34
+Agent: main (Z.ai Code)
+Task: 验证 liquid-glass-webgl 已成功集成进宿主 Next.js 主项目，并在预览中可正常运行；配置远程 PAT 并尝试推送一次
+
+Work Log:
+- 确认 liquid-glass-webgl 仓库已克隆到 /home/z/my-project/liquid-glass-webgl/，与 origin/main 同步（HEAD = 47d3327）。
+- 确认主项目 /home/z/my-project/ 已完成集成：
+  - src/app/page.tsx 已替换为 LiquidGlassCanvas + catalog（ faithful WebGL port of Kyant's AndroidLiquidGlass）。
+  - src/components/liquid-glass/ 完整复制（renderer/、shaders/、shapes/、catalog/、context.tsx 等）。
+  - 依赖与克隆仓库一致（无需新增 npm 包——liquid glass 纯用现有 stack：React 19 + Next 16 + WebGL）。
+  - 主项目 git 工作区干净（集成已提交）。
+- 预览验证（Agent Browser + VLM，viewport 390×844）：
+  - 首页 "液态玻璃目录" 导航列表正常渲染，无 console error / page error。
+  - 点击进入 Dialog 子页：中心 glass card 显示 frosted glassmorphism blur ✓，
+    背后 abstract wallpaper 透过模糊层可见 ✓，左上 back 圆钮 + 右上 moon 圆钮
+    均显示 frosted glass ✓。dev server 全程 200，未重启。
+- 远程 PAT 配置：更新 origin remote URL 嵌入新 PAT（ghp_…rgblq）。
+- 鉴权验证：`git ls-remote origin HEAD` 成功返回 47d3327，确认 PAT 有效。
+- 推送测试：在 worklog 追加本条记录后 commit + push origin main，验证写权限。
+
+Stage Summary:
+- 主项目集成状态：✓ 完整且已在预览渲染（frosted glass + wallpaper 均正常）。
+- 远程 PAT：✓ 已配置且通过 ls-remote 鉴权验证。
+- 推送：见本次 push 结果（若成功则 PAT 写权限确认）。
