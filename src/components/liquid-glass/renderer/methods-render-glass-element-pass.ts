@@ -332,7 +332,16 @@ export const glassElementPassMethods = {
       // Same dummy-texture bind as the uSdfTexSampler branch above. Both
       // samplers share TEXTURE2; this ensures the unit is always complete
       // even when neither SDF path is active.
-      if (this.dummyTex) {
+      //
+      // CRITICAL: skip the dummy bind when el.isSdfTexture already bound a
+      // real texture to TEXTURE2 in the block above. The dummy is a 1×1
+      // [0,0,0,0] texture (alpha=0); binding it here would clobber the
+      // clock_sdf texture, so sampleSdfTexture() reads v.a=0 → mask=0 →
+      // discard → the entire SDF-texture glass (LockScreen clock) vanishes.
+      // uUseContinuousSdf=0.0 means the uContinuousSdf sampler is never
+      // sampled, so leaving the sdfTexture bound is safe and keeps the unit
+      // complete for both samplers.
+      if (this.dummyTex && !el.isSdfTexture) {
         gl.activeTexture(gl.TEXTURE2)
         gl.bindTexture(gl.TEXTURE_2D, this.dummyTex)
       }
