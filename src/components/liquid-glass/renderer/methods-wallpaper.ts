@@ -94,7 +94,9 @@ export const wallpaperMethods = {
    *  The R channel holds the normalized SDF (decoded as sample*2 - 1 in the
    *  shader); G and B mirror R; A = 255. */
   loadContinuousSdf(this: LiquidGlassRenderer, w: number, h: number, radius: number) {
-    const key = `${w},${h},${radius},${this.dpr}`
+    // Cache key includes the debug hole flag so the挖掉'd GPU texture is a
+    // separate pool entry — toggling the flag is instant (no eviction).
+    const key = `${w},${h},${radius},${this.dpr}${this.debugSdfHoleTopLeft ? ',hole' : ''}`
     // Pool: each unique (w,h,radius,dpr) gets its own texture.
     let entry = this.continuousSdfPool.get(key)
     if (!entry) {
@@ -105,8 +107,25 @@ export const wallpaperMethods = {
       const texObj = gl.createTexture()!
       gl.bindTexture(gl.TEXTURE_2D, texObj)
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true)
+      // Debug:挖掉 R channel (coverage) of the image's top-left quadrant on a
+      // COPY, so the CPU-side maskCache is never polluted. The挖掉'd region
+      // maps to the element's bottom-left on screen (UNPACK_FLIP_Y). If the
+      // glass body's bottom-left corner disappears, the SDF texture IS the
+      // clip source. See debugSdfHoleTopLeft docstring on the renderer.
+      let uploadTex = tex
+      if (this.debugSdfHoleTopLeft) {
+        // Aggressive probe: zero the ENTIRE R channel (coverage). If the glass
+        // body disappears completely, the SDF texture IS the clip source. If
+        // the glass is still fully visible, the SDF R channel is NOT used for
+        // clipping (the edge comes from somewhere else).
+        uploadTex = tex.slice()
+        const n = texSize * texSize
+        for (let i = 0; i < n; i++) {
+          uploadTex[i * 4] = 0 // R = coverage → 0 everywhere
+        }
+      }
       const uploadStart = performance.now()
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, texSize, texSize, 0, gl.RGBA, gl.UNSIGNED_BYTE, tex)
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, texSize, texSize, 0, gl.RGBA, gl.UNSIGNED_BYTE, uploadTex)
       // Force GPU sync so the upload time is measured accurately (otherwise
       // texImage2D may defer and the time shows up in a later draw call).
       gl.finish()

@@ -419,6 +419,23 @@ export class LiquidGlassRenderer {
    *  Only populated when this flag is true. */
   showShadowBbox = false
   debugShadowBboxes: { x: number; y: number; w: number; h: number; alpha: number; skipped: boolean; r: number; ox: number; oy: number }[] = []
+  /** Debug: when true, the capsule SDF texture uploaded to the GPU has its
+   *  R channel (coverage) zeroed in the top-left quadrant of the IMAGE
+   *  (Canvas2D space, row<texSize/2 && col<texSize/2). Due to
+   *  UNPACK_FLIP_Y=true on upload, this image-top-left maps to the
+   *  element's BOTTOM-LEFT quadrant on screen (uv.y>0.5).
+   *
+   *  PURPOSE: prove whether the glass body's clip edge actually comes from
+   *  sampling this SDF texture. If ON → the corresponding screen corner of
+   *  every capsule glass element becomes transparent (sampleClipMask
+   *  returns 0 → `mask < 0.01 discard`), then the SDF texture IS the clip
+   *  source. If nothing changes, the clip edge is coming from somewhere
+   *  else (analytic sdRoundedRect, scissor, elFbo composite bounds, …).
+   *
+   *  Cache key includes the flag so the挖掉'd GPU texture is a separate
+   *  pool entry — toggling is instant, no eviction needed. The CPU-side
+   *  maskCache is never polluted (挖掉 happens on a copy at upload time). */
+  debugSdfHoleTopLeft = false
   /** Debug: when true, the renderer records each element's CULL decision
    *  (made in methods-render.ts's two element loops) into `debugCullRects`
    *  during render. The React overlay draws each element's effective
