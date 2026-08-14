@@ -31,6 +31,7 @@ export enum CatalogDestination {
   Settings,
   About,
   PerfBenchmark,
+  TextGlass,
 }
 
 // Track which toggle groups are being dragged — setToggleTarget is skipped
@@ -72,6 +73,7 @@ export const HOME_SECTIONS: { titleKey: string; items: { dest: CatalogDestinatio
       { dest: CatalogDestination.ScrollContainer, labelKey: 'item_scroll_container' },
       { dest: CatalogDestination.LazyScrollContainer, labelKey: 'item_lazy_scroll' },
       { dest: CatalogDestination.PerfBenchmark, labelKey: 'item_perf_benchmark' },
+      { dest: CatalogDestination.TextGlass, labelKey: 'item_text_glass' },
     ],
   },
   {
@@ -279,6 +281,17 @@ export interface CatalogState {
   // Performance benchmark: exit button appearance progress (0..1).
   // 0 = hidden, 1 = fully visible. Animated via settle animation.
   perfExitProgress: number
+  // TextGlass — the user-typed text to render as an SDF-texture glass shape.
+  // Regenerating the SDF (CPU + GPU upload) happens in page.tsx's effect,
+  // debounced; the builder just sizes a glass element to the SDF aspect ratio.
+  textGlassText: string
+  // TextGlass — aspect ratio (w/h) of the current SDF texture, so the
+  // builder can size the glass element to match the text. Updated by the
+  // same effect that uploads the SDF texture. Defaults to 3:1 (wide text).
+  textGlassAspect: number
+  // TextGlass — drag offset (cumulative from press start).
+  textGlassOffsetX: number
+  textGlassOffsetY: number
 }
 
 export const DEFAULT_CATALOG_STATE: CatalogState = {
@@ -336,4 +349,8 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   perfProgressFracAnimated: 0,
   perfDeformMul: 0,
   perfExitProgress: 0,
+  textGlassText: 'Glass',
+  textGlassAspect: 3,
+  textGlassOffsetX: 0,
+  textGlassOffsetY: 0,
 }

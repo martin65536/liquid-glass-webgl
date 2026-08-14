@@ -17,6 +17,7 @@ import { usePerfBenchmark } from './hooks/use-perf-benchmark'
 import { usePageTransition } from './hooks/use-page-transition'
 import { useAdaptiveLuminance } from './hooks/use-adaptive-luminance'
 import { useCatalogTargets } from './hooks/use-catalog-targets'
+import { useTextGlass } from './hooks/use-text-glass'
 
 /* ------------------------------------------------------------------ *
  * Faithful WebGL reproduction of Kyant's AndroidLiquidGlass catalog.
@@ -325,6 +326,11 @@ export default function Page() {
   // fractions) and tab targets (selectedTab indices).
   const { toggleTargets, tabTargets } = useCatalogTargets({ destination, state })
 
+  // TextGlass — regenerates the SDF texture when the user types, and reloads
+  // clock_sdf when navigating back to the LockScreen (TextGlass overwrites
+  // renderer.sdfTexture with a text SDF).
+  useTextGlass({ destination, state, setState, rendererRef, rendererReady })
+
   // AdaptiveLuminanceGlass wallpaper sampling — paints the wallpaper into a
   // hidden 2D canvas and rAF-samples 25 pixels in a 5×5 grid behind the glass
   // region to drive state.adaptiveLuminance. Returns the wp canvas refs so
@@ -428,6 +434,48 @@ export default function Page() {
           className="w-full h-full"
           onReady={() => setRendererReady(true)}
         />
+        {/* TextGlass — HTML text input overlay (only on the TextGlass page).
+            The catalog is fully canvas-rendered except for this input, which
+            lets the user type custom text that gets converted to an SDF glass
+            shape (see use-text-glass.ts). Styled as a frosted-glass pill at
+            the bottom of the screen. */}
+        {destination === CatalogDestination.TextGlass && rendererReady && (
+          <div
+            style={{
+              position: 'absolute',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              bottom: 24,
+              width: 'min(320px, calc(100% - 32px))',
+              zIndex: 30,
+            }}
+          >
+            <input
+              type="text"
+              value={state.textGlassText}
+              onChange={(e) => setState({ textGlassText: e.target.value })}
+              maxLength={20}
+              placeholder="Type text…"
+              style={{
+                width: '100%',
+                padding: '12px 16px',
+                borderRadius: 999,
+                border: '1px solid rgba(255,255,255,0.25)',
+                background: 'rgba(255,255,255,0.15)',
+                backdropFilter: 'blur(12px)',
+                WebkitBackdropFilter: 'blur(12px)',
+                color: '#fff',
+                fontSize: 16,
+                fontWeight: 500,
+                outline: 'none',
+                textAlign: 'center',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
+              }}
+              onFocus={(e) => { e.target.style.borderColor = 'rgba(255,255,255,0.5)' }}
+              onBlur={(e) => { e.target.style.borderColor = 'rgba(255,255,255,0.25)' }}
+            />
+          </div>
+        )}
         {/* FPS overlay — always shown on PerfBenchmark during test, or when
             showFps is enabled. Suppressed when the full performance monitor
             is open (it shows FPS + much more, no need for the tiny badge). */}

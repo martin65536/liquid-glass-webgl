@@ -5,6 +5,11 @@ declare module './index' {
   interface LiquidGlassRenderer {
     loadWallpaper(src: string): Promise<void>
     loadSdfTexture(src: string): Promise<void>
+    /** Upload precomputed RGBA SDF-texture pixels (e.g. from generateTextSdf)
+     *  directly to the GPU, bypassing the Image load path. Used by the
+     *  TextGlass catalog page to render arbitrary user-typed text as a glass
+     *  shape via the isSdfTexture shader path (same as clock_sdf). */
+    loadSdfTextureFromData(data: Uint8ClampedArray | Uint8Array, w: number, h: number): void
     /** Generate + upload a continuous-curvature SDF texture for the dialog
      *  card's capsule shape. The texture is cached by (w, h, radius) — calling
      *  again with the same key is a no-op. Texture is RGBA, 256×256, LINEAR
@@ -77,6 +82,28 @@ export const wallpaperMethods = {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
     this.sdfTexture = tex
     this.sdfTextureSize = [img.naturalWidth || 1, img.naturalHeight || 1]
+    this.sdfTextureReady = true
+    this.requestRender()
+  },
+
+  /** Upload precomputed RGBA SDF-texture pixels directly (no Image load).
+   *  Used by the TextGlass page to render arbitrary user-typed text as glass.
+   *  Same texture slot + shader path as loadSdfTexture (clock_sdf). */
+  loadSdfTextureFromData(this: LiquidGlassRenderer, data: Uint8ClampedArray | Uint8Array, w: number, h: number) {
+    if (w < 1 || h < 1) return
+    const gl = this.gl
+    if (this.sdfTexture) gl.deleteTexture(this.sdfTexture)
+    const tex = gl.createTexture()!
+    gl.bindTexture(gl.TEXTURE_2D, tex)
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
+    // Accept both Uint8Array and Uint8ClampedArray — texImage2D handles both.
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, data as Uint8Array)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    this.sdfTexture = tex
+    this.sdfTextureSize = [w, h]
     this.sdfTextureReady = true
     this.requestRender()
   },

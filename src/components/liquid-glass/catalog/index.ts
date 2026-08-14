@@ -32,6 +32,7 @@ import { buildProgressiveBlur } from './build-progressive-blur'
 import { buildScrollContainer } from './build-scroll-container'
 import { buildSettings } from './build-settings'
 import { buildAbout } from './build-about'
+import { buildTextGlass } from './build-text-glass'
 
 // Re-export public API (preserving the original catalog.tsx surface).
 export {
@@ -124,6 +125,9 @@ export function buildCatalog(
       break
     case CatalogDestination.PerfBenchmark:
       result = buildPerfBenchmark(W, H, onBack, state, setState, palette)
+      break
+    case CatalogDestination.TextGlass:
+      result = buildTextGlass(W, H, onBack, state, setState, palette, locale)
       break
     default:
       result = buildHome(W, onNavigate, palette)

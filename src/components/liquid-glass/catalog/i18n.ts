@@ -38,6 +38,7 @@ const translations: Record<string, { zh: string; en: string }> = {
   item_settings:            { zh: '设置', en: 'Settings' },
   item_about:               { zh: '关于', en: 'About' },
   item_perf_benchmark:      { zh: '性能检测', en: 'Performance benchmark' },
+  item_text_glass:          { zh: '文字玻璃（SDF 纹理）', en: 'Text glass (SDF texture)' },
 
   // ---- Settings page ----
   settings_title:           { zh: '设置', en: 'Settings' },
@@ -144,6 +145,8 @@ const translations: Record<string, { zh: string; en: string }> = {
   page_settings:            { zh: '设置', en: 'Settings' },
   page_about:               { zh: '关于', en: 'About' },
   page_perf_benchmark:      { zh: '性能检测', en: 'Performance Benchmark' },
+  page_text_glass:          { zh: '文字玻璃', en: 'Text glass' },
+  text_glass_hint:          { zh: '拖动文字 · 在下方输入自定义文字', en: 'Drag the text · type custom text below' },
   perf_detecting:           { zh: '正在检测...', en: 'Detecting...' },
   perf_stop:                { zh: '停止', en: 'Stop' },
   perf_round_info:          { zh: '第{n}/{max}轮 · DPR {dpr}', en: 'Round {n}/{max} · DPR {dpr}' },
