@@ -65,7 +65,7 @@ export function buildMagnifier(W: number, H: number, onBack: () => void, state: 
   // MagnifierContent.kt. useContinuousSdf upgrades it from circular-arc to
   // G2 continuous curvature. (Applied retroactively — makePlainRect returns
   // a plain rect; we set the flag on the last-pushed card element.)
-  if (state.capsuleShape && !state.originalCorners) elements[elements.length - 1].useContinuousSdf = true
+  if (!state.originalCorners) elements[elements.length - 1].useContinuousSdf = true
   elements.push(
     makeText(
       'mag-text',
@@ -96,7 +96,7 @@ export function buildMagnifier(W: number, H: number, onBack: () => void, state: 
   cursorEl.hitRect = { x: cursorX - 22 * DP, y: cursorY - 12 * DP, w: 48 * DP, h: 48 * DP }
   // Smooth corners: cursor is a 4×24 capsule (cornerRadius = 2 = h/2) in the
   // original. useContinuousSdf upgrades it to G2.
-  if (state.capsuleShape && !state.originalCorners) cursorEl.useContinuousSdf = true
+  if (!state.originalCorners) cursorEl.useContinuousSdf = true
   elements.push(cursorEl)
 
   // Magnifier glass (128×96 capsule, sits 80dp above the cursor)
@@ -133,7 +133,7 @@ export function buildMagnifier(W: number, H: number, onBack: () => void, state: 
   // Smooth corners: the glass is a 128×96 capsule (cornerRadius = h/2 = 48)
   // in the original MagnifierContent.kt. useContinuousSdf upgrades it from
   // circular-arc to G2 continuous curvature.
-  if (state.capsuleShape && !state.originalCorners) magGlass.useContinuousSdf = true
+  if (!state.originalCorners) magGlass.useContinuousSdf = true
   elements.push(magGlass)
 
   // Drag interaction — bound to BOTH the cursor and the glass (either can be

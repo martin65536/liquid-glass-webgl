@@ -193,7 +193,7 @@ export function buildCatalog(
     // Capsule shape: pick-image is a 56dp capsule (cornerRadius = h/2 = 28).
     // When capsuleShape is on, use the G2 continuous-curvature SDF texture
     // for smoother corners — matches the other capsule buttons.
-    if (state.capsuleShape && !state.originalCorners) pickBtn.useContinuousSdf = true
+    if (!state.originalCorners) pickBtn.useContinuousSdf = true
     result.elements.push(pickBtn)
     result.interactions['__pickimage__'] = {
       onTap: () => onPickImage(),
@@ -232,7 +232,7 @@ export function buildCatalog(
   // NOTE: Continuous-curvature (G2 smooth) corners are applied PER-BUILDER, NOT
   // globally. Each builder that creates an element which uses a Capsule or
   // ContinuousCurvatureRoundedRectangle shape in the original Apple/Kotlin
-  // design sets `if (state.capsuleShape && !state.originalCorners) el.useContinuousSdf = true` inline.
+  // design sets `if (!state.originalCorners) el.useContinuousSdf = true` inline.
   // This covers:
   //   • Capsule buttons (build-buttons, build-dialog cancel/okay, pick-image)
   //   • Toggle knobs + tracks + card (build-toggle)
@@ -253,7 +253,7 @@ export function buildCatalog(
   // h/2), so applying G2 to them is always correct. It does NOT touch any
   // other element kind, avoiding the previous "fixed aspect ratio" bug where
   // a blanket catch-all distorted non-capsule plain-rects.
-  if (state.capsuleShape && !state.originalCorners) {
+  if (!state.originalCorners) {
     for (const el of result.elements) {
       if (el.isToggleKnob || el.isToggleTrack) {
         el.useContinuousSdf = true

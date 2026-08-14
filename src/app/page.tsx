@@ -73,14 +73,22 @@ export default function Page() {
       const raw = window.localStorage.getItem(SETTINGS_KEY)
       if (!raw) return {}
       const parsed = JSON.parse(raw)
+      // originalCorners is the master toggle; capsuleShape is its synced
+      // inverse. Migrate from old capsuleShape-only state if originalCorners
+      // is not yet persisted.
+      const originalCorners = typeof parsed.originalCorners === 'boolean'
+        ? parsed.originalCorners
+        : typeof parsed.capsuleShape === 'boolean'
+          ? !parsed.capsuleShape
+          : true
       return {
         customDpr: typeof parsed.customDpr === 'number' ? parsed.customDpr : 0,
         globalSeparableBlur: typeof parsed.globalSeparableBlur === 'boolean' ? parsed.globalSeparableBlur : true,
         blurTapCap: typeof parsed.blurTapCap === 'number' ? parsed.blurTapCap : 9,
         blurDownsample: typeof parsed.blurDownsample === 'number' ? Math.max(1, Math.min(8, parsed.blurDownsample)) : 4,
         dynamicBlurDownsample: typeof parsed.dynamicBlurDownsample === 'boolean' ? parsed.dynamicBlurDownsample : false,
-        capsuleShape: typeof parsed.capsuleShape === 'boolean' ? parsed.capsuleShape : true,
-        originalCorners: typeof parsed.originalCorners === 'boolean' ? parsed.originalCorners : true,
+        capsuleShape: !originalCorners,
+        originalCorners,
         capsuleSdfQuality: typeof parsed.capsuleSdfQuality === 'number' ? Math.max(0.25, Math.min(1.0, parsed.capsuleSdfQuality)) : 0.5,
         locale: (parsed.locale === 'zh' || parsed.locale === 'en') ? parsed.locale : 'zh',
         pageTransition: typeof parsed.pageTransition === 'boolean' ? parsed.pageTransition : true,

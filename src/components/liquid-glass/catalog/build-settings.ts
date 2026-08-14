@@ -238,33 +238,16 @@ export function buildSettings(
     Object.assign(interactions, peFboToggle.interactions)
     nextY += BUTTON_HEIGHT + ITEM_GAP
 
-    // Original corners toggle (master switch) — ON (default) = ordinary
-    // rounded rect (analytic sdRoundedRect, faithful to the original Android
-    // app). OFF = let the "capsule shape" toggle below control the G2
-    // continuous-curvature SDF texture upgrade. When ON, all elements use the
-    // analytic SDF regardless of capsuleShape (useContinuousSdf stays false).
-    const cornersToggle = makeSettingsToggle(
-      'settings-original-corners',
-      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT + ITEM_GAP },
-      t('settings_original_corners', locale),
-      state.originalCorners,
-      () => setState((prev) => ({ originalCorners: !prev.originalCorners })),
-      palette,
-      rendererRef,
-      true,
-      labelPad,
-    )
-    elements.push(...cornersToggle.elements)
-    Object.assign(interactions, cornersToggle.interactions)
-    nextY += BUTTON_HEIGHT + ITEM_GAP
-
-    // Capsule shape toggle — full card width row, height includes gap
+    // Capsule shape toggle (smooth corners) — full card width row.
+    // Logically the inverse of the "original corners" toggle below: the two
+    // are kept in sync (toggling either updates both). When ON, the G2
+    // continuous-curvature SDF texture is used (smoother squircle corners).
     const capsuleToggle = makeSettingsToggle(
       'settings-shape-capsule',
       { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT + ITEM_GAP },
       t('settings_capsule', locale),
       state.capsuleShape,
-      () => setState((prev) => ({ capsuleShape: !prev.capsuleShape })),
+      () => setState((prev) => ({ capsuleShape: !prev.capsuleShape, originalCorners: prev.capsuleShape })),
       palette,
       rendererRef,
       true,
@@ -272,6 +255,26 @@ export function buildSettings(
     )
     elements.push(...capsuleToggle.elements)
     Object.assign(interactions, capsuleToggle.interactions)
+    nextY += BUTTON_HEIGHT + ITEM_GAP
+
+    // Original corners toggle — ON (default) = ordinary rounded rect (analytic
+    // sdRoundedRect, no SDF texture, no resolution issues). OFF = enable G2
+    // continuous-curvature SDF texture upgrade (useContinuousSdf=true, affected
+    // by the quality slider below). This is the inverse of "capsule shape"
+    // above; toggling either keeps both in sync.
+    const cornersToggle = makeSettingsToggle(
+      'settings-original-corners',
+      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT + ITEM_GAP },
+      t('settings_original_corners', locale),
+      state.originalCorners,
+      () => setState((prev) => ({ originalCorners: !prev.originalCorners, capsuleShape: prev.originalCorners })),
+      palette,
+      rendererRef,
+      true,
+      labelPad,
+    )
+    elements.push(...cornersToggle.elements)
+    Object.assign(interactions, cornersToggle.interactions)
     nextY += BUTTON_HEIGHT + ITEM_GAP
 
     // Capsule SDF quality slider — continuous: left = low quality (0.25,
@@ -657,7 +660,7 @@ export function buildSettings(
     elements.push(resetBtn)
     interactions['settings-reset'] = {
       onTap: () => {
-        setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 9, blurDownsample: 4, dynamicBlurDownsample: false, capsuleShape: true, originalCorners: true, capsuleSdfQuality: 0.5, hideOverlayButtons: false, locale: 'zh', pageTransition: true, liveDpr: null, liveTapCap: null, liveBlurDownsample: null, liveCapsuleSdfQuality: null, showFps: false, showPerfMonitor: false, highlightAa: true, usePerElementFbo: false, perfProgress: null, perfDone: false, perfResultDpr: 0, perfStatusText: '' })
+        setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 9, blurDownsample: 4, dynamicBlurDownsample: false, capsuleShape: false, originalCorners: true, capsuleSdfQuality: 0.5, hideOverlayButtons: false, locale: 'zh', pageTransition: true, liveDpr: null, liveTapCap: null, liveBlurDownsample: null, liveCapsuleSdfQuality: null, showFps: false, showPerfMonitor: false, highlightAa: true, usePerElementFbo: false, perfProgress: null, perfDone: false, perfResultDpr: 0, perfStatusText: '' })
         try { window.localStorage.removeItem('liquid-glass-perf-dpr') } catch {}
         const d = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
         const dprFrac = (d - 0.5) / Math.max(0.0001, d - 0.5)

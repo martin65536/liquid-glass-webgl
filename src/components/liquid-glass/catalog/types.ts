@@ -634,7 +634,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   blurTapCap: 9,
   blurDownsample: 4,
   dynamicBlurDownsample: false,
-  capsuleShape: true,
+  capsuleShape: false,
   originalCorners: true,
   capsuleSdfQuality: 0.5,
   liveDpr: null,

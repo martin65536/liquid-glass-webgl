@@ -112,7 +112,7 @@ export function buildBottomTabs(W: number, H: number, onBack: () => void, state:
     containerEl.independentBackdrop = false
     // Capsule shape: container is a 64dp capsule (cornerRadius=32). When
     // capsuleShape is on, use the G2 continuous-curvature SDF texture.
-    if (state.capsuleShape && !state.originalCorners) containerEl.useContinuousSdf = true
+    if (!state.originalCorners) containerEl.useContinuousSdf = true
     elements.push(containerEl)
 
     // === Layer 2: Tab content (icons + labels) ===
@@ -273,7 +273,7 @@ export function buildBottomTabs(W: number, H: number, onBack: () => void, state:
     // to the tab items (which have interactions).
     // Capsule shape: indicator is a 56dp capsule (cornerRadius=28). When
     // capsuleShape is on, use the G2 continuous-curvature SDF texture.
-    if (state.capsuleShape && !state.originalCorners) indicatorEl.useContinuousSdf = true
+    if (!state.originalCorners) indicatorEl.useContinuousSdf = true
     elements.push(indicatorEl)
   }
 

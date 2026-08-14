@@ -100,7 +100,7 @@ export function buildAdaptiveLuminanceGlass(
   // Smooth corners: the square is a RoundedRectangle(24dp) in the original
   // AdaptiveLuminanceGlassContent.kt. useContinuousSdf upgrades it from
   // circular-arc to G2 continuous curvature.
-  if (state.capsuleShape && !state.originalCorners) algSquare.useContinuousSdf = true
+  if (!state.originalCorners) algSquare.useContinuousSdf = true
   elements.push(algSquare)
   // Drag interaction — pan the glass square (module-level state, like gp-square).
   interactions['alg-square'] = {

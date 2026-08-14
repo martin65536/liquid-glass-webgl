@@ -1960,3 +1960,69 @@ Stage Summary:
 - VLM 验证三档 quality (1.0/0.5/0.75) 全部正确生效，texSize 按预期变化
   (128/64/96)，无黑边、无 WebGL 错误。
 - 持久化到 localStorage，Reset 按钮重置到 0.5，setToggleTarget 支持。
+
+---
+Task ID: 68
+Agent: main (Z.ai Code)
+Task: 回退并重做——新增「原版圆角裁切」开关（保留「胶囊形」开关），修正功能与位置
+
+Work Log:
+- 回退：git reset --hard HEAD~1，撤销了上次把 capsuleShape 重命名+反转成
+  originalCorners 的提交（那次错误地删掉了「胶囊形」按钮）。
+
+- 重新实现：保留原有 capsuleShape 开关 + 胶囊质量滑块不动，额外新增
+  originalCorners 开关。两者的关系：
+  * originalCorners 是主控开关（master），直接控制 useContinuousSdf。
+  * capsuleShape 是 originalCorners 的同步镜像（inverse），保留供用户操作。
+  * 两个开关互相同步：拨任一个，另一个自动翻转。
+
+- types.ts：
+  * 新增 originalCorners: boolean（默认 true = ON = 走解析式 sdRoundedRect）。
+  * DEFAULT_CATALOG_STATE: capsuleShape 从 true 改为 false（与 originalCorners=true
+    同步为逆），originalCorners: true。
+
+- i18n.ts：
+  * 新增 settings_original_corners: { zh: '原版圆角裁切', en: 'Original corner clip' }。
+  * 保留 settings_capsule（胶囊形）和 settings_capsule_quality_label 不变。
+
+- build-settings.ts（Shape 卡片顺序）：
+  * 原顺序：原版圆角裁切 → 胶囊形 → 胶囊质量滑块
+  * 新顺序：胶囊形 → 原版圆角裁切 → 胶囊质量滑块
+    （用户要求：原版圆角裁切在胶囊形下面）
+  * 胶囊形 callback: 同步设置 originalCorners = prev.capsuleShape（旧值=新inverse）。
+  * 原版圆角裁切 callback: 同步设置 capsuleShape = prev.originalCorners（旧值=新inverse）。
+  * Reset 按钮: capsuleShape: false, originalCorners: true（同步默认值）。
+
+- 11 个 catalog builder + index.ts（26 处条件）：
+  * 旧条件: if (state.capsuleShape && !state.originalCorners) → useContinuousSdf=true
+    （需要两个开关同时满足，当 originalCorners OFF 但 capsuleShape 也 OFF 时
+    G2 不生效，与用户期望不符）
+  * 新条件: if (!state.originalCorners) → useContinuousSdf=true
+    （原版圆角裁切直接控制：ON=解析式 SDF 无纹理，OFF=G2 SDF 纹理。
+    capsuleShape 不再参与渲染条件，纯粹是同步镜像。）
+  * 涉及文件：build-toggle/build-slider/build-buttons/build-bottom-tabs/
+    build-control-center/build-magnifier/build-adaptive-luminance/
+    build-scroll-container/build-glass-playground/build-dialog/index.ts
+  * build-dialog.ts + build-glass-playground.ts 的散文注释同步更新
+    （"when state.capsuleShape is true AND originalCorners is false" →
+     "when originalCorners is false"）。
+  * index.ts L235 NOTE 注释中的 inline code reference 也同步更新。
+
+- page.tsx loadPersistedSettings：
+  * 新增 originalCorners 迁移逻辑：如果 localStorage 有 originalCorners 直接用；
+    否则从旧 capsuleShape 推导（originalCorners = !capsuleShape）；都没有则 true。
+  * capsuleShape 加载时强制同步：capsuleShape = !originalCorners
+    （修正旧版本可能留下的不一致状态——两者同时为 true）。
+  * 持久化 / toggleTargets / useMemo deps 在上次已加好 originalCorners。
+
+- bun run lint: 通过（0 errors）。dev.log 干净。
+
+Stage Summary:
+- 「原版圆角裁切」开关现在在「胶囊形」下面，默认打开（ON）。
+- 功能修正：originalCorners 直接控制 useContinuousSdf（!originalCorners），
+  不再依赖 capsuleShape。ON=解析式 sdRoundedRect（无纹理、无分辨率问题），
+  OFF=G2 连续曲率 SDF 纹理升级（受胶囊质量滑块影响）。
+- 「胶囊形」开关保留，与「原版圆角裁切」互相同步（拨任一个，另一个翻转）。
+- 旧用户迁移：有 capsuleShape 无 originalCorners → 推导 originalCorners=!capsuleShape；
+  两者不一致 → 强制同步 capsuleShape=!originalCorners。
+- 默认值：originalCorners=true（ON），capsuleShape=false（OFF，同步逆）。
