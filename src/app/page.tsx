@@ -1002,7 +1002,14 @@ export default function Page() {
         className="relative overflow-hidden shadow-2xl lg-frame"
         suppressHydrationWarning
         style={{
-          width: 'min(420px, 100vw)',
+          // CSS min() was added in Chrome 79; Chromium 74 (and older WebKits)
+          // treat `min(420px, 100vw)` as an invalid value and drop the
+          // declaration, so the frame shrinks to content width and doesn't
+          // fill its parent. The width+max-width pair is the pre-min()
+          // equivalent: width tries 420px, capped at 100vw. Both properties
+          // are supported since CSS 2.1, so every browser fills correctly.
+          width: 420,
+          maxWidth: '100vw',
           opacity: (() => {
             if (transPhase === 'fadeOut' || transPhase === 'prepIn') return 0
             return 1 // idle or fadeIn

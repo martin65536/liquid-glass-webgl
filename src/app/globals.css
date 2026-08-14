@@ -121,6 +121,19 @@
   }
 }
 
+/* Chromium <99 (e.g. Chromium 74, April 2019) does NOT support CSS @layer,
+ * so Tailwind v4's preflight — wrapped in `@layer base { ... }` — is silently
+ * dropped by the parser. The UA default `body { margin: 8px }` then shows
+ * through, offsetting the whole app by 8px and adding scroll. This PLAIN
+ * (unlayered) reset applies on ALL browsers: on modern browsers unlayered
+ * rules outrank @layer rules (no conflict — same value), and on old browsers
+ * a plain rule parses fine. Without this, the lg-frame also fails to fill
+ * its parent because `100vw` includes the 8px body margin on each side. */
+html, body {
+  margin: 0;
+  padding: 0;
+}
+
 /* Pressable interactive — cursor + active scale for the DOM box.
    (The glass visual is drawn by WebGL; this only styles the overlay.) */
 .liquid-glass-pressable {
