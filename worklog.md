@@ -1313,3 +1313,66 @@ Stage Summary:
 - 这把"玻璃体和高光对不齐"的根因定位到：两套独立形状系统
   （玻璃体 clip 采样 SDF-R / highlight 用 Canvas2D stroke mask），
   各自的圆角近似在像素级有 <1px 差异。
+
+---
+Task ID: 59
+Agent: main (Z.ai Code)
+Task: 澄清 "高光形状不对，玻璃体对的吗" —— 不是非此即彼，两者都是 G2 形但走不同光栅化路径
+
+Work Log:
+- 用户问："所以意思是高光形状不对，玻璃体对的吗"
+- 这是误解。准确说法：
+  * 玻璃体 clip 形状：来自 capsule SDF 纹理 R 通道（sampleClipMask）。
+    R 通道 = Canvas2D ctx.fill(G2 Bezier path) 的 alpha（browser 原生 AA）。
+    → 形状是 G2，光栅化质量 = browser 原生 AA（高质量）。
+  * 高光 stroke 形状：来自 Canvas2D 独立 raster 的 stroke mask
+    （strokeMaskCompositeProgram）。stroke 用同一条 G2 Bezier path
+    （continuousCurvatureRoundedRectPath），browser 原生 stroke AA。
+    → 形状也是 G2，光栅化质量 = browser 原生 AA（高质量）。
+  * 两者用的是【同一条 G2 Bezier path 公式】，形状数学上完全一致。
+  * 差异来自【两套独立光栅化路径的像素级误差】：
+    - 玻璃体：fill 到 256² 纹理（有 margin+scale 映射）→ GPU LINEAR
+      采样回 element 空间 → 采样引入双线性插值误差
+    - 高光：直接在 element 原始尺寸 Canvas2D stroke（无 256² 量化、
+      无 scale 映射）→ 像素直接对齐
+    所以高光的形状反而【更精确】（无量化），玻璃体经过 256² 纹理 +
+    双线性采样有一点点软化/偏移。
+
+- 验证"玻璃体 clip 确实来自 R 通道"：
+  * element-pass.ts L37 useProgram(elementProgram) 确实运行。
+  * element.ts L158-161：uUseContinuousSdf>0.5 时 mask=sampleClipMask
+    （R 通道），mask<0.01 discard。
+  * 所以 R probe 挖0 后玻璃体对应区域应消失——这是 R probe 的预期效果，
+    用户可以用 R probe 验证玻璃体 clip 确实来自 R。
+
+- "对不齐"的真正性质：
+  * 不是"一个对一个错"，而是"两个都对，但精度不同"。
+  * 玻璃体：G2 形 × 256² 量化 × 双线性采样 → 边缘有 ~0.5px 软化/偏移
+  * 高光：G2 形 × 原生尺寸 stroke → 边缘像素精确
+  * 两者叠加时，玻璃体边缘比高光 stroke 内缩/外扩 ~0.5px，视觉上
+    表现为"高光没贴着玻璃边"或"玻璃比高光大一圈"。
+  * 根因是【玻璃体走了 256² 纹理路径】，不是高光错了。
+
+- 修复方向（若要让两者像素级对齐）：
+  方案 A（让玻璃体也走原生尺寸）：把 sampleClipMask 改成解析 G2 SDF
+    （不用 256² 纹理），但精确 G2 SDF 解析公式复杂（需 Bezier 最近点
+    迭代），性能开销大。
+  方案 B（让高光也走 256² 纹理）：让 strokeMaskCompositeProgram 采样
+    capsule SDF 纹理做 clip，与玻璃体共用同一张纹理 → 两者量化误差
+    完全一致 → 对齐。但 stroke 的 blur 衰减在量化 SDF 上会有色带
+    （Task 54 的教训）。
+  方案 C（提高纹理分辨率）：256→512，量化误差减半，但内存×4、生成
+    时间×4。治标不治本。
+  方案 D（现状）：接受 <1px 差异，大多数情况不可见。当前选择。
+
+- 未做代码改动（用户只问澄清）。
+
+Stage Summary:
+- 澄清：不是"高光错玻璃体对"。两者都是 G2 形、都用同一条 Bezier path、
+  都用 browser 原生 AA。差异在光栅化路径：
+  - 玻璃体：G2 → 256² 纹理（量化）→ GPU 双线性采样（软化）→ 边缘 ~0.5px 偏移
+  - 高光：G2 → 原生尺寸 Canvas2D stroke（无量化）→ 边缘像素精确
+- 所以高光反而更精确，"对不齐"根因是玻璃体走了 256² 纹理路径引入的
+  量化+采样误差，不是高光错了。
+- R probe 可验证玻璃体 clip 来自 R 通道（挖0 后玻璃体对应区域应消失）。
+- 修复方向有 A/B/C/D 四种，当前选 D（接受 <1px 差异）。
