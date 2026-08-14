@@ -315,7 +315,14 @@ export const renderMethods = {
       // transform on a 128²/256²/512²/1024² grid, chosen dynamically by
       // element device-px size) so it only happens once per (w, h, radius,
       // dpr) tuple, on the first frame after a resize.
-      if (el.useContinuousSdf) {
+      //
+      // SKIPPED when noContinuousSdf is ON: the toggle means "don't use the
+      // G2 SDF texture at all" — neither for refraction NOR for the clip mask.
+      // The shader falls back to analytic sdRoundedRect (circular arc) for
+      // both, and we avoid the CPU cost of Canvas2D raster + chamfer distance
+      // transform + GPU upload. The SDF texture pool is also cleared when the
+      // toggle flips ON (see context.tsx), freeing GPU memory.
+      if (el.useContinuousSdf && !this.noContinuousSdf) {
         this.loadContinuousSdf(el.rect.w, el.rect.h, el.cornerRadius)
       }
 
@@ -686,10 +693,13 @@ export const renderMethods = {
       // causing the shape to be clipped to the wrong aspect ratio — the
       // "全变成固定宽高比例" bug. loadContinuousSdf is cached, so calling it
       // here is a no-op if the same (w,h,radius) was already loaded.
-      if (el.useContinuousSdf) {
+      //
+      // SKIPPED when noContinuousSdf is ON (same rationale as the glass path
+      // above — no texture generation, shader uses analytic sdRoundedRect).
+      if (el.useContinuousSdf && !this.noContinuousSdf) {
         this.loadContinuousSdf(r2.w, r2.h, el.cornerRadius)
       }
-      if (el.useContinuousSdf && this.continuousSdfTexture) {
+      if (el.useContinuousSdf && !this.noContinuousSdf && this.continuousSdfTexture) {
         gl.activeTexture(gl.TEXTURE2)
         gl.bindTexture(gl.TEXTURE_2D, this.continuousSdfTexture)
         gl.uniform1i(this.uPr['uContinuousSdf'], 2)

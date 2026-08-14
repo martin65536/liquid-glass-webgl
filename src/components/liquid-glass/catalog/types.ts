@@ -519,15 +519,18 @@ export interface CatalogState {
   // This gives pixel-perfect squircle corners on the dialog card. Other
   // elements still use the analytic SDF (circular or continuous placeholder).
   capsuleShape: boolean
-  // Settings — disable smooth-corner SDF in the liquid-glass refraction body.
-  // Independent of capsuleShape (does NOT sync). When true (default), the
-  // refraction/lens computation in element.ts forces the analytic sdRoundedRect
-  // for sdShape (ignores uUseContinuousSdf), stripping the G2 SDF texture out
-  // of the glass-body refraction. The clip mask (edge shape) is NOT affected —
-  // capsuleShape still controls the edge via uUseContinuousSdf.
-  // When false, refraction uses the G2 SDF texture (sampleClipSdf) when
-  // capsuleShape is ON. Disabled (no-op, shows OFF) when capsuleShape is OFF.
-  // Net shader condition: sdShape uses G2 ⟺ (uUseContinuousSdf && !uNoContinuousSdfInRefraction).
+  // Settings — disable smooth-corner SDF MASTER switch. When true (default),
+  // the G2 SDF texture is NOT generated, uploaded, or bound at all — neither
+  // for refraction NOR for the clip mask (edge shape). The shader falls back
+  // to analytic sdRoundedRect (circular arc) for both. This avoids the CPU
+  // cost of Canvas2D raster + chamfer distance transform + GPU upload +
+  // GPU memory, at the cost of slightly less smooth corners (G2 continuous
+  // curvature → circular arc).
+  // When false, the G2 SDF texture is used for BOTH the clip mask and the
+  // refraction (full G2 continuous curvature, when capsuleShape is ON).
+  // Disabled (no-op, shows OFF) when capsuleShape is OFF.
+  // The GPU texture pool + CPU mask cache are cleared when this toggle flips
+  // ON (freeing memory); textures are re-generated on demand when it flips OFF.
   noContinuousSdf: boolean
   // Settings — capsule SDF texture quality coefficient [0.25, 1.0].
   // Scales the base texSize (computed from element device-px size, 2×

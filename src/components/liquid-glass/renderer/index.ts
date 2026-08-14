@@ -336,13 +336,17 @@ export class LiquidGlassRenderer {
    *  elFbos dirty so new textures are generated at the new resolution.
    *  See generateContinuousCurvatureMask + loadContinuousSdf. */
   capsuleSdfQuality = 0.5
-  /** "Disable smooth-corner SDF in liquid-glass refraction" toggle (Settings).
-   *  When true, the refraction/lens body computation in element.ts forces the
-   *  analytic sdRoundedRect (sdShape ignores uUseContinuousSdf). The clip mask
-   *  (edge shape) is NOT affected — capsuleShape still controls it. Only
-   *  meaningful when capsuleShape is ON; element-pass.ts forces the uniform
-   *  to 1.0 (analytic) when the element has useContinuousSdf=false. Default
-   *  true (ON = strip G2 SDF from refraction). */
+  /** "Disable smooth-corner SDF" MASTER switch (Settings). When true (default),
+   *  the G2 SDF texture is NOT generated, uploaded, or bound at all — neither
+   *  for refraction NOR for the clip mask (edge shape). The shader falls back
+   *  to analytic sdRoundedRect (circular arc) for both. This avoids the CPU
+   *  cost of Canvas2D raster + chamfer distance transform + GPU upload +
+   *  GPU memory, at the cost of slightly less smooth corners.
+   *  When false, the G2 SDF texture is used for BOTH the clip mask and the
+   *  refraction (full G2 continuous curvature, when capsuleShape is ON).
+   *  The render loop (methods-render.ts) and element-pass both check this
+   *  flag to skip loadContinuousSdf + texture binding. The GPU texture pool
+   *  + CPU mask cache are cleared by context.tsx when the toggle flips ON. */
   noContinuousSdf = true
   /** "Direct backdrop sample" toggle (Settings, default true). When true,
    *  glass elements that use the LayerBackdrop semantic in the original

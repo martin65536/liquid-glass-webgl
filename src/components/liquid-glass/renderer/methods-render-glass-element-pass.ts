@@ -301,7 +301,16 @@ export const glassElementPassMethods = {
     // uContinuousSdfElementSize = the element's ORIGINAL (unscaled) w,h so
     // the shader can map element coords to texture UV with the correct
     // aspect ratio + margin (matching continuous-sdf.ts).
-    if (el.useContinuousSdf && this.continuousSdfTexture) {
+    //
+    // SKIPPED when noContinuousSdf is ON: the toggle is now a MASTER switch
+    // that disables the SDF texture entirely — neither refraction NOR the
+    // clip mask samples it. The shader's uUseContinuousSdf is set to 0.0,
+    // so both sdShape and sampleClipMask fall back to analytic sdRoundedRect
+    // (circular arc). This avoids the CPU cost of texture generation + GPU
+    // upload + GPU memory, at the cost of slightly less smooth corners (G2
+    // continuous curvature → circular arc). The texture pool is cleared when
+    // the toggle flips ON (see context.tsx).
+    if (el.useContinuousSdf && !this.noContinuousSdf && this.continuousSdfTexture) {
       gl.activeTexture(gl.TEXTURE2)
       gl.bindTexture(gl.TEXTURE_2D, this.continuousSdfTexture)
       gl.uniform1i(this.uEl['uContinuousSdf'], 2)
@@ -326,11 +335,12 @@ export const glassElementPassMethods = {
         gl.bindTexture(gl.TEXTURE_2D, this.dummyTex)
       }
     }
-    // noContinuousSdf toggle: strip G2 SDF out of the refraction/lens body.
-    // Forced to 1.0 (analytic) when capsuleShape is OFF (no G2 texture to use
-    // anyway) so the shader's sdShape falls through to sdRoundedRect.
-    // el.useContinuousSdf already encodes capsuleShape (set per-element in the
-    // catalog builders), so we reuse it here as the capsuleShape gate.
+    // noContinuousSdf MASTER switch: when ON, the G2 SDF texture is not bound
+    // (uUseContinuousSdf=0 above), so sdShape already falls through to analytic.
+    // This uniform is now redundant when noContinuousSdf is ON (both conditions
+    // force analytic), but we keep it for the OFF case where the texture IS
+    // bound and we want sdShape to use it (0.0 = use G2 SDF in refraction).
+    // el.useContinuousSdf encodes capsuleShape (set per-element in catalog).
     gl.uniform1f(
       this.uEl['uNoContinuousSdfInRefraction'],
       (el.useContinuousSdf && !this.noContinuousSdf) ? 0.0 : 1.0
