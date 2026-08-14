@@ -184,13 +184,31 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
     <div
       style={{
         position: 'absolute', top: pos.y, left, right,
-        width: 340, background: 'rgba(0,0,0,0.92)', color: '#0f0',
+        width: 340,
+        // Cap height to viewport so the overlay never overflows the screen.
+        // The header + summary stay pinned; everything below scrolls.
+        // Floor at 220px so the overlay stays usable when dragged near the
+        // bottom of the viewport (pos.y can be up to innerHeight-40).
+        maxHeight: `max(220px, calc(100vh - ${pos.y + 8}px))`,
+        display: 'flex', flexDirection: 'column',
+        background: 'rgba(0,0,0,0.92)', color: '#0f0',
         font: '11px monospace', borderRadius: 8, zIndex: 60,
         border: '1px solid #0f0', overflow: 'hidden',
         boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
       }}
     >
-      {/* Header — drag handle */}
+      {/* WebKit scrollbar styling (Firefox uses scrollbarColor inline). */}
+      <style>{`
+        .capsule-debug-scroll::-webkit-scrollbar { width: 8px; }
+        .capsule-debug-scroll::-webkit-scrollbar-track { background: transparent; }
+        .capsule-debug-scroll::-webkit-scrollbar-thumb {
+          background: rgba(0,255,0,0.35); border-radius: 4px;
+        }
+        .capsule-debug-scroll::-webkit-scrollbar-thumb:hover {
+          background: rgba(0,255,0,0.55);
+        }
+      `}</style>
+      {/* Header — drag handle (pinned, non-scrolling) */}
       <div
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -293,6 +311,15 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
         </span>
       </div>
 
+      {/* Scrollable body — everything below the pinned header. The flex:1
+          + overflowY:auto lets the sections scroll when content exceeds the
+          overlay's maxHeight (capped to viewport). Custom scrollbar styling
+          keeps it readable on the dark background. */}
+      <div style={{ flex: 1, overflowY: 'auto', minHeight: 0,
+        scrollbarWidth: 'thin', scrollbarColor: 'rgba(0,255,0,0.4) transparent',
+      }}
+        className="capsule-debug-scroll">
+
       {/* Summary */}
       <div style={{ padding: '8px 10px', borderBottom: '1px solid rgba(0,255,0,0.2)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -325,8 +352,9 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
         )}
       </div>
 
-      {/* Timing breakdown table */}
-      <div style={{ padding: '8px 10px', maxHeight: 300, overflowY: 'auto' }}>
+      {/* Timing breakdown table — no longer has its own scroll; the outer
+          scrollable body handles overflow so there's no nested scrollbar. */}
+      <div style={{ padding: '8px 10px' }}>
         <div style={{ color: '#888', marginBottom: 4 }}>Recent (newest first):</div>
         {timings.length === 0 && (
           <div style={{ color: '#666' }}>No capsule SDF generated yet. Drag the Corner radius slider on GP.</div>
@@ -427,6 +455,7 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
           </div>
         </div>
       )}
+      </div>{/* end scrollable body */}
     </div>
   )
 }

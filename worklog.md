@@ -1459,3 +1459,60 @@ Stage Summary:
   - "img" = capsule SDF 纹理（R=coverage 玻璃体 clip / G=SDF 折射）
   - "hl" = Canvas2D stroke mask（highlight rim 形状）
   对比两者能直观看到 Task 59 诊断的"对不齐"根因。
+
+---
+Task ID: 61
+Agent: main (Z.ai Code)
+Task: 修复 capsule debugger 高度溢出屏幕的问题，做成可以滚动的
+
+Work Log:
+- 问题：CapsuleSdfDebugOverlay 内容多了（img + hl 面板全开 + 多条 timing）
+  后，根 div 没有高度上限，position:absolute 直接撑出屏幕底部，看不到
+  底部内容也无法滚动。
+- 根因：根 div 只有 overflow:'hidden'，无 maxHeight / 无 flex column，
+  内部各 section（Summary / Timing table / Pack images / Highlight masks）
+  都是平铺的 div，整体高度由内容决定 → 内容多就溢出视口。
+
+- 修复 — capsule-sdf-debug-overlay.tsx（3 处）：
+  1. 根 div 加 maxHeight + flex column：
+     - maxHeight: `max(220px, calc(100vh - ${pos.y + 8}px))`
+       → 高度上限 = 视口高度 - overlay top - 8px 底部留白。
+       pos.y 可达 innerHeight-40（拖拽 clamp），此时 calc 给出 ~48px，
+       max(220px,...) 兜底 220px 保证拖到底部时仍可用。
+     - display:'flex', flexDirection:'column' → header 固定 + body flex:1。
+     - overflow:'hidden' 保留（圆角裁切）。
+  2. header 之后的全部内容（Summary + Timing table + Pack images +
+     Highlight masks）包进一个 scrollable body div：
+     - style: flex:1, overflowY:'auto', minHeight:0
+       （minHeight:0 是 flex 子项能 shrink 到内容以下的关键，否则
+       flex:1 不会触发 overflow）
+     - className='capsule-debug-scroll'（供 WebKit 滚动条样式 hook）
+     - 内联 scrollbarWidth:'thin', scrollbarColor（Firefox）
+     - 注入 <style> 标签定义 .capsule-debug-scroll::-webkit-scrollbar
+       系列（8px 宽、绿色半透明 thumb、hover 加深），与 perf-monitor
+       overlay 的 .perfmon-scroll 风格一致。
+  3. 删除 Timing breakdown table 自带的 maxHeight:300 + overflowY:'auto'
+     （原本是独立滚动区，现在外包了滚动容器，嵌套滚动体验差，改平铺）。
+
+- Agent Browser 验证（遵照 mandatory self-verification）：
+  * open /?capsuleDebug=1 → 等 1.5s → snapshot 找到 "Capsule SDF debug"
+    按钮 → click 开启 overlay。
+  * eval 找到 .capsule-debug-scroll 及其 parentElement（root overlay div）。
+  * 初始状态：root maxHeight='max(220px, -128px + 100vh)'=716px，
+    rootRectH=382（内容少，未触发滚动），scCanScroll=false。✓ 正常。
+  * 注入 1500px spacer 强制溢出：rootRectH=716（被 maxHeight 限制，未溢出），
+    rootRectBottom=836 ≤ vh=844（在视口内）✓，scCanScroll=true（1839>673）✓。
+  * sc.scrollTop=500 设置成功，maxScroll=1166 ✓ 滚动可用。
+  * 清理 spacer。
+  * dev.log 无 error。
+
+- bun run lint：通过（0 errors）。
+
+Stage Summary:
+- 根 div 加 maxHeight=max(220px, calc(100vh - top - 8px)) + flex column；
+  header 之外的内容包进 flex:1 + overflowY:auto 的 scrollable body；
+  删除 Timing table 的嵌套滚动。
+- WebKit 滚动条样式（.capsule-debug-scroll，8px 绿色半透明）+ Firefox
+  scrollbarColor 双覆盖，与 perf-monitor overlay 风格一致。
+- Agent Browser 验证：内容少时不滚动、内容多时 root 被 maxHeight 限制在
+  视口内 + body 可滚动，scrollTop 可设置。修复确认有效。
