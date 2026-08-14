@@ -577,49 +577,74 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
 }
 
 /* ------------------------------------------------------------------ *
- * EdgeScanView — renders the GPU-readback scanline result.
+ * EdgeScanView — renders the GPU-readback CORNER PATCH result.
  *
  * Shows three things:
- *  1. Pixel strip: the actual rendered scanline (1px tall) scaled up to
- *     ~16px tall, so you can SEE the edge visually. The analytic edge
- *     position (offset=0) is marked with a tick.
- *  2. RGBA line plots: SVG paths of R/G/B/A (0-255) vs offset (CSS px
- *     from edge). The AA transition is shaded. This reveals:
- *       - Where alpha transitions (edge sharpness).
- *       - Whether RGB drops to near-0 at the AA zone (black fringe).
- *       - Whether RGB and A transitions are aligned.
+ *  1. 2D patch image: the actual rendered pixels around the capsule's
+ *     top-right corner (the 45° arc point), zoomed up so you can SEE
+ *     the corner and any black fringe. Overlaid:
+ *       - White arc = the analytic corner edge (where the edge SHOULD be)
+ *       - Yellow diagonal = the line sampled for the RGBA plot below
+ *     If the black edge follows the white arc → clip/coverage issue.
+ *     If it's offset inside/outside the arc → geometry mismatch.
+ *  2. Diagonal RGBA plots: SVG paths of R/G/B/A (0-255) vs offset (CSS px
+ *     from the arc edge, along the 45° normal). The transition zone is
+ *     shaded. This reveals whether RGB dips to near-0 at the edge (black
+ *     fringe) — the direct symptom of coverage/SDF misalignment at the
+ *     high-curvature corner.
  *  3. Analysis verdict: auto-detected black-fringe symptoms.
  * ------------------------------------------------------------------ */
 function EdgeScanView({ scan }: { scan: EdgeScanResult }) {
-  const stripRef = React.useRef<HTMLCanvasElement>(null)
-  const { pixels, analysis, dpr, rect, edgeX, scanY, halfRange } = scan
+  const patchRef = React.useRef<HTMLCanvasElement>(null)
+  const { pixels, analysis, dpr, rect, halfRange, patch, patchDevSize, cornerCenter, cornerPoint45 } = scan
 
-  // Render the pixel strip: 1px-tall scanline scaled to 16px tall.
+  // Render the 2D patch image + analytic arc overlay.
   React.useEffect(() => {
-    const c = stripRef.current
-    if (!c) return
-    const w = pixels.length
-    c.width = w
-    c.height = 1
+    const c = patchRef.current
+    if (!c || patchDevSize <= 0) return
+    c.width = patchDevSize
+    c.height = patchDevSize
     const ctx = c.getContext('2d')!
-    const img = ctx.createImageData(w, 1)
-    for (let i = 0; i < w; i++) {
-      const p = pixels[i]
-      // The canvas is composited over the page background. The scanline
-      // alpha may be < 255 (semi-transparent glass). To show the actual
-      // visible color, premultiply over black (so semi-transparent dark
-      // pixels look dark, matching what the user sees on a dark bg).
-      // But the main canvas is opaque (alpha=255 typically), so we show
-      // the raw RGBA as RGB + alpha=255 for the strip.
-      img.data[i * 4] = p.r
-      img.data[i * 4 + 1] = p.g
-      img.data[i * 4 + 2] = p.b
-      img.data[i * 4 + 3] = 255
-    }
+    // Blit the patch RGBA data.
+    const img = ctx.createImageData(patchDevSize, patchDevSize)
+    img.data.set(patch)
     ctx.putImageData(img, 0, 0)
-  }, [pixels])
 
-  // SVG plot dimensions.
+    // --- Overlay: analytic corner arc (white) ---
+    // The arc center in patch-local CSS px:
+    //   localCx = cornerCenter.x - patchCssX
+    //   localCy = cornerCenter.y - patchCssY
+    // In device px (the canvas is patchDevSize × patchDevSize):
+    //   devCx = localCx * dpr, devCy = localCy * dpr, devR = cornerRadius * dpr
+    const patchCssX = cornerPoint45.x - halfRange
+    const patchCssY = cornerPoint45.y - halfRange
+    const devCx = (cornerCenter.x - patchCssX) * dpr
+    const devCy = (cornerCenter.y - patchCssY) * dpr
+    const devR = scan.cornerRadius * dpr
+    ctx.strokeStyle = '#fff'
+    ctx.lineWidth = 0.5
+    ctx.beginPath()
+    // Top-right corner arc: from -π/2 (up) to 0 (right), clockwise.
+    ctx.arc(devCx, devCy, devR, -Math.PI / 2, 0)
+    ctx.stroke()
+
+    // --- Overlay: diagonal line (yellow, top-right → bottom-left) ---
+    // This is the line sampled for the RGBA plot below.
+    ctx.strokeStyle = '#ff0'
+    ctx.lineWidth = 0.5
+    ctx.beginPath()
+    ctx.moveTo(patchDevSize - 0.5, 0.5)         // top-right (outside)
+    ctx.lineTo(0.5, patchDevSize - 0.5)          // bottom-left (inside)
+    ctx.stroke()
+
+    // --- Overlay: 45° point marker (cyan dot = patch center = arc edge) ---
+    ctx.fillStyle = '#0ff'
+    ctx.beginPath()
+    ctx.arc(patchDevSize / 2, patchDevSize / 2, 1, 0, Math.PI * 2)
+    ctx.fill()
+  }, [patch, patchDevSize, cornerCenter, cornerPoint45, halfRange, dpr, scan.cornerRadius])
+
+  // SVG plot dimensions (same as before — diagonal RGBA profile).
   const plotW = 300
   const plotH = 80
   const padL = 28, padR = 4, padT = 4, padB = 14
@@ -646,36 +671,51 @@ function EdgeScanView({ scan }: { scan: EdgeScanResult }) {
   const zoneStartOffset = edgePxOffset - analysis.transitionHalfW / dpr
   const zoneEndOffset = edgePxOffset + analysis.transitionHalfW / dpr
 
+  // Patch display size (zoom up small patches for visibility).
+  const patchDisplaySize = Math.max(80, Math.min(140, patchDevSize * 4))
+
   return (
     <div style={{ fontSize: 10 }}>
       {/* Element info */}
       <div style={{ color: '#aaa', marginBottom: 4 }}>
         el: {rect.w.toFixed(0)}×{rect.h.toFixed(0)} r={scan.cornerRadius.toFixed(0)}
         {' '}@({rect.x.toFixed(0)},{rect.y.toFixed(0)}) dpr={dpr.toFixed(2)}
-        {' '}scanY={scanY.toFixed(0)} edgeX={edgeX.toFixed(0)}
+        {' '}corner=({cornerCenter.x.toFixed(0)},{cornerCenter.y.toFixed(0)})
       </div>
 
-      {/* Pixel strip */}
-      <div style={{ marginBottom: 4 }}>
-        <div style={{ color: '#888', marginBottom: 2 }}>Pixel strip (← inside | edge | outside →):</div>
-        <div style={{ position: 'relative', width: plotW, height: 18 }}>
+      {/* 2D patch image with analytic arc overlay */}
+      <div style={{ marginBottom: 6, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+        <div>
+          <div style={{ color: '#888', marginBottom: 2 }}>
+            Corner patch ({patchDevSize}×{patchDevSize} dev px → {patchDisplaySize}px display):
+          </div>
           <canvas
-            ref={stripRef}
+            ref={patchRef}
             style={{
-              width: plotW, height: 14, imageRendering: 'pixelated',
+              width: patchDisplaySize, height: patchDisplaySize,
+              imageRendering: 'pixelated',
               border: '1px solid #440', borderRadius: 2, display: 'block',
             }}
           />
-          {/* Edge tick at offset=0 */}
-          <div style={{
-            position: 'absolute', top: 0, left: xToPx(0), width: 1, height: 14,
-            background: '#ff0', pointerEvents: 'none',
-          }} />
+        </div>
+        <div style={{ color: '#888', fontSize: 9, flex: 1, paddingTop: 14 }}>
+          <div style={{ color: '#fff', marginBottom: 2 }}>━ analytic arc</div>
+          <div style={{ color: '#ff0', marginBottom: 2 }}>━ diagonal (sampled)</div>
+          <div style={{ color: '#0ff', marginBottom: 4 }}>● 45° edge point</div>
+          <div>top-right = outside</div>
+          <div>bottom-left = inside</div>
+          <div style={{ marginTop: 4, color: '#aaa' }}>
+            If black fringe follows the white arc → clip/coverage issue (R channel).
+            If offset from arc → refraction or SDF (G) geometry mismatch.
+          </div>
         </div>
       </div>
 
-      {/* RGBA plots */}
+      {/* Diagonal RGBA plots */}
       <div style={{ marginBottom: 4 }}>
+        <div style={{ color: '#888', marginBottom: 2 }}>
+          Diagonal RGBA (← outside | arc edge | inside →):
+        </div>
         <svg width={plotW} height={plotH} style={{ display: 'block', border: '1px solid #333', background: '#0a0a0a' }}>
           {/* Transition zone shading */}
           <rect
@@ -695,7 +735,7 @@ function EdgeScanView({ scan }: { scan: EdgeScanResult }) {
               <text x={2} y={yToPx(v) + 3} fill="#666" fontSize={8}>{v}</text>
             </g>
           ))}
-          {/* Edge vertical line */}
+          {/* Arc edge vertical line (offset=0) */}
           <line x1={xToPx(0)} y1={padT} x2={xToPx(0)} y2={padT + innerH}
             stroke="#ff0" strokeWidth={0.5} strokeDasharray="2 2" />
           {/* Plots: A (white/dim), R (red), G (green), B (blue) */}
@@ -705,7 +745,7 @@ function EdgeScanView({ scan }: { scan: EdgeScanResult }) {
           <path d={pathFor('b')} fill="none" stroke="#55f" strokeWidth={1} />
           {/* X-axis labels */}
           <text x={xToPx(xMin)} y={plotH - 2} fill="#666" fontSize={8}>{xMin.toFixed(0)}</text>
-          <text x={xToPx(0) - 4} y={plotH - 2} fill="#ff0" fontSize={8}>edge</text>
+          <text x={xToPx(0) - 10} y={plotH - 2} fill="#ff0" fontSize={8}>arc edge</text>
           <text x={xToPx(xMax) - 14} y={plotH - 2} fill="#666" fontSize={8}>+{xMax.toFixed(0)}</text>
         </svg>
         <div style={{ display: 'flex', gap: 8, color: '#888', fontSize: 9, marginTop: 2 }}>
@@ -897,3 +937,4 @@ function StepBar({ label, ms, max }: { label: string; ms: number; max: number })
     </div>
   )
 }
+

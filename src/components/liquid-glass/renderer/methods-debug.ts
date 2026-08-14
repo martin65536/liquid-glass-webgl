@@ -27,11 +27,21 @@ export interface EdgeScanPixel {
   a: number  // 0-255
 }
 
-/** Result of debugReadEdgeScanline — a 1D RGBA profile across the element's right edge. */
+/** Result of debugReadEdgeScanline — a 2D corner patch + diagonal RGBA profile.
+ *
+ *  The scan targets the TOP-RIGHT CORNER of the capsule (the 45° point on the
+ *  corner arc), NOT the straight edge. This is because the black-edge artifact
+ *  only appears on curved (non-straight) edges — the straight edge has clean,
+ *  flat coverage/SDF in the texture and never fringes.
+ *
+ *  A 2D patch (patchDevSize × patchDevSize device px) is read from the GPU
+ *  centered on the 45° arc point. The patch is stored as `patch` (RGBA, top-down)
+ *  for image display. A diagonal (top-right → bottom-left, i.e. outside → inside
+ *  through the arc edge) is extracted as `pixels` for the 1D RGBA plot. */
 export interface EdgeScanResult {
   /** Monotonic counter — bumped on each completed scan so the overlay can detect new results. */
   scanId: number
-  /** The element that was scanned (first visible useContinuousSdf element). */
+  /** The element that was scanned. */
   elementId: string
   /** Index of this element among all useContinuousSdf candidates (for the "▶" cycle display). */
   targetIdx: number
@@ -44,17 +54,22 @@ export interface EdgeScanResult {
   cornerRadius: number
   /** Device-pixel ratio at scan time. */
   dpr: number
-  /** Scanline Y in CSS px (vertical center of the element). */
-  scanY: number
-  /** Analytic edge X in CSS px (rect.x + rect.w — the right edge). */
-  edgeX: number
-  /** Scan start X in CSS px (edgeX - halfRange). */
-  scanStartX: number
-  /** Number of pixels in the scan (scanW = range * dpr, rounded). */
-  scanW: number
-  /** CSS-px range on each side of the edge (e.g. 20 → scans edgeX-20 .. edgeX+20). */
+  /** Corner arc center in CSS px (top-right corner = (rect.x + rect.w - r, rect.y + r)). */
+  cornerCenter: { x: number; y: number }
+  /** The 45° point on the corner arc (NE direction) in CSS px — patch center. */
+  cornerPoint45: { x: number; y: number }
+  /** Patch top-left X in CSS px (canvas-relative). */
+  patchCssX: number
+  /** Patch top-left Y in CSS px (canvas-relative). */
+  patchCssY: number
+  /** Patch dimension in device px (patch is square: patchDevSize × patchDevSize). */
+  patchDevSize: number
+  /** CSS-px range on each side of the corner point (e.g. 20 → patch is 40 CSS px wide). */
   halfRange: number
-  /** RGBA per pixel, left-to-right (scanStartX → scanStartX+scanW). Length = scanW. */
+  /** 2D patch RGBA data (top-down, ready for canvas display). Length = patchDevSize² × 4. */
+  patch: Uint8Array
+  /** Diagonal RGBA profile (top-right=outside → bottom-left=inside, through the arc edge).
+   *  Length = patchDevSize. offset > 0 = outside, < 0 = inside, 0 = on the arc edge. */
   pixels: EdgeScanPixel[]
   /** Analysis verdict — see analyzeEdgeScan(). */
   analysis: EdgeAnalysis
@@ -258,9 +273,17 @@ export const debugMethods = {
   },
 
   /** Called from the render loop (methods-render.ts) right after the final
-   *  drawCopy to the default framebuffer. If a scan is pending, reads a
-   *  horizontal scanline through the target capsule element's right edge,
+   *  drawCopy to the default framebuffer. If a scan is pending, reads a 2D
+   *  patch around the target capsule element's TOP-RIGHT CORNER (the 45°
+   *  point on the corner arc), extracts a diagonal through the arc edge,
    *  analyzes it, and stores the result in _edgeScanResult.
+   *
+   *  WHY THE CORNER (not the straight edge): the black-edge artifact only
+   *  appears on curved (non-straight) edges. The straight edge maps to the
+   *  middle of the SDF texture where coverage (R) and SDF (G) are both flat
+   *  and clean — no fringe. The corner maps to the high-curvature region of
+   *  the SDF texture where the chamfer distance transform has the most error,
+   *  causing R (coverage) and G (SDF) to potentially misalign → black fringe.
    *
    *  MUST be called while the default framebuffer is still bound and the
    *  drawing buffer is valid (i.e. synchronously after drawCopy, within
@@ -283,22 +306,19 @@ export const debugMethods = {
       .sort((a, b) => Number(b.isCapsule) - Number(a.isCapsule))
 
     if (candidates.length === 0) {
-      // Store a minimal error result so the overlay can show the message.
       this._edgeScanCounter++
       this._edgeScanResult = {
         scanId: this._edgeScanCounter,
         elementId: '(none)',
-        targetIdx: 0,
-        targetCount: 0,
-        isCapsule: false,
+        targetIdx: 0, targetCount: 0, isCapsule: false,
         rect: { x: 0, y: 0, w: 0, h: 0 },
         cornerRadius: 0,
         dpr: this.dpr || 1,
-        scanY: 0,
-        edgeX: 0,
-        scanStartX: 0,
-        scanW: 0,
+        cornerCenter: { x: 0, y: 0 },
+        cornerPoint45: { x: 0, y: 0 },
+        patchCssX: 0, patchCssY: 0, patchDevSize: 0,
         halfRange: pending.halfRangeCss,
+        patch: new Uint8Array(0),
         pixels: [],
         analysis: {
           edgeIdx: 0, edgeOffsetCss: 0, transitionHalfW: 0,
@@ -315,46 +335,78 @@ export const debugMethods = {
     const picked = candidates[targetIdx]
     const el = picked.el
 
-    const { rect, cornerRadius } = el
+    const { rect, cornerRadius: r } = el
     const dpr = this.dpr || 1
     const gl = this.gl
     const halfRangeCss = pending.halfRangeCss
 
-    // Scanline Y = vertical center of the element, in CSS px.
-    const edgeCssX = rect.x + rect.w
-    const scanCssY = rect.y + rect.h / 2
-    const scanStartCssX = edgeCssX - halfRangeCss
+    // --- Corner geometry (top-right corner) ---
+    // The corner arc center is at (rect.x + rect.w - r, rect.y + r).
+    // The 45° point on the arc (NE direction, outward normal = (1/√2, -1/√2)
+    // in screen space where Y is down) is at:
+    //   p45 = cornerCenter + (r/√2, -r/√2)
+    const sqrt2 = Math.SQRT2
+    const cornerCx = rect.x + rect.w - r
+    const cornerCy = rect.y + r
+    const p45x = cornerCx + r / sqrt2
+    const p45y = cornerCy - r / sqrt2
 
-    // Convert to device px + clamp to canvas bounds.
-    const scanStartDevX = Math.max(0, Math.round(scanStartCssX * dpr))
-    const scanDevW = Math.min(
-      this.canvas.width - scanStartDevX,
-      Math.round(halfRangeCss * 2 * dpr),
-    )
-    if (scanDevW <= 0) return
+    // --- Patch bounds (CSS px, top-left origin) ---
+    const patchCssX = p45x - halfRangeCss
+    const patchCssY = p45y - halfRangeCss
+    const patchCssSize = halfRangeCss * 2
 
-    // WebGL readPixels Y is BOTTOM-origin. CSS Y is TOP-origin. Flip:
-    //   webglY = canvasHeight - 1 - cssDevY
-    const cssDevY = Math.round(scanCssY * dpr)
-    const webglY = Math.max(0, Math.min(this.canvas.height - 1, this.canvas.height - 1 - cssDevY))
+    // Convert to device px.
+    const patchDevSize = Math.max(1, Math.round(patchCssSize * dpr))
+    const patchDevX = Math.round(patchCssX * dpr)
+    const patchDevYTop = Math.round(patchCssY * dpr)  // top-origin device Y
 
-    // The render loop just called drawCopy to the default framebuffer, so
-    // the drawing buffer is valid RIGHT NOW. Read immediately.
+    // Clamp to canvas bounds (readPixels requires x+width <= canvas.width).
+    const clampedW = Math.min(patchDevSize, this.canvas.width - patchDevX)
+    const clampedH = Math.min(patchDevSize, this.canvas.height - patchDevYTop)
+    if (clampedW <= 0 || clampedH <= 0) return
+
+    // readPixels Y is BOTTOM-origin. Convert top-origin Y to bottom-origin:
+    //   readY = canvasHeight - (topY + height)
+    const readY = this.canvas.height - (patchDevYTop + clampedH)
+    const clampedReadY = Math.max(0, Math.min(this.canvas.height - clampedH, readY))
+
+    // --- Read 2D patch from the default framebuffer ---
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-    const buf = new Uint8Array(scanDevW * 4)
-    gl.readPixels(scanStartDevX, webglY, scanDevW, 1, gl.RGBA, gl.UNSIGNED_BYTE, buf)
+    const buf = new Uint8Array(clampedW * clampedH * 4)
+    gl.readPixels(patchDevX, clampedReadY, clampedW, clampedH, gl.RGBA, gl.UNSIGNED_BYTE, buf)
 
-    // Build per-pixel result.
+    // Flip vertically: readPixels returns bottom-up rows, canvas display is top-down.
+    const patch = new Uint8Array(clampedW * clampedH * 4)
+    for (let row = 0; row < clampedH; row++) {
+      const srcRow = clampedH - 1 - row  // bottom-up → top-down
+      patch.set(
+        buf.subarray(srcRow * clampedW * 4, (srcRow + 1) * clampedW * 4),
+        row * clampedW * 4,
+      )
+    }
+
+    // --- Extract diagonal (top-right → bottom-left, outside → inside) ---
+    // In the patch (top-down, row 0 = top):
+    //   top-right corner = (col = clampedW-1, row = 0)  → OUTSIDE (along outward normal)
+    //   bottom-left corner = (col = 0, row = clampedH-1) → INSIDE
+    // Diagonal pixel i: col = clampedW-1-i, row = i (for i = 0..min(clampedW,clampedH)-1)
+    // Offset from arc edge: i=0 → +halfRange (outside), i=N/2 → 0 (on edge), i=N-1 → -halfRange (inside)
+    const diagN = Math.min(clampedW, clampedH)
     const pixels: EdgeScanPixel[] = []
-    for (let i = 0; i < scanDevW; i++) {
-      const devX = scanStartDevX + i
-      const cssX = devX / dpr
+    for (let i = 0; i < diagN; i++) {
+      const col = clampedW - 1 - i
+      const row = i
+      const idx = (row * clampedW + col) * 4
+      // offset = (center - i) in device px, converted to CSS px.
+      // center = diagN/2 (the arc edge crossing). Positive = outside, negative = inside.
+      const offset = (diagN / 2 - i) / dpr
       pixels.push({
-        offset: cssX - edgeCssX,
-        r: buf[i * 4],
-        g: buf[i * 4 + 1],
-        b: buf[i * 4 + 2],
-        a: buf[i * 4 + 3],
+        offset,
+        r: patch[idx],
+        g: patch[idx + 1],
+        b: patch[idx + 2],
+        a: patch[idx + 3],
       })
     }
 
@@ -366,13 +418,14 @@ export const debugMethods = {
       targetCount: candidates.length,
       isCapsule: picked.isCapsule,
       rect: { x: rect.x, y: rect.y, w: rect.w, h: rect.h },
-      cornerRadius,
+      cornerRadius: r,
       dpr,
-      scanY: scanCssY,
-      edgeX: edgeCssX,
-      scanStartX: scanStartCssX,
-      scanW: scanDevW,
+      cornerCenter: { x: cornerCx, y: cornerCy },
+      cornerPoint45: { x: p45x, y: p45y },
+      patchCssX, patchCssY,
+      patchDevSize: clampedW,  // use clampedW (== clampedH for square patches)
       halfRange: halfRangeCss,
+      patch,
       pixels,
     }
 
