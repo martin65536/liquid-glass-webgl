@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import type { LiquidGlassRenderer } from './renderer'
+import type { LiquidGlassRenderer, EdgeScanResult } from './renderer'
 import {
   getCapsuleSdfTimings,
   getMaskCacheEntries,
@@ -62,6 +62,13 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
   }>>([])
   const [holeR, setHoleR] = React.useState(false)
   const [holeG, setHoleG] = React.useState(false)
+  // Edge scan result — populated asynchronously. The scan button sets a
+  // pending flag + requestRender(); the render loop does gl.readPixels at
+  // the end of the frame (while the drawing buffer is valid) and stores
+  // the result in renderer._edgeScanResult. We poll for it.
+  const [edgeScan, setEdgeScan] = React.useState<EdgeScanResult | null>(null)
+  // The scanId we last consumed — used to detect new results in the poll.
+  const lastConsumedScanId = React.useRef(0)
   const [pos, setPos] = React.useState({ x: -1, y: 120 })
 
   // Read the renderer's actual probe flags on mount (they may have been
@@ -131,6 +138,15 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
         setHighlightMaskEntries(Array.from(r.strokeMaskCache.entries()).map(([k, v]) => ({
           key: k, canvas: v.canvas, w: v.w, h: v.h, ready: v.ready,
         })))
+      }
+      // Edge scan: poll for a completed result. The scan button sets a
+      // pending flag + requestRender(); the render loop does gl.readPixels
+      // at the end of the frame and stores the result. We detect new
+      // results by comparing scanId to the last one we consumed.
+      const es = r._edgeScanResult
+      if (es && es.scanId !== lastConsumedScanId.current) {
+        lastConsumedScanId.current = es.scanId
+        setEdgeScan(es)
       }
     }, POLL_MS)
     return () => clearInterval(id)
@@ -331,6 +347,41 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
           >clr hl</button>
           <button
             onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => {
+              // Request an edge scan. This sets a pending flag +
+              // requestRender(). The render loop does gl.readPixels at the
+              // end of the next frame (while the drawing buffer is valid)
+              // and stores the result in _edgeScanResult. The poll loop
+              // picks it up within ~200ms and updates edgeScan state.
+              const r = rendererRef.current
+              if (!r) return
+              r.debugReadEdgeScanline(20)
+            }}
+            title="EDGE SCAN: GPU readback of a horizontal scanline across the first capsule element's right edge. Shows the RGBA profile at the AA transition + automatic black-fringe detection. Answers: 'is there a black edge, and what does it look like?'. Click to request — result appears within ~200ms (one render frame + poll)."
+            style={{
+              background: edgeScan ? 'rgba(255,255,0,0.25)' : 'none',
+              border: `1px solid ${edgeScan ? '#ff0' : '#0f0'}`,
+              color: edgeScan ? '#ff0' : '#0f0',
+              cursor: 'pointer', fontSize: 10, padding: '0 5px', borderRadius: 3, fontWeight: 'bold',
+            }}
+          >scan</button>
+          <button
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => {
+              // Cycle to the next useContinuousSdf element + immediately
+              // scan it. Useful when multiple capsule elements are on
+              // screen (e.g. knob + track + card) and you want to scan
+              // a specific one.
+              rendererRef.current?.debugCycleEdgeScanTarget()
+            }}
+            title="Cycle the scan target to the NEXT useContinuousSdf element on screen. Useful when multiple capsule elements exist (knob/track/card) and you want to scan a specific one. Capsule-shaped elements (cornerRadius = min(w,h)/2) are sorted first. Immediately triggers a fresh scan."
+            style={{
+              background: 'none', border: '1px solid #0f0', color: '#0f0',
+              cursor: 'pointer', fontSize: 10, padding: '0 5px', borderRadius: 3, fontWeight: 'bold',
+            }}
+          >▶</button>
+          <button
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={() => setCollapsed(true)}
             style={{ background: 'none', border: '1px solid #0f0', color: '#0f0', cursor: 'pointer', fontSize: 11, padding: '0 4px', borderRadius: 3 }}
           >-</button>
@@ -432,6 +483,31 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
         ))}
       </div>
 
+      {/* Edge Scan — GPU readback of a scanline across the capsule element's
+          right edge. Triggered by the "scan" button in the header. Shows:
+            1. A zoomed pixel strip (the actual rendered scanline, scaled up).
+            2. SVG line plots of R, G, B, A (0-255) vs offset from edge.
+            3. Automatic black-fringe detection verdict.
+          This directly answers "is there a black edge, and what does it look
+          like?" — the most direct diagnostic for the capsule black-edge issue.
+          The scan is async (render-loop hook) — click "scan" and the result
+          appears here within ~200ms (one render frame + poll). */}
+      {edgeScan && (
+        <div style={{ padding: '8px 10px', borderTop: '1px solid rgba(255,255,0,0.25)' }}>
+          <div style={{ color: '#ff0', marginBottom: 6, fontWeight: 'bold' }}>
+            Edge Scan{' '}
+            {edgeScan.elementId !== '(none)' && (
+              <span style={{ color: '#aaa', fontWeight: 'normal' }}>
+                — {edgeScan.elementId}
+                {' '}[{edgeScan.targetIdx + 1}/{edgeScan.targetCount}]
+                {edgeScan.isCapsule && <span style={{ color: '#0cf' }}> capsule</span>}
+              </span>
+            )}
+          </div>
+          <EdgeScanView scan={edgeScan} />
+        </div>
+      )}
+
       {/* Pack images visualization — toggled by the "img" button in the header.
           Renders each cached SDF texture as two side-by-side canvases:
             left  = R channel (coverage, browser-native AA)
@@ -496,6 +572,168 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
         </div>
       )}
       </div>{/* end scrollable body */}
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ *
+ * EdgeScanView — renders the GPU-readback scanline result.
+ *
+ * Shows three things:
+ *  1. Pixel strip: the actual rendered scanline (1px tall) scaled up to
+ *     ~16px tall, so you can SEE the edge visually. The analytic edge
+ *     position (offset=0) is marked with a tick.
+ *  2. RGBA line plots: SVG paths of R/G/B/A (0-255) vs offset (CSS px
+ *     from edge). The AA transition is shaded. This reveals:
+ *       - Where alpha transitions (edge sharpness).
+ *       - Whether RGB drops to near-0 at the AA zone (black fringe).
+ *       - Whether RGB and A transitions are aligned.
+ *  3. Analysis verdict: auto-detected black-fringe symptoms.
+ * ------------------------------------------------------------------ */
+function EdgeScanView({ scan }: { scan: EdgeScanResult }) {
+  const stripRef = React.useRef<HTMLCanvasElement>(null)
+  const { pixels, analysis, dpr, rect, edgeX, scanY, halfRange } = scan
+
+  // Render the pixel strip: 1px-tall scanline scaled to 16px tall.
+  React.useEffect(() => {
+    const c = stripRef.current
+    if (!c) return
+    const w = pixels.length
+    c.width = w
+    c.height = 1
+    const ctx = c.getContext('2d')!
+    const img = ctx.createImageData(w, 1)
+    for (let i = 0; i < w; i++) {
+      const p = pixels[i]
+      // The canvas is composited over the page background. The scanline
+      // alpha may be < 255 (semi-transparent glass). To show the actual
+      // visible color, premultiply over black (so semi-transparent dark
+      // pixels look dark, matching what the user sees on a dark bg).
+      // But the main canvas is opaque (alpha=255 typically), so we show
+      // the raw RGBA as RGB + alpha=255 for the strip.
+      img.data[i * 4] = p.r
+      img.data[i * 4 + 1] = p.g
+      img.data[i * 4 + 2] = p.b
+      img.data[i * 4 + 3] = 255
+    }
+    ctx.putImageData(img, 0, 0)
+  }, [pixels])
+
+  // SVG plot dimensions.
+  const plotW = 300
+  const plotH = 80
+  const padL = 28, padR = 4, padT = 4, padB = 14
+  const innerW = plotW - padL - padR
+  const innerH = plotH - padT - padB
+  const N = pixels.length
+  const xMin = -halfRange, xMax = halfRange
+  const xToPx = (x: number) => padL + ((x - xMin) / (xMax - xMin)) * innerW
+  const yToPx = (v: number) => padT + (1 - v / 255) * innerH
+
+  // Build SVG path strings for R, G, B, A.
+  const pathFor = (key: 'r' | 'g' | 'b' | 'a') => {
+    let d = ''
+    for (let i = 0; i < N; i++) {
+      const x = pixels[i].offset
+      const y = pixels[i][key]
+      d += (i === 0 ? 'M' : 'L') + xToPx(x).toFixed(1) + ' ' + yToPx(y).toFixed(1)
+    }
+    return d
+  }
+
+  // Transition zone shading rect (±transitionHalfW around the detected edge).
+  const edgePxOffset = pixels[Math.min(analysis.edgeIdx, N - 1)]?.offset ?? 0
+  const zoneStartOffset = edgePxOffset - analysis.transitionHalfW / dpr
+  const zoneEndOffset = edgePxOffset + analysis.transitionHalfW / dpr
+
+  return (
+    <div style={{ fontSize: 10 }}>
+      {/* Element info */}
+      <div style={{ color: '#aaa', marginBottom: 4 }}>
+        el: {rect.w.toFixed(0)}×{rect.h.toFixed(0)} r={scan.cornerRadius.toFixed(0)}
+        {' '}@({rect.x.toFixed(0)},{rect.y.toFixed(0)}) dpr={dpr.toFixed(2)}
+        {' '}scanY={scanY.toFixed(0)} edgeX={edgeX.toFixed(0)}
+      </div>
+
+      {/* Pixel strip */}
+      <div style={{ marginBottom: 4 }}>
+        <div style={{ color: '#888', marginBottom: 2 }}>Pixel strip (← inside | edge | outside →):</div>
+        <div style={{ position: 'relative', width: plotW, height: 18 }}>
+          <canvas
+            ref={stripRef}
+            style={{
+              width: plotW, height: 14, imageRendering: 'pixelated',
+              border: '1px solid #440', borderRadius: 2, display: 'block',
+            }}
+          />
+          {/* Edge tick at offset=0 */}
+          <div style={{
+            position: 'absolute', top: 0, left: xToPx(0), width: 1, height: 14,
+            background: '#ff0', pointerEvents: 'none',
+          }} />
+        </div>
+      </div>
+
+      {/* RGBA plots */}
+      <div style={{ marginBottom: 4 }}>
+        <svg width={plotW} height={plotH} style={{ display: 'block', border: '1px solid #333', background: '#0a0a0a' }}>
+          {/* Transition zone shading */}
+          <rect
+            x={xToPx(zoneStartOffset)} y={padT}
+            width={Math.max(1, xToPx(zoneEndOffset) - xToPx(zoneStartOffset))}
+            height={innerH}
+            fill="rgba(255,255,0,0.1)"
+          />
+          {/* Detected edge (max gradient) — cyan tick */}
+          <line x1={xToPx(edgePxOffset)} y1={padT} x2={xToPx(edgePxOffset)} y2={padT + innerH}
+            stroke="#0ff" strokeWidth={0.5} />
+          {/* Grid lines at 0, 128, 255 */}
+          {[0, 128, 255].map(v => (
+            <g key={v}>
+              <line x1={padL} y1={yToPx(v)} x2={plotW - padR} y2={yToPx(v)}
+                stroke="rgba(255,255,255,0.1)" strokeWidth={0.5} />
+              <text x={2} y={yToPx(v) + 3} fill="#666" fontSize={8}>{v}</text>
+            </g>
+          ))}
+          {/* Edge vertical line */}
+          <line x1={xToPx(0)} y1={padT} x2={xToPx(0)} y2={padT + innerH}
+            stroke="#ff0" strokeWidth={0.5} strokeDasharray="2 2" />
+          {/* Plots: A (white/dim), R (red), G (green), B (blue) */}
+          <path d={pathFor('a')} fill="none" stroke="rgba(255,255,255,0.7)" strokeWidth={1.5} />
+          <path d={pathFor('r')} fill="none" stroke="#f55" strokeWidth={1} />
+          <path d={pathFor('g')} fill="none" stroke="#5f5" strokeWidth={1} />
+          <path d={pathFor('b')} fill="none" stroke="#55f" strokeWidth={1} />
+          {/* X-axis labels */}
+          <text x={xToPx(xMin)} y={plotH - 2} fill="#666" fontSize={8}>{xMin.toFixed(0)}</text>
+          <text x={xToPx(0) - 4} y={plotH - 2} fill="#ff0" fontSize={8}>edge</text>
+          <text x={xToPx(xMax) - 14} y={plotH - 2} fill="#666" fontSize={8}>+{xMax.toFixed(0)}</text>
+        </svg>
+        <div style={{ display: 'flex', gap: 8, color: '#888', fontSize: 9, marginTop: 2 }}>
+          <span><span style={{ color: 'rgba(255,255,255,0.7)' }}>━</span> A</span>
+          <span><span style={{ color: '#f55' }}>━</span> R</span>
+          <span><span style={{ color: '#5f5' }}>━</span> G</span>
+          <span><span style={{ color: '#55f' }}>━</span> B</span>
+        </div>
+      </div>
+
+      {/* Analysis */}
+      <div style={{
+        padding: '4px 6px', borderRadius: 3,
+        background: analysis.blackFringeDetected ? 'rgba(255,0,0,0.15)' : 'rgba(0,255,0,0.08)',
+        border: `1px solid ${analysis.blackFringeDetected ? '#f44' : '#080'}`,
+        color: analysis.blackFringeDetected ? '#f88' : '#8f8',
+      }}>
+        {analysis.verdict}
+      </div>
+      <div style={{ marginTop: 4, color: '#888', fontSize: 9 }}>
+        Detected edge at offset {analysis.edgeOffsetCss.toFixed(2)} CSS px (idx {analysis.edgeIdx}).
+        {' '}Transition ±{analysis.transitionHalfW} px.
+        {' '}RGB: inside={analysis.rgbInside.toFixed(0)},
+        {' '}transition-min={analysis.minRgbInTransition.toFixed(0)},
+        {' '}outside={analysis.rgbOutside.toFixed(0)}.
+        {analysis.canvasOpaque ? ' Canvas: opaque.' : ' Canvas: has-alpha.'}
+        {analysis.hasNearBlackPx && ' ⚠ near-black px found.'}
+      </div>
     </div>
   )
 }

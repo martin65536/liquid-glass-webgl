@@ -654,6 +654,21 @@ export class LiquidGlassRenderer {
   _debugLastUploadedSdfKey = ''
   _debugLastUploadedSdfTexSize = 0
 
+  /** Edge scan probe — pending request. Set by debugReadEdgeScanline(),
+   *  consumed by _debugFlushPendingEdgeScan() at the end of render().
+   *  Null when no scan is pending. */
+  _pendingEdgeScan: { halfRangeCss: number } | null = null
+  /** Edge scan probe — last completed result. The overlay polls this.
+   *  Null until the first scan completes. Bumped with a new scanId on
+   *  each completed scan so the overlay can detect fresh results. */
+  _edgeScanResult: import('./methods-debug').EdgeScanResult | null = null
+  /** Monotonic counter for edge scan results. */
+  _edgeScanCounter = 0
+  /** Index into the useContinuousSdf element list to scan next. Cycled by
+   *  debugCycleEdgeScanTarget() — lets the user step through multiple
+   *  capsule elements on the same page. */
+  _edgeScanTargetIdx = 0
+
   /** Clear the GPU-side capsule SDF texture pool + reset binding. The CPU-side
    *  mask cache (continuous-mask.ts) must be cleared separately via
    *  clearMaskCache(). Next render re-generates textures on demand. */
@@ -1439,6 +1454,7 @@ import { glassRenderMethods } from './methods-render-glass'
 import { glassElementPassMethods } from './methods-render-glass-element-pass'
 import { glassPostPassMethods } from './methods-render-glass-post-passes'
 import { dirtyTrackingMethods } from './methods-dirty'
+import { debugMethods } from './methods-debug'
 
 Object.assign(
   LiquidGlassRenderer.prototype,
@@ -1454,7 +1470,8 @@ Object.assign(
   glassRenderMethods,
   glassElementPassMethods,
   glassPostPassMethods,
-  dirtyTrackingMethods
+  dirtyTrackingMethods,
+  debugMethods
 )
 
 // Re-export all public types so callers can `import type { GlassElementConfig, ... } from './renderer'`.
@@ -1470,3 +1487,4 @@ export type {
   ElementState,
   ToggleGroupState,
 } from './types'
+export type { EdgeScanResult, EdgeScanPixel, EdgeAnalysis } from './methods-debug'

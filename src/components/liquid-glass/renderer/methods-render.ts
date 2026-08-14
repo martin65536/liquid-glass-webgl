@@ -412,6 +412,16 @@ export const renderMethods = {
     this.drawCopy(curTex)
     this.perfMonitor.incDrawCall() // final blit
 
+    // --- Debug: edge scan readback (if pending) ---
+    // MUST happen here — synchronously after drawCopy, while the drawing
+    // buffer is still valid (preserveDrawingBuffer:false clears it after
+    // the rAF callback returns). debugReadEdgeScanline() sets the pending
+    // flag; we flush it here, readPixels, and store the result for the
+    // overlay to poll.
+    if (this._pendingEdgeScan) {
+      this._debugFlushPendingEdgeScan()
+    }
+
     // --- Clear event-driven dirty state (consumed by this frame) ---
     this.dirtyElementIds.clear()
     this.allDirty = false
