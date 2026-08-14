@@ -176,11 +176,11 @@ export function buildGlassPlayground(W: number, H: number, onBack: () => void, s
     const sheetY = H - bottomBtnSpace - sheetH
 
     // Sheet glass card
-    // independentBackdrop=false so the sheet samples the SCENE FBO (which
-    // includes the composited gp-square), not the raw wallpaper. This makes
-    // the sheet's glass correctly refract the rotated/zoomed square when they
-    // overlap. The sheet re-rasterizes when the square moves (backdrop_overlap
-    // cache miss), which is the expected behavior.
+    // independentBackdrop=true so the sheet DIRECTLY samples the wallpaper
+    // background (the original Android liquid-glass behavior), NOT the scene
+    // FBO. The sheet's glass refracts the raw wallpaper; it does NOT refract
+    // the composited gp-square when they overlap. This matches the original
+    // playground sheet, which was a standalone glass card over the wallpaper.
     const gpSheet = makeGlassShape(
       'gp-sheet',
       { x: sheetX, y: sheetY, w: sheetW, h: sheetH },
@@ -194,7 +194,7 @@ export function buildGlassPlayground(W: number, H: number, onBack: () => void, s
         highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, alpha: 0.38 },
       }
     )
-    gpSheet.independentBackdrop = false
+    gpSheet.independentBackdrop = true
     // Capsule shape for the sheet card (same as the square above).
     if (state.capsuleShape) {
       gpSheet.useContinuousSdf = true

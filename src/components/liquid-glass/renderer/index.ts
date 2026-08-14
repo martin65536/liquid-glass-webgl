@@ -29,6 +29,10 @@ import {
 import { compileShader, createProgram } from './gl-utils'
 import { destroyCache } from './inner-shadow-cache'
 import type { InnerShadowMaskCacheEntry } from './inner-shadow-cache'
+// NOTE: cacheUniforms / blur methods / dispose live in methods-uniforms.ts,
+// methods-blur.ts, methods-dispose.ts respectively. They are merged onto the
+// prototype via Object.assign below, following the same pattern as the other
+// methods-*.ts files.
 import type {
   GlassElementConfig,
   ElementState,
@@ -993,533 +997,10 @@ export class LiquidGlassRenderer {
     }
   }
 
-  cacheUniforms() {
-    const gl = this.gl
-    const elNames = [
-      'uBackdrop', 'uWallpaperSampler', 'uTabsBackdropSampler', 'uCanvasSize', 'uWallpaperSize', 'uElementOffset', 'uElementSize',
-      'uCornerRadii', 'uRefractionHeight', 'uRefractionAmount', 'uDepthEffect',
-      'uChromaticAberration', 'uBlurRadius', 'uSaturation', 'uBrightness',
-      'uContrast', 'uTintColor', 'uSurfaceColor', 'uHighlightColor',
-      'uHighlightAngle', 'uHighlightFalloff', 'uHighlightAlpha', 'uHighlightMode',
-      'uHighlightStrokeWidth', 'uHighlightBlur',
-      'uContentScaleX', 'uContentScaleY',
-      'uUseToggleBackdrop', 'uUseSolidBackdrop', 'uSolidBackdropColor',
-      'uTrackColor', 'uTrackRect', 'uTrackCornerRadius',
-      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale',
-      'uIndicatorBackdrop', 'uContainerRect', 'uContainerCornerRadius', 'uIndicatorAccent',
-      'uInsetPx', 'uIndicatorPressProgress', 'uIndicatorPanelOffset', 'uDpr',
-      'uContainerCenter', 'uContainerScale',
-      'uTabContentTex0', 'uTabContentTex1', 'uTabContentTex2', 'uTabContentTex3',
-      'uTabContentTex4', 'uTabContentTex5', 'uTabContentTex6', 'uTabContentTex7',
-      'uTabContentRects[0]', 'uTabContentRects[1]', 'uTabContentRects[2]', 'uTabContentRects[3]',
-      'uTabContentRects[4]', 'uTabContentRects[5]', 'uTabContentRects[6]', 'uTabContentRects[7]',
-      'uTabContentCount', 'uTabsGlassLayer',
-      'uSdfTexSampler', 'uUseSdfTexture', 'uSdfTexSize', 'uSdfLightAngle', 'uEnterAlpha',
-      'uUsePerElementFbo', 'uSceneRectOffset', 'uElFboSize', 'uBackdropRect',
-      'uCornerStyle', 'uSkipColorControls',
-      'uUseMagnifier', 'uMagnifierZoom', 'uMagnifierOffsetY',
-      'uElementRotation',
-      'uContinuousSdf', 'uUseContinuousSdf', 'uContinuousSdfTexSize', 'uContinuousSdfElementSize',
-      'uNoContinuousSdfInRefraction',
-      'uInnerStrokeMask', 'uInnerStrokeMaskOffset', 'uInnerStrokeMaskSize',
-    ]
-    for (const n of elNames) this.uEl[n] = gl.getUniformLocation(this.elementProgram, n)
-    const shNames = [
-      'uCanvasSize', 'uElementOffset', 'uElementSize', 'uCornerRadii',
-      'uShadowRadius', 'uShadowOffset', 'uShadowColor',
-      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation',
-      'uCornerStyle',
-    ]
-    for (const n of shNames) this.uSh[n] = gl.getUniformLocation(this.shadowProgram, n)
-    const wpNames = ['uBackdrop', 'uCanvasSize', 'uWallpaperSize']
-    for (const n of wpNames) this.uWp[n] = gl.getUniformLocation(this.wallpaperProgram, n)
-    const fgNames = ['uTexture', 'uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uAlpha',
-      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uCornerStyle',
-      'uUseContinuousSdf', 'uContinuousSdf', 'uContinuousSdfTexSize', 'uContinuousSdfElementSize']
-    for (const n of fgNames) this.uFg[n] = gl.getUniformLocation(this.foregroundProgram, n)
-    const hlNames = ['uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uColor', 'uRadius', 'uPosition',
-      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation', 'uCornerStyle']
-    for (const n of hlNames) this.uHl[n] = gl.getUniformLocation(this.highlightProgram, n)
-    const tnNames = ['uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uColor',
-      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation', 'uCornerStyle']
-    for (const n of tnNames) this.uTn[n] = gl.getUniformLocation(this.tintProgram, n)
-    const rmNames = [
-      'uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii',
-      'uHighlightColor', 'uHighlightAngle', 'uHighlightFalloff',
-      'uHighlightAlpha', 'uHighlightMode', 'uHighlightStrokeWidth',
-      'uHighlightBlur',
-      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation',
-      'uCornerStyle',
-      'uUseContinuousSdf', 'uContinuousSdf', 'uContinuousSdfTexSize', 'uContinuousSdfElementSize',
-    ]
-    for (const n of rmNames) this.uRm[n] = gl.getUniformLocation(this.rimHighlightProgram, n)
-    // Highlight stroke pass (pass 1): renders the clipped stroke alpha mask.
-    const hsNames = [
-      'uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uHighlightStrokeWidth',
-      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation',
-      'uCornerStyle',
-      'uUseContinuousSdf', 'uContinuousSdf', 'uContinuousSdfTexSize', 'uContinuousSdfElementSize',
-    ]
-    for (const n of hsNames) this.uHs[n] = gl.getUniformLocation(this.highlightStrokeProgram, n)
-    // Highlight composite pass (pass 3): samples blurred mask, multiplies intensity+color.
-    const hcNames = [
-      'uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii',
-      'uBlurredMask', 'uMaskTexSize',
-      'uHighlightColor', 'uHighlightAngle', 'uHighlightFalloff', 'uHighlightAlpha', 'uHighlightMode',
-      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation', 'uCornerStyle',
-      'uUseContinuousSdf', 'uContinuousSdf', 'uContinuousSdfTexSize', 'uContinuousSdfElementSize',
-    ]
-    for (const n of hcNames) this.uHc[n] = gl.getUniformLocation(this.highlightCompositeProgram, n)
-    // Stroke mask composite (Canvas2D stroke mask approach)
-    const smNames = [
-      'uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii',
-      'uStrokeMask', 'uMaskOffset', 'uMaskSize',
-      'uHighlightColor', 'uHighlightAngle', 'uHighlightFalloff', 'uHighlightAlpha', 'uHighlightMode',
-      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation',
-    ]
-    for (const n of smNames) this.uSm[n] = gl.getUniformLocation(this.strokeMaskCompositeProgram, n)
-    // Inner shadow mask composite (Canvas2D ring mask approach)
-    const isNames = [
-      'uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii',
-      'uInnerShadowMask', 'uMaskOffset', 'uMaskSize',
-      'uInnerShadowColor', 'uInnerShadowAlpha',
-      'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation',
-    ]
-    for (const n of isNames) this.uIs[n] = gl.getUniformLocation(this.innerShadowMaskCompositeProgram, n)
-    const prNames = ['uCanvasSize', 'uOffset', 'uSize', 'uCornerRadii', 'uColor', 'uCornerStyle',
-      'uUseContinuousSdf', 'uContinuousSdf', 'uContinuousSdfTexSize', 'uContinuousSdfElementSize']
-    for (const n of prNames) this.uPr[n] = gl.getUniformLocation(this.plainRectProgram, n)
-    const pbNames = [
-      'uBackdrop', 'uCanvasSize', 'uWallpaperSize', 'uOffset', 'uSize',
-      'uBlurRadius', 'uTintColor', 'uTintIntensity',
-    ]
-    for (const n of pbNames) this.uPb[n] = gl.getUniformLocation(this.progressiveBlurProgram, n)
-    const cpNames = ['uTexture', 'uCanvasSize']
-    for (const n of cpNames) this.uCp[n] = gl.getUniformLocation(this.copyProgram, n)
-    const sfNames = ['uColor']
-    for (const n of sfNames) this.uSf[n] = gl.getUniformLocation(this.solidFillProgram, n)
-    const ccNames = ['uTexture', 'uTexSize', 'uBrightness', 'uContrast', 'uSaturation']
-    for (const n of ccNames) this.uCc[n] = gl.getUniformLocation(this.colorControlsProgram, n)
-    const stNames = ['uTexture', 'uCanvasSize', 'uTintColor']
-    for (const n of stNames) this.uSt[n] = gl.getUniformLocation(this.sceneTintProgram, n)
-    const efNames = ['uTexture', 'uCanvasSize', 'uElementCenter', 'uElementSize', 'uRotation', 'uSrcSize']
-    for (const n of efNames) this.uEf[n] = gl.getUniformLocation(this.elFboCompositeProgram, n)
-    const ecNames = ['uTexture', 'uSrcOffset', 'uSrcSize', 'uDstSize']
-    for (const n of ecNames) this.uEc[n] = gl.getUniformLocation(this.elFboCropProgram, n)
-  }
-
-  /** Lazy-compile horizontal + vertical blur programs for a 1D tap count. */
-  ensureBlurPrograms(tapCount: number): void {
-    if (this.blurPrograms.has(tapCount)) return
-    const gl = this.gl
-    const hFs = compileShader(gl, gl.FRAGMENT_SHADER, generateSeparableBlurShader(tapCount, 'horizontal'))
-    const vFs = compileShader(gl, gl.FRAGMENT_SHADER, generateSeparableBlurShader(tapCount, 'vertical'))
-    const mk = (fs: WebGLShader) => {
-      const vs = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER)
-      const p = gl.createProgram()!
-      gl.attachShader(p, vs)
-      gl.attachShader(p, fs)
-      gl.bindAttribLocation(p, 0, 'aPos')
-      gl.linkProgram(p)
-      gl.deleteShader(vs)
-      gl.deleteShader(fs)
-      if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
-        const log = gl.getProgramInfoLog(p)
-        gl.deleteProgram(p)
-        throw new Error('Blur program link error (taps=' + tapCount + '): ' + log)
-      }
-      return p
-    }
-    const hProg = mk(hFs)
-    const vProg = mk(vFs)
-    const uH: Record<string, WebGLUniformLocation | null> = {
-      uTexture: gl.getUniformLocation(hProg, 'uTexture'),
-      uTexSize: gl.getUniformLocation(hProg, 'uTexSize'),
-      uRadius: gl.getUniformLocation(hProg, 'uRadius'),
-    }
-    const uV: Record<string, WebGLUniformLocation | null> = {
-      uTexture: gl.getUniformLocation(vProg, 'uTexture'),
-      uTexSize: gl.getUniformLocation(vProg, 'uTexSize'),
-      uRadius: gl.getUniformLocation(vProg, 'uRadius'),
-    }
-    this.blurPrograms.set(tapCount, { hProg, vProg, uH, uV, aPosH: 0, aPosV: 0 })
-  }
-
-  /** Pick the downsampled blur FBO level for a given radius.
-   *
-   *  - dynamicBlurDownsample OFF: returns the MAX-ds level (legacy behavior —
-   *    every blur renders into the smallest buffer, maximum speed, lowest
-   *    quality for small radii).
-   *  - dynamicBlurDownsample ON: picks usedDs = clamp(2^floor(log2(R/6)), 1,
-   *    maxLevelDs). Small radii (R≈6px) → ds=1 (full-res, crisp); large radii
-   *    (R≈48px+) → ds=maxLevelDs (fast). Falls back to max-ds if the pool is
-   *    empty or radius is degenerate.
-   *
-   *  The returned level's fboA/fboB are sized floor(fboW/level.ds) ×
-   *  floor(fboH/level.ds); callers scale radius by 1/level.ds. */
-  pickDsBlurLevel(radius: number): { ds: number; fboA: WebGLFramebuffer; texA: WebGLTexture; fboB: WebGLFramebuffer; texB: WebGLTexture; w: number; h: number } {
-    // OFF (legacy): use effectiveBlurDownsample directly with the dedicated
-    // legacy dsBlurFboA/B pair (sized floor(fboW/effectiveDs) ×
-    // floor(fboH/effectiveDs)). This matches the pre-dynamic OLD behavior
-    // EXACTLY, including non-pow2 effectiveDs values (e.g. dpr=3 ×
-    // blurDownsample=4 = 12 → ds=12, not the pow2-clamped 8). The legacy
-    // buffers are allocated separately in resizeFBOs so OFF doesn't silently
-    // round the ds up — both buffer resolution AND radius scaling (1/ds) stay
-    // identical to OLD. This is also the empty-pool fallback.
-    if (!this.dynamicBlurDownsample || this.dsBlurLevels.length === 0) {
-      return {
-        ds: this.effectiveBlurDownsample || 1,
-        fboA: this.dsBlurFboA!, texA: this.dsBlurFboATex!,
-        fboB: this.dsBlurFboB!, texB: this.dsBlurFboBTex!,
-        w: this.dsBlurFboW || this.fboW, h: this.dsBlurFboH || this.fboH,
-      }
-    }
-    const levels = this.dsBlurLevels
-    // Dynamic: pick the largest power-of-two ds whose blur still looks crisp.
-    // Threshold 6px: a blur of ~6 device-px in the downsampled space already
-    // has enough taps to look smooth, so ds=1 is only needed for R<6. Beyond
-    // that, doubling ds every time R doubles keeps the downsampled radius
-    // near 6px — constant visual quality, fragment cost scales with R (not R²).
-    const r = Math.max(0.5, radius)
-    const maxDs = levels[levels.length - 1].ds
-    let usedDs = 1
-    if (r >= 6) {
-      const exp = Math.floor(Math.log2(r / 6))
-      usedDs = Math.pow(2, exp)
-    }
-    if (usedDs > maxDs) usedDs = maxDs
-    if (usedDs < 1) usedDs = 1
-    // Find the level with this ds (pool stores exact power-of-two ds values).
-    for (let i = levels.length - 1; i >= 0; i--) {
-      if (levels[i].ds <= usedDs) return levels[i]
-    }
-    return levels[0]
-  }
-
-  /** 2-pass blur a source texture by `radius` px. Reads srcTex, writes the
-   *  blurred result into the picked level's fboB, returns its tex.
-   *  Saves/restores the currently-bound framebuffer.
-   *  Uses this.blurTapCap to cap 1D tap count (performance knob).
-   *
-   *  Downsample: when dynamicBlurDownsample is OFF (default/legacy), the
-   *  single legacy dsBlurFboA/B pair is used with ds = effectiveBlurDownsample
-   *  (RAW value, including non-pow2 like 6/12 — matches OLD exactly). When ON,
-   *  the buffer is picked per-call by pickDsBlurLevel(radius) — small radii
-   *  use a low-ds (crisp) buffer, large radii use a high-ds (fast) buffer.
-   *  `radius` is scaled by 1/level.ds (half-res pixels are twice as wide, so
-   *  radius/ds px covers the same screen distance). This preserves the visual
-   *  blur radius while cutting fragment invocations by ds². The element pass
-   *  samples the result tex with UV 0-1 (LINEAR filtering upsamples back to
-   *  full-res), so no caller changes needed. */
-  blurTexture(srcTex: WebGLTexture, radius: number): WebGLTexture {
-    const gl = this.gl
-    // Pick the downsample level (OFF → legacy raw-ds; ON → per-radius pow2).
-    const lvl = this.pickDsBlurLevel(radius)
-    const ds = lvl.ds
-    const w = lvl.w
-    const h = lvl.h
-    // Scale radius to the downsampled space (1/ds). Visual radius preserved.
-    // CLAMP: when ds > 1, ensure dsRadius >= 0.6 so the blur shader always
-    // runs (its early-return threshold is uRadius < 0.5). Without this clamp,
-    // a small blur radius (e.g. during press-scale when layerScale < 1 shrinks
-    // blurRadiusPx) produces dsRadius < 0.5 → the shader does a direct texture
-    // copy → the half-res dsBlurFboB is displayed at full-res as a pixelated
-    // "mosaic" for the few frames the press animation spends at low radius.
-    // 0.6 is safely above 0.5 and gives a 3-tap kernel (pixel spread ±1.8px
-    // in downsampled space) that smooths the bilinear upsampling.
-    const dsRadius = ds > 1 ? Math.max(0.6, radius / ds) : radius
-    // Compute tap count, capped by blurTapCap (performance knob).
-    let taps = computeBlur1DTapCount(dsRadius)
-    taps = Math.min(taps, Math.max(1, this.blurTapCap | 0))
-    this.ensureBlurPrograms(taps)
-    const entry = this.blurPrograms.get(taps)!
-    const savedFb = gl.getParameter(gl.FRAMEBUFFER_BINDING)
-    // CRITICAL: disable scissor during the blur passes. The caller (PEF +
-    // ping-pong paths) enables scissor with FULL-RES device-px coords for the
-    // element's bbox. But the downsampled FBOs are half-res — the full-res
-    // scissor rect applied to a half-res FBO clips to the wrong region (only a
-    // corner gets written, the rest stays transparent). This was the root
-    // cause of the "only a small block is normal, the rest is transparent"
-    // downsample bug. ds=1 happened to work because the FBO was full-res so
-    // the scissor coords matched. Save/restore so the caller's scissor state
-    // is unchanged on exit.
-    const savedScissor = gl.isEnabled(gl.SCISSOR_TEST)
-    gl.disable(gl.SCISSOR_TEST)
-    gl.disable(gl.BLEND)
-
-    // Pass 1: horizontal — srcTex → level.fboA (downsampled)
-    // uTexSize = (w,h) = the level's FBO size: shader computes uv =
-    // gl_FragCoord/uTexSize. gl_FragCoord is in the CURRENT render-target
-    // (level.fboA, downsampled) space, so uTexSize MUST be the downsampled
-    // size to map FragCoord → uv 0..1. The src texture (fullscreen) is then
-    // sampled with uv 0..1 (LINEAR upsamples fine).
-    // pxToUv = uRadius/uTexSize = (radius/ds)/(fboW/ds) = radius/fboW → the UV
-    // offset corresponds to `radius` source pixels, preserving visual radius.
-    gl.bindFramebuffer(gl.FRAMEBUFFER, lvl.fboA)
-    gl.viewport(0, 0, w, h)
-    gl.useProgram(entry.hProg)
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
-    gl.enableVertexAttribArray(entry.aPosH)
-    gl.vertexAttribPointer(entry.aPosH, 2, gl.FLOAT, false, 0, 0)
-    gl.activeTexture(gl.TEXTURE0)
-    gl.bindTexture(gl.TEXTURE_2D, srcTex)
-    gl.uniform1i(entry.uH['uTexture'], 0)
-    gl.uniform2f(entry.uH['uTexSize'], w, h)
-    gl.uniform1f(entry.uH['uRadius'], dsRadius)
-    gl.drawArrays(gl.TRIANGLES, 0, 6)
-
-    // Pass 2: vertical — level.texA → level.fboB (both downsampled)
-    gl.bindFramebuffer(gl.FRAMEBUFFER, lvl.fboB)
-    gl.viewport(0, 0, w, h)
-    gl.useProgram(entry.vProg)
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
-    gl.enableVertexAttribArray(entry.aPosV)
-    gl.vertexAttribPointer(entry.aPosV, 2, gl.FLOAT, false, 0, 0)
-    gl.activeTexture(gl.TEXTURE0)
-    gl.bindTexture(gl.TEXTURE_2D, lvl.texA)
-    gl.uniform1i(entry.uV['uTexture'], 0)
-    gl.uniform2f(entry.uV['uTexSize'], w, h)
-    gl.uniform1f(entry.uV['uRadius'], dsRadius)
-    gl.drawArrays(gl.TRIANGLES, 0, 6)
-
-    // NOTE: no mipmap generation here — WebGL1 forbids mipmaps on NPOT
-    // textures and the downsampled FBO is almost always NPOT
-    // (floor(fboW/ds)×floor(fboH/ds)). generateMipmap + LINEAR_MIPMAP_LINEAR
-    // on an NPOT texture makes it incomplete → sampling returns 0 → glass
-    // renders solid gray. The element pass upsamples with plain LINEAR
-    // (2×2 bilinear); acceptable at ds≤2.
-    gl.bindFramebuffer(gl.FRAMEBUFFER, savedFb)
-    gl.viewport(0, 0, this.fboW, this.fboH)
-    if (savedScissor) gl.enable(gl.SCISSOR_TEST)
-    return lvl.texB
-  }
-
-  /** Lazy-compile highlight blur programs (alpha-blurring, sigma semantics).
-   *  Separate from ensureBlurPrograms because the shader is different
-   *  (blurs alpha, no early-return, integer-σ-spaced taps). */
-  ensureHighlightBlurPrograms(tapCount: number): void {
-    if (this.highlightBlurPrograms.has(tapCount)) return
-    const gl = this.gl
-    const hFs = compileShader(gl, gl.FRAGMENT_SHADER, generateHighlightBlurShader(tapCount, 'horizontal'))
-    const vFs = compileShader(gl, gl.FRAGMENT_SHADER, generateHighlightBlurShader(tapCount, 'vertical'))
-    const mk = (fs: WebGLShader) => {
-      const vs = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER)
-      const p = gl.createProgram()!
-      gl.attachShader(p, vs)
-      gl.attachShader(p, fs)
-      gl.bindAttribLocation(p, 0, 'aPos')
-      gl.linkProgram(p)
-      gl.deleteShader(vs)
-      gl.deleteShader(fs)
-      if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
-        const log = gl.getProgramInfoLog(p)
-        gl.deleteProgram(p)
-        throw new Error('Highlight blur program link error (taps=' + tapCount + '): ' + log)
-      }
-      return p
-    }
-    const hProg = mk(hFs)
-    const vProg = mk(vFs)
-    const uH: Record<string, WebGLUniformLocation | null> = {
-      uTexture: gl.getUniformLocation(hProg, 'uTexture'),
-      uTexSize: gl.getUniformLocation(hProg, 'uTexSize'),
-      uRadius: gl.getUniformLocation(hProg, 'uRadius'),
-    }
-    const uV: Record<string, WebGLUniformLocation | null> = {
-      uTexture: gl.getUniformLocation(vProg, 'uTexture'),
-      uTexSize: gl.getUniformLocation(vProg, 'uTexSize'),
-      uRadius: gl.getUniformLocation(vProg, 'uRadius'),
-    }
-    this.highlightBlurPrograms.set(tapCount, { hProg, vProg, uH, uV, aPosH: 0, aPosV: 0 })
-  }
-
-  /** 2-pass Gaussian blur on a highlight stroke MASK (alpha only).
-   *  Faithful to Android BlurMaskFilter(NORMAL, sigma):
-   *    - sigma = blurRadiusPx (the Android radius param IS sigma)
-   *    - convolves the mask's ALPHA with a Gaussian kernel
-   *    - sub-pixel sigma (0.25px) still blurs (no 0.5 early-return)
-   *  Reads srcTex (alpha mask), writes the picked level's fboB, returns its
-   *  tex. Uses pickDsBlurLevel(sigmaPx): OFF → legacy single buffer with RAW
-   *  effectiveDs (matches OLD exactly, incl. non-pow2); ON → per-sigma pow2
-   *  level (small sigma → crisp low-ds, big sigma → fast high-ds).
-   *  Saves/restores the currently-bound framebuffer. */
-  blurHighlightMask(srcTex: WebGLTexture, sigmaPx: number): WebGLTexture {
-    const gl = this.gl
-    const lvl = this.pickDsBlurLevel(sigmaPx)
-    const ds = lvl.ds
-    const w = lvl.w
-    const h = lvl.h
-    // Scale sigma to downsampled space (visual radius preserved).
-    // CLAMP: same rationale as blurTexture — ensure the blur always runs to
-    // smooth the upsampling. The highlight shader's threshold is 0.01 (much
-    // lower than the glass blur's 0.5), but we still clamp for safety so a
-    // near-zero sigma during press-scale never produces a raw half-res copy.
-    const dsSigma = ds > 1 ? Math.max(0.05, sigmaPx / ds) : sigmaPx
-    let taps = computeHighlightBlurTapCount(dsSigma)
-    taps = Math.min(taps, Math.max(3, this.blurTapCap | 0))
-    this.ensureHighlightBlurPrograms(taps)
-    const entry = this.highlightBlurPrograms.get(taps)!
-    const savedFb = gl.getParameter(gl.FRAMEBUFFER_BINDING)
-    // Disable scissor — same reason as blurTexture (caller's full-res scissor
-    // coords don't match the downsampled FBO coordinate space).
-    const savedScissor = gl.isEnabled(gl.SCISSOR_TEST)
-    gl.disable(gl.SCISSOR_TEST)
-    gl.disable(gl.BLEND)
-
-    // Pass 1: horizontal — srcTex → level.fboA (downsampled)
-    gl.bindFramebuffer(gl.FRAMEBUFFER, lvl.fboA)
-    gl.viewport(0, 0, w, h)
-    gl.useProgram(entry.hProg)
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
-    gl.enableVertexAttribArray(entry.aPosH)
-    gl.vertexAttribPointer(entry.aPosH, 2, gl.FLOAT, false, 0, 0)
-    gl.activeTexture(gl.TEXTURE0)
-    gl.bindTexture(gl.TEXTURE_2D, srcTex)
-    gl.uniform1i(entry.uH['uTexture'], 0)
-    gl.uniform2f(entry.uH['uTexSize'], w, h)
-    gl.uniform1f(entry.uH['uRadius'], dsSigma)
-    gl.drawArrays(gl.TRIANGLES, 0, 6)
-
-    // Pass 2: vertical — level.texA → level.fboB (both downsampled)
-    gl.bindFramebuffer(gl.FRAMEBUFFER, lvl.fboB)
-    gl.viewport(0, 0, w, h)
-    gl.useProgram(entry.vProg)
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
-    gl.enableVertexAttribArray(entry.aPosV)
-    gl.vertexAttribPointer(entry.aPosV, 2, gl.FLOAT, false, 0, 0)
-    gl.activeTexture(gl.TEXTURE0)
-    gl.bindTexture(gl.TEXTURE_2D, lvl.texA)
-    gl.uniform1i(entry.uV['uTexture'], 0)
-    gl.uniform2f(entry.uV['uTexSize'], w, h)
-    gl.uniform1f(entry.uV['uRadius'], dsSigma)
-    gl.drawArrays(gl.TRIANGLES, 0, 6)
-
-    // NOTE: no mipmap generation — see blurTexture comment (WebGL1 NPOT).
-    gl.bindFramebuffer(gl.FRAMEBUFFER, savedFb)
-    gl.viewport(0, 0, this.fboW, this.fboH)
-    if (savedScissor) gl.enable(gl.SCISSOR_TEST)
-    return lvl.texB
-  }
-
-  dispose() {
-    if (this.rafId !== null) cancelAnimationFrame(this.rafId)
-    this.rafId = null
-    if (this.animRafId !== null) cancelAnimationFrame(this.animRafId)
-    this.animRafId = null
-    const gl = this.gl
-    if (this.wallpaperTexture) gl.deleteTexture(this.wallpaperTexture)
-    for (const tex of this.fgTextures.values()) gl.deleteTexture(tex)
-    this.fgTextures.clear()
-    for (const entry of this.strokeMaskCache.values()) gl.deleteTexture(entry.tex)
-    this.strokeMaskCache.clear()
-    destroyCache(gl, this.innerShadowMaskCache)
-    if (this.fboA) gl.deleteFramebuffer(this.fboA)
-    if (this.fboATex) gl.deleteTexture(this.fboATex)
-    if (this.fboB) gl.deleteFramebuffer(this.fboB)
-    if (this.fboBTex) gl.deleteTexture(this.fboBTex)
-    this.fboA = this.fboB = null
-    this.fboATex = this.fboBTex = null
-    if (this.tabsBackdropFbo) gl.deleteFramebuffer(this.tabsBackdropFbo)
-    if (this.tabsBackdropTex) gl.deleteTexture(this.tabsBackdropTex)
-    this.tabsBackdropFbo = null
-    this.tabsBackdropTex = null
-    // GP element FBO + blur FBOs + programs
-    if (this.gpElementFbo) gl.deleteFramebuffer(this.gpElementFbo)
-    if (this.gpElementTex) gl.deleteTexture(this.gpElementTex)
-    if (this.blurFboA) gl.deleteFramebuffer(this.blurFboA)
-    if (this.blurFboATex) gl.deleteTexture(this.blurFboATex)
-    if (this.blurFboB) gl.deleteFramebuffer(this.blurFboB)
-    if (this.blurFboBTex) gl.deleteTexture(this.blurFboBTex)
-    if (this.dsBlurFboA) gl.deleteFramebuffer(this.dsBlurFboA)
-    if (this.dsBlurFboATex) gl.deleteTexture(this.dsBlurFboATex)
-    if (this.dsBlurFboB) gl.deleteFramebuffer(this.dsBlurFboB)
-    if (this.dsBlurFboBTex) gl.deleteTexture(this.dsBlurFboBTex)
-    // Free the level pool (each level's FBOs are independent of the alias
-    // above — the alias points at the max level, which resizeFBOs already
-    // freed from the pool, but GL.deleteX of already-deleted handles is a
-    // safe no-op).
-    for (const lvl of this.dsBlurLevels) {
-      gl.deleteFramebuffer(lvl.fboA)
-      gl.deleteTexture(lvl.texA)
-      gl.deleteFramebuffer(lvl.fboB)
-      gl.deleteTexture(lvl.texB)
-    }
-    this.dsBlurLevels = []
-    this.gpElementFbo = this.blurFboA = this.blurFboB = this.dsBlurFboA = this.dsBlurFboB = null
-    this.gpElementTex = this.blurFboATex = this.blurFboBTex = this.dsBlurFboATex = this.dsBlurFboBTex = null
-    if (this.highlightMaskFbo) gl.deleteFramebuffer(this.highlightMaskFbo)
-    if (this.highlightMaskTex) gl.deleteTexture(this.highlightMaskTex)
-    this.highlightMaskFbo = null
-    this.highlightMaskTex = null
-    if (this.dialogBackdropFbo) gl.deleteFramebuffer(this.dialogBackdropFbo)
-    if (this.dialogBackdropTex) gl.deleteTexture(this.dialogBackdropTex)
-    this.dialogBackdropFbo = null
-    this.dialogBackdropTex = null
-    this.dialogBackdropKey = null
-    if (this.bgOnlyFbo) gl.deleteFramebuffer(this.bgOnlyFbo)
-    if (this.bgOnlyTex) gl.deleteTexture(this.bgOnlyTex)
-    this.bgOnlyFbo = null
-    this.bgOnlyTex = null
-    // Per-element FBOs (elFbo + backdrop crop + el blur ping-pong)
-    if (this.elFbo) gl.deleteFramebuffer(this.elFbo)
-    if (this.elFboTex) gl.deleteTexture(this.elFboTex)
-    this.elFbo = null
-    this.elFboTex = null
-    this.elFboW = this.elFboH = 0
-    if (this.backdropCropFbo) gl.deleteFramebuffer(this.backdropCropFbo)
-    if (this.backdropCropTex) gl.deleteTexture(this.backdropCropTex)
-    this.backdropCropFbo = null
-    this.backdropCropTex = null
-    if (this.elBlurFboA) gl.deleteFramebuffer(this.elBlurFboA)
-    if (this.elBlurFboATex) gl.deleteTexture(this.elBlurFboATex)
-    if (this.elBlurFboB) gl.deleteFramebuffer(this.elBlurFboB)
-    if (this.elBlurFboBTex) gl.deleteTexture(this.elBlurFboBTex)
-    this.elBlurFboA = this.elBlurFboB = null
-    this.elBlurFboATex = this.elBlurFboBTex = null
-    // Per-element cached elFbo (independent backdrop cache)
-    for (const e of this.elFboCache.values()) {
-      gl.deleteFramebuffer(e.fb)
-      gl.deleteTexture(e.tex)
-    }
-    this.elFboCache.clear()
-    for (const { hProg, vProg } of this.blurPrograms.values()) {
-      gl.deleteProgram(hProg)
-      gl.deleteProgram(vProg)
-    }
-    this.blurPrograms.clear()
-    for (const { hProg, vProg } of this.highlightBlurPrograms.values()) {
-      gl.deleteProgram(hProg)
-      gl.deleteProgram(vProg)
-    }
-    this.highlightBlurPrograms.clear()
-    if (this.sdfTexture) gl.deleteTexture(this.sdfTexture)
-    this.sdfTexture = null
-    for (const { tex } of this.continuousSdfPool.values()) gl.deleteTexture(tex)
-    this.continuousSdfPool.clear()
-    this.continuousSdfTexture = null
-    this.continuousSdfKey = null
-    this._debugUploadedSdfTexMap.clear()
-    gl.deleteProgram(this.elementProgram)
-    gl.deleteProgram(this.shadowProgram)
-    gl.deleteProgram(this.wallpaperProgram)
-    gl.deleteProgram(this.foregroundProgram)
-    gl.deleteProgram(this.highlightProgram)
-    gl.deleteProgram(this.tintProgram)
-    gl.deleteProgram(this.rimHighlightProgram)
-    gl.deleteProgram(this.highlightStrokeProgram)
-    gl.deleteProgram(this.highlightCompositeProgram)
-    gl.deleteProgram(this.strokeMaskCompositeProgram)
-    gl.deleteProgram(this.innerShadowMaskCompositeProgram)
-    gl.deleteProgram(this.plainRectProgram)
-    gl.deleteProgram(this.progressiveBlurProgram)
-    gl.deleteProgram(this.copyProgram)
-    gl.deleteProgram(this.solidFillProgram)
-    gl.deleteProgram(this.colorControlsProgram)
-    gl.deleteProgram(this.sceneTintProgram)
-    gl.deleteProgram(this.elFboCompositeProgram)
-    gl.deleteProgram(this.elFboCropProgram)
-    gl.deleteBuffer(this.quadBuffer)
-  }
+  // cacheUniforms, ensureBlurPrograms, pickDsBlurLevel, blurTexture,
+  // ensureHighlightBlurPrograms, blurHighlightMask, and dispose are
+  // defined in methods-uniforms.ts / methods-blur.ts / methods-dispose.ts
+  // and merged onto the prototype via Object.assign below.
 }
 
 // Install method bundles. Each methods-*.ts module exports a record of
@@ -1534,11 +1015,19 @@ import { elementMethods } from './methods-elements'
 import { animationMethods } from './methods-animation'
 import { rasterMethods } from './methods-raster'
 import { renderMethods } from './methods-render'
+import { backgroundMethods } from './methods-render-background'
+import { nonGlassMethods } from './methods-render-nonglass'
+import { nonGlassPlainRectMethods } from './methods-render-nonglass-plain-rect'
+import { nonGlassTextMethods } from './methods-render-nonglass-text'
+import { nonGlassProgressiveBlurMethods } from './methods-render-nonglass-progressive-blur'
 import { glassRenderMethods } from './methods-render-glass'
 import { glassElementPassMethods } from './methods-render-glass-element-pass'
 import { glassPostPassMethods } from './methods-render-glass-post-passes'
 import { dirtyTrackingMethods } from './methods-dirty'
 import { debugMethods } from './methods-debug'
+import { uniformMethods } from './methods-uniforms'
+import { blurMethods } from './methods-blur'
+import { disposeMethods } from './methods-dispose'
 
 Object.assign(
   LiquidGlassRenderer.prototype,
@@ -1551,11 +1040,19 @@ Object.assign(
   animationMethods,
   rasterMethods,
   renderMethods,
+  backgroundMethods,
+  nonGlassMethods,
+  nonGlassPlainRectMethods,
+  nonGlassTextMethods,
+  nonGlassProgressiveBlurMethods,
   glassRenderMethods,
   glassElementPassMethods,
   glassPostPassMethods,
   dirtyTrackingMethods,
-  debugMethods
+  debugMethods,
+  uniformMethods,
+  blurMethods,
+  disposeMethods
 )
 
 // Re-export all public types so callers can `import type { GlassElementConfig, ... } from './renderer'`.
