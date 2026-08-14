@@ -1748,3 +1748,109 @@ Stage Summary:
 - build-adaptive-luminance.ts：algSquare 加 G2（160dp square, r=24）。
 - build-magnifier.ts：magGlass + mag-card + mag-cursor 全部加 G2。
 - VLM 验证三个页面形状全部平滑无变形，lint 通过，dev.log 干净。
+
+---
+Task ID: 65
+Agent: main (Z.ai Code)
+Task: 修复胶囊（capsule）玻璃元素的细黑边问题 — 渲染裁切时与黑色背景混合
+
+Work Log:
+- 用户要求：解决渲染裁切时和黑色背景混合的问题，并问一共有几种 blend mode。
+
+- 回答用户的问题（blend mode 种类）：
+  代码库中共有 5 种 distinct blend mode：
+  1. blendFunc(SRC_ALPHA, ONE_MINUS_SRC_ALPHA) — 非预乘 SrcOver（最常见）
+  2. blendFunc(ONE, ONE_MINUS_SRC_ALPHA) — 预乘 SrcOver（post-passes/inner-shadow/rim-highlight）
+  3. blendFunc(SRC_ALPHA, ONE) — 带源 alpha 的加法（glow）
+  4. blendFunc(ONE, ONE) — 纯加法（glow inner）
+  5. blendFuncSeparate(SRC_ALPHA, ONE_MINUS_SRC_ALPHA, ONE, ONE_MINUS_SRC_ALPHA) —
+     非预乘 SrcOver + 正确 alpha 通道（elFboComposite/plainRect）
+
+- 根因分析（之前的 blendFuncSeparate fix 为何"没消失"）：
+  * PEF 路径中 renderGlassElementPass 运行时 BLEND IS DISABLED
+    (methods-render-glass-pef.ts line 163: gl.disable(gl.BLEND))。
+    所以 element-pass.ts line 65 的 blendFuncSeparate 是 NO-OP — 这就是
+    用户说"没消失"的原因：之前的 fix 根本没生效。
+  * 真正的合成发生在 drawElFboComposite (methods-fbo.ts line 398-422)：
+    elFbo 纹理 → 场景 FBO。这里 BLEND 是 enabled 的。
+  * 真正的根因：elFbo 纹理用 LINEAR 过滤（methods-fbo.ts line 59-60），
+    而 element shader 输出的是**非预乘** vec4(color, alpha*edgeAlpha)。
+  * 在玻璃边缘，双线性插值在 (color, 0.5) [边缘 texel] 和 (0,0,0,0)
+    [外部 discard 的 texel] 之间：lerp = ((1-t)*color, (1-t)*0.5) —
+    **RGB 被 (1-t) 压暗了**。
+  * 然后合成 blend (SRC_ALPHA, ONE_MINUS_SRC_ALPHA) 再把 RGB 乘以 alpha：
+    out.rgb = (1-t)*color * (1-t)*0.5 + dst*(1-(1-t)*0.5)
+            = (1-t)² * color * 0.5 + ...
+    **平方压暗** → 黑色 fringe。
+  * 这就是经典的"非预乘 alpha + 双线性过滤"artifact。
+
+- 修复方案：把 elFbo 改成**预乘 alpha 存储**，合成用预乘 SrcOver。
+  预乘 alpha 是唯一能在双线性插值时正确处理 alpha 边界的表示：
+  lerp((color*a, a), (0,0,0,0), t) = ((1-t)*color*a, (1-t)*a)
+  合成 (ONE, ONE_MINUS_SRC_ALPHA): out.rgb = (1-t)*color*a + dst*(1-(1-t)*a)
+  对 a=1: out.rgb = (1-t)*color + t*dst. 正确！
+
+- 修复 1 — shaders/element.ts（两条输出路径都改预乘）：
+  * 主路径 (line ~359): vec4(color, alpha*edgeAlpha*uEnterAlpha) →
+    float coverage = alpha * edgeAlpha * uEnterAlpha;
+    gl_FragColor = vec4(color * coverage, coverage);
+  * SDF texture 路径 (line ~159): vec4(color, sdfMask*uEnterAlpha) →
+    float sdfCoverage = sdfMask * uEnterAlpha;
+    gl_FragColor = vec4(color * uEnterAlpha, sdfCoverage);
+    (color 已经包含 *sdfMask，只需再乘 uEnterAlpha 保持 RGB/A 一致)
+  * 加了详细注释解释预乘的必要性和双线性过滤 artifact 的数学。
+
+- 修复 2 — methods-fbo.ts drawElFboComposite (line 420)：
+  blendFuncSeparate(SRC_ALPHA, ONE_MINUS_SRC_ALPHA, ONE, ONE_MINUS_SRC_ALPHA)
+  → blendFuncSeparate(ONE, ONE_MINUS_SRC_ALPHA, ONE, ONE_MINUS_SRC_ALPHA)
+  (预乘 SrcOver: RGB 用 ONE 而非 SRC_ALPHA，alpha 通道不变)
+  * 注释说明：elFbo 现在存预乘 RGB，LINEAR 过滤才正确；旧的 SRC_ALPHA
+    会让 RGB 被平方压暗 → 黑 fringe。
+
+- 修复 3 — methods-render-glass-element-pass.ts (line 59)：
+  blendFuncSeparate(SRC_ALPHA, ...) → blendFuncSeparate(ONE, ...)
+  * 这个 blend 只在 ping-pong 路径生效（PEF 路径 BLEND disabled，no-op）。
+  * ping-pong 路径 element pass 直接画进场景 FBO，shader 现在输出预乘，
+    所以 blend 也必须是预乘 SrcOver。
+  * 重写了注释（之前的注释解释 alpha-channel squaring hypothesis 已过时）。
+
+- 一致性验证：
+  * renderTex (elFbo 纹理) 只被 drawElFboComposite 读取（grep 确认），
+    改预乘不影响其他消费者。
+  * resolveBackdropTex 不会画进 renderFbo（只 bind 给后续 element pass）。
+  * post-passes (rim-highlight/inner-shadow/glow) 画在 curFbo 上（场景
+    FBO），不是 renderFbo；它们看到的是 drawElFboComposite 合成后的
+    结果（正确的非预乘场景像素），不受影响。
+  * shadow pass 有自己的 shader + blend (SRC_ALPHA, ONE_MINUS_SRC_ALPHA)，
+    输出非预乘，不受 element shader 改预乘的影响。
+
+- 遇到的小问题：注释里用了反引号 `color`，在 template literal 里终止了
+  shader 字符串 → 解析错误 500。改成单引号 'color' 后修复。
+
+- Agent Browser 验证（7 个页面截图 + VLM 分析）：
+  * BottomTabs (capsule): VLM 确认 "NO thin dark or black border/fringe
+    around any of the capsule edges. Clean and bright outlines." ✓
+  * Toggle: "No dark border or fringe" ✓
+  * Slider: "No dark border or fringe" ✓
+  * Settings: "No dark border or fringe" ✓
+  * Magnifier: 只有预期的 drop shadow，无 artifact ✓
+  * Dialog: 只有预期的 drop shadow，无 artifact ✓
+  * AdaptiveLuminanceGlass: edges crisp, no dark fringe ✓
+  * VLM 特别区分了 shadow（预期、柔和、偏移）vs artifact（锐利、贴边、
+    1-2px 黑线）— 三个"看起来暗"的元素都只是 shadow，不是 artifact。
+
+- bun run lint: 通过（0 errors）。
+- dev.log: 干净，所有页面 200，无 runtime error。
+
+Stage Summary:
+- 根因：elFbo 用 LINEAR 过滤但存的是非预乘 alpha。双线性插值在边缘
+  texel (color, 0.5) 和外部 (0,0,0,0) 之间压暗 RGB，合成 blend 再平方
+  压暗 → 黑 fringe。之前的 blendFuncSeparate fix 是 no-op（PEF 路径
+  BLEND disabled）。
+- 修复：element shader 两条输出路径都改预乘 vec4(color*coverage, coverage)；
+  drawElFboComposite + element-pass 的 blend 改预乘 SrcOver
+  (ONE, ONE_MINUS_SRC_ALPHA)。预乘是唯一能在双线性插值时正确处理
+  alpha 边界的表示。
+- 代码库共 5 种 blend mode（已在上面列出）。
+- VLM 验证 7 个页面全部无黑边 artifact（Magnifier/Dialog/ALG 的"暗"
+  只是预期 drop shadow）。

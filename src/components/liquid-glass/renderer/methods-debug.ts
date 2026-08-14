@@ -16,6 +16,7 @@
 
 import type { GlassElementConfig } from './types'
 import type { LiquidGlassRenderer } from './index'
+import { getMaskCacheEntries } from './continuous-mask'
 
 /** Result of a single-pixel readback along the capsule edge. */
 export interface EdgeScanPixel {
@@ -71,6 +72,19 @@ export interface EdgeScanResult {
   /** Diagonal RGBA profile (top-right=outside → bottom-left=inside, through the arc edge).
    *  Length = patchDevSize. offset > 0 = outside, < 0 = inside, 0 = on the arc edge. */
   pixels: EdgeScanPixel[]
+  /** SDF texture R (coverage) + G (SDF) values sampled along the SAME diagonal
+   *  as `pixels`, using the element-pass shader's UV mapping (sampleClipMask).
+   *  Null if no SDF texture is cached for this element's (w,h,radius,texSize).
+   *
+   *  This lets you compare the SHAPE SOURCE (coverage/SDF) against the RENDERED
+   *  OUTPUT (RGB) at the same screen positions:
+   *    - If R (coverage) dips to 0 at the edge but RGB is fine → clip issue.
+   *    - If R is clean/smooth but RGB dips → refraction/blend/composite issue.
+   *    - If G (SDF) is noisy at the corner → chamfer DT error → refraction dir wrong.
+   *    - If R/G are offset from the analytic arc → UV mismatch (elementSize/texSize). */
+  sdfProfile: { r: number; g: number; offset: number }[] | null
+  /** The SDF texture size used for this element (128/256/512/1024), for display. */
+  sdfTexSize: number
   /** Analysis verdict — see analyzeEdgeScan(). */
   analysis: EdgeAnalysis
 }
@@ -320,6 +334,8 @@ export const debugMethods = {
         halfRange: pending.halfRangeCss,
         patch: new Uint8Array(0),
         pixels: [],
+        sdfProfile: null,
+        sdfTexSize: 0,
         analysis: {
           edgeIdx: 0, edgeOffsetCss: 0, transitionHalfW: 0,
           rgbInside: 0, rgbOutside: 0, minRgbInTransition: 0,
@@ -411,6 +427,93 @@ export const debugMethods = {
     }
 
     this._edgeScanCounter++
+
+    // --- SDF texture R/G profile along the same diagonal ---
+    // Sample the CPU-side maskCache (the clean source of truth for the shape)
+    // at each diagonal pixel's SDF-texture UV, using the SAME mapping the
+    // element-pass shader uses (sampleClipMask in sdf.ts):
+    //   elementSize = rect.w*dpr × rect.h*dpr  (matches loadContinuousSdf)
+    //   scale = (texSize - 2*margin) / max(elementSize.x, elementSize.y)
+    //   tex = texSize/2 + centeredOrig * scale
+    //   uv  = tex / texSize
+    //
+    // NOTE: the GPU texture is uploaded with UNPACK_FLIP_Y=true, so the
+    // shader's uv.y is flipped vs the Canvas2D top-down data. For SYMMETRIC
+    // shapes (capsule, uniform-radius rounded rect) the flip is a no-op —
+    // coverage at row k equals coverage at row (texSize-1-k). So this CPU
+    // profile matches what the shader samples for capsule elements.
+    //
+    // Find the matching maskCache entry by (w,h,radius). texSize is dynamic
+    // but keyed into the cache key, so we search all entries and pick the
+    // one whose w/h/radius match (there should be exactly one per element
+    // size; if multiple texSizes exist, take the first = most recent gen).
+    let sdfProfile: { r: number; g: number; offset: number }[] | null = null
+    let sdfTexSize = 0
+    const maskEntries = getMaskCacheEntries()
+    const elW = rect.w
+    const elH = rect.h
+    const elR = Math.round(r)
+    const matchedEntry = maskEntries.find(e => {
+      const parts = e.key.split(',')
+      return Math.round(parseFloat(parts[0])) === Math.round(elW) &&
+             Math.round(parseFloat(parts[1])) === Math.round(elH) &&
+             Math.round(parseFloat(parts[2])) === elR
+    })
+    if (matchedEntry) {
+      sdfTexSize = matchedEntry.texSize
+      const texData = matchedEntry.tex
+      const ts = matchedEntry.texSize
+      const elementSizeX = elW * dpr
+      const elementSizeY = elH * dpr
+      const maxDim = Math.max(elementSizeX, elementSizeY)
+      const margin = 4
+      const scale = (ts - 2 * margin) / maxDim
+      const elementCenterX = rect.x + rect.w / 2
+      const elementCenterY = rect.y + rect.h / 2
+      sdfProfile = []
+      for (let i = 0; i < diagN; i++) {
+        const col = clampedW - 1 - i
+        const row = i
+        // Diagonal pixel's canvas CSS coord (top-left origin, Y-down).
+        const patchCanvasX = patchCssX + col / dpr
+        const patchCanvasY = patchCssY + row / dpr
+        // Element-centered original-space device coord (Y-down).
+        // Assumes layerScale=1 (static scan) — matches loadContinuousSdf's
+        // use of rect.w/h. If the element is mid-press (layerScale≠1), this
+        // profile shows the texture's coverage at the SCALED position, which
+        // still reveals whether the texture itself is clean.
+        const centeredOrigX = (patchCanvasX - elementCenterX) * dpr
+        const centeredOrigY = (patchCanvasY - elementCenterY) * dpr
+        // sampleClipMask UV mapping.
+        const texX = ts / 2 + centeredOrigX * scale
+        const texY = ts / 2 + centeredOrigY * scale
+        const u = texX / ts
+        const v = texY / ts
+        // Sample with bilinear filtering (LINEAR is set on the GPU texture).
+        // CPU maskCache is nearest — approximate LINEAR by averaging the 4
+        // nearest texels. This matches what the shader's LINEAR filter returns.
+        const fx = texX
+        const fy = texY
+        const ix = Math.floor(fx)
+        const iy = Math.floor(fy)
+        const fracX = fx - ix
+        const fracY = fy - iy
+        const clamp = (v: number) => Math.max(0, Math.min(ts - 1, v))
+        const i00 = (clamp(iy) * ts + clamp(ix)) * 4
+        const i10 = (clamp(iy) * ts + clamp(ix + 1)) * 4
+        const i01 = (clamp(iy + 1) * ts + clamp(ix)) * 4
+        const i11 = (clamp(iy + 1) * ts + clamp(ix + 1)) * 4
+        const w00 = (1 - fracX) * (1 - fracY)
+        const w10 = fracX * (1 - fracY)
+        const w01 = (1 - fracX) * fracY
+        const w11 = fracX * fracY
+        const rVal = texData[i00] * w00 + texData[i10] * w10 + texData[i01] * w01 + texData[i11] * w11
+        const gVal = texData[i00 + 1] * w00 + texData[i10 + 1] * w10 + texData[i01 + 1] * w01 + texData[i11 + 1] * w11
+        const offset = (diagN / 2 - i) / dpr
+        sdfProfile.push({ r: rVal, g: gVal, offset })
+      }
+    }
+
     const base: Omit<EdgeScanResult, 'analysis'> = {
       scanId: this._edgeScanCounter,
       elementId: el.id,
@@ -427,6 +530,8 @@ export const debugMethods = {
       halfRange: halfRangeCss,
       patch,
       pixels,
+      sdfProfile,
+      sdfTexSize,
     }
 
     this._edgeScanResult = { ...base, analysis: analyzeEdgeScan(base) }

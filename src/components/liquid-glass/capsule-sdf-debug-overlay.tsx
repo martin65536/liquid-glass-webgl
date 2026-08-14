@@ -596,7 +596,7 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
  * ------------------------------------------------------------------ */
 function EdgeScanView({ scan }: { scan: EdgeScanResult }) {
   const patchRef = React.useRef<HTMLCanvasElement>(null)
-  const { pixels, analysis, dpr, rect, halfRange, patch, patchDevSize, cornerCenter, cornerPoint45 } = scan
+  const { pixels, analysis, dpr, rect, halfRange, patch, patchDevSize, cornerCenter, cornerPoint45, sdfProfile, sdfTexSize } = scan
 
   // Render the 2D patch image + analytic arc overlay.
   React.useEffect(() => {
@@ -755,6 +755,65 @@ function EdgeScanView({ scan }: { scan: EdgeScanResult }) {
           <span><span style={{ color: '#55f' }}>━</span> B</span>
         </div>
       </div>
+
+      {/* SDF texture R/G profile — the SHAPE SOURCE at the same diagonal.
+          Compare this against the rendered RGB plot above to pinpoint the
+          black-edge root cause:
+            • R (coverage, cyan) should transition smoothly 255→0 across the
+              arc edge. If R dips or has a gap BEFORE the arc → texture issue.
+            • G (SDF, magenta) should cross 128 (=edge) at offset 0. If G is
+              noisy or offset → chamfer DT error → refraction direction wrong.
+            • If R is clean but RGB dips → the dark edge comes from REFRACTION
+              or BLEND, not the SDF texture. Look at refraction amount / blur
+              taps / shadow sampling.
+            • If R dips at the same place as RGB → coverage gap is the cause
+              (SDF texture edge AA is broken or UV-misaligned). */}
+      {sdfProfile && sdfProfile.length > 0 && (
+        <div style={{ marginBottom: 4 }}>
+          <div style={{ color: '#888', marginBottom: 2 }}>
+            SDF texture R/G ({sdfTexSize}²) — same diagonal:
+          </div>
+          <svg width={plotW} height={plotH} style={{ display: 'block', border: '1px solid #333', background: '#0a0a0a' }}>
+            {/* Arc edge vertical line (offset=0) */}
+            <line x1={xToPx(0)} y1={padT} x2={xToPx(0)} y2={padT + innerH}
+              stroke="#ff0" strokeWidth={0.5} strokeDasharray="2 2" />
+            {/* Detected edge (from RGB analysis) — cyan tick */}
+            <line x1={xToPx(edgePxOffset)} y1={padT} x2={xToPx(edgePxOffset)} y2={padT + innerH}
+              stroke="#0ff" strokeWidth={0.5} />
+            {/* Grid lines at 0, 128, 255 */}
+            {[0, 128, 255].map(v => (
+              <g key={v}>
+                <line x1={padL} y1={yToPx(v)} x2={plotW - padR} y2={yToPx(v)}
+                  stroke="rgba(255,255,255,0.1)" strokeWidth={0.5} />
+                <text x={2} y={yToPx(v) + 3} fill="#666" fontSize={8}>{v}</text>
+              </g>
+            ))}
+            {/* R (coverage) — cyan */}
+            <path d={
+              sdfProfile.map((p, i) =>
+                (i === 0 ? 'M' : 'L') + xToPx(p.offset).toFixed(1) + ' ' + yToPx(p.r).toFixed(1)
+              ).join('')
+            } fill="none" stroke="#0ff" strokeWidth={1.5} />
+            {/* G (SDF) — magenta */}
+            <path d={
+              sdfProfile.map((p, i) =>
+                (i === 0 ? 'M' : 'L') + xToPx(p.offset).toFixed(1) + ' ' + yToPx(p.g).toFixed(1)
+              ).join('')
+            } fill="none" stroke="#f0f" strokeWidth={1.5} />
+            {/* X-axis labels */}
+            <text x={xToPx(xMin)} y={plotH - 2} fill="#666" fontSize={8}>{xMin.toFixed(0)}</text>
+            <text x={xToPx(0) - 10} y={plotH - 2} fill="#ff0" fontSize={8}>arc</text>
+            <text x={xToPx(xMax) - 14} y={plotH - 2} fill="#666" fontSize={8}>+{xMax.toFixed(0)}</text>
+          </svg>
+          <div style={{ display: 'flex', gap: 8, color: '#888', fontSize: 9, marginTop: 2 }}>
+            <span><span style={{ color: '#0ff' }}>━</span> R (coverage)</span>
+            <span><span style={{ color: '#f0f' }}>━</span> G (SDF, 128=edge)</span>
+          </div>
+          <div style={{ color: '#888', fontSize: 9, marginTop: 2 }}>
+            R clean & RGB dips → refraction/blend issue. R dips with RGB → coverage gap (texture/UV).
+          </div>
+        </div>
+      )}
 
       {/* Analysis */}
       <div style={{

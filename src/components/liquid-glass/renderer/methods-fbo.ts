@@ -417,7 +417,16 @@ export const fboMethods = {
     gl.uniform1f(this.uEf['uRotation'], rotation)
     gl.uniform2f(this.uEf['uSrcSize'], srcW, srcH)
     gl.enable(gl.BLEND)
-    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
+    // Premultiplied SrcOver (ONE, ONE_MINUS_SRC_ALPHA) — REQUIRED because the
+    // element shader outputs premultiplied RGB (color * coverage, coverage)
+    // into the elFbo. The elFbo texture uses LINEAR filtering, and premult
+    // is the only representation whose bilinear interpolation is correct at
+    // the coverage boundary. With the old non-premult blend (SRC_ALPHA, ...),
+    // linear filtering darkened RGB at the edge and the blend squared the
+    // darkening → dark fringe (the "capsule thin black border").
+    // Alpha channel uses (ONE, ONE_MINUS_SRC_ALPHA) so the scene FBO stays
+    // fully opaque everywhere a glass element is drawn.
+    gl.blendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
     gl.drawArrays(gl.TRIANGLES, 0, 6)
   },
 }

@@ -147,7 +147,16 @@ void main() {
         float bevel2 = clamp(dot(normal, -lightDir), 0.0, 1.0);
         color.rgb *= 1.0 + 0.5 * bevel2 * min(1.0, smoothstep(1.0, 0.0, abs(intensity - 0.25) * 6.0));
 
-        gl_FragColor = vec4(color, sdfMask * uEnterAlpha);
+        // PREMULTIPLIED output: RGB = color * coverage, A = coverage.
+        // 'color' already includes '* sdfMask' (line above), so we only need
+        // to also factor in uEnterAlpha to keep RGB and A consistent.
+        // Premultiplied storage is REQUIRED for the elFbo: its texture uses
+        // LINEAR filtering, and bilinear interpolation of non-premultiplied
+        // alpha darkens RGB at the coverage boundary (the classic
+        // "non-premult + bilinear" artifact that produces a dark fringe).
+        // The composite pass then uses premult SrcOver (ONE, ONE_MINUS_SRC_ALPHA).
+        float sdfCoverage = sdfMask * uEnterAlpha;
+        gl_FragColor = vec4(color * uEnterAlpha, sdfCoverage);
         return;
     }
 
@@ -336,7 +345,19 @@ void main() {
 
     // --- 7. Edge anti-aliasing -----------------------------------
     // edgeAlpha was computed earlier (mask mode: direct coverage, analytic: smoothstep).
-    gl_FragColor = vec4(color, alpha * edgeAlpha * uEnterAlpha);
+    //
+    // PREMULTIPLIED output: RGB = color * coverage, A = coverage.
+    // The elFbo texture uses LINEAR filtering; storing non-premultiplied
+    // (color, coverage) causes bilinear interpolation between an edge texel
+    // (color, 0.5) and the cleared-outside texel (0,0,0,0) to produce
+    // ((1-t)*color, (1-t)*0.5) — RGB darkened by (1-t). The composite's
+    // SrcOver blend then multiplies RGB by alpha AGAIN, squaring the
+    // darkening → dark fringe at the glass edge.
+    // Premultiplying here makes the linear filter mathematically correct:
+    // lerp((color*a, a), (0,0,0,0), t) = ((1-t)*color*a, (1-t)*a), which
+    // composites correctly with premult SrcOver (ONE, ONE_MINUS_SRC_ALPHA).
+    float coverage = alpha * edgeAlpha * uEnterAlpha;
+    gl_FragColor = vec4(color * coverage, coverage);
 }
 `
 }

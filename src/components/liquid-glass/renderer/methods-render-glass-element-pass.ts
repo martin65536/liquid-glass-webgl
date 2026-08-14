@@ -38,7 +38,25 @@ export const glassElementPassMethods = {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
     gl.enableVertexAttribArray(this.aPosLocEl)
     gl.vertexAttribPointer(this.aPosLocEl, 2, gl.FLOAT, false, 0, 0)
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+    // Premultiplied SrcOver (ONE, ONE_MINUS_SRC_ALPHA) on RGB, with the
+    // alpha channel using (ONE, ONE_MINUS_SRC_ALPHA) too so the scene FBO
+    // stays fully opaque everywhere a glass element is drawn.
+    //
+    // The element shader outputs PREMULTIPLIED vec4(color*coverage, coverage)
+    // so that the elFbo (which uses LINEAR texture filtering) interpolates
+    // correctly at the glass coverage boundary. Premultiplied alpha is the
+    // only representation whose bilinear interpolation does not darken RGB
+    // at the alpha boundary — non-premultiplied storage causes the classic
+    // "dark fringe" artifact (linear filter darkens RGB by (1-t), then the
+    // SrcOver blend multiplies by alpha again → squared darkening).
+    //
+    // This blend setting is only effective in the PING-PONG path (where the
+    // element pass renders directly into the scene FBO with BLEND enabled).
+    // In the PEF path BLEND is disabled (renderFbo is cleared to 0,0,0,0 and
+    // the shader's premultiplied output is stored raw), so this blendFunc is
+    // a no-op — the actual composite happens in drawElFboComposite which
+    // uses the same premultiplied SrcOver blend.
+    gl.blendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
 
     gl.activeTexture(gl.TEXTURE0)
     // uBackdrop: the backdrop texture the glass samples (refraction + blur).
