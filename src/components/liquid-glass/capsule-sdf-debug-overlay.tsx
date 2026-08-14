@@ -90,6 +90,38 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
   const lastConsumedScanId = React.useRef(0)
   const [pos, setPos] = React.useState({ x: -1, y: 120 })
 
+  // Track the CURRENT visible viewport height (excludes the mobile dynamic
+  // navigation bar — URL bar / bottom toolbar — which shrinks/grows as the
+  // user scrolls). CSS `100vh` is locked to the LARGEST possible viewport
+  // (it does NOT shrink when the navbar appears), so an overlay sized to
+  // `calc(100vh - y)` overflows behind the dynamic navbar and becomes
+  // unreachable on mobile. `dvh` would fix this but has poor browser
+  // compatibility (user rejected it), so we track `window.innerHeight`
+  // ourselves and re-render on resize. We listen to BOTH `window.resize`
+  // (fires on orientation change + most navbar show/hide) and
+  // `visualViewport.resize` (fires on iOS Safari dynamic-navbar transitions
+  // where innerHeight updates slightly later) so the overlay snaps to the
+  // new height without a visible lag.
+  const [vh, setVh] = React.useState(() =>
+    typeof window !== 'undefined' ? window.innerHeight : 800)
+  React.useEffect(() => {
+    const update = () => setVh(window.innerHeight)
+    update()
+    window.addEventListener('resize', update, { passive: true })
+    const vv = typeof visualViewport !== 'undefined' ? visualViewport : null
+    if (vv) {
+      vv.addEventListener('resize', update)
+      vv.addEventListener('scroll', update)
+    }
+    return () => {
+      window.removeEventListener('resize', update)
+      if (vv) {
+        vv.removeEventListener('resize', update)
+        vv.removeEventListener('scroll', update)
+      }
+    }
+  }, [])
+
   // Read the renderer's actual probe flags on mount (they may have been
   // toggled by a previous overlay instance). The flags are independent —
   // both R and G can be ON at the same time.
@@ -113,16 +145,25 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
       r.debugSdfHoleTopLeftG = next
       setHoleG(next)
     }
-    // The GPU texture pool key includes both flags, so toggling creates a
-    // fresh pool entry next frame — the CPU maskCache is never touched.
-    // markAllDirty forces every capsule element's elFbo to re-raster so
-    // the new (挖0'd or clean) SDF texture is sampled immediately.
-    // Clear the probed-upload snapshot map so the "GPU upload (probed)"
-    // view shows ONLY entries from the new probe state — otherwise the
-    // previous state's snapshots (keyed r1,g0 vs r0,g1) would linger and
-    // double the thumbnail count on each toggle. They regenerate on the
-    // next render's pool MISSes (markAllDirty forces a full re-raster).
-    r._debugUploadedSdfTexMap.clear()
+    // Clear the ENTIRE GPU capsule SDF pool (not just the snapshot map).
+    // The pool key includes both probe flags (r${holeR},g${holeG}), so each
+    // probe combination gets its own texture. Without clearing, a previously-
+    // visited probe state's texture stays in the pool — on re-entry it's a
+    // pool HIT, so loadContinuousSdf skips texImage2D entirely, and the
+    // _debugUploadedSdfTexMap snapshot is never re-written (snapshots only
+    // fill on pool MISS). Result: the "GPU upload (probed)" view showed
+    // NOTHING for any probe state visited more than once — notably R+G
+    // after both had been toggled individually first.
+    //
+    // Clearing the pool forces every element to MISS on the next render →
+    // re-upload → re-snapshot. clearCapsuleSdfPool also clears the snapshot
+    // map (so we don't need a separate _debugUploadedSdfTexMap.clear()).
+    // The CPU maskCache is NOT touched (clearCapsuleSdfPool only clears the
+    // GPU side) — the clean shape stays cached, so re-generation skips the
+    // Canvas2D raster + distance transform and only pays the texImage2D +
+    // 挖0 cost (~1ms per element). markAllDirty forces every capsule
+    // element's elFbo to re-raster so the new texture is sampled immediately.
+    r.clearCapsuleSdfPool()
     r.markAllDirty()
     r.requestRender()
   }
@@ -242,7 +283,7 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
     const newX = dragRef.current.px === -1
       ? window.innerWidth - 360 + dx  // approximate; will snap on release
       : dragRef.current.px + dx
-    const newY = Math.max(0, Math.min(window.innerHeight - 40, dragRef.current.py + dy))
+    const newY = Math.max(0, Math.min(vh - 40, dragRef.current.py + dy))
     setPos({ x: Math.max(0, newX), y: newY })
   }
   const onPointerUp = () => { dragRef.current = null }
@@ -304,8 +345,12 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
         // Cap height to viewport so the overlay never overflows the screen.
         // The header + summary stay pinned; everything below scrolls.
         // Floor at 220px so the overlay stays usable when dragged near the
-        // bottom of the viewport (pos.y can be up to innerHeight-40).
-        maxHeight: `max(220px, calc(100vh - ${pos.y + 8}px))`,
+        // bottom of the viewport (pos.y can be up to vh-40). Uses the JS-
+        // tracked `vh` (window.innerHeight) instead of CSS `100vh` because
+        // `100vh` on mobile is locked to the LARGEST possible viewport and
+        // does NOT shrink when the dynamic navigation bar appears — an
+        // overlay sized to `100vh - y` would overflow behind the navbar.
+        maxHeight: Math.max(220, vh - pos.y - 8),
         display: 'flex', flexDirection: 'column',
         background: 'rgba(0,0,0,0.92)', color: '#0f0',
         font: '11px monospace', borderRadius: 8, zIndex: 60,
