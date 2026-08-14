@@ -728,7 +728,7 @@ function DebugToggles({ rendererRef, capsuleDebug, onToggleCapsuleDebug }: { ren
       </button>
       <button
         onClick={() => onToggleCapsuleDebug?.()}
-        title="Open the Capsule SDF debug overlay — shows per-step timing (Canvas2D fill / getImageData readback / alpha extract / distance-transform fwd+bwd pass / RGBA pack / GPU upload) for every capsule SDF texture generation. Use to find which step is the bottleneck when GP corner-radius slider feels laggy. Also hosts the SDF hole probe (zero R or G in the top-left 1/4 of the GPU texture, on a copy at upload time — CPU cache untouched — to test whether the glass body clip really comes from sampling this texture)."
+        title="Open the Capsule SDF debug overlay — shows per-step timing (Canvas2D fill / getImageData readback / alpha extract / distance-transform fwd+bwd pass / RGBA pack / GPU upload) for every capsule SDF texture generation. Use to find which step is the bottleneck when GP corner-radius slider feels laggy. Also hosts: (1) the SDF hole probe (zero R or G in the top-left 1/4 of the GPU texture, on a copy at upload time — CPU cache untouched — to test whether the glass body clip really comes from sampling this texture); (2) highlight stroke-mask visualization ('hl' button) — shows the Canvas2D-rasterized G2/RR stroke masks that are the ACTUAL shape source for rim highlights (not the SDF G channel)."
         style={debugBtnStyle(!!capsuleDebug)}
       >
         <span>Capsule SDF debug</span>

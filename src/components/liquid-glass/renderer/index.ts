@@ -665,6 +665,20 @@ export class LiquidGlassRenderer {
     this._lastCapsuleKey = ''
   }
 
+  /** Clear the Canvas2D stroke-mask cache (highlight rim + inner-shadow
+   *  masks). Deletes the WebGL textures + drops the HTMLCanvasElement refs
+   *  so they can be GC'd. Next render re-rasterizes masks on demand via
+   *  Canvas2D stroke(). Provided for the debug overlay's "clr masks" button
+   *  so the user can force fresh mask generation to inspect the highlight
+   *  stroke shape. Returns the number of entries evicted. */
+  clearStrokeMaskCache(): number {
+    const gl = this.gl
+    const n = this.strokeMaskCache.size
+    for (const entry of this.strokeMaskCache.values()) gl.deleteTexture(entry.tex)
+    this.strokeMaskCache.clear()
+    return n
+  }
+
   // Offscreen 2D canvas for the foreground (label + chevron). Reused
   // across buttons — we re-rasterize + re-upload per button per frame.
   fgCanvas: HTMLCanvasElement

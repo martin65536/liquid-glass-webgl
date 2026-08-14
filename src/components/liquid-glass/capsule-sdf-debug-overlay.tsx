@@ -43,7 +43,15 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
   const [lastKey, setLastKey] = React.useState('')
   const [collapsed, setCollapsed] = React.useState(false)
   const [showPackImages, setShowPackImages] = React.useState(false)
+  const [showHighlightMasks, setShowHighlightMasks] = React.useState(false)
   const [maskEntries, setMaskEntries] = React.useState<MaskCacheEntry[]>([])
+  const [highlightMaskEntries, setHighlightMaskEntries] = React.useState<Array<{
+    key: string
+    canvas: HTMLCanvasElement
+    w: number
+    h: number
+    ready: boolean
+  }>>([])
   const [holeR, setHoleR] = React.useState(false)
   const [holeG, setHoleG] = React.useState(false)
   const [pos, setPos] = React.useState({ x: -1, y: 120 })
@@ -92,9 +100,15 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
       // Only read mask cache when the user wants to see pack images —
       // avoids Array.from on every poll otherwise.
       if (showPackImages) setMaskEntries(getMaskCacheEntries())
+      // Same for highlight stroke masks.
+      if (showHighlightMasks) {
+        setHighlightMaskEntries(Array.from(r.strokeMaskCache.entries()).map(([k, v]) => ({
+          key: k, canvas: v.canvas, w: v.w, h: v.h, ready: v.ready,
+        })))
+      }
     }, POLL_MS)
     return () => clearInterval(id)
-  }, [rendererRef, showPackImages])
+  }, [rendererRef, showPackImages, showHighlightMasks])
 
   // --- Dragging (mouse + touch) ---
   // touch-action:none on the drag handle prevents the browser from
@@ -245,6 +259,34 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
           >img</button>
           <button
             onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => setShowHighlightMasks(v => !v)}
+            title="Toggle visualization of cached Canvas2D stroke masks (highlight rim). Each entry is the rasterized G2/RR stroke that the strokeMaskCompositeProgram samples — this is the ACTUAL shape source for rim highlights (NOT the capsule SDF texture G channel). Use to inspect the stroke width / blur / G2-vs-RR path / clip-inside behavior. Entries are keyed by exact geometry (path style + size + radius + stroke width + blur + margin + supersample)."
+            style={{
+              background: showHighlightMasks ? 'rgba(0,200,255,0.3)' : 'none',
+              border: `1px solid ${showHighlightMasks ? '#0cf' : '#0f0'}`,
+              color: showHighlightMasks ? '#0cf' : '#0f0',
+              cursor: 'pointer', fontSize: 10, padding: '0 4px', borderRadius: 3,
+            }}
+          >hl</button>
+          <button
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => {
+              // Clear the Canvas2D stroke-mask cache (highlight rim masks).
+              // Deletes WebGL textures + drops canvas refs. Next render
+              // re-rasterizes masks on demand.
+              const n = rendererRef.current?.clearStrokeMaskCache() ?? 0
+              setHighlightMaskEntries([])
+              void n
+              rendererRef.current?.requestRender?.()
+            }}
+            title="Clear the Canvas2D stroke-mask cache (highlight rim). Forces re-rasterization on next render — useful to see fresh mask generation or verify the mask is actually being used."
+            style={{
+              background: 'rgba(255,68,68,0.2)', border: '1px solid #f44',
+              color: '#f88', cursor: 'pointer', fontSize: 10, padding: '0 4px', borderRadius: 3,
+            }}
+          >clr hl</button>
+          <button
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={() => setCollapsed(true)}
             style={{ background: 'none', border: '1px solid #0f0', color: '#0f0', cursor: 'pointer', fontSize: 11, padding: '0 4px', borderRadius: 3 }}
           >-</button>
@@ -353,6 +395,38 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
           )}
         </div>
       )}
+
+      {/* Highlight stroke masks visualization — toggled by the "hl" button.
+          Renders each cached Canvas2D stroke-mask entry as a single canvas
+          showing the stroke alpha (white = opaque stroke, black = empty).
+          This is the ACTUAL shape source for rim highlights — the
+          strokeMaskCompositeProgram samples this canvas's alpha channel.
+          NOT the capsule SDF texture G channel (that's only for element
+          refraction). Use this to inspect:
+            - stroke width / blur softness
+            - G2 vs RR path shape (key prefix g2: / rr:)
+            - clip-inside behavior (only the inner half of the stroke remains)
+            - why the highlight shape may differ from the glass body clip
+              (glass body uses capsule SDF R; highlight uses this Canvas2D mask)
+          Entries keyed by: pathStyle:origW:origH:radius:strokeWidth:blur:margin:maskW:maskH:ss */}
+      {showHighlightMasks && (
+        <div style={{ padding: '8px 10px', borderTop: '1px solid rgba(0,200,255,0.2)' }}>
+          <div style={{ color: '#0cf', marginBottom: 6 }}>
+            Highlight stroke masks ({highlightMaskEntries.length}):
+          </div>
+          {highlightMaskEntries.length === 0 && (
+            <div style={{ color: '#666' }}>No cached highlight masks yet. Toggle a capsule element's highlight on, or drag a slider to force mask generation.</div>
+          )}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {highlightMaskEntries.map((e, i) => (
+              <HighlightMaskImage key={e.key} entry={e} index={i} />
+            ))}
+          </div>
+          <div style={{ marginTop: 6, color: '#888', fontSize: 10 }}>
+            White = stroke alpha (sampled by strokeMaskCompositeProgram). Shape = G2 Bezier (key prefix 'g2:') or circular arc (key prefix 'rr:'). Only the INSIDE half of the stroke is kept (clip before stroke). Compare this shape to the glass body clip (capsule SDF R channel) to see why they may not align pixel-perfectly.
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -387,6 +461,54 @@ function ProbedUploadImage({ rendererRef }: { rendererRef: React.MutableRefObjec
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
       <PackImage key={entry.key} entry={entry} index={0} />
+    </div>
+  )
+}
+
+/** Renders one cached Canvas2D stroke-mask entry (highlight rim). The source
+ *  canvas is the EXACT one uploaded to the GPU as a texture — we just blit it
+ *  scaled into a small display canvas with imageRendering:'pixelated' so the
+ *  stroke alpha is visible. White = opaque stroke, black = empty. The shape
+ *  here is what strokeMaskCompositeProgram actually samples to draw rim
+ *  highlights (NOT the capsule SDF G channel). */
+function HighlightMaskImage({ entry, index }: {
+  entry: { key: string; canvas: HTMLCanvasElement; w: number; h: number; ready: boolean }
+  index: number
+}) {
+  const canvasRef = React.useRef<HTMLCanvasElement>(null)
+  const { canvas: srcCanvas, w, h, key, ready } = entry
+
+  React.useEffect(() => {
+    const dc = canvasRef.current
+    if (!dc || !srcCanvas) return
+    // Blit the source canvas scaled up. Use the source's physical size
+    // (may be 2× logical due to supersampling) so we see full detail.
+    dc.width = srcCanvas.width
+    dc.height = srcCanvas.height
+    const ctx = dc.getContext('2d')!
+    ctx.clearRect(0, 0, dc.width, dc.height)
+    ctx.drawImage(srcCanvas, 0, 0)
+  }, [srcCanvas])
+
+  // Parse the key for a readable label. Format:
+  //   pathStyle:origW:origH:radius:strokeWidth:blur:margin:maskW:maskH:ssN
+  const parts = key.split(':')
+  const label = parts.length >= 4
+    ? `${parts[0]} ${Math.round(parseFloat(parts[1]))}×${Math.round(parseFloat(parts[2]))} r${Math.round(parseFloat(parts[3]))}`
+    : key.slice(0, 30)
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+      <canvas
+        ref={canvasRef}
+        title={`#${index} ${ready ? 'ready' : 'NOT-ready'} — ${key}`}
+        style={{
+          width: 72, height: 72, imageRendering: 'pixelated',
+          background: '#000', border: `1px solid ${ready ? '#0cf' : '#f44'}`, borderRadius: 3,
+        }}
+      />
+      <span style={{ fontSize: 9, color: '#0cf' }}>#{index} {label}</span>
+      <span style={{ fontSize: 8, color: '#666' }}>{w}×{h}{ready ? '' : ' ⚠'}</span>
     </div>
   )
 }

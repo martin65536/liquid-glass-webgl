@@ -1376,3 +1376,86 @@ Stage Summary:
   量化+采样误差，不是高光错了。
 - R probe 可验证玻璃体 clip 来自 R 通道（挖0 后玻璃体对应区域应消失）。
 - 修复方向有 A/B/C/D 四种，当前选 D（接受 <1px 差异）。
+
+---
+Task ID: 60
+Agent: main (Z.ai Code)
+Task: 让 capsule debugger 不止能 debug SDF，把 highlight 生成的也加上
+
+Work Log:
+- 用户要求：CapsuleSdfDebugOverlay 不止可视化 capsule SDF 纹理，也要能
+  可视化 highlight（rim stroke mask）的生成产物。
+- 背景（Task 58/59 已确认）：highlight 走 Canvas2D stroke-mask 路径
+  （strokeMaskCompositeProgram），形状由 Canvas2D 的 G2/RR Bezier path
+  stroke 出来，与 capsule SDF 纹理【完全无关】。所以需要单独的可视化。
+
+- 数据源选择：strokeMaskCache 的 entry 已经存了 HTMLCanvasElement
+  （index.ts L678-685: { tex, canvas, ctx, w, h, ready }）。这个 canvas 就是
+  上传给 GPU 做 stroke mask 采样的源——直接 blit 它即可，不需要额外的
+  快照字段（不像 SDF 的挖0 probe 需要单独 snapshot）。
+
+- 修复 1 — index.ts：新增 clearStrokeMaskCache() 方法
+  * 遍历 strokeMaskCache 删 WebGL texture + clear Map + 返回 evict 数。
+  * 与 clearCapsuleSdfPool 对称，供 overlay 的 "clr hl" 按钮调用。
+  * docstring 说明：删 GPU texture + 丢 canvas ref，下次渲染按需重 raster。
+
+- 修复 2 — capsule-sdf-debug-overlay.tsx：
+  * 新增 state：showHighlightMasks (boolean) + highlightMaskEntries
+    (Array<{key, canvas, w, h, ready}>)。
+  * poll 每 200ms 在 showHighlightMasks=true 时读
+    Array.from(r.strokeMaskCache.entries()) → setHighlightMaskEntries。
+  * header 新增两个按钮：
+    - "hl" (青色)：toggle showHighlightMasks。tooltip 说明这是 highlight
+      rim 的【真实形状来源】（Canvas2D stroke，非 SDF G 通道），可用来
+      检查 stroke width / blur / G2-vs-RR / clip-inside。
+    - "clr hl" (红)：调 clearStrokeMaskCache() 清缓存 + requestRender。
+  * 新增 "Highlight stroke masks" 可视化区（showHighlightMasks 时显示）：
+    - 标题 "Highlight stroke masks (N):"
+    - 空时提示 "No cached highlight masks yet. Toggle a capsule element's
+      highlight on, or drag a slider..."
+    - 列出所有 highlightMaskEntries，每个用 <HighlightMaskImage> 渲染。
+    - 底部说明：White=stroke alpha、G2(g2:)/RR(rr:)、clip-inside、
+      与玻璃体 clip（SDF R）对比看对不齐。
+  * 新增 HighlightMaskImage 组件：
+    - 拿 entry.canvas（源 canvas）drawImage 到一个 display canvas，
+      imageRendering:'pixelated' 放大显示 stroke alpha。
+    - display canvas 用源 canvas 的物理尺寸（可能 2× 因 supersampling）。
+    - label 解析 key（pathStyle:origW:origH:radius:...）显示
+      "g2 200×80 r24" 这样。
+    - ready=false 时边框红色 + ⚠ 标记。
+    - title 显示完整 key + ready 状态。
+
+- 修复 3 — perf-monitor-overlay.tsx：
+  * 更新 "Capsule SDF debug" 按钮的 tooltip，补充说明现在也包含
+    highlight stroke-mask 可视化（hl 按钮）。
+
+- 行为验证（逻辑层面）：
+  1. 用户开 capsule debug overlay → 点 "hl" → showHighlightMasks=true。
+  2. poll 读 strokeMaskCache → 若有 highlight 元素已渲染，列出每个 mask。
+  3. 每个 mask 显示为黑底白色 stroke（alpha 可见），能看到：
+     - stroke 宽度（白色环厚度）
+     - blur 软化程度（边缘渐变）
+     - G2 vs RR 形状差异（g2: 前缀的角更圆滑，rr: 是圆弧）
+     - clip-inside（只有 stroke 内半，外半被 clip 掉）
+  4. 用户点 "clr hl" → 缓存清空 → 下次有 highlight 元素渲染时重新
+     raster mask → 可看到 fresh 生成。
+  5. 对比 SDF "img" 面板（玻璃体 clip 形状）和 "hl" 面板（highlight
+     stroke 形状），能直观看到两者在圆角处的 <1px 差异——这就是
+     Task 59 诊断的"对不齐"根因的可视化证据。
+
+- bun run lint：通过（0 errors）。
+- 未做浏览器测试（遵照用户一贯要求"永远不要自己测试"）。
+
+Stage Summary:
+- 新增 highlight stroke-mask 可视化到 CapsuleSdfDebugOverlay：
+  - "hl" 按钮 toggle 一个青色面板，列出所有 strokeMaskCache 条目。
+  - 每个条目 blit 源 canvas 显示 stroke alpha（白色=stroke，黑色=空）。
+  - "clr hl" 按钮清缓存 + requestRender。
+  - label 显示 pathStyle(g2/rr) + 尺寸 + radius。
+- 数据源：直接读 strokeMaskCache 的 HTMLCanvasElement（已是 GPU 采样源），
+  无需额外快照字段。
+- index.ts 新增 clearStrokeMaskCache() 方法（对称 clearCapsuleSdfPool）。
+- 现在 overlay 能同时 debug 两套形状系统：
+  - "img" = capsule SDF 纹理（R=coverage 玻璃体 clip / G=SDF 折射）
+  - "hl" = Canvas2D stroke mask（highlight rim 形状）
+  对比两者能直观看到 Task 59 诊断的"对不齐"根因。
