@@ -912,3 +912,55 @@ Stage Summary:
   (methods-render-glass-pef-cache-flags.ts L35/39/47) 三处都要求
   !el.useContinuousSdf，所以 capsule 元素强制 non-cacheable，每帧重
   raster。这是另一个独立问题，本次未动，待用户确认是否要处理。
+
+---
+Task ID: 53
+Agent: main (Z.ai Code)
+Task: 让 capsule（useContinuousSdf）形元素也能命中 PEF 缓存（用户问"为什么标记成不能应用缓存，我要可以应用"）
+
+Work Log:
+- 旧逻辑（methods-render-glass-pef-cache-flags.ts）：三个 cache flag
+  (cacheable / positionInvariant / scrollInvariant) 都硬性要求
+  !el.useContinuousSdf，导致所有 capsule 形元素强制 non-cacheable，
+  每帧重 raster elFbo，无谓浪费 GPU。
+- 根因分析（为什么这个限制是错的）：
+  * PEF 缓存存的是【已渲染好的玻璃本体】（refraction + chromatic +
+    blur + surface color），存在 elFbo 的 renderTex 里。
+  * capsule SDF 纹理只在【element pass】里被采样（methods-render-glass-
+    element-pass.ts L270-284：bind uContinuousSdf + 设 uUseContinuousSdf=1）。
+  * 而 element pass 只在【cache MISS】时执行（methods-render-glass-pef.ts
+    L126：`if (!cache.cacheHit)`）。cache HIT 时直接复用 renderTex，
+    跳过 element pass → SDF 纹理【根本不被重新采样】，它在 raster 时已经
+    被"烘焙"进 cached elFbo 了。
+  * 所以 SDF 纹理的存在【不影响 cache 正确性】——它只决定形状的几何，
+    形状只依赖 (w, h, radius)，与 position / scroll 无关。
+  * size 变化已被 resolve waterfall 的 `size_mismatch` miss reason 覆盖；
+    useContinuousSdf 的开关变化已被 elementCacheSignature
+    (methods-elements.ts L43) 覆盖（会触发 invalidate）。
+  * 结论：`!useContinuousSdf` 是历史遗留的过度保守限制，与圆形圆角矩形
+    元素的失效模型完全等价（都靠 position_mismatch / wallpaper_version /
+    dpr / backdrop_overlap 检测失效）。
+- 修复：从三个 flag 里移除 `&& !el.useContinuousSdf`：
+    cacheable:         !!(this.wallpaperTexture && !el.backdropFbo)
+    positionInvariant: !!(el.isToggleKnob?.solidBackdropColor && !el.backdropFbo)
+    scrollInvariant:   !!(el.isToggleKnob && !solidBackdropColor &&
+                        !trackColorOff && this.backgroundColor && !el.backdropFbo)
+  并更新 docstring 解释为什么 capsule 可缓存（SDF 纹理 baked-in + 形状
+  position-invariant）。
+- 同步更新 methods-render-glass-pef-cache-resolve.ts 的 non_cacheable
+  debug reason：删掉 `non_cacheable:sdf` 和 `non_cacheable:indicator`
+  分支（后者也已不准确——indicators 早已 cacheable），只保留 no_wp /
+  backdropFbo / unknown。
+- bun run lint：通过（0 errors）。
+- 未做浏览器测试（遵照用户上一轮要求"永远不要自己测试"）。
+
+Stage Summary:
+- 根因：`!useContinuousSdf` 限制是历史遗留的过度保守。capsule SDF 纹理在
+  raster 时烘焙进 cached elFbo，cache hit 时 element pass 被跳过 → SDF 纹理
+  不被重新采样 → 不影响正确性。形状只依赖 (w,h,radius)，与 position/scroll
+  无关，与圆形元素失效模型等价。
+- 修复：从 cacheable / positionInvariant / scrollInvariant 三个 flag 移除
+  `!useContinuousSdf`；更新 docstring；清理 debug reason 分支。
+- 效果：capsule 形元素（buttons / control-center tiles / scroll-container
+  cards / toggle knobs / bottom-tab container & indicator / pick-image /
+  GP square & sheet）现在能命中 PEF 缓存，静帧 cache hit 不再每帧重 raster。

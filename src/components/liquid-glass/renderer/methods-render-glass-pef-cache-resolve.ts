@@ -43,18 +43,14 @@ export function resolveElFboCache(
   if (!cacheable) {
     // Non-cacheable: use the shared scratch elFbo (recreated if size differs).
     if (this.showDirtyMarkers) {
-      // Match `cacheable`'s 3 conditions 1:1 so the overlay shows the TRUE
-      // reason. isBottomTabIndicator is a defensive fallback (indicators are
-      // cacheable now, but guards against future regressions).
+      // Match `cacheable`'s 2 conditions 1:1 so the overlay shows the TRUE
+      // reason. (useContinuousSdf / capsule shape is NOT a non-cacheable
+      // condition — see computeCacheFlags docstring.)
       const ncReason = !this.wallpaperTexture
         ? 'non_cacheable:no_wp'
         : el.backdropFbo
           ? 'non_cacheable:backdropFbo'
-          : el.useContinuousSdf
-            ? 'non_cacheable:sdf'
-            : el.isBottomTabIndicator
-              ? 'non_cacheable:indicator'
-              : 'non_cacheable:unknown'
+          : 'non_cacheable:unknown'
       this.debugCacheMissLog.push({ id: el.id, reason: ncReason, x: sx, y: sy, w: sw, h: sh })
     }
     const ensured = this.ensureElementFBO(elFboRectW, elFboRectH)
