@@ -54,3 +54,4 @@ server.log
 /skills/
 # tool output artifacts
 tool-results/
+tool-results/

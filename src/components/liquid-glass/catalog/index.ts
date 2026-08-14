@@ -38,6 +38,7 @@ import { buildTextGlass } from './build-text-glass'
 export {
   CatalogDestination,
   DEFAULT_CATALOG_STATE,
+  TEXT_GLASS_FONTS,
   type CatalogState,
   type CatalogResult,
   type ThemePalette,
@@ -127,7 +128,7 @@ export function buildCatalog(
       result = buildPerfBenchmark(W, H, onBack, state, setState, palette)
       break
     case CatalogDestination.TextGlass:
-      result = buildTextGlass(W, H, onBack, state, setState, palette, locale)
+      result = buildTextGlass(W, H, onBack, state, setState, rendererRef, palette, locale)
       break
     default:
       result = buildHome(W, onNavigate, palette)

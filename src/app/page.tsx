@@ -434,55 +434,76 @@ export default function Page() {
           className="w-full h-full"
           onReady={() => setRendererReady(true)}
         />
-        {/* TextGlass — HTML text input overlay (only on the TextGlass page).
-            The <input> has NO background/border/shadow (fully transparent
-            chrome) so the canvas-rendered liquid-glass pill (tg-input, see
-            build-text-glass.ts + helpers-text-input.ts) shows through as the
-            visible "input field". The TEXT and CARET are kept visible
-            (white text + white caret) so the user sees what they type drawn
-            over the glass pill. */}
-        {destination === CatalogDestination.TextGlass && rendererReady && (
-          <div
-            style={{
-              position: 'absolute',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              bottom: 60,
-              width: 'min(320px, calc(100% - 32px))',
-              zIndex: 30,
-            }}
-          >
-            <input
-              type="text"
-              value={state.textGlassText}
-              onChange={(e) => setState({ textGlassText: e.target.value })}
-              maxLength={20}
-              aria-label="Text glass input"
-              style={{
-                width: '100%',
-                height: 44,
-                padding: '0 16px',
-                margin: 0,
-                borderRadius: 999,
-                // No background / border / shadow / outline — the visible
-                // "input field" is the canvas glass pill underneath. Only
-                // the text + caret are drawn by this element.
-                background: 'transparent',
-                backdropFilter: 'none',
-                WebkitBackdropFilter: 'none',
-                border: 'none',
-                outline: 'none',
-                boxShadow: 'none',
-                // Keep the typed text + caret visible over the glass.
-                color: '#fff',
-                caretColor: '#fff',
-                fontSize: 16,
-                fontWeight: 600,
-                textAlign: 'center',
-                cursor: 'text',
-              }}
-            />
-          </div>
+        {/* TextGlass — HTML text input overlay (only on the TextGlass page,
+            only when the control sheet is expanded). The <input> sits exactly
+            on top of the canvas-rendered tg-input glass pill inside the sheet
+            (see build-text-glass.ts: inputPillX/Y/W/H). It has NO
+            background/border/shadow (transparent chrome) so the glass pill
+            shows through as the visible "input field"; only the TEXT + CARET
+            are drawn by this element.
+            Position is computed to match the sheet's input pill geometry
+            (16dp sheet margin + 24dp inner pad + 48px label + 12px gap).
+            When the sheet is collapsed, the overlay is not rendered. */}
+        {destination === CatalogDestination.TextGlass && rendererReady && state.textGlassSheetExpanded && (
+          (() => {
+            // Match build-text-glass.ts geometry (CSS px; DP≈1 on these screens).
+            const sheetX = 16
+            const innerPad = 24
+            const labelW = 48
+            const gap = 12
+            const pillH = 40
+            const inputRowH = 48
+            const toggleBtnSpace = 20 + 56 + 12 // bottom button row height
+            // Sheet height = innerPad + inputRow + 2 sliderRows + fontRow + innerPad
+            const sliderRowH = 16 + 12 + 24 + 16
+            const fontRowH = 48
+            const sheetH = innerPad + inputRowH + sliderRowH * 2 + fontRowH + innerPad
+            // pillY from top = sheetY + innerPad + (inputRowH - pillH)/2
+            // sheetY from top = H - toggleBtnSpace - sheetH
+            // → pill bottom from screen bottom =
+            //   toggleBtnSpace + (sheetH - innerPad - (inputRowH - pillH)/2 - pillH)
+            const pillBottom = toggleBtnSpace + (sheetH - innerPad - (inputRowH - pillH) / 2 - pillH)
+            const pillLeft = sheetX + innerPad + labelW + gap
+            const pillW = (W - 2 * (sheetX + innerPad)) - labelW - gap
+            return (
+              <div
+                style={{
+                  position: 'absolute',
+                  left: pillLeft,
+                  bottom: pillBottom,
+                  width: pillW,
+                  zIndex: 30,
+                }}
+              >
+                <input
+                  type="text"
+                  value={state.textGlassText}
+                  onChange={(e) => setState({ textGlassText: e.target.value })}
+                  maxLength={20}
+                  aria-label="Text glass input"
+                  style={{
+                    width: '100%',
+                    height: pillH,
+                    padding: '0 12px',
+                    margin: 0,
+                    borderRadius: 999,
+                    background: 'transparent',
+                    backdropFilter: 'none',
+                    WebkitBackdropFilter: 'none',
+                    border: 'none',
+                    outline: 'none',
+                    boxShadow: 'none',
+                    color: '#fff',
+                    caretColor: '#fff',
+                    fontSize: 15,
+                    fontWeight: 600,
+                    textAlign: 'center',
+                    cursor: 'text',
+                  }}
+                />
+              </div>
+            )
+          })()
         )}
         {/* FPS overlay — always shown on PerfBenchmark during test, or when
             showFps is enabled. Suppressed when the full performance monitor

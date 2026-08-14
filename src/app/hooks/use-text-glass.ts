@@ -1,19 +1,21 @@
 import * as React from 'react'
-import { CatalogDestination } from '@/components/liquid-glass/catalog'
+import { CatalogDestination, TEXT_GLASS_FONTS } from '@/components/liquid-glass/catalog/types'
 import { generateTextSdf } from '@/components/liquid-glass/text-sdf'
 import type { LiquidGlassRenderer } from '@/components/liquid-glass/renderer'
 import type { SetCatalogState } from './use-catalog-state'
-import type { CatalogState } from '@/components/liquid-glass/catalog'
+import type { CatalogState } from '@/components/liquid-glass/catalog/types'
 
 /* ------------------------------------------------------------------ *
  * useTextGlass — regenerates the SDF texture whenever the user-typed
- * text changes, and reloads clock_sdf when navigating to the LockScreen
- * (since the TextGlass page overwrites renderer.sdfTexture with the
- * text SDF).
+ * text OR the font params (size / weight / family) change, and reloads
+ * clock_sdf when navigating to the LockScreen (since the TextGlass page
+ * overwrites renderer.sdfTexture with the text SDF).
  *
  * The SDF generation (Canvas2D text render + Felzenszwalb 1D distance
  * transform + GPU upload) is CPU-bound and ~5-15ms for typical text —
- * debounced 250ms so fast typing doesn't block the render loop.
+ * debounced 250ms so fast typing / slider dragging doesn't block the
+ * render loop. On page entry the regen runs immediately (0ms) so the
+ * glass shows the correct text on the first frame.
  * ------------------------------------------------------------------ */
 export function useTextGlass(opts: {
   destination: CatalogDestination
@@ -31,8 +33,9 @@ export function useTextGlass(opts: {
   // and shows the wrong shape for the 250ms debounce window.
   const prevDestRef = React.useRef<CatalogDestination>(destination)
 
-  // Regenerate text SDF when textGlassText changes (debounced). Only runs
-  // on the TextGlass page so we don't clobber clock_sdf elsewhere.
+  // Regenerate text SDF when textGlassText / fontSize / fontWeight / fontIdx
+  // change (debounced). Only runs on the TextGlass page so we don't clobber
+  // clock_sdf elsewhere.
   React.useEffect(() => {
     if (!rendererReady) return
     if (destination !== CatalogDestination.TextGlass) {
@@ -46,18 +49,21 @@ export function useTextGlass(opts: {
     }
     // Just entered TextGlass → regenerate now (0ms) so the glass shows the
     // correct text on the next frame instead of a stale texture. Already on
-    // the page and the text changed → debounce 250ms to coalesce fast typing.
+    // the page and params changed → debounce 250ms to coalesce fast typing
+    // + slider dragging.
     const justEntered = prevDestRef.current !== CatalogDestination.TextGlass
     prevDestRef.current = destination
     const handle = window.setTimeout(() => {
       const renderer = rendererRef.current
       if (!renderer) return
       try {
-        const font = `bold ${Math.round(200 * 1)}px "PingFang SC", "Helvetica Neue", "Arial", sans-serif`
+        const fontIdx = state.textGlassFontIdx
+        const family = (TEXT_GLASS_FONTS[fontIdx] ?? TEXT_GLASS_FONTS[0]).family
+        const font = `${state.textGlassFontWeight} ${Math.round(state.textGlassFontSize)}px ${family}`
         const { data, width, height } = generateTextSdf(text, {
           font,
           padding: 40,
-          targetHeight: 200,
+          targetHeight: state.textGlassFontSize,
         })
         renderer.loadSdfTextureFromData(data, width, height)
         // Push the real aspect ratio into state so the builder sizes the
@@ -74,7 +80,16 @@ export function useTextGlass(opts: {
       }
     }, justEntered ? 0 : 250)
     return () => window.clearTimeout(handle)
-  }, [destination, state.textGlassText, rendererReady, rendererRef, setState])
+  }, [
+    destination,
+    state.textGlassText,
+    state.textGlassFontSize,
+    state.textGlassFontWeight,
+    state.textGlassFontIdx,
+    rendererReady,
+    rendererRef,
+    setState,
+  ])
 
   // Reload clock_sdf when entering LockScreen — the TextGlass page may have
   // overwritten renderer.sdfTexture with a text SDF. This restores the

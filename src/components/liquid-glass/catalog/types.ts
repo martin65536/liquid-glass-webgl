@@ -292,6 +292,15 @@ export interface CatalogState {
   // TextGlass — drag offset (cumulative from press start).
   textGlassOffsetX: number
   textGlassOffsetY: number
+  // TextGlass — font size (px) used to render the SDF texture. Larger =
+  // sharper but heavier SDF generation + GPU upload.
+  textGlassFontSize: number
+  // TextGlass — CSS font-weight (100..900) used to render the SDF texture.
+  textGlassFontWeight: number
+  // TextGlass — selected font family index into TEXT_GLASS_FONTS.
+  textGlassFontIdx: number
+  // TextGlass — whether the bottom control sheet is expanded (GP-style).
+  textGlassSheetExpanded: boolean
 }
 
 export const DEFAULT_CATALOG_STATE: CatalogState = {
@@ -353,4 +362,19 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   textGlassAspect: 3,
   textGlassOffsetX: 0,
   textGlassOffsetY: 0,
+  textGlassFontSize: 200,
+  textGlassFontWeight: 700,
+  textGlassFontIdx: 0,
+  textGlassSheetExpanded: true,
 }
+
+/* ------------------------------------------------------------------ *
+ * TextGlass font catalog. Each entry: { family, label }.
+ * The family is the CSS font-family used in the Canvas2D font string
+ * (must be loaded before SDF generation — see layout.tsx next/font).
+ * Google Sans is a Google product sans; Nunito is a rounded sans.
+ * ------------------------------------------------------------------ */
+export const TEXT_GLASS_FONTS: { family: string; label: string }[] = [
+  { family: '"Google Sans", "Product Sans", system-ui, sans-serif', label: 'Google Sans' },
+  { family: 'Nunito, system-ui, sans-serif', label: 'Nunito' },
+]
