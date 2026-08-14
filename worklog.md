@@ -2570,3 +2570,33 @@ Stage Summary:
 - 主项目集成状态：✓ 完整且已在预览渲染（frosted glass + wallpaper 均正常）。
 - 远程 PAT：✓ 已配置且通过 ls-remote 鉴权验证。
 - 推送：见本次 push 结果（若成功则 PAT 写权限确认）。
+
+---
+Task ID: 35
+Agent: main (Z.ai Code)
+Task: 排查旧浏览器（Chromium 74）SyntaxError: Unexpected token ? / . ，尝试 browserslist 方案后用户决定放弃兼容
+
+Work Log:
+- 现象：旧浏览器连报 SyntaxError: Unexpected token ? / .（? 和 . 交替）。
+- 根因：项目无 browserslist → Next 16 默认现代浏览器目标 → SWC 不降级 `?.`/`??`
+  → 原样打进 chunk → Chromium 74（ES2020 前，不支持可选链/空值合并）解析连环报错。
+  （`?.` 报 `?`，恢复后又撞孤立 `.` → 一处语法吐两条错误，对上用户贴的 10 条。）
+- 方案 A（保留 47d3327 CSS 兼容 + 加 browserslist 让 SWC 降级 JS）：
+  - package.json 加 browserslist：chrome>=64 / edge>=79 / safari>=12 / firefox>=60 / ios>=12 / and_chr>=64
+    （全部低于 chrome 80 的 ES2020 门槛，强制 SWC 降级）
+  - 验证：production build（`bun run build`）后 .next/static/chunks/*.js 中
+    真正的 `a?.b` / `a ?? b` = 0 处 ✓（残留 4 处是误报：三元 `h?.12*c:.05*c` 无空格、
+    正则量词 `/()??/`）。dev 模式 Turbopack 不读 browserslist（已知限制），仅现代浏览器可访问。
+  - 47d3327（body margin reset + lg-frame width/maxWidth）保留——SWC 不管 CSS，
+    退回只会让 Chromium 74 上 CSS 回归，换不来 JS 降级。
+- 进一步排查"production 下不报错但跑不起来"：运行时 API 地雷（browserslist 只降级语法，
+  不 polyfill API）。最大嫌疑 OffscreenCanvas——Chromium 74 虽有此全局对象但 2D context
+  行为不完整，mask 栅格化静默失败。另发现 ResizeObserver / matchMedia / PointerEvent 使用。
+- 用户决定：放弃旧浏览器兼容。revert 掉 browserslist（主项目 commit 83c4a96），
+  仅保留 47d3327 的 CSS 兼容作为低风险修复。
+
+Stage Summary:
+- 最终兼容状态：仅保留 47d3327（CSS）。JS 回到 Next 16 默认现代浏览器目标。
+- 教训：dev server（Turbopack）无法兼容旧浏览器——降级只在 production build 生效；
+  browserslist 只管语法降级，运行时 API（OffscreenCanvas 等）需单独 polyfill/特性检测。
+- 本次无代码净变化（browserslist 加了又 revert），仅记录排查过程。
