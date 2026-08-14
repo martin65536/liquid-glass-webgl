@@ -1248,3 +1248,68 @@ Stage Summary:
 - 效果：现在开 R/G + 点 img，能看到 top-left 1/4 的对应通道被挖成黑色
   （R canvas 左下黑 / G canvas 左下黑），与 GPU 实际采样的内容一致。
   非probe 时行为不变（读 cache，省内存）。
+
+---
+Task ID: 58
+Agent: main (Z.ai Code)
+Task: 解释 "为什么绿色的图挖了还能正常显示 highlight"（诊断结论，非代码改动）
+
+Work Log:
+- 用户观察：开 G probe（挖0 capsule SDF 纹理 G 通道的 top-left 1/4）后，
+  highlight 依然正常显示，挖0 区域的高光没有任何变化。
+- 这是一个【正确的诊断结果】，不是 bug —— 探针证明：用户看到的
+  highlight 根本不来自 capsule SDF 纹理的 G 通道。
+
+- 代码追踪（确认 highlight 的真实数据源）：
+  1. highlight 渲染路径有【两套】实现：
+     A. SDF-based 3-pass：highlightStrokeProgram (uHs) + highlightCompositeProgram
+        (uHc) + rimHighlightProgram (uRm)。这三个 program 的 shader 里确实
+        调 sdShape() → uUseContinuousSdf>0.5 时走 sampleClipSdf（G 通道）。
+        index.ts 也查询了这4个 uniform location。
+     B. Canvas2D stroke-mask：strokeMaskCompositeProgram (uSm)。stroke 形状
+        用 Canvas2D 的 continuousCurvatureRoundedRectPath 画（rim-highlight
+        L84/L136-137 useG2），shader 只采 uStrokeMask.a + gradSdRoundedRect
+        （解析梯度，非 SDF 纹理）。
+  2. grep `useProgram(renderer.highlightStrokeProgram|
+     highlightCompositeProgram|rimHighlightProgram)` → 【0 命中】。
+     即 A 套 SDF-based 程序虽然编译+查询了 uniform，但运行时【从未被调用】。
+  3. 实际运行的是 B 套：rim-highlight.ts L199 `gl.useProgram(strokeMaskCompositeProgram)`，
+     stroke mask 用 Canvas2D 生成（L100-151），composite shader 用
+     gradSdRoundedRect（L564，解析公式）算 intensity，完全不碰 capsule
+     SDF 纹理。
+  4. highlightProgram (uHl) 也只在 glow pass 用（post-passes-glow.ts L76+），
+     不是常规 highlight。
+
+- 结论（给用户的解释）：
+  * capsule SDF 纹理的 G 通道（sampleClipSdf）当前【只服务于】element pass
+    的 sdShape —— 用于折射法线/斜角光照（element.ts L155/L207）。这条链
+    确实会受 G 挖0 影响，但那影响的是玻璃本体的折射/光照，不是 rim highlight。
+  * 用户看到的 highlight（rim 亮边）走的是 Canvas2D stroke-mask 路径
+    （strokeMaskCompositeProgram），形状由 Canvas2D 的 G2 Bezier path 画，
+    intensity 由解析 gradSdRoundedRect 算。整条链【完全不采样 capsule SDF
+    纹理】，所以挖0 G 对它零影响。
+  * 这也解释了为什么"玻璃体和高光对不齐"——它们是两套独立的形状系统：
+    - 玻璃体 clip：element pass 采样 SDF 纹理 R 通道（sampleClipMask）
+    - 高光形状：Canvas2D 独立 raster 的 stroke mask
+    两者各自的圆角近似（SDF 倒角距离变换 vs Canvas2D 原生 AA）在像素级
+    可能有 <1px 差异，这就是对不齐的根因之一。
+
+- 探针价值：G probe 的"无效"结果本身是有用的——它排除了"highlight 来自
+  G 通道"这个假设，把根因定位到"两套独立形状系统"。若要让 highlight 也
+  用 capsule SDF（让两者像素级对齐），需要把 strokeMaskCompositeProgram
+  改成采样 SDF 纹理，或把 A 套 SDF-based 3-pass 接回来（但 Task 54 的
+  教训是倒角量化 SDF 在 blur 衰减里会产生色带，需要谨慎）。
+
+- 未做任何代码改动（用户只问"为什么"，没要求改）。
+- bun run lint：N/A（无改动）。
+
+Stage Summary:
+- 诊断结论：highlight 走 Canvas2D stroke-mask 路径
+  （strokeMaskCompositeProgram），形状由 Canvas2D G2 path 画、intensity
+  由解析 gradSdRoundedRect 算，【完全不采样 capsule SDF 纹理的 G 通道】。
+  SDF-based 的 3 个 highlight program 虽然编译了但运行时从未调用。
+- 所以挖0 G 对 highlight 零影响是【预期行为】，探针正确排除了
+  "highlight 来自 G"的假设。
+- 这把"玻璃体和高光对不齐"的根因定位到：两套独立形状系统
+  （玻璃体 clip 采样 SDF-R / highlight 用 Canvas2D stroke mask），
+  各自的圆角近似在像素级有 <1px 差异。
