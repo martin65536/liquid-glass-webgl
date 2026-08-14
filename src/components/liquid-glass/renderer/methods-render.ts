@@ -312,9 +312,9 @@ export const renderMethods = {
       // the element's (w, h, radius) is generated + uploaded BEFORE rendering.
       // loadContinuousSdf() is cached — no-op if already loaded for this
       // geometry. Generation is synchronous (Canvas2D raster + chamfer distance
-      // transform on a 256² or 512² grid, chosen dynamically by element size)
-      // so it only happens once per (w, h, radius, dpr) tuple, on the first
-      // frame after a resize.
+      // transform on a 128²/256²/512²/1024² grid, chosen dynamically by
+      // element device-px size) so it only happens once per (w, h, radius,
+      // dpr) tuple, on the first frame after a resize.
       if (el.useContinuousSdf) {
         this.loadContinuousSdf(el.rect.w, el.rect.h, el.cornerRadius)
       }

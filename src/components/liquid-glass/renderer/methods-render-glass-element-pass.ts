@@ -262,7 +262,7 @@ export const glassElementPassMethods = {
     // Bind the precomputed continuous-curvature SDF texture for elements
     // with useContinuousSdf=true. The shader's sdShape() dispatches to
     // sdContinuousCurvature which samples this texture instead of the
-    // analytic sdRoundedRect. The texture is 256×256 OR 512×512 (chosen
+    // analytic sdRoundedRect. The texture is 128²/256²/512²/1024² (chosen
     // dynamically based on element device-px size), RGBA, cached by
     // (w, h, radius, dpr) — see loadContinuousSdf().
     // uContinuousSdfElementSize = the element's ORIGINAL (unscaled) w,h so

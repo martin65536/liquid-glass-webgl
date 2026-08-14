@@ -630,9 +630,10 @@ export class LiquidGlassRenderer {
   // its own texture. The currently-bound one is in continuousSdfTexture.
   continuousSdfPool = new Map<string, { tex: WebGLTexture; texSize: number }>()
   continuousSdfTexture: WebGLTexture | null = null
-  // texSize is dynamic (256 or 512, chosen by generateContinuousCurvatureMask
-  // based on element device-px size). Updated each loadContinuousSdf() call.
-  continuousSdfTexSize: [number, number] = [256, 256]
+  // texSize is dynamic (128/256/512/1024, chosen by generateContinuousCurvatureMask
+  // based on element device-px size — 2× oversampling rounded up to POT).
+  // Updated each loadContinuousSdf() call.
+  continuousSdfTexSize: [number, number] = [128, 128]
   continuousSdfKey: string | null = null
 
   // --- Capsule SDF profiling (debug layer) ---

@@ -38,12 +38,14 @@ const MAX_ROWS = 8
 export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
   const [timings, setTimings] = React.useState<CapsuleSdfTiming[]>([])
   const [poolSize, setPoolSize] = React.useState(0)
-  // Current texSize (the last-loaded SDF texture's size, 256 or 512) +
+  // Current texSize (the last-loaded SDF texture's size, one of 128/256/512/1024) +
   // breakdown of how many pool entries use each texSize. Dynamic since
-  // Task 64: texSize is chosen per-element by max(w,h)*dpr > 128.
+  // Task 66: texSize is 2× oversampling rounded up to POT, clamped [128,1024].
   const [curTexSize, setCurTexSize] = React.useState(0)
+  const [pool128, setPool128] = React.useState(0)
   const [pool256, setPool256] = React.useState(0)
   const [pool512, setPool512] = React.useState(0)
+  const [pool1024, setPool1024] = React.useState(0)
   const [lastGenMs, setLastGenMs] = React.useState(0)
   const [lastUploadMs, setLastUploadMs] = React.useState(0)
   const [lastKey, setLastKey] = React.useState('')
@@ -104,15 +106,20 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
       // (renderer.continuousSdfTexSize is set by loadContinuousSdf each
       // frame). 0 until the first capsule element renders.
       setCurTexSize(r.continuousSdfTexSize ? r.continuousSdfTexSize[0] : 0)
-      // Pool breakdown: count entries by texSize so the user can see how
-      // many 256² (small knobs/tracks) vs 512² (cards/dialog/magnifier)
-      // textures are currently cached on the GPU.
-      let n256 = 0, n512 = 0
+      // Pool breakdown by texSize — shows how many GPU textures are at each
+      // tier (128² knobs/tracks, 256² cards/buttons, 512² GP/dialog,
+      // 1024² very large). Empty until capsule elements render.
+      let n128 = 0, n256 = 0, n512 = 0, n1024 = 0
       for (const v of r.continuousSdfPool.values()) {
-        if (v.texSize >= 512) n512++; else n256++
+        if (v.texSize >= 1024) n1024++
+        else if (v.texSize >= 512) n512++
+        else if (v.texSize >= 256) n256++
+        else n128++
       }
+      setPool128(n128)
       setPool256(n256)
       setPool512(n512)
+      setPool1024(n1024)
       setLastGenMs(r._lastCapsuleGenMs)
       setLastUploadMs(r._lastCapsuleUploadMs)
       setLastKey(r._lastCapsuleKey || '')
@@ -344,16 +351,19 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
           <span>Pool size: <b style={{ color: '#ff0' }}>{poolSize}</b></span>
           <span>
-            cur texSize: <b style={{ color: curTexSize >= 512 ? '#fa0' : '#ff0' }}>{curTexSize || '—'}</b>
+            cur texSize: <b style={{ color: curTexSize >= 1024 ? '#f44' : curTexSize >= 512 ? '#fa0' : curTexSize >= 256 ? '#ff0' : '#0f0' }}>{curTexSize || '—'}</b>
           </span>
         </div>
-        {/* Pool breakdown by texSize — shows how many GPU textures are 256²
-            (small knobs/tracks, cheap ~1ms gen) vs 512² (cards/dialog/
-            magnifier, ~4ms gen but cached stably). Empty until capsule
-            elements render. */}
+        {/* Pool breakdown by texSize — shows how many GPU textures are at
+            each tier. 128² = knobs/tracks (~0.3ms gen), 256² = cards/buttons
+            (~1ms), 512² = GP square/magnifier (~4ms), 1024² = dialog/very
+            large (~16ms). Colored by cost: green=cheap → red=expensive. */}
         <div style={{ marginTop: 2, color: '#888', fontSize: 10 }}>
-          pool: <span style={{ color: '#ff0' }}>{pool256}</span>×256²
-          {'  '}<span style={{ color: '#fa0' }}>{pool512}</span>×512²
+          pool:
+          {' '}<span style={{ color: '#0f0' }}>{pool128}</span>×128²
+          {' '}<span style={{ color: '#ff0' }}>{pool256}</span>×256²
+          {' '}<span style={{ color: '#fa0' }}>{pool512}</span>×512²
+          {' '}<span style={{ color: '#f44' }}>{pool1024}</span>×1024²
         </div>
         <div style={{ marginTop: 4 }}>
           Last CPU gen: <b style={{ color: lastGenMs > 50 ? '#f44' : lastGenMs > 10 ? '#fa0' : '#0f0' }}>{lastGenMs.toFixed(2)}ms</b>
@@ -400,7 +410,7 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
                   ? <span style={{ color: '#080' }}>[HIT]</span>
                   : <span style={{ color: '#fa0' }}>[MISS]</span>}
                 {' '}<span style={{ color: '#888' }}>{t.w}×{t.h} r={Math.round(t.radius)}</span>
-                {' '}<span style={{ color: t.texSize >= 512 ? '#fa0' : '#ff0' }} title="SDF texture resolution (dynamic: 256 for small elements, 512 for large)">{t.texSize}²</span>
+                {' '}<span style={{ color: t.texSize >= 1024 ? '#f44' : t.texSize >= 512 ? '#fa0' : t.texSize >= 256 ? '#ff0' : '#0f0' }} title="SDF texture resolution (dynamic: 2× oversampling rounded up to POT, clamped [128,1024])">{t.texSize}²</span>
               </span>
               <span style={{ color: t.stepTotal > 50 ? '#f44' : t.stepTotal > 10 ? '#fa0' : '#0f0' }}>
                 {t.cacheHit ? '0.0' : t.stepTotal.toFixed(1)}ms

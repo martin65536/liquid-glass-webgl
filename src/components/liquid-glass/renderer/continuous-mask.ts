@@ -29,12 +29,15 @@ const maskCache = new Map<string, { tex: Uint8Array; texSize: number }>()
  * ~1MB of per-call allocation (alpha + inside + outside + tex) that
  * triggers major GC pauses during slider drags. GC pauses show up as
  * random 10-50ms spikes in fwdPass/bwdPass/pack timings. Grows lazily
- * if a larger texSize is requested (256² → 512² when a big element
- * needs the higher-resolution SDF). */
-let _alphaBuf = new Uint8Array(256 * 256)
-let _insideBuf = new Int32Array(256 * 256)
-let _outsideBuf = new Int32Array(256 * 256)
-let _texBuf = new Uint8Array(256 * 256 * 4)
+ * if a larger texSize is requested (128² → 256² → 512² → 1024² as
+ * progressively larger elements render). At 1024² the buffers total
+ * ~13MB (1MB alpha + 4MB×2 inside/outside Int32 + 4MB tex RGBA) —
+ * acceptable since only very large elements (dialog/full-screen) hit
+ * this tier and the allocation happens once. */
+let _alphaBuf = new Uint8Array(128 * 128)
+let _insideBuf = new Int32Array(128 * 128)
+let _outsideBuf = new Int32Array(128 * 128)
+let _texBuf = new Uint8Array(128 * 128 * 4)
 
 /* ------------------------------------------------------------------ *
  * Profiling — per-step timings for each capsule SDF generation.
@@ -110,22 +113,27 @@ export function generateContinuousCurvatureMask(
   radius: number,
   dpr: number = 1
 ): { tex: Uint8Array; texSize: number } {
-  // texSize: dynamically chosen based on the element's device-pixel size.
-  // Small elements (knobs, tracks) use 256² — cheap to generate (~1ms) and
-  // plenty of resolution for a 40×24 capsule. Large elements (cards, dialog,
-  // GP square, magnifier) use 512² so the G2 corner curve stays smooth at
-  // big sizes — a 176×76 card at 256² has only ~30px per corner, making the
-  // Bezier curve look faceted; 512² doubles that to ~60px.
+  // texSize: FULLY dynamic — chosen by rounding 2× the element's device-px
+  // max dimension UP to the next power of two, clamped to [128, 1024].
+  // This gives 4 tiers instead of the previous 2 (256/512):
+  //   • 128²  — small elements (knobs 24-40px, tracks 6-8px tall)  ~0.3ms
+  //   • 256²  — medium elements (toggle cards 76px, buttons 48px)  ~1ms
+  //   • 512²  — large elements (GP square 160px, magnifier 128px)  ~4ms
+  //   • 1024² — very large elements (dialog 300px, full-screen)   ~16ms
   //
-  // Threshold: max(w, h) * dpr > 128 → 512, else 256. At dpr=1.5 this means
-  // elements larger than ~85 CSS px use 512. Capsule knobs (40×24) stay 256;
-  // cards (176×76), dialog (300×200), magnifier (128×96) use 512.
+  // 2× oversampling keeps the G2 Bezier corner curve crisp at every size
+  // (the corner gets ~2× more texels than its device-px length, so AA is
+  // smooth and the curvature doesn't look faceted). POT rounding ensures
+  // optimal GPU texture upload/filtering and avoids WebGL1 NPOT limits.
   //
-  // Distance transform is O(texSize²) so 512² is 4× slower than 256² (~4ms
-  // vs ~1ms), but large elements are few (1–4 per page) and cache stably
-  // (their w/h/radius don't change), so the cost is paid once per resize.
+  // Distance transform is O(texSize²) so 1024² is 16× slower than 256²,
+  // but very large elements are rare (1–2 per page) and cache stably
+  // (w/h/radius don't change), so the cost is paid once per resize.
+  // Scratch buffers (below) grow lazily to the largest texSize seen.
   const devMaxDim = Math.max(w, h) * (dpr || 1)
-  const texSize = devMaxDim > 128 ? 512 : 256
+  const target = devMaxDim * 2
+  let texSize = 128
+  while (texSize < target && texSize < 1024) texSize <<= 1
   const key = `${w},${h},${radius},${texSize}`
   const cached = maskCache.get(key)
   if (cached) {

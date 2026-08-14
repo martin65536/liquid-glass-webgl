@@ -90,10 +90,11 @@ export const wallpaperMethods = {
    *  pixel-perfect squircle corners, vs the analytic sdRoundedRect which
    *  uses a circular arc approximation.
    *
-   *  Texture format: RGBA, 256×256 OR 512×512 (chosen dynamically by
-   *  generateContinuousCurvatureMask based on max(w,h)*dpr), LINEAR
-   *  filtering, CLAMP_TO_EDGE. The R channel holds the normalized SDF
-   *  (decoded as sample*2 - 1 in the shader); G and B mirror R; A = 255. */
+   *  Texture format: RGBA, 128²/256²/512²/1024² (chosen dynamically by
+   *  generateContinuousCurvatureMask — 2× oversampling rounded up to POT,
+   *  clamped [128,1024]), LINEAR filtering, CLAMP_TO_EDGE. The R channel
+   *  holds the normalized SDF (decoded as sample*2 - 1 in the shader);
+   *  G and B mirror R; A = 255. */
   loadContinuousSdf(this: LiquidGlassRenderer, w: number, h: number, radius: number) {
     // Debug probe: the挖0 (top-left 1/4 of R and/or G) happens on a COPY at
     // GPU upload time. The CPU maskCache (generateContinuousCurvatureMask)

@@ -117,9 +117,28 @@ void main() {
     vec2 layerScale = max(uLayerScale, vec2(1e-4));
     vec2 centeredOrig = centeredScreen / layerScale;
     vec2 origHalfSize = uOriginalSize * 0.5;
-    float sd = sdShape(rotateBy(centeredOrig, -uElementRotation), origHalfSize, uOriginalCornerRadius);
-    if (sd > 0.5) discard;
-    float clipAlpha = 1.0 - smoothstep(-0.5, 0.5, sd);
+    vec2 centeredOrigRot = rotateBy(centeredOrig, -uElementRotation);
+
+    // CLIP: for continuous-curvature (G2) elements, sample the R channel
+    // (browser-native AA coverage) directly — this gives the most accurate
+    // edge with NO exterior半透明 band. Using the G channel (SDF) with
+    // smoothstep(-0.5, 0.5) leaves a ~1px half-transparent fringe OUTSIDE
+    // the true shape edge (sd ∈ [0, 0.5] is not discarded but has < 1
+    // alpha), which lets the underlying glass body / shadow leak through
+    // as a thin dark line ("capsule 黑边"). R coverage is 0 outside the
+    // shape (browser AA only rasterizes the interior + edge), so the
+    // fringe is eliminated and the clip is pixel-tight.
+    // For G1 (analytic) elements, keep the SDF smoothstep — it's the
+    // only shape source available.
+    float clipAlpha;
+    if (uUseContinuousSdf > 0.5) {
+        clipAlpha = sampleClipMask(centeredOrigRot, origHalfSize, uOriginalCornerRadius);
+    } else {
+        float sd = sdRoundedRect(centeredOrigRot, origHalfSize, uOriginalCornerRadius);
+        if (sd > 0.5) discard;
+        clipAlpha = 1.0 - smoothstep(-0.5, 0.5, sd);
+    }
+    if (clipAlpha < 0.001) discard;
 
     gl_FragColor = vec4(uColor.rgb, uColor.a * clipAlpha);
 }
