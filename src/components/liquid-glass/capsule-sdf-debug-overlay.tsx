@@ -532,7 +532,7 @@ function HighlightMaskImage({ entry, index }: {
         ref={canvasRef}
         title={`#${index} ${ready ? 'ready' : 'NOT-ready'} — ${key}`}
         style={{
-          width: 72, height: 72, imageRendering: 'pixelated',
+          width: 56, height: 56, imageRendering: 'pixelated', objectFit: 'contain',
           background: '#000', border: `1px solid ${ready ? '#0cf' : '#f44'}`, borderRadius: 3,
         }}
       />
