@@ -74,6 +74,7 @@ const translations: Record<string, { zh: string; en: string }> = {
   settings_highlight_title:  { zh: '高光', en: 'Highlight' },
   settings_highlight_aa:     { zh: '高光抗锯齿', en: 'Highlight anti-aliasing' },
   settings_per_element_fbo:  { zh: '逐元素 FBO', en: 'Per-element FBO' },
+  settings_direct_backdrop_sample: { zh: '直接采样背景', en: 'Direct backdrop sample' },
   settings_reset:           { zh: '重置', en: 'Reset' },
 
   // Card category titles

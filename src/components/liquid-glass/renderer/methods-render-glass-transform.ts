@@ -277,7 +277,22 @@ export function computeElementTransform(
   //
   // This also means independent elements do NOT refract/blur each other's
   // glass bodies — each sees only the clean wallpaper as its backdrop.
-  const independent = !!(el.independentBackdrop && !this.backgroundColor && this.wallpaperTexture)
+  //
+  // directBackdropSample toggle (Settings, default ON): when ON, elements
+  // marked `directBackdropSample=true` (buttons, glass-shapes, back/theme
+  // buttons — those whose ORIGINAL behavior is LayerBackdrop) are ALSO
+  // treated as independent, sampling the clean wallpaper. This gives the
+  // original LayerBackdrop behavior + elFbo cache HIT every frame on static
+  // pages (the backdrop_overlap check is skipped for independent elements).
+  // When OFF, these elements sample the scene (curTex) so glass elements
+  // refract each other — visually richer but cache-busting. Toggling is live
+  // (no catalog rebuild) because this is computed at render time.
+  // Elements with their own backdrop semantics (CombinedBackdrop knobs/
+  // indicators, sampleWallpaper, backdropFbo) do NOT set directBackdropSample,
+  // so they are unaffected by this toggle.
+  const eligibleForDirect =
+    (el.independentBackdrop || (el.directBackdropSample && this.directBackdropSample))
+  const independent = !!(eligibleForDirect && !this.backgroundColor && this.wallpaperTexture)
 
   return {
     sx, sy, sw, sh, radii,

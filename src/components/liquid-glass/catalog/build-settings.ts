@@ -238,6 +238,33 @@ export function buildSettings(
     Object.assign(interactions, peFboToggle.interactions)
     nextY += BUTTON_HEIGHT + ITEM_GAP
 
+    // Direct backdrop sample toggle — when ON (default), glass elements that
+    // use the LayerBackdrop semantic in the original (buttons, glass shapes,
+    // back/theme buttons) sample the CLEAN wallpaper directly, NOT the
+    // accumulated scene (curTex). This matches the original Android source
+    // where LayerBackdrop captures the wallpaper Image via RenderEffect —
+    // glass elements do NOT refract/blur each other's bodies.
+    //
+    // Benefits: elFbo cache HIT every frame on static pages (no
+    // backdrop_overlap check), no invalidation cascade when one element
+    // moves, more energy-efficient. The renderer's computeElementTransform
+    // ORs this flag into the `independent` computation at render time, so
+    // toggling is live (no catalog rebuild).
+    const directToggle = makeSettingsToggle(
+      'settings-direct-backdrop-sample',
+      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT + ITEM_GAP },
+      t('settings_direct_backdrop_sample', locale),
+      state.directBackdropSample,
+      () => setState((prev) => ({ directBackdropSample: !prev.directBackdropSample })),
+      palette,
+      rendererRef,
+      true,
+      labelPad,
+    )
+    elements.push(...directToggle.elements)
+    Object.assign(interactions, directToggle.interactions)
+    nextY += BUTTON_HEIGHT + ITEM_GAP
+
     // Capsule shape toggle (smooth corners) — full card width row.
     // Independent toggle: when ON, elements opt into the G2
     // continuous-curvature SDF texture upgrade (smoother squircle corners).
@@ -663,7 +690,7 @@ export function buildSettings(
     elements.push(resetBtn)
     interactions['settings-reset'] = {
       onTap: () => {
-        setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 9, blurDownsample: 4, dynamicBlurDownsample: false, capsuleShape: true, noContinuousSdf: true, capsuleSdfQuality: 0.5, hideOverlayButtons: false, locale: 'zh', pageTransition: true, liveDpr: null, liveTapCap: null, liveBlurDownsample: null, liveCapsuleSdfQuality: null, showFps: false, showPerfMonitor: false, highlightAa: true, usePerElementFbo: false, perfProgress: null, perfDone: false, perfResultDpr: 0, perfStatusText: '' })
+        setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 9, blurDownsample: 4, dynamicBlurDownsample: false, capsuleShape: true, noContinuousSdf: true, capsuleSdfQuality: 0.5, hideOverlayButtons: false, locale: 'zh', pageTransition: true, liveDpr: null, liveTapCap: null, liveBlurDownsample: null, liveCapsuleSdfQuality: null, showFps: false, showPerfMonitor: false, highlightAa: true, usePerElementFbo: false, directBackdropSample: true, perfProgress: null, perfDone: false, perfResultDpr: 0, perfStatusText: '' })
         try { window.localStorage.removeItem('liquid-glass-perf-dpr') } catch {}
         const d = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
         const dprFrac = (d - 0.5) / Math.max(0.0001, d - 0.5)

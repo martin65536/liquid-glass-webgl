@@ -574,6 +574,33 @@ export interface CatalogState {
   // expected visual change. Kept as a toggle so it can be disabled if any
   // element shows a visual regression.
   usePerElementFbo: boolean
+  // Settings — "direct backdrop sample" toggle. When true (default), glass
+  // elements that use the LayerBackdrop semantic in the original Android
+  // source (buttons, glass shapes, back/theme buttons, etc.) sample the CLEAN
+  // wallpaper directly instead of the accumulated scene (curTex). This matches
+  // the original where LayerBackdrop captures the wallpaper Image via
+  // RenderEffect — glass elements do NOT refract/blur each other's bodies.
+  //
+  // Benefits (vs. sampling curTex):
+  //   1. elFbo cache HIT every frame on static pages (no backdrop_overlap
+  //      check needed — the wallpaper never changes). Drastically reduces
+  //      GPU work on idle/animation frames.
+  //   2. No backdrop_overlap invalidation cascade when one glass element
+  //      moves — others don't sample the scene, so they keep their cache.
+  //   3. More energy-efficient (the main motivation for this toggle).
+  //
+  // When false, elements with independentBackdrop=false sample the scene
+  // (curTex), so glass elements DO refract each other — visually richer but
+  // every scene change invalidates overlapping caches and forces re-raster.
+  //
+  // Implementation: the renderer's computeElementTransform ORs this flag into
+  // the `independent` computation, so toggling it live flips all eligible
+  // elements between wallpaper-sampling and scene-sampling without rebuilding
+  // the catalog. Elements with explicit CombinedBackdrop semantics (toggle/
+  // slider knob, bottom-tab indicator) and elements that deliberately sample
+  // the scene (magnifier, gp-sheet, dialog card via sampleWallpaper) are NOT
+  // affected — they have their own backdrop resolution.
+  directBackdropSample: boolean
   // Performance benchmark: null = not running, 'running' = in progress
   perfProgress: string | null
   // Performance benchmark: status text displayed on the benchmark page
@@ -650,6 +677,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   showPerfMonitor: false,
   highlightAa: true,
   usePerElementFbo: true,
+  directBackdropSample: true,
   perfProgress: null,
   perfStatusText: '',
   perfDone: false,

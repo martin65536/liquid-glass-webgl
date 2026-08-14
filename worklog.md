@@ -2280,3 +2280,96 @@ Stage Summary:
   radius / Blur radius / Chromatic aberration 原本就在签名里，正常）。
   其他页面不受影响（它们的 element 不依赖 refractionHeight/Amount 的
   运行时变化）。
+
+---
+Task ID: 72
+Agent: main (Z.ai Code)
+Task: 新增「直接采样背景」开关 — 让原版 LayerBackdrop 元素采样干净壁纸，每帧 cache HIT，更节能
+
+Work Log:
+- 背景：用户分析认为原版 Android 源码里大部分玻璃元素用 LayerBackdrop
+  （采样干净壁纸，不折射其他玻璃），而当前 web port 的按钮/back/theme 按钮
+  被设成 independentBackdrop=false（采样场景 curTex），导致：
+  1. 每帧要检查 backdrop_overlap，静态页也 cache MISS
+  2. 一个玻璃元素移动会 invalidate 其他玻璃的 cache
+  3. 软件渲染器上 CPU 开销大
+  用户要求加一个开关让这些元素回到 LayerBackdrop 语义，默认打开。
+
+- 设计决策：不修改 catalog builder 的 independentBackdrop（保持 false 以兼容
+  separable blur 路径），而是在 renderer 层加一个运行时开关 directBackdropSample。
+  computeElementTransform 在计算 `independent` 时 OR 上这个开关：
+    eligibleForDirect = el.independentBackdrop || (el.directBackdropSample && this.directBackdropSample)
+    independent = eligibleForDirect && !backgroundColor && wallpaperTexture
+  这样 toggling 是 live 的（不需要 catalog rebuild），只 markAllDirty +
+  requestRender 即可。
+
+- 修复 1 — renderer/types.ts：GlassElementConfig 新增 directBackdropSample?: boolean
+  字段，标记该元素的 ORIGINAL 行为是 LayerBackdrop（应由开关控制）。注释说明
+  哪些元素该设、哪些不该设（CombinedBackdrop / sampleWallpaper / backdropFbo /
+  gp-sheet 不设）。
+
+- 修复 2 — catalog/helpers.ts：
+  * makeButton: 加 directBackdropSample: true
+  * makeBackButton: 加 directBackdropSample: true
+  * makeThemeToggleButton: 加 directBackdropSample: true
+  makeGlassShape 默认 independentBackdrop=true 已经会采样壁纸，不需要额外
+  标记（eligibleForDirect 的第一个条件 el.independentBackdrop 已覆盖）。
+
+- 修复 3 — renderer/index.ts：新增 directBackdropSample = true 字段，带详细
+  docstring 说明语义、收益、不受影响的元素类型。
+
+- 修复 4 — renderer/methods-render-glass-transform.ts：computeElementTransform
+  的 `independent` 计算改为 OR 上 directBackdropSample 开关。注释解释：
+  * ON (默认): eligible 元素采样壁纸 → elFbo cache HIT 每帧（backdrop_overlap
+    检查对 independent 元素跳过）→ 静态页几乎零 GPU 开销
+  * OFF: eligible 元素采样场景 → 玻璃互相折射（视觉更丰富但 cache-busting）
+
+- 修复 5 — catalog/types.ts：CatalogState 新增 directBackdropSample: boolean
+  字段（默认 true）+ DEFAULT_CATALOG_STATE 设 true。带详细 docstring。
+
+- 修复 6 — catalog/i18n.ts：
+  * settings_direct_backdrop_sample: { zh: '直接采样背景', en: 'Direct backdrop sample' }
+
+- 修复 7 — catalog/build-settings.ts：在 Per-element FBO toggle 之后加
+  directBackdropSample toggle（同一张 Rendering 卡片）。Reset 按钮加
+  directBackdropSample: true。
+
+- 修复 8 — context.tsx：
+  * LiquidGlassCanvasProps 新增 directBackdropSample?: boolean prop。
+  * 解构 props 加 directBackdropSample。
+  * 新增 sync effect：directBackdropSample 变化时设置 renderer.directBackdropSample
+    + markAllDirty + requestRender。markAllDirty 是因为 toggling 改变 `independent`，
+    cached elFbo（baked against 旧 backdrop source）对新 source 是 stale 的，
+    必须重新光栅化。不需要清纹理缓存（wallpaper texture + elFbo pool 复用）。
+
+- 修复 9 — page.tsx：
+  * loadPersistedSettings: 读 directBackdropSample (默认 true)。
+  * 持久化条件 + 保存字段加 directBackdropSample。
+  * toggleTargets: 加 settings-direct-backdrop-sample 映射。
+  * useMemo deps: 加 state.directBackdropSample。
+  * LiquidGlassCanvas: 传 directBackdropSample={state.directBackdropSample} prop。
+
+- Agent Browser 验证：
+  * Settings 页：VLM 确认「直接采样背景」开关可见，位于 Per-element FBO 下面，
+    默认 ON（绿色）。
+  * 开关 OFF → localStorage 持久化 directBackdropSample: false ✓
+  * 开关 ON → localStorage 持久化 directBackdropSample: true ✓
+  * Buttons 页（ON）：返回按钮玻璃背景正常，glass buttons 正常渲染 ✓
+  * Buttons 页（OFF）：同样正常渲染（玻璃互相折射）✓
+  * Toggle 页（ON）：返回按钮玻璃背景正常，toggle switches 可见 ✓
+  * bun run lint: 0 errors。dev.log: 干净，所有页面 200。
+
+Stage Summary:
+- 新增「直接采样背景」开关到 Settings → Rendering 卡片，默认 ON。
+- 语义：ON 时，原版 LayerBackdrop 元素（按钮/glass-shape/back/theme 按钮）
+  采样干净壁纸（不折射其他玻璃），匹配原版 Android LayerBackdrop via RenderEffect。
+  elFbo cache HIT 每帧（backdrop_overlap 检查对 independent 元素跳过）→ 静态页
+  几乎零 GPU 开销，更节能。
+- OFF 时：这些元素采样场景 curTex，玻璃互相折射（视觉更丰富但 cache-busting）。
+- 实现：renderer.directBackdropSample 字段 + el.directBackdropSample 标记 +
+  computeElementTransform 运行时 OR。toggling live（不需要 catalog rebuild），
+  markAllDirty + requestRender 即可。
+- 不受影响：CombinedBackdrop (toggle/slider knob, indicator)、sampleWallpaper
+  (dialog card, magnifier)、backdropFbo、gp-sheet（故意采样场景折射 square）。
+  固态背景页（Home/Settings/About）independent 强制 false，开关无效。
+- 持久化到 localStorage，Reset 按钮重置到 true。

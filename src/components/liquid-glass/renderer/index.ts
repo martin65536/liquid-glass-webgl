@@ -344,6 +344,28 @@ export class LiquidGlassRenderer {
    *  to 1.0 (analytic) when the element has useContinuousSdf=false. Default
    *  true (ON = strip G2 SDF from refraction). */
   noContinuousSdf = true
+  /** "Direct backdrop sample" toggle (Settings, default true). When true,
+   *  glass elements that use the LayerBackdrop semantic in the original
+   *  Android source (buttons, glass shapes, back/theme buttons — i.e. those
+   *  with `independentBackdrop` set, OR eligible elements when this flag is
+   *  on) sample the CLEAN wallpaper directly instead of the accumulated scene
+   *  (curTex). computeElementTransform ORs this flag into the `independent`
+   *  computation so toggling is live (no catalog rebuild needed).
+   *
+   *  Benefits: elFbo cache HIT every frame on static pages (the
+   *  backdrop_overlap cache-miss check is skipped for independent elements),
+   *  no invalidation cascade when one glass element moves, lower GPU/CPU
+   *  usage. Matches the original where LayerBackdrop = wallpaper via
+   *  RenderEffect (glass elements don't refract each other).
+   *
+   *  Elements with their own backdrop semantics are NOT affected:
+   *    - CombinedBackdrop (toggle/slider knob, bottom-tab indicator) — they
+   *      have shouldUseSeparableBlur()=false and sample wallpaper+track inline.
+   *    - sampleWallpaper elements (dialog card, magnifier) — explicit flag.
+   *    - backdropFbo elements — use their own dialogBackdropTex.
+   *  On solid-background pages (Home/Settings/About), `independent` is forced
+   *  false anyway (no wallpaper to sample), so this flag is a no-op there. */
+  directBackdropSample = true
   /** Per-element FBO optimization toggle (Settings). When true, each glass
    *  element renders into a small bbox-sized FBO instead of a fullscreen
    *  ping-pong blit. See methods-render-glass.ts.

@@ -95,6 +95,7 @@ export default function Page() {
         showFps: typeof parsed.showFps === 'boolean' ? parsed.showFps : false,
         usePerElementFbo: typeof parsed.usePerElementFbo === 'boolean' ? parsed.usePerElementFbo : true,
         showPerfMonitor: typeof parsed.showPerfMonitor === 'boolean' ? parsed.showPerfMonitor : false,
+        directBackdropSample: typeof parsed.directBackdropSample === 'boolean' ? parsed.directBackdropSample : true,
       }
     } catch { return {} }
   }
@@ -564,7 +565,7 @@ export default function Page() {
              p.capsuleShape !== undefined || p.noContinuousSdf !== undefined || p.capsuleSdfQuality !== undefined || p.hideOverlayButtons !== undefined ||
              p.locale !== undefined || p.pageTransition !== undefined ||
              p.showFps !== undefined || p.usePerElementFbo !== undefined ||
-             p.showPerfMonitor !== undefined)) {
+             p.showPerfMonitor !== undefined || p.directBackdropSample !== undefined)) {
           try {
             window.localStorage.setItem(SETTINGS_KEY, JSON.stringify({
               customDpr: next.customDpr,
@@ -581,6 +582,7 @@ export default function Page() {
               showFps: next.showFps,
               usePerElementFbo: next.usePerElementFbo,
               showPerfMonitor: next.showPerfMonitor,
+              directBackdropSample: next.directBackdropSample,
             }))
           } catch { /* ignore quota errors */ }
         }
@@ -856,10 +858,11 @@ export default function Page() {
       targets['settings-fps-toggle'] = state.showFps ? 1 : 0
       targets['settings-highlight-aa'] = state.highlightAa ? 1 : 0
       targets['settings-per-element-fbo'] = state.usePerElementFbo ? 1 : 0
+      targets['settings-direct-backdrop-sample'] = state.directBackdropSample ? 1 : 0
       targets['settings-perf-monitor-toggle'] = state.showPerfMonitor ? 1 : 0
     }
     return targets
-  }, [destination, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration, state.customDpr, state.blurTapCap, state.blurDownsample, state.globalSeparableBlur, state.dynamicBlurDownsample, state.capsuleShape, state.noContinuousSdf, state.capsuleSdfQuality, state.hideOverlayButtons, state.pageTransition, state.showFps, state.highlightAa, state.usePerElementFbo, state.showPerfMonitor])
+  }, [destination, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration, state.customDpr, state.blurTapCap, state.blurDownsample, state.globalSeparableBlur, state.dynamicBlurDownsample, state.capsuleShape, state.noContinuousSdf, state.capsuleSdfQuality, state.hideOverlayButtons, state.pageTransition, state.showFps, state.highlightAa, state.usePerElementFbo, state.showPerfMonitor, state.directBackdropSample])
 
   // Tab targets use a separate prop because they need setTabSelected
   // (which sets pressedScale=78/56, not toggle's 1.5).
@@ -1087,6 +1090,7 @@ export default function Page() {
           usePerElementFbo={perfMeasuring ? false : state.usePerElementFbo}
           capsuleSdfQuality={state.capsuleSdfQuality}
           noContinuousSdf={state.noContinuousSdf}
+          directBackdropSample={state.directBackdropSample}
           perfMonitorEnabled={state.showPerfMonitor}
           className="w-full h-full"
           onReady={() => setRendererReady(true)}

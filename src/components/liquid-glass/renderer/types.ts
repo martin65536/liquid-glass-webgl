@@ -507,6 +507,25 @@ export interface GlassElementConfig extends GlassButtonConfig {
    *  RenderEffect rather than compositing the scene. Ignored when the page
    *  has a solid backgroundColor (renderer.backgroundColor !== null). */
   independentBackdrop?: boolean
+  /** Marks this element as one that uses the LayerBackdrop semantic in the
+   *  original Android source — i.e. it SHOULD sample the clean wallpaper
+   *  (not the scene) per the original design. Set by catalog builders on
+   *  buttons / glass-shapes / back-theme buttons that have
+   *  `independentBackdrop=false` (for separable-blur compatibility) but
+   *  whose ORIGINAL behavior is LayerBackdrop.
+   *
+   *  When the renderer's `directBackdropSample` toggle is ON (default),
+   *  computeElementTransform treats these elements as `independent` (sampling
+   *  the wallpaper) — giving the original LayerBackdrop behavior + elFbo cache
+   *  HIT every frame on static pages. When OFF, they sample the scene (curTex),
+   *  so glass elements refract each other (visually richer but cache-busting).
+   *
+   *  Elements with their own backdrop semantics do NOT set this flag:
+   *    - CombinedBackdrop (toggle/slider knob, bottom-tab indicator)
+   *    - sampleWallpaper elements (dialog card, magnifier)
+   *    - backdropFbo elements
+   *    - gp-sheet (deliberately samples scene to refract the gp-square) */
+  directBackdropSample?: boolean
 }
 
 /* Per-element interaction state — mirrors InteractiveHighlight.kt. */

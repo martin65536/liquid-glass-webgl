@@ -308,6 +308,12 @@ export function makeButton(
     // sample the wallpaper snapshot (bgOnlyTex) instead — faithful to the
     // original LayerBackdrop, with separableBlur quality.
     independentBackdrop: false,
+    // Mark as LayerBackdrop-eligible: when the renderer's directBackdropSample
+    // toggle is ON (default), computeElementTransform treats this button as
+    // independent (sampling the clean wallpaper) — matching the original
+    // Android source where buttons use LayerBackdrop via RenderEffect. This
+    // gives elFbo cache HIT every frame on static pages (no backdrop_overlap).
+    directBackdropSample: true,
   }
 }
 
@@ -708,6 +714,10 @@ export function makeBackButton(
     // on backdrop_overlap (scroll / overlapping element changes), same as
     // the dialog card and bottom-tab container.
     independentBackdrop: false,
+    // LayerBackdrop-eligible (see makeButton): when directBackdropSample is
+    // ON (default), samples the clean wallpaper — original LayerBackdrop
+    // behavior, elFbo cache HIT every frame on static pages.
+    directBackdropSample: true,
     highlight: null, // no edge highlight on the back button
     outerShadow: { ...DEFAULT_SHADOW }, // faithful to drawBackdrop default: Shadow.Default
     label: '', // no text label — icon replaces it
@@ -759,6 +769,9 @@ export function makeThemeToggleButton(
     surfaceColor: palette.buttonSurface,
     // Use the separable-blur backdrop path (see makeButton / makeBackButton).
     independentBackdrop: false,
+    // LayerBackdrop-eligible (see makeButton): when directBackdropSample is
+    // ON (default), samples the clean wallpaper.
+    directBackdropSample: true,
     highlight: null, // no edge highlight (matches back button)
     outerShadow: { ...DEFAULT_SHADOW }, // faithful to drawBackdrop default: Shadow.Default
     label: '',

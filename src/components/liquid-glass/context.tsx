@@ -94,6 +94,16 @@ export interface LiquidGlassCanvasProps {
    *  the refraction/lens body forces the analytic sdRoundedRect (ignores the
    *  G2 SDF texture). The clip mask is NOT affected. Default true. */
   noContinuousSdf?: boolean
+  /** "Direct backdrop sample" toggle. When true (default), glass elements
+   *  marked `directBackdropSample` (buttons, glass-shapes, back/theme buttons
+   *  — those whose original behavior is LayerBackdrop) sample the CLEAN
+   *  wallpaper instead of the scene (curTex). Gives elFbo cache HIT every
+   *  frame on static pages + no backdrop_overlap invalidation. The renderer's
+   *  computeElementTransform reads this field at render time, so toggling is
+   *  live (no catalog rebuild) — we just push the value + markAllDirty +
+   *  requestRender so the next frame re-evaluates `independent` for every
+   *  eligible element. */
+  directBackdropSample?: boolean
   /** Performance monitor toggle. When true, the renderer's PerfMonitor is
    *  enabled (frame timing + per-frame render counters + GPU info). The
    *  React overlay (rendered by the parent) polls the snapshot. */
@@ -186,6 +196,7 @@ export function LiquidGlassCanvas({
   usePerElementFbo,
   capsuleSdfQuality,
   noContinuousSdf,
+  directBackdropSample,
   perfMonitorEnabled,
 }: LiquidGlassCanvasProps) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
@@ -391,6 +402,22 @@ export function LiquidGlassCanvas({
     renderer.markAllDirty()
     renderer.requestRender()
   }, [noContinuousSdf])
+
+  // Apply the "direct backdrop sample" toggle. computeElementTransform reads
+  // renderer.directBackdropSample at render time to decide whether eligible
+  // elements (those with el.directBackdropSample=true) sample the wallpaper
+  // (independent=true) or the scene (independent=false). Toggling flips the
+  // `independent` flag for all eligible elements, so their cached elFbo (baked
+  // against one backdrop source) is now stale against the other — markAllDirty
+  // forces re-rasterization on the next frame. No texture/cache rebuild needed
+  // (the wallpaper texture + elFbo pool are reused, just re-baked).
+  React.useEffect(() => {
+    const renderer = rendererRefInternal.current
+    if (!renderer || directBackdropSample == null) return
+    renderer.directBackdropSample = directBackdropSample
+    renderer.markAllDirty()
+    renderer.requestRender()
+  }, [directBackdropSample])
 
   // Apply perf-monitor enable toggle when it changes (Settings page).
   // When turning ON, reset accumulated stats so the overlay starts fresh.
