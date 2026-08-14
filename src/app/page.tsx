@@ -678,6 +678,16 @@ export default function Page() {
     return () => window.removeEventListener('popstate', onPopState)
   }, [state.pageTransition, transPhase])
 
+  // Invalidate every element's elFbo cache on page change. Without this, the
+  // back button (and other glass elements) can render against a stale backdrop
+  // cached from the previous page — e.g. entering the Toggle page shows an
+  // empty/old backdrop on the back button because its elFbo still holds the
+  // prior page's sampled scene. markAllDirty flips all cache entries invalid
+  // so the next frame re-rasterizes every element against the new page's scene.
+  React.useEffect(() => {
+    rendererRef.current?.markAllDirty()
+  }, [destination])
+
   React.useEffect(() => {
     const update = () => {
       // Use window.innerHeight for the frame height — it accounts for the
