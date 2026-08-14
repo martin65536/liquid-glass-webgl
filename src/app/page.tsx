@@ -73,13 +73,13 @@ export default function Page() {
       const raw = window.localStorage.getItem(SETTINGS_KEY)
       if (!raw) return {}
       const parsed = JSON.parse(raw)
-      // originalCorners is the master toggle; capsuleShape is its synced
-      // inverse. Migrate from old capsuleShape-only state if originalCorners
-      // is not yet persisted.
-      const originalCorners = typeof parsed.originalCorners === 'boolean'
-        ? parsed.originalCorners
-        : typeof parsed.capsuleShape === 'boolean'
-          ? !parsed.capsuleShape
+      // noContinuousSdf is an independent master switch (default true = ON =
+      // skip G2 SDF texture, use analytic Rmask glass). capsuleShape stays
+      // independent. Migrate from the old originalCorners field name if present.
+      const noContinuousSdf = typeof parsed.noContinuousSdf === 'boolean'
+        ? parsed.noContinuousSdf
+        : typeof parsed.originalCorners === 'boolean'
+          ? parsed.originalCorners
           : true
       return {
         customDpr: typeof parsed.customDpr === 'number' ? parsed.customDpr : 0,
@@ -87,8 +87,8 @@ export default function Page() {
         blurTapCap: typeof parsed.blurTapCap === 'number' ? parsed.blurTapCap : 9,
         blurDownsample: typeof parsed.blurDownsample === 'number' ? Math.max(1, Math.min(8, parsed.blurDownsample)) : 4,
         dynamicBlurDownsample: typeof parsed.dynamicBlurDownsample === 'boolean' ? parsed.dynamicBlurDownsample : false,
-        capsuleShape: !originalCorners,
-        originalCorners,
+        capsuleShape: typeof parsed.capsuleShape === 'boolean' ? parsed.capsuleShape : true,
+        noContinuousSdf,
         capsuleSdfQuality: typeof parsed.capsuleSdfQuality === 'number' ? Math.max(0.25, Math.min(1.0, parsed.capsuleSdfQuality)) : 0.5,
         locale: (parsed.locale === 'zh' || parsed.locale === 'en') ? parsed.locale : 'zh',
         pageTransition: typeof parsed.pageTransition === 'boolean' ? parsed.pageTransition : true,
@@ -561,7 +561,7 @@ export default function Page() {
             (p.customDpr !== undefined || p.globalSeparableBlur !== undefined ||
              p.blurTapCap !== undefined || p.blurDownsample !== undefined ||
              p.dynamicBlurDownsample !== undefined ||
-             p.capsuleShape !== undefined || p.originalCorners !== undefined || p.capsuleSdfQuality !== undefined || p.hideOverlayButtons !== undefined ||
+             p.capsuleShape !== undefined || p.noContinuousSdf !== undefined || p.capsuleSdfQuality !== undefined || p.hideOverlayButtons !== undefined ||
              p.locale !== undefined || p.pageTransition !== undefined ||
              p.showFps !== undefined || p.usePerElementFbo !== undefined ||
              p.showPerfMonitor !== undefined)) {
@@ -573,7 +573,7 @@ export default function Page() {
               blurDownsample: next.blurDownsample,
               dynamicBlurDownsample: next.dynamicBlurDownsample,
               capsuleShape: next.capsuleShape,
-              originalCorners: next.originalCorners,
+              noContinuousSdf: next.noContinuousSdf,
               capsuleSdfQuality: next.capsuleSdfQuality,
               hideOverlayButtons: next.hideOverlayButtons,
               locale: next.locale,
@@ -840,7 +840,7 @@ export default function Page() {
       targets['settings-blur-global'] = state.globalSeparableBlur ? 1 : 0
       targets['settings-blur-dynamic-ds'] = state.dynamicBlurDownsample ? 1 : 0
       targets['settings-shape-capsule'] = state.capsuleShape ? 1 : 0
-      targets['settings-original-corners'] = state.originalCorners ? 1 : 0
+      targets['settings-no-continuous-sdf'] = state.noContinuousSdf ? 1 : 0
       targets['settings-ui-hide-overlays'] = state.hideOverlayButtons ? 1 : 0
       targets['settings-transition-toggle'] = state.pageTransition ? 1 : 0
       targets['settings-fps-toggle'] = state.showFps ? 1 : 0
@@ -849,7 +849,7 @@ export default function Page() {
       targets['settings-perf-monitor-toggle'] = state.showPerfMonitor ? 1 : 0
     }
     return targets
-  }, [destination, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration, state.customDpr, state.blurTapCap, state.blurDownsample, state.globalSeparableBlur, state.dynamicBlurDownsample, state.capsuleShape, state.originalCorners, state.capsuleSdfQuality, state.hideOverlayButtons, state.pageTransition, state.showFps, state.highlightAa, state.usePerElementFbo, state.showPerfMonitor])
+  }, [destination, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration, state.customDpr, state.blurTapCap, state.blurDownsample, state.globalSeparableBlur, state.dynamicBlurDownsample, state.capsuleShape, state.noContinuousSdf, state.capsuleSdfQuality, state.hideOverlayButtons, state.pageTransition, state.showFps, state.highlightAa, state.usePerElementFbo, state.showPerfMonitor])
 
   // Tab targets use a separate prop because they need setTabSelected
   // (which sets pressedScale=78/56, not toggle's 1.5).
