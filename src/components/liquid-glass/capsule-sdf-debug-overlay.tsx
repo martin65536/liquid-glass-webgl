@@ -117,6 +117,12 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
     // fresh pool entry next frame — the CPU maskCache is never touched.
     // markAllDirty forces every capsule element's elFbo to re-raster so
     // the new (挖0'd or clean) SDF texture is sampled immediately.
+    // Clear the probed-upload snapshot map so the "GPU upload (probed)"
+    // view shows ONLY entries from the new probe state — otherwise the
+    // previous state's snapshots (keyed r1,g0 vs r0,g1) would linger and
+    // double the thumbnail count on each toggle. They regenerate on the
+    // next render's pool MISSes (markAllDirty forces a full re-raster).
+    r._debugUploadedSdfTexMap.clear()
     r.markAllDirty()
     r.requestRender()
   }
@@ -933,36 +939,68 @@ function EdgeScanView({ scan }: { scan: EdgeScanResult }) {
   )
 }
 
-/** Renders the last GPU-uploaded (挖0'd) capsule SDF texture when a hole
- *  probe (R / G) is active. Reads renderer._debugLastUploadedSdfTex — a
- *  snapshot of the exact bytes sent to texImage2D, INCLUDING the挖0. The
- *  CPU maskCache is clean (挖0 happens on a copy at upload time), so we
- *  can't read the cache here — we must read this debug snapshot instead.
- *  Extracted as a component so ref access stays at the top level (satisfies
- *  react-hooks/refs). Polls every POLL_MS so the snapshot refreshes when
- *  the user toggles R/G or resizes the element. */
+/** Renders ALL GPU-uploaded (挖0'd) capsule SDF textures when a hole probe
+ *  (R / G) is active. Reads renderer._debugUploadedSdfTexMap — a Map of
+ *  snapshots of the exact bytes sent to texImage2D, keyed by cache key,
+ *  INCLUDING the挖0. The CPU maskCache is clean (挖0 happens on a copy at
+ *  upload time), so we can't read the cache here — we must read these debug
+ *  snapshots instead.
+ *
+ *  Previously this read a SINGLE snapshot (_debugLastUploadedSdfTex) which
+ *  only held the MOST RECENT upload — so when a probe was active and
+ *  multiple capsule elements were on screen (e.g. GP square + 5 knobs),
+ *  only ONE thumbnail showed. Now it reads the whole Map so every probed
+ *  texture displays. Each entry is also tagged `active` (matches a
+ *  currently-on-screen element) so orphans are dimmed, matching the
+ *  non-probed view's behavior.
+ *
+ *  Polls every POLL_MS so the snapshots refresh when the user toggles R/G
+ *  or resizes the element. */
 function ProbedUploadImage({ rendererRef }: { rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> }) {
-  const [entry, setEntry] = React.useState<MaskCacheEntry | null>(null)
+  const [entries, setEntries] = React.useState<Array<MaskCacheEntry & { active: boolean }>>([])
   React.useEffect(() => {
     const id = setInterval(() => {
       const r = rendererRef.current
-      const up = r?._debugLastUploadedSdfTex
-      if (up && r._debugLastUploadedSdfTexSize) {
-        setEntry({
-          key: r._debugLastUploadedSdfKey || 'probed-upload',
-          tex: up,
-          texSize: r._debugLastUploadedSdfTexSize,
-        })
+      if (!r) return
+      const map = r._debugUploadedSdfTexMap
+      if (map.size === 0) {
+        if (entries.length !== 0) setEntries([])
+        return
       }
+      // Build the active-prefix set the same way the non-probed view does,
+      // so we can tag each probed entry active/orphan for visual dimming.
+      const activePrefixes = new Set<string>()
+      for (const e of r.buttonConfigs) {
+        if (e.useContinuousSdf && e.rect.w > 0 && e.rect.h > 0) {
+          // The probed-upload key is the GPU pool key (includes dpr/quality/
+          // skipSdf/holeR/holeG suffixes), but the element-identity prefix
+          // is still `${w},${h},${radius},` — same as the maskCache key.
+          activePrefixes.add(`${e.rect.w},${e.rect.h},${e.cornerRadius},`)
+        }
+      }
+      const out: Array<MaskCacheEntry & { active: boolean }> = []
+      let i = 0
+      for (const [key, v] of map) {
+        const c1 = key.indexOf(',')
+        const c2 = key.indexOf(',', c1 + 1)
+        const c3 = key.indexOf(',', c2 + 1)
+        const isActive = c1 >= 0 && c2 >= 0 && c3 >= 0
+          && activePrefixes.has(key.slice(0, c3 + 1))
+        out.push({ key, tex: v.tex, texSize: v.texSize, active: isActive })
+        i++
+      }
+      setEntries(out)
     }, POLL_MS)
     return () => clearInterval(id)
-  }, [rendererRef])
-  if (!entry) {
+  }, [rendererRef, entries.length])
+  if (entries.length === 0) {
     return <div style={{ color: '#666' }}>No probed upload yet — toggle R/G, then trigger a capsule render (e.g. drag a slider).</div>
   }
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-      <PackImage key={entry.key} entry={entry} index={0} />
+      {entries.map((e, i) => (
+        <PackImage key={e.key} entry={e} index={i} active={e.active} />
+      ))}
     </div>
   )
 }

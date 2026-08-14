@@ -709,9 +709,19 @@ export class LiquidGlassRenderer {
    *  null until the first upload, and cleared on pool hit (no upload that
    *  frame). Stays null if no probe is active (overlay reads the clean
    *  maskCache directly in that case — same data, less memory). */
-  _debugLastUploadedSdfTex: Uint8Array | null = null
-  _debugLastUploadedSdfKey = ''
-  _debugLastUploadedSdfTexSize = 0
+  _debugUploadedSdfTexMap = new Map<string, { tex: Uint8Array; texSize: number }>()
+  get _debugLastUploadedSdfTex(): Uint8Array | null {
+    const arr = Array.from(this._debugUploadedSdfTexMap.values())
+    return arr.length ? arr[arr.length - 1].tex : null
+  }
+  get _debugLastUploadedSdfKey(): string {
+    const arr = Array.from(this._debugUploadedSdfTexMap.keys())
+    return arr.length ? arr[arr.length - 1] : ''
+  }
+  get _debugLastUploadedSdfTexSize(): number {
+    const arr = Array.from(this._debugUploadedSdfTexMap.values())
+    return arr.length ? arr[arr.length - 1].texSize : 0
+  }
 
   /** Edge scan probe — pending request. Set by debugReadEdgeScanline(),
    *  consumed by _debugFlushPendingEdgeScan() at the end of render().
@@ -740,6 +750,7 @@ export class LiquidGlassRenderer {
     this._lastCapsuleGenMs = 0
     this._lastCapsuleUploadMs = 0
     this._lastCapsuleKey = ''
+    this._debugUploadedSdfTexMap.clear()
   }
 
   /** Clear the Canvas2D stroke-mask cache (highlight rim + inner-shadow
@@ -1487,6 +1498,7 @@ export class LiquidGlassRenderer {
     this.continuousSdfPool.clear()
     this.continuousSdfTexture = null
     this.continuousSdfKey = null
+    this._debugUploadedSdfTexMap.clear()
     gl.deleteProgram(this.elementProgram)
     gl.deleteProgram(this.shadowProgram)
     gl.deleteProgram(this.wallpaperProgram)

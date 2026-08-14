@@ -2458,3 +2458,89 @@ Stage Summary:
   （不检查 noContinuousSdf），新逻辑下自动正确（R 照常绑定）—— 无需改。
 - directBackdropSample 开关位置确认已在渲染卡片最末尾（capsule quality label 之后），
   上一会话已完成移动，本次无需再动。
+
+---
+Task ID: 73
+Agent: main (Z.ai Code)
+Task: CPU maskCache 内存泄漏 + debugger 只显示 1 个 probed 图像 两个 bug
+
+Work Log:
+- 用户报告：capsuleSdfDebugger 的 Pack images 视图显示 "active: 4 of 671 cached"
+  + "667 orphaned entries hidden (no longer on screen). Click 'clr' to purge all."
+  并且打开 R/G 裁剪探针时只显示 1 个图像。
+
+- 架构诊断：发现存在两层独立缓存：
+  * GPU continuousSdfPool (renderer/index.ts L678): WebGLTexture，LRU 上限 16 条 ✓
+  * CPU maskCache (continuous-mask.ts L25): Uint8Array RGBA，**无淘汰机制**，
+    只能通过 'clr' 按钮手动 clear → 拖 corner-radius slider 会无限累积 →
+    671 条目泄漏（每条 64KB~4MB，实测可达 ~170MB）
+  "max 16" 是 GPU pool 的上限，CPU cache 之前完全无界。
+
+- Bug 1 修复 — continuous-mask.ts: 给 CPU maskCache 加 32MB byte-budget LRU：
+  * 新增 MAX_MASK_CACHE_BYTES = 32MB + maskCacheBytes 计数器
+  * generateContinuousCurvatureMask 的 cache HIT 路径：delete+set 重新插入，
+    把命中的 entry 移到 Map 末尾（true LRU recency，不是 FIFO）。这至关重要 ——
+    FIFO 会让先插入的 active 元素先被淘汰，导致 active 元素每帧 cache MISS
+    重新生成（cache thrashing，比无界更糟）。
+  * MISS→set 之后：while (bytes > 32MB && size > 1) evict Map head（最旧）。
+    size>1 guard 防止单条超大 entry 导致无限淘汰循环。
+  * 导出 getMaskCacheBytes() / getMaskCacheSize() / getMaskCacheMaxBytes()
+    供 debugger 显示内存占用。
+  * clearMaskCache() 同步重置 maskCacheBytes = 0。
+  * 文件头 docstring 更新说明两层缓存（CPU byte-budget LRU + GPU 16-entry LRU）。
+
+- Bug 2 修复 — capsule-sdf-debug-overlay.tsx: debugger 改为显示所有 cache 条目
+  （包括 orphan），而不是过滤掉 orphan：
+  * 用户要求"改成显示所有的 cache"。之前 active-element filter 把 orphan 全部
+    隐藏，只显示 active 条目。现在显示所有条目，orphan 用 dim 样式（opacity 0.4
+    + grayscale 0.7 + 灰色边框 + '·' 标记）区分。
+  * maskEntries state 类型改为 Array<MaskCacheEntry & { active: boolean }>，
+    poll 时为每条 entry 计算 active flag（匹配当前 buttonConfigs 的 w/h/radius
+    前缀）。
+  * Pack images 头部改为 "N entries (A active, O orphan), Z.Z MB / 32 MB LRU"。
+  * Summary 区新增常驻 "CPU cache: N entries, Z.Z/32 MB LRU" 行（fillPct 颜色
+    green→red），即使不点 img 也能看到内存占用。
+  * maskTotalCount/maskBytes 改为每帧 poll（O(1) getMaskCacheSize/Bytes），
+    不再只在 showPackImages 时读取。
+
+- Bug 3 修复 — R/G probe 只显示 1 个图像：
+  * 根因：renderer._debugLastUploadedSdfTex 是单字段，每次 loadContinuousSdf
+    的 pool MISS 都会覆盖它。多 capsule 元素（GP square + 5 knobs）同帧渲染时，
+    只有最后一个 upload 的快照保留 → Pack images 只显示 1 个 thumbnail。
+  * 修复：把单字段改成 _debugUploadedSdfTexMap: Map<key, {tex, texSize}>，
+    按缓存 key 索引。保留向后兼容的 getter（_debugLastUploadedSdfTex 等）返回
+    Map 最后一个值。
+  * methods-wallpaper.ts 的 snapshot 写入改为 map.set(key, ...)。
+  * ProbedUploadImage 组件改为遍历整个 Map 渲染所有 probed 条目，并复用
+    active/orphan dim 逻辑。
+  * flipHole 切换探针时 clear() 该 Map：避免 R-probe(r1,g0) 和 G-probe(r0,g1)
+    的 entry 同时存在导致数量翻倍。clear 后下一帧 markAllDirty 触发全量
+    re-raster，用新 probe flag 重新填充。
+
+- 验证（Agent Browser + 多次 dispatch cornerRadiusFrac）：
+  * 正常模式：4 entries (4 active), 0.3 MB / 32 MB LRU ✓
+  * R probe：GPU upload (probed)，显示全部 4 个 probed upload（之前只有 1 个）✓
+  * G probe：4 个，切换不累积（flipHole clear 生效）✓
+  * R+G 都开：4 个（合并挖0 状态）✓
+  * 都关：恢复 normal maskCache 视图 ✓
+  * 拖 slider 创建 orphan：19 entries (4 active, 15 orphan)，orphan dimmed 显示 ✓
+  * 高质量设置 (quality 1.0, dpr 1.0, texSize 1024²) 拖 80 次：
+    CPU cache 自动卡在 ~31.3 MB / 32 MB LRU，条目数从 12 增到 30（不是 92），
+    证明 byte-budget LRU 生效，防止了 ~320MB 无界泄漏 ✓
+  * bun run lint: 0 errors。dev.log: 干净，无 console error。
+
+Stage Summary:
+- 三个 bug 全部修复：
+  1. CPU maskCache 无界泄漏 → 32MB byte-budget true-LRU（hit 重插入保 active，
+     orphan 先淘汰）
+  2. debugger 隐藏 orphan → 显示所有条目，orphan dimmed 区分
+  3. R/G probe 只显示 1 个图像 → 单字段改 Map，显示所有 probed upload
+- 涉及文件：continuous-mask.ts, renderer/index.ts, methods-wallpaper.ts,
+  capsule-sdf-debug-overlay.tsx。
+- 关键设计决策：
+  * byte-budget（而非 entry-count）因为 entry 大小跨度大（64KB~4MB），
+    entry-count 上限会让内存不可预测（48×4MB=192MB worst case）。
+  * true LRU（hit 重插入）而非 FIFO，否则 active 元素先被淘汰导致 thrashing。
+  * probe Map 的 key 是缓存 key（含 r/g flag），flipHole clear 避免跨状态累积。
+- 32MB 预算 ≈ 2.4× scratch buffer 预算（~13MB documented acceptable），
+  足够保留 slider 拖动历史（drag-back hit-rate）同时防止泄漏。
