@@ -55,14 +55,20 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
   const [collapsed, setCollapsed] = React.useState(false)
   const [showPackImages, setShowPackImages] = React.useState(false)
   const [showHighlightMasks, setShowHighlightMasks] = React.useState(false)
-  const [maskEntries, setMaskEntries] = React.useState<MaskCacheEntry[]>([])
-  // Total entries in the CPU maskCache (before active-element filtering).
-  // Shown as "showing X of Y" so the user knows how many orphan entries
-  // (left over from previous slider positions / pages) are still cached
-  // but not displayed. The cache is bounded by a 32MB byte-budget LRU
-  // (continuous-mask.ts MAX_MASK_CACHE_BYTES) so orphans auto-evict once
-  // the budget is exceeded; 'clr' does a full manual purge (for cold-start
-  // timing measurement). maskBytes/maskMaxBytes show the live fill ratio.
+  // All entries in the CPU maskCache — we show EVERY entry (active + orphan)
+  // so the user can inspect the full cache state, including stale slider-drag
+  // or previous-page entries that will age out via the 32MB LRU budget.
+  // Each entry is tagged `active` (matches a currently-on-screen
+  // useContinuousSdf element) vs `orphan` (no longer on screen) so orphans
+  // can be visually dimmed rather than hidden.
+  const [maskEntries, setMaskEntries] = React.useState<Array<MaskCacheEntry & { active: boolean }>>([])
+  const [maskActiveCount, setMaskActiveCount] = React.useState(0)
+  // Total entries in the CPU maskCache (always equals maskEntries.length when
+  // "img" is on; also polled when "img" is off for the always-visible summary).
+  // The cache is bounded by a 32MB byte-budget LRU (continuous-mask.ts
+  // MAX_MASK_CACHE_BYTES) so orphans auto-evict once the budget is exceeded;
+  // 'clr' does a full manual purge (for cold-start timing measurement).
+  // maskBytes/maskMaxBytes show the live fill ratio.
   const [maskTotalCount, setMaskTotalCount] = React.useState(0)
   const [maskBytes, setMaskBytes] = React.useState(0)
   const [maskMaxBytes] = React.useState(getMaskCacheMaxBytes())
@@ -153,23 +159,20 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
       // pack images — Array.from over the whole map every poll is wasteful
       // otherwise.
       if (showPackImages) {
-        // Filter to only entries whose key matches a CURRENTLY-ACTIVE
-        // useContinuousSdf element's (w, h, radius). The maskCache is a
-        // module-level Map bounded by a 32MB byte-budget LRU — orphan
-        // entries (from old slider positions / previous pages) age out
-        // automatically once the budget is exceeded, but until then they
-        // coexist with active entries. Without this filter the "img" view
-        // would list stale textures (#0..#N) that are no longer visually
-        // relevant. We hide them from the debug view and show "showing X
-        // of Y (Z MB / 32MB)" so the user knows orphans exist, how much
-        // memory they consume, and that they'll auto-evict (or can be
-        // fully purged via 'clr').
+        // Show EVERY entry in the maskCache — both active (matching a
+        // currently-on-screen useContinuousSdf element) and orphan (left
+        // over from old slider positions / previous pages). The cache is
+        // bounded by a 32MB byte-budget LRU, so orphans age out
+        // automatically once the budget is exceeded; showing them lets the
+        // user inspect the full cache state and watch eviction happen.
+        // Each entry is tagged `active` so orphans can be visually dimmed
+        // (desaturated + lower opacity) rather than hidden.
         //
         // Key format: "w,h,radius,texSize,sX" (continuous-mask.ts). The
         // first 3 segments (w,h,radius) are the element-identity part —
         // texSize + skipSdf are derived from dpr/quality/noContinuousSdf
         // and are the same for all elements on a given settings config, so
-        // matching on the first 3 segments is sufficient.
+        // matching on the first 3 segments is sufficient to decide active.
         const allEntries = getMaskCacheEntries()
         const activePrefixes = new Set<string>()
         for (const e of r.buttonConfigs) {
@@ -179,17 +182,19 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
             activePrefixes.add(`${e.rect.w},${e.rect.h},${e.cornerRadius},`)
           }
         }
-        const filtered = activePrefixes.size === 0
-          ? []
-          : allEntries.filter(e => {
-            // Extract the first 3 comma-separated segments + the trailing ','.
-            const c1 = e.key.indexOf(',')
-            const c2 = e.key.indexOf(',', c1 + 1)
-            const c3 = e.key.indexOf(',', c2 + 1)
-            if (c1 < 0 || c2 < 0 || c3 < 0) return false
-            return activePrefixes.has(e.key.slice(0, c3 + 1))
-          })
-        setMaskEntries(filtered)
+        let activeCount = 0
+        const tagged = allEntries.map(e => {
+          // Extract the first 3 comma-separated segments + the trailing ','.
+          const c1 = e.key.indexOf(',')
+          const c2 = e.key.indexOf(',', c1 + 1)
+          const c3 = e.key.indexOf(',', c2 + 1)
+          const isActive = c1 >= 0 && c2 >= 0 && c3 >= 0
+            && activePrefixes.has(e.key.slice(0, c3 + 1))
+          if (isActive) activeCount++
+          return { ...e, active: isActive }
+        })
+        setMaskEntries(tagged)
+        setMaskActiveCount(activeCount)
       }
       // Same for highlight stroke masks.
       if (showHighlightMasks) {
@@ -363,6 +368,7 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
               rendererRef.current?.clearCapsuleSdfPool()
               setMaskEntries([])
               setMaskTotalCount(0)
+              setMaskActiveCount(0)
               setMaskBytes(0)
               rendererRef.current?.requestRender?.()
             }}
@@ -606,23 +612,23 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
           <div style={{ color: '#888', marginBottom: 6 }}>
             Pack images ({(holeR || holeG)
               ? 'GPU upload (probed)'
-              : `active: ${maskEntries.length}${maskTotalCount !== maskEntries.length ? ` of ${maskTotalCount} cached` : ''}, ${(maskBytes / (1024 * 1024)).toFixed(1)} MB / ${(maskMaxBytes / (1024 * 1024)).toFixed(0)} MB LRU`}):
+              : `${maskEntries.length} entr${maskEntries.length === 1 ? 'y' : 'ies'} (${maskActiveCount} active${maskEntries.length - maskActiveCount > 0 ? `, ${maskEntries.length - maskActiveCount} orphan` : ''}), ${(maskBytes / (1024 * 1024)).toFixed(1)} MB / ${(maskMaxBytes / (1024 * 1024)).toFixed(0)} MB LRU`}):
           </div>
           {(holeR || holeG) ? (
             <ProbedUploadImage rendererRef={rendererRef} />
           ) : (
             <>
               {maskEntries.length === 0 && (
-                <div style={{ color: '#666' }}>No active capsule elements on screen.{maskTotalCount > 0 ? ` (${maskTotalCount} orphaned entries, ${(maskBytes / (1024 * 1024)).toFixed(1)} MB — auto-evict by LRU; click 'clr' for full purge.)` : ''}</div>
+                <div style={{ color: '#666' }}>No capsule SDF textures cached yet. Drag a corner-radius slider on GP / Toggle / Slider to generate some.</div>
               )}
-              {maskTotalCount > maskEntries.length && maskEntries.length > 0 && (
+              {maskEntries.length - maskActiveCount > 0 && (
                 <div style={{ color: '#fa0', fontSize: 10, marginBottom: 4 }}>
-                  {maskTotalCount - maskEntries.length} orphaned entr{maskTotalCount - maskEntries.length === 1 ? 'y' : 'ies'} hidden (no longer on screen). Auto-evicted by the {(maskMaxBytes / (1024 * 1024)).toFixed(0)} MB LRU budget; click 'clr' for a full purge.
+                  {maskEntries.length - maskActiveCount} orphan entr{maskEntries.length - maskActiveCount === 1 ? 'y' : 'ies'} (no longer on screen, dimmed). Auto-evicted by the {(maskMaxBytes / (1024 * 1024)).toFixed(0)} MB LRU budget; click 'clr' for a full purge.
                 </div>
               )}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 {maskEntries.map((e, i) => (
-                  <PackImage key={e.key} entry={e} index={i} />
+                  <PackImage key={e.key} entry={e} index={i} active={e.active} />
                 ))}
               </div>
             </>
@@ -1010,10 +1016,14 @@ function HighlightMaskImage({ entry, index }: {
 }
 
 /** Renders one maskCache entry as two small canvases (R + G channels). */
-function PackImage({ entry, index }: { entry: MaskCacheEntry; index: number }) {
+function PackImage({ entry, index, active }: { entry: MaskCacheEntry; index: number; active?: boolean }) {
   const rCanvasRef = React.useRef<HTMLCanvasElement>(null)
   const gCanvasRef = React.useRef<HTMLCanvasElement>(null)
   const { tex, texSize, key } = entry
+  // Orphan entries (no longer matching any on-screen element) are dimmed:
+  // lower opacity + grayscale-ish border so the user can tell at a glance
+  // which textures are live vs stale (and will age out via the LRU budget).
+  const dim = active === false
 
   React.useEffect(() => {
     // R channel = coverage. Render as RED (R=v, G=0, B=0) so the channel
@@ -1054,20 +1064,22 @@ function PackImage({ entry, index }: { entry: MaskCacheEntry; index: number }) {
   const label = parts.length >= 3 ? `${parts[0]}×${parts[1]} r${Math.round(parseFloat(parts[2]))}` : key
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, opacity: dim ? 0.4 : 1 }}>
       <div style={{ display: 'flex', gap: 2 }}>
         <canvas
           ref={rCanvasRef}
-          title={`#${index} R (coverage) — ${key}`}
-          style={{ width: 56, height: 56, imageRendering: 'pixelated', background: '#000', border: '1px solid #080', borderRadius: 3 }}
+          title={`#${index} ${dim ? 'ORPHAN ' : ''}R (coverage) — ${key}`}
+          style={{ width: 56, height: 56, imageRendering: 'pixelated', background: '#000', border: `1px solid ${dim ? '#555' : '#080'}`, borderRadius: 3, filter: dim ? 'grayscale(0.7)' : 'none' }}
         />
         <canvas
           ref={gCanvasRef}
-          title={`#${index} G (SDF) — ${key}`}
-          style={{ width: 56, height: 56, imageRendering: 'pixelated', background: '#000', border: '1px solid #08f', borderRadius: 3 }}
+          title={`#${index} ${dim ? 'ORPHAN ' : ''}G (SDF) — ${key}`}
+          style={{ width: 56, height: 56, imageRendering: 'pixelated', background: '#000', border: `1px solid ${dim ? '#555' : '#08f'}`, borderRadius: 3, filter: dim ? 'grayscale(0.7)' : 'none' }}
         />
       </div>
-      <span style={{ fontSize: 9, color: '#888' }}>#{index} {label}</span>
+      <span style={{ fontSize: 9, color: dim ? '#666' : '#888' }}>
+        #{index} {label}{dim ? ' ·' : ''}
+      </span>
     </div>
   )
 }
