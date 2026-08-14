@@ -638,6 +638,18 @@ export class LiquidGlassRenderer {
   _lastCapsuleGenMs = 0        // CPU: generateContinuousCurvatureMask total
   _lastCapsuleUploadMs = 0     // GPU: texImage2D + gl.finish() sync
   _lastCapsuleKey = ''
+  /** Debug: a SNAPSHOT of the exact pixel bytes uploaded to the GPU in the
+   *  last texImage2D call for a capsule SDF texture. This INCLUDES any
+   * 挖0 applied by the debugSdfHoleTopLeftR/G probes (the挖0 happens on a
+   *  copy at upload time — the CPU maskCache stays clean). The overlay's
+   *  "Pack images" view reads this when a probe is active so the user can
+   *  SEE the挖0'd region in the visualization, instead of the clean cache.
+   *  null until the first upload, and cleared on pool hit (no upload that
+   *  frame). Stays null if no probe is active (overlay reads the clean
+   *  maskCache directly in that case — same data, less memory). */
+  _debugLastUploadedSdfTex: Uint8Array | null = null
+  _debugLastUploadedSdfKey = ''
+  _debugLastUploadedSdfTexSize = 0
 
   /** Clear the GPU-side capsule SDF texture pool + reset binding. The CPU-side
    *  mask cache (continuous-mask.ts) must be cleared separately via

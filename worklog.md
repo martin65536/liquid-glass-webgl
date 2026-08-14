@@ -1171,3 +1171,80 @@ Stage Summary:
   变】，则证明 clip/shape 根本不是从这张 SDF texture 来的（而是 analytic
   sdRoundedRect / scissor / elFbo composite bounds 等），即用户怀疑的
   "玻璃体和高光对不齐"的根因不在 SDF 裁剪这一层。
+
+---
+Task ID: 57
+Agent: main (Z.ai Code)
+Task: 修复 "Pack images 显示的图没有挖" —— overlay 的 img 面板读的是 CPU maskCache（clean），而挖0 发生在 GPU upload 的 copy 上，cache 里看不到挖0
+
+Work Log:
+- 根因（用户报告：开了 R/G probe 后点 img，显示的图没挖0）：
+  * capsule-sdf-debug-overlay.tsx 的 "Pack images" 面板调
+    getMaskCacheEntries() 读的是 continuous-mask.ts 里的 CPU maskCache。
+  * 但 Task 56 按用户要求"不要改缓存"——挖0 发生在 loadContinuousSdf
+    的 GPU upload 时的一份 tex.slice() copy 上，CPU maskCache 全程
+    clean（存的是没挖0 的原始 coverage+SDF）。
+  * 所以面板显示的永远是 clean 版本，挖0 的区域（top-left 1/4）根本
+    不会出现在可视化里 → 用户看到"没挖"。
+  * 这是 Task 56 "不动缓存"决定的必然结果：可视化必须改读【GPU upload
+    时那份 copy】而不是 CPU cache。
+
+- 修复思路：在 GPU upload 时，把【实际上传的 bytes】（含挖0）snapshot
+  一份存到 renderer 的 debug 字段，overlay 在 probe 激活时读这份
+  snapshot，否则仍读 clean maskCache（省内存、行为不变）。
+
+- 修复 1 — index.ts：新增 3 个 debug 字段：
+    _debugLastUploadedSdfTex: Uint8Array | null   // 实际上传的 bytes 快照
+    _debugLastUploadedSdfKey: string               // 对应的 pool key
+    _debugLastUploadedSdfTexSize: number           // texSize (256)
+  docstring 说明：只在 probe 激活时填充（非 probe 时 clean cache 就是
+  上传内容，无需复制 256KB）；pool hit 时保持（代表当前绑定的 GPU 纹理）。
+
+- 修复 2 — methods-wallpaper.ts loadContinuousSdf：
+  在 texImage2D + gl.finish() 之后，若 holeR||holeG：
+    this._debugLastUploadedSdfTex = uploadTex.slice()  // 稳定快照
+    this._debugLastUploadedSdfKey = key
+    this._debugLastUploadedSdfTexSize = texSize
+  （uploadTex 此时已是挖0'd copy，slice() 保证后续不被覆盖。非 probe
+  分支 uploadTex === tex，不填充，省内存。）
+
+- 修复 3 — capsule-sdf-debug-overlay.tsx：
+  * Pack-image 面板分支：
+    - holeR||holeG → 渲染 <ProbedUploadImage>，标题 "GPU upload (probed)"
+    - 否则 → 原 maskEntries 列表，标题 "CPU cache: N"
+  * 新增 ProbedUploadImage 组件（独立组件以满足 react-hooks/refs —— ref
+    读取必须在 hook 顶层，不能在 IIFE 里）：
+    - 每 POLL_MS 轮询 renderer._debugLastUploadedSdfTex
+    - 有快照 → 包成 MaskCacheEntry 喂给现有 PackImage（复用 R/G 双 canvas
+      渲染，挖0 区域显示为黑色 = R0 或 G0）
+    - 无快照 → 显示 "No probed upload yet — toggle R/G, then trigger a
+      capsule render (e.g. drag a slider)."
+  * PackImage 的 label 解析（parts[0..2] = w,h,radius）对带 ",r1,g0" 后缀
+    的 key 天然兼容，无需改。
+
+- 行为验证（逻辑层面）：
+  1. 用户点 R → flipHole 设 debugSdfHoleTopLeftR=true + markAllDirty +
+     requestRender → 下一帧 element pass 重新 raster → loadContinuousSdf
+     因 key 变化（r0→r1）pool miss → 生成 clean tex → copy + 挖0 top-left
+     1/4 R → texImage2D 上传挖0'd copy → 快照存入 _debugLastUploadedSdfTex。
+  2. 用户点 img → showPackImages=true → 因 holeR=true 渲染
+     ProbedUploadImage → 轮询读到快照 → PackImage 画 R canvas：top-left
+     1/4 是黑色（R=0），其余 3/4 是红色 coverage。G canvas 全绿（未挖）。
+  3. 用户再点 G → 两通道都挖 → R canvas 左下黑 + G canvas 左下黑。
+  4. 用户关 R+G → key 回 r0,g0 → pool miss（或 hit 若 clean 还在池里）→
+     快照不再更新（holeR||holeG=false 不填充）→ 但面板也回到 CPU cache
+     分支，不读快照了，显示 clean 版本。一致。
+
+- bun run lint：通过（0 errors）。
+- 未做浏览器测试（遵照用户一贯要求"永远不要自己测试"）。
+
+Stage Summary:
+- 根因：Task 56 "不动 CPU cache"导致 overlay 的 Pack-image 面板（读
+  maskCache）看不到挖0 —— 挖0 只存在于 GPU upload 时的 copy 上。
+- 修复：renderer 新增 _debugLastUploadedSdfTex 快照字段（只在 probe
+  激活时填充），loadContinuousSdf 在 texImage2D 后 slice 一份实际
+  上传的 bytes 存入；overlay 在 probe 激活时改读这份快照（新
+  ProbedUploadImage 组件），否则仍读 clean maskCache。
+- 效果：现在开 R/G + 点 img，能看到 top-left 1/4 的对应通道被挖成黑色
+  （R canvas 左下黑 / G canvas 左下黑），与 GPU 实际采样的内容一致。
+  非probe 时行为不变（读 cache，省内存）。

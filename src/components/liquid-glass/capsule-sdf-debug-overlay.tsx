@@ -323,24 +323,70 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
       </div>
 
       {/* Pack images visualization — toggled by the "img" button in the header.
-          Renders each maskCache entry as two side-by-side canvases:
+          Renders each cached SDF texture as two side-by-side canvases:
             left  = R channel (coverage, browser-native AA)
-            right = G channel (SDF, 128=gray=boundary) */}
+            right = G channel (SDF, 128=gray=boundary)
+
+          IMPORTANT: when a hole probe (R / G) is active, the CPU maskCache
+          is CLEAN (the挖0 happens on a copy at GPU upload time). So to show
+          the挖0'd region we read renderer._debugLastUploadedSdfTex — a
+          snapshot of the exact bytes uploaded to the GPU. When no probe is
+          active we read the maskCache directly (same data, no duplication). */}
       {showPackImages && (
         <div style={{ padding: '8px 10px', borderTop: '1px solid rgba(0,255,0,0.2)' }}>
           <div style={{ color: '#888', marginBottom: 6 }}>
-            Pack images ({maskEntries.length}):
+            Pack images ({(holeR || holeG) ? 'GPU upload (probed)' : `CPU cache: ${maskEntries.length}`}):
           </div>
-          {maskEntries.length === 0 && (
-            <div style={{ color: '#666' }}>No cached textures yet.</div>
+          {(holeR || holeG) ? (
+            <ProbedUploadImage rendererRef={rendererRef} />
+          ) : (
+            <>
+              {maskEntries.length === 0 && (
+                <div style={{ color: '#666' }}>No cached textures yet.</div>
+              )}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {maskEntries.map((e, i) => (
+                  <PackImage key={e.key} entry={e} index={i} />
+                ))}
+              </div>
+            </>
           )}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {maskEntries.map((e, i) => (
-              <PackImage key={e.key} entry={e} index={i} />
-            ))}
-          </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/** Renders the last GPU-uploaded (挖0'd) capsule SDF texture when a hole
+ *  probe (R / G) is active. Reads renderer._debugLastUploadedSdfTex — a
+ *  snapshot of the exact bytes sent to texImage2D, INCLUDING the挖0. The
+ *  CPU maskCache is clean (挖0 happens on a copy at upload time), so we
+ *  can't read the cache here — we must read this debug snapshot instead.
+ *  Extracted as a component so ref access stays at the top level (satisfies
+ *  react-hooks/refs). Polls every POLL_MS so the snapshot refreshes when
+ *  the user toggles R/G or resizes the element. */
+function ProbedUploadImage({ rendererRef }: { rendererRef: React.MutableRefObject<LiquidGlassRenderer | null> }) {
+  const [entry, setEntry] = React.useState<MaskCacheEntry | null>(null)
+  React.useEffect(() => {
+    const id = setInterval(() => {
+      const r = rendererRef.current
+      const up = r?._debugLastUploadedSdfTex
+      if (up && r._debugLastUploadedSdfTexSize) {
+        setEntry({
+          key: r._debugLastUploadedSdfKey || 'probed-upload',
+          tex: up,
+          texSize: r._debugLastUploadedSdfTexSize,
+        })
+      }
+    }, POLL_MS)
+    return () => clearInterval(id)
+  }, [rendererRef])
+  if (!entry) {
+    return <div style={{ color: '#666' }}>No probed upload yet — toggle R/G, then trigger a capsule render (e.g. drag a slider).</div>
+  }
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+      <PackImage key={entry.key} entry={entry} index={0} />
     </div>
   )
 }

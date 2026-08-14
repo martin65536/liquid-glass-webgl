@@ -143,6 +143,18 @@ export const wallpaperMethods = {
       // texImage2D may defer and the time shows up in a later draw call).
       gl.finish()
       const uploadEnd = performance.now()
+      // Debug: snapshot the EXACT bytes uploaded (incl. any挖0) so the
+      // overlay's Pack-image view can show the挖0'd version. Only kept when
+      // a probe is active (otherwise the clean maskCache IS what was uploaded,
+      // and the overlay reads that directly — no need to duplicate 256KB).
+      // slice() makes a stable copy: uploadTex may be the same Uint8Array
+      // buffer as the cached `tex` when no probe is active, but in that case
+      // we don't reach this branch anyway (holeR||holeG is false).
+      if (holeR || holeG) {
+        this._debugLastUploadedSdfTex = uploadTex.slice()
+        this._debugLastUploadedSdfKey = key
+        this._debugLastUploadedSdfTexSize = texSize
+      }
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
