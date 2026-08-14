@@ -1854,3 +1854,109 @@ Stage Summary:
 - 代码库共 5 种 blend mode（已在上面列出）。
 - VLM 验证 7 个页面全部无黑边 artifact（Magnifier/Dialog/ALG 的"暗"
   只是预期 drop shadow）。
+
+---
+Task ID: 66
+Agent: main (Z.ai Code)
+Task: 在设置里加一个胶囊质量滑块，取 texSize 时乘以这个系数向上取整，默认 0.5，最大 1
+
+Work Log:
+- 用户要求：在设置里加一个控制胶囊质量的滑块，取 texSize 时乘以这个系数
+  向上取整。默认 0.5，最大 1。
+
+- 架构理解：
+  * texSize 在 continuous-mask.ts generateContinuousCurvatureMask() 中计算：
+    devMaxDim = max(w,h) * dpr; target = devMaxDim * 2; 从 128 开始翻倍
+    直到 >= target 或达到 1024。结果总是 POT (128/256/512/1024)。
+  * CPU maskCache key = `${w},${h},${radius},${texSize}`。
+  * GPU continuousSdfPool key = `${w},${h},${radius},${dpr},r${holeR},g${holeG}`。
+  * 质量系数需要乘到 texSize 上再 ceil，可能产生 NPOT（如 96/192/384）。
+
+- 修复 1 — types.ts（CatalogState + DEFAULT_CATALOG_STATE）：
+  * 新增 `capsuleSdfQuality: number`（默认 0.5，范围 [0.25, 1.0]）。
+  * 新增 `liveCapsuleSdfQuality: number | null`（拖动时实时显示值）。
+
+- 修复 2 — renderer/index.ts：
+  * 新增 `capsuleSdfQuality = 0.5` 字段（带详细 docstring）。
+
+- 修复 3 — continuous-mask.ts generateContinuousCurvatureMask()：
+  * 新增第 5 个参数 `quality: number = 1.0`。
+  * 原来直接用 POT texSize，改为：
+    `let baseTexSize = 128; while (...) baseTexSize <<= 1;`
+    `const texSize = Math.max(32, Math.ceil(baseTexSize * quality));`
+  * quality=1.0: texSize 不变 (128/256/512/1024)。
+  * quality=0.5: texSize 减半 (64/128/256/512)。
+  * quality=0.75: NPOT (96/192/384/768) — WebGL1 LINEAR+CLAMP_TO_EDGE 支持。
+  * 最小 clamp 32（低于 32 角曲线分辨率不足）。
+  * CPU cache key 已含 texSize，不同 quality 自动分桶。
+  * 注释更新：解释 quality 系数的数学 + NPOT 可行性 + 最小 clamp 理由。
+
+- 修复 4 — methods-wallpaper.ts loadContinuousSdf()：
+  * GPU pool key 加入 `q${this.capsuleSdfQuality}`：
+    `${w},${h},${radius},${dpr},q${q},r${holeR},g${holeG}`
+    不同 quality 得到不同 pool entry。
+  * 调用 generateContinuousCurvatureMask 时传入第 5 个参数 this.capsuleSdfQuality。
+  * docstring 更新：texSize² 描述改为 "scaled by capsuleSdfQuality and Math.ceil'd"。
+
+- 修复 5 — context.tsx：
+  * 新增 `capsuleSdfQuality?: number` prop。
+  * 新增 sync effect：当 capsuleSdfQuality 变化时：
+    1. clamp 到 [0.25, 1.0]
+    2. renderer.capsuleSdfQuality = clamped value
+    3. renderer.clearCapsuleSdfPool() — 删除所有 GPU 纹理（避免孤儿）
+    4. clearMaskCache() — 清 CPU 缓存 + timing ring
+    5. renderer.markAllDirty() — 标记所有 elFbo 失效
+    6. renderer.requestRender() — 触发重渲染
+  * import clearMaskCache from './renderer/continuous-mask'。
+  * 清理理由：quality 变了 → texSize 变了 → 所有缓存的 SDF 纹理都 stale，
+    不清的话要等 LRU eviction (pool cap=16) 才释放，GPU 内存膨胀。
+
+- 修复 6 — i18n.ts：
+  * settings_capsule_quality_label: { zh: '胶囊质量', en: 'Capsule quality' }
+  * settings_capsule_quality_hint: { zh: '(左=省内存/锯齿, 右=清晰/慢)',
+    en: '(left=lean/aliased, right=sharp/slow)' }
+
+- 修复 7 — build-settings.ts：
+  * 在 card 1 (Rendering) 的 capsule toggle 之后加质量滑块：
+    - slider setup: minQ=0.25, maxQ=1.0, qInitFrac=(q-0.25)/0.75, 无 snap（连续）
+    - makeLiquidSlider('settings-capsule-quality', ...) 带 liveUpdate callback
+    - hint label: "胶囊质量: 0.50  (左=省内存/锯齿, 右=清晰/慢)"
+  * capsule toggle 的底部 padding 从 CARD_PAD 改为 ITEM_GAP（因为下面
+    还有滑块，不再是卡片最后一项）。
+  * Reset 按钮加 capsuleSdfQuality: 0.5 + liveCapsuleSdfQuality: null。
+  * Reset 按钮加 setToggleTarget('settings-capsule-quality', 0.333)。
+
+- 修复 8 — page.tsx：
+  * loadPersistedSettings: 读取 capsuleSdfQuality (clamp [0.25, 1.0], 默认 0.5)。
+  * setState 持久化: 加 capsuleSdfQuality 到 localStorage 保存条件 + 保存字段。
+  * toggleTargets: 加 settings-capsule-quality 的 fraction 映射。
+  * useMemo deps: 加 state.capsuleSdfQuality。
+  * LiquidGlassCanvas: 传 capsuleSdfQuality={state.capsuleSdfQuality} prop。
+
+- Agent Browser 验证：
+  * Settings 页：VLM 确认 "胶囊质量" 滑块可见，值 0.50，布局干净无重叠。
+    Rendering card 从上到下：渲染标题 → DPR 滑块 → DPR label → 高光抗锯齿
+    toggle → 逐元素 FBO toggle → 胶囊形 toggle → 胶囊质量滑块 → 胶囊质量 label。
+  * quality=1.0 测试（BottomTabs + debug overlay）：
+    VLM 读到 "cur texSize: 128", key 含 "q1", 112×56 元素用 128²。
+    （= ceil(128 * 1.0) = 128，与原行为一致）
+  * quality=0.5 测试：
+    VLM 读到 "cur texSize: 64", key 含 "q0.5", 112×56 元素用 64²。
+    （= ceil(128 * 0.5) = 64，减半）
+  * quality=0.75 测试（NPOT）：
+    VLM 读到 "cur texSize: 96", 112×56 元素用 96。
+    （= ceil(128 * 0.75) = 96，NPOT 正常工作，无 WebGL 错误，无黑边）
+  * 所有页面 200，无 console error，dev.log 干净。
+
+- bun run lint: 通过（0 errors）。
+
+Stage Summary:
+- 新增 "胶囊质量" 滑块到 Settings → Rendering 卡片，默认 0.5，范围 [0.25, 1.0]。
+- texSize = ceil(basePOT_texSize * quality), 最小 32。支持 NPOT（WebGL1
+  LINEAR+CLAMP_TO_EDGE 兼容）。
+- GPU pool key + CPU cache key 都含 quality/texSize，不同 quality 独立缓存。
+- context.tsx sync effect 在 quality 变化时清 GPU pool + CPU maskCache +
+  markAllDirty，避免 stale 纹理和内存膨胀。
+- VLM 验证三档 quality (1.0/0.5/0.75) 全部正确生效，texSize 按预期变化
+  (128/64/96)，无黑边、无 WebGL 错误。
+- 持久化到 localStorage，Reset 按钮重置到 0.5，setToggleTarget 支持。

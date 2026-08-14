@@ -519,10 +519,19 @@ export interface CatalogState {
   // This gives pixel-perfect squircle corners on the dialog card. Other
   // elements still use the analytic SDF (circular or continuous placeholder).
   capsuleShape: boolean
+  // Settings — capsule SDF texture quality coefficient [0.25, 1.0].
+  // Scales the base texSize (computed from element device-px size, 2×
+  // oversampling rounded up to POT, clamped [128,1024]) by this factor,
+  // then Math.ceil'd. Lower = smaller texture = faster generation +
+  // upload + less GPU memory, but G2 corner curve becomes more faceted.
+  // Higher = sharper corners but slower. Default 0.5 (halves texSize —
+  // 128→64, 256→128, 512→256, 1024→512). Max 1.0 (full 2× oversample).
+  capsuleSdfQuality: number
   // Settings — live (drag-in-progress) display values for slider labels
   liveDpr: number | null
   liveTapCap: number | null
   liveBlurDownsample: number | null
+  liveCapsuleSdfQuality: number | null
   // Settings — hide the overlay exit (back) and theme toggle buttons on all
   // non-Home pages. Default false (buttons visible). When true, the back
   // button is still reachable via the browser back button / Esc.
@@ -618,9 +627,11 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   blurDownsample: 4,
   dynamicBlurDownsample: false,
   capsuleShape: true,
+  capsuleSdfQuality: 0.5,
   liveDpr: null,
   liveTapCap: null,
   liveBlurDownsample: null,
+  liveCapsuleSdfQuality: null,
   hideOverlayButtons: false,
   locale: 'zh',
   pageTransition: true,

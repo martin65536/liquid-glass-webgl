@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { LiquidGlassRenderer, type GlassElementConfig } from './renderer'
+import { clearMaskCache } from './renderer/continuous-mask'
 import { draggingGroups } from './catalog'
 
 /* ------------------------------------------------------------------ *
@@ -84,6 +85,11 @@ export interface LiquidGlassCanvasProps {
    *  element renders into a small bbox-sized FBO instead of a fullscreen
    *  ping-pong blit — the biggest per-element cost saver. Pure optimization. */
   usePerElementFbo?: boolean
+  /** Capsule SDF texture quality coefficient [0.25, 1.0]. Scales the base
+   *  texSize by this factor then Math.ceil'd. Default 0.5. When this changes,
+   *  the GPU pool + CPU maskCache are cleared and all elFbos marked dirty so
+   *  new textures are generated at the new resolution. */
+  capsuleSdfQuality?: number
   /** Performance monitor toggle. When true, the renderer's PerfMonitor is
    *  enabled (frame timing + per-frame render counters + GPU info). The
    *  React overlay (rendered by the parent) polls the snapshot. */
@@ -174,6 +180,7 @@ export function LiquidGlassCanvas({
   cornerStyle,
   showPefBboxOverlay = false,
   usePerElementFbo,
+  capsuleSdfQuality,
   perfMonitorEnabled,
 }: LiquidGlassCanvasProps) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
@@ -344,6 +351,28 @@ export function LiquidGlassCanvas({
     renderer.markAllDirty()
     renderer.requestRender()
   }, [usePerElementFbo])
+
+  // Apply capsule SDF quality coefficient when it changes (Settings page).
+  // The coefficient scales the base texSize (2× oversample POT) before
+  // Math.ceil. Changing it makes every cached SDF texture stale (different
+  // texSize → different shape resolution), so we clear BOTH the GPU texture
+  // pool AND the CPU maskCache, then mark all elFbos dirty. The next render
+  // re-generates textures at the new resolution. Cost is paid once per
+  // quality change (not per frame).
+  React.useEffect(() => {
+    const renderer = rendererRefInternal.current
+    if (!renderer || capsuleSdfQuality == null) return
+    // Clamp to [0.25, 1.0] — below 0.25 the corner curve loses too much
+    // resolution; above 1.0 wastes memory with no visual gain.
+    renderer.capsuleSdfQuality = Math.max(0.25, Math.min(1.0, capsuleSdfQuality))
+    // Clear GPU pool (deletes all WebGL textures) + CPU maskCache (frees
+    // Uint8Array buffers + timing ring). Orphaned entries would otherwise
+    // linger until LRU eviction (pool cap=16), bloating GPU memory.
+    renderer.clearCapsuleSdfPool()
+    clearMaskCache()
+    renderer.markAllDirty()
+    renderer.requestRender()
+  }, [capsuleSdfQuality])
 
   // Apply perf-monitor enable toggle when it changes (Settings page).
   // When turning ON, reset accumulated stats so the overlay starts fresh.

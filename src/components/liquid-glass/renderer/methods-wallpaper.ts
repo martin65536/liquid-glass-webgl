@@ -82,19 +82,19 @@ export const wallpaperMethods = {
   },
 
   /** Generate + upload a continuous-curvature SDF texture for the dialog
-   *  card's capsule shape. The texture is cached by (w, h, radius); calling
-   *  again with the same key is a no-op. The SDF encodes a G2-continuous
-   *  Bezier rounded-rect path (faithful to kyant-shapes'
-   *  ContinuousCurvatureRoundedRectangleCornerBuilder), normalized to [-1, 1]
-   *  (negative inside, positive outside). Sampling it in the shader gives
-   *  pixel-perfect squircle corners, vs the analytic sdRoundedRect which
-   *  uses a circular arc approximation.
+   *  card's capsule shape. The texture is cached by (w, h, radius, dpr,
+   *  capsuleSdfQuality); calling again with the same key is a no-op. The SDF
+   *  encodes a G2-continuous Bezier rounded-rect path (faithful to
+   *  kyant-shapes' ContinuousCurvatureRoundedRectangleCornerBuilder),
+   *  normalized to [-1, 1] (negative inside, positive outside). Sampling it
+   *  in the shader gives pixel-perfect squircle corners, vs the analytic
+   *  sdRoundedRect which uses a circular arc approximation.
    *
-   *  Texture format: RGBA, 128²/256²/512²/1024² (chosen dynamically by
+   *  Texture format: RGBA, texSize² (chosen dynamically by
    *  generateContinuousCurvatureMask — 2× oversampling rounded up to POT,
-   *  clamped [128,1024]), LINEAR filtering, CLAMP_TO_EDGE. The R channel
-   *  holds the normalized SDF (decoded as sample*2 - 1 in the shader);
-   *  G and B mirror R; A = 255. */
+   *  clamped [128,1024], then scaled by capsuleSdfQuality and Math.ceil'd),
+   *  LINEAR filtering, CLAMP_TO_EDGE. The R channel holds the normalized
+   *  SDF (decoded as sample*2 - 1 in the shader); G and B mirror R; A = 255. */
   loadContinuousSdf(this: LiquidGlassRenderer, w: number, h: number, radius: number) {
     // Debug probe: the挖0 (top-left 1/4 of R and/or G) happens on a COPY at
     // GPU upload time. The CPU maskCache (generateContinuousCurvatureMask)
@@ -105,12 +105,17 @@ export const wallpaperMethods = {
     // without busting the CPU cache.
     const holeR = this.debugSdfHoleTopLeftR
     const holeG = this.debugSdfHoleTopLeftG
-    const key = `${w},${h},${radius},${this.dpr},r${holeR ? 1 : 0},g${holeG ? 1 : 0}`
+    // Pool key includes capsuleSdfQuality so different quality settings get
+    // distinct pool entries (texSize differs even for the same w/h/radius/dpr).
+    // When the user changes the quality slider, context.tsx clears the pool
+    // entirely so no orphaned textures accumulate.
+    const q = this.capsuleSdfQuality
+    const key = `${w},${h},${radius},${this.dpr},q${q},r${holeR ? 1 : 0},g${holeG ? 1 : 0}`
     // Pool: each unique (w,h,radius,dpr,holeR,holeG) gets its own texture.
     let entry = this.continuousSdfPool.get(key)
     if (!entry) {
       const genStart = performance.now()
-      const { tex, texSize } = generateContinuousCurvatureMask(w, h, radius, this.dpr)
+      const { tex, texSize } = generateContinuousCurvatureMask(w, h, radius, this.dpr, this.capsuleSdfQuality)
       const genEnd = performance.now()
       const gl = this.gl
       const texObj = gl.createTexture()!

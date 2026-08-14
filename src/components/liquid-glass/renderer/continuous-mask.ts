@@ -111,7 +111,8 @@ export function generateContinuousCurvatureMask(
   w: number,
   h: number,
   radius: number,
-  dpr: number = 1
+  dpr: number = 1,
+  quality: number = 1.0
 ): { tex: Uint8Array; texSize: number } {
   // texSize: FULLY dynamic — chosen by rounding 2× the element's device-px
   // max dimension UP to the next power of two, clamped to [128, 1024].
@@ -126,14 +127,25 @@ export function generateContinuousCurvatureMask(
   // smooth and the curvature doesn't look faceted). POT rounding ensures
   // optimal GPU texture upload/filtering and avoids WebGL1 NPOT limits.
   //
+  // QUALITY COEFFICIENT: the base POT texSize is multiplied by `quality`
+  // (range [0.25, 1.0]) and Math.ceil'd, allowing the user to trade corner
+  // sharpness for generation speed + GPU memory. quality=1.0 keeps the full
+  // 2× oversample; quality=0.5 halves texSize (128→64, 256→128, 512→256,
+  // 1024→512). The cache key includes texSize so different qualities get
+  // distinct entries. NPOT texSizes work fine with LINEAR+CLAMP_TO_EDGE.
+  // Minimum clamp 32 ensures the distance transform still has enough
+  // resolution to represent the shape at all (below 32 the corner curve
+  // collapses to a few pixels and the SDF becomes meaningless).
+  //
   // Distance transform is O(texSize²) so 1024² is 16× slower than 256²,
   // but very large elements are rare (1–2 per page) and cache stably
   // (w/h/radius don't change), so the cost is paid once per resize.
   // Scratch buffers (below) grow lazily to the largest texSize seen.
   const devMaxDim = Math.max(w, h) * (dpr || 1)
   const target = devMaxDim * 2
-  let texSize = 128
-  while (texSize < target && texSize < 1024) texSize <<= 1
+  let baseTexSize = 128
+  while (baseTexSize < target && baseTexSize < 1024) baseTexSize <<= 1
+  const texSize = Math.max(32, Math.ceil(baseTexSize * quality))
   const key = `${w},${h},${radius},${texSize}`
   const cached = maskCache.get(key)
   if (cached) {

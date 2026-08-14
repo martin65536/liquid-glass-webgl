@@ -329,6 +329,13 @@ export class LiquidGlassRenderer {
   /** Corner style: 0 = circular, 1 = continuous (squircle). Set from
    *  CatalogState.capsuleShape. Default 1 (Continuous, matching original). */
   cornerStyle = 1
+  /** Capsule SDF texture quality coefficient [0.25, 1.0]. Scales the base
+   *  texSize (2× oversampling rounded up to POT, clamped [128,1024]) by this
+   *  factor, then Math.ceil'd. Default 0.5 (halves texSize). When this
+   *  changes, context.tsx clears the GPU pool + CPU maskCache + marks all
+   *  elFbos dirty so new textures are generated at the new resolution.
+   *  See generateContinuousCurvatureMask + loadContinuousSdf. */
+  capsuleSdfQuality = 0.5
   /** Per-element FBO optimization toggle (Settings). When true, each glass
    *  element renders into a small bbox-sized FBO instead of a fullscreen
    *  ping-pong blit. See methods-render-glass.ts.

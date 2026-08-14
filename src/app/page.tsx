@@ -80,6 +80,7 @@ export default function Page() {
         blurDownsample: typeof parsed.blurDownsample === 'number' ? Math.max(1, Math.min(8, parsed.blurDownsample)) : 4,
         dynamicBlurDownsample: typeof parsed.dynamicBlurDownsample === 'boolean' ? parsed.dynamicBlurDownsample : false,
         capsuleShape: typeof parsed.capsuleShape === 'boolean' ? parsed.capsuleShape : true,
+        capsuleSdfQuality: typeof parsed.capsuleSdfQuality === 'number' ? Math.max(0.25, Math.min(1.0, parsed.capsuleSdfQuality)) : 0.5,
         locale: (parsed.locale === 'zh' || parsed.locale === 'en') ? parsed.locale : 'zh',
         pageTransition: typeof parsed.pageTransition === 'boolean' ? parsed.pageTransition : true,
         showFps: typeof parsed.showFps === 'boolean' ? parsed.showFps : false,
@@ -551,7 +552,7 @@ export default function Page() {
             (p.customDpr !== undefined || p.globalSeparableBlur !== undefined ||
              p.blurTapCap !== undefined || p.blurDownsample !== undefined ||
              p.dynamicBlurDownsample !== undefined ||
-             p.capsuleShape !== undefined || p.hideOverlayButtons !== undefined ||
+             p.capsuleShape !== undefined || p.capsuleSdfQuality !== undefined || p.hideOverlayButtons !== undefined ||
              p.locale !== undefined || p.pageTransition !== undefined ||
              p.showFps !== undefined || p.usePerElementFbo !== undefined ||
              p.showPerfMonitor !== undefined)) {
@@ -563,6 +564,7 @@ export default function Page() {
               blurDownsample: next.blurDownsample,
               dynamicBlurDownsample: next.dynamicBlurDownsample,
               capsuleShape: next.capsuleShape,
+              capsuleSdfQuality: next.capsuleSdfQuality,
               hideOverlayButtons: next.hideOverlayButtons,
               locale: next.locale,
               pageTransition: next.pageTransition,
@@ -821,6 +823,9 @@ export default function Page() {
       // Downsample slider: fraction = (maxDs - blurDownsample) / (maxDs - minDs)
       // range 1..8, left=low quality (ds=8), right=high quality (ds=1)
       targets['settings-blur-downsample'] = Math.max(0, Math.min(1, (8 - state.blurDownsample) / 7))
+      // Capsule quality slider: fraction = (quality - 0.25) / 0.75
+      // range 0.25..1.0, left=low quality (0.25), right=high quality (1.0)
+      targets['settings-capsule-quality'] = Math.max(0, Math.min(1, (state.capsuleSdfQuality - 0.25) / 0.75))
       // Settings toggle switches
       targets['settings-blur-global'] = state.globalSeparableBlur ? 1 : 0
       targets['settings-blur-dynamic-ds'] = state.dynamicBlurDownsample ? 1 : 0
@@ -833,7 +838,7 @@ export default function Page() {
       targets['settings-perf-monitor-toggle'] = state.showPerfMonitor ? 1 : 0
     }
     return targets
-  }, [destination, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration, state.customDpr, state.blurTapCap, state.blurDownsample, state.globalSeparableBlur, state.dynamicBlurDownsample, state.capsuleShape, state.hideOverlayButtons, state.pageTransition, state.showFps, state.highlightAa, state.usePerElementFbo, state.showPerfMonitor])
+  }, [destination, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration, state.customDpr, state.blurTapCap, state.blurDownsample, state.globalSeparableBlur, state.dynamicBlurDownsample, state.capsuleShape, state.capsuleSdfQuality, state.hideOverlayButtons, state.pageTransition, state.showFps, state.highlightAa, state.usePerElementFbo, state.showPerfMonitor])
 
   // Tab targets use a separate prop because they need setTabSelected
   // (which sets pressedScale=78/56, not toggle's 1.5).
@@ -1059,6 +1064,7 @@ export default function Page() {
           blurDownsample={state.blurDownsample}
           dynamicBlurDownsample={state.dynamicBlurDownsample}
           usePerElementFbo={perfMeasuring ? false : state.usePerElementFbo}
+          capsuleSdfQuality={state.capsuleSdfQuality}
           perfMonitorEnabled={state.showPerfMonitor}
           className="w-full h-full"
           onReady={() => setRendererReady(true)}

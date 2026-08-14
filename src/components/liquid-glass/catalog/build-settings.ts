@@ -126,6 +126,17 @@ export function buildSettings(
   // No snap — stepless. Just clamp to [0,1].
   const dsClampFrac = (f: number) => Math.max(0, Math.min(1, f))
 
+  // --- Capsule SDF quality slider setup (card 1) ---
+  // Continuous (stepless): left = low quality (coefficient=0.25, smallest
+  // texSize, fastest), right = high quality (coefficient=1.0, full 2×
+  // oversample, sharpest corners). Default = 0.5 (halves texSize).
+  const minQ = 0.25
+  const maxQ = 1.0
+  const qRange = maxQ - minQ
+  const qInitFrac = Math.max(0, Math.min(1, (state.capsuleSdfQuality - minQ) / qRange))
+  const qFracToQ = (f: number) => minQ + f * qRange
+  const qClampFrac = (f: number) => Math.max(0, Math.min(1, f))
+
   // ====================================================================
   // CARD 1: 渲染 (Rendering)
   // ====================================================================
@@ -227,10 +238,10 @@ export function buildSettings(
     Object.assign(interactions, peFboToggle.interactions)
     nextY += BUTTON_HEIGHT + ITEM_GAP
 
-    // Capsule shape toggle — full card width row, height includes bottom pad
+    // Capsule shape toggle — full card width row, height includes gap
     const capsuleToggle = makeSettingsToggle(
       'settings-shape-capsule',
-      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT + CARD_PAD },
+      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT + ITEM_GAP },
       t('settings_capsule', locale),
       state.capsuleShape,
       () => setState((prev) => ({ capsuleShape: !prev.capsuleShape })),
@@ -241,7 +252,48 @@ export function buildSettings(
     )
     elements.push(...capsuleToggle.elements)
     Object.assign(interactions, capsuleToggle.interactions)
-    nextY += BUTTON_HEIGHT + CARD_PAD
+    nextY += BUTTON_HEIGHT + ITEM_GAP
+
+    // Capsule SDF quality slider — continuous: left = low quality (0.25,
+    // smallest texSize, fastest), right = high quality (1.0, full 2×
+    // oversample, sharpest corners). Default = 0.5 (halves texSize).
+    // The coefficient scales the base POT texSize then Math.ceil'd, so the
+    // user trades corner sharpness for generation speed + GPU memory.
+    // Only meaningful when capsuleShape is ON (G2 SDF texture active).
+    const qTrackY = nextY + (24 - 6) / 2
+    const qSlider = makeLiquidSlider(
+      'settings-capsule-quality',
+      contentX + SLIDER_PAD,
+      qTrackY,
+      contentW - 2 * SLIDER_PAD,
+      'settings-capsule-quality',
+      palette.sliderTrackOff,
+      palette.sliderAccent,
+      rendererRef,
+      (f) => { setState({ capsuleSdfQuality: qFracToQ(f), liveCapsuleSdfQuality: null }) },
+      true,
+      false,
+      qInitFrac,
+      qClampFrac,
+      (f) => { setState({ liveCapsuleSdfQuality: qFracToQ(f) }) },
+    )
+    elements.push(...qSlider.elements)
+    Object.assign(interactions, qSlider.interactions)
+    nextY += 24 + 4
+
+    // Capsule quality label (hint text — lighter, interactive for press tint)
+    const displayQ = state.liveCapsuleSdfQuality != null ? state.liveCapsuleSdfQuality : state.capsuleSdfQuality
+    const qLabelText = `${t('settings_capsule_quality_label', locale)}: ${displayQ.toFixed(2)}  ${t('settings_capsule_quality_hint', locale)}`
+    const qLabelH = 16 + CARD_PAD  // 16px text + CARD_PAD to fill the row
+    const qLabelEl = makeText(
+      'settings-capsule-quality-label',
+      { x: rowX, y: nextY, w: rowW, h: qLabelH },
+      qLabelText,
+      { color: hintColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: labelPad, halo: palette.homeTextHalo, pressTintColor: labelColor }
+    )
+    qLabelEl.isInteractive = true
+    elements.push(qLabelEl)
+    nextY += qLabelH
 
     // Update card background height
     cardBgEl.rect.h = nextY - cardStartY
@@ -585,7 +637,7 @@ export function buildSettings(
     elements.push(resetBtn)
     interactions['settings-reset'] = {
       onTap: () => {
-        setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 9, blurDownsample: 4, dynamicBlurDownsample: false, capsuleShape: true, hideOverlayButtons: false, locale: 'zh', pageTransition: true, liveDpr: null, liveTapCap: null, liveBlurDownsample: null, showFps: false, showPerfMonitor: false, highlightAa: true, usePerElementFbo: false, perfProgress: null, perfDone: false, perfResultDpr: 0, perfStatusText: '' })
+        setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 9, blurDownsample: 4, dynamicBlurDownsample: false, capsuleShape: true, capsuleSdfQuality: 0.5, hideOverlayButtons: false, locale: 'zh', pageTransition: true, liveDpr: null, liveTapCap: null, liveBlurDownsample: null, liveCapsuleSdfQuality: null, showFps: false, showPerfMonitor: false, highlightAa: true, usePerElementFbo: false, perfProgress: null, perfDone: false, perfResultDpr: 0, perfStatusText: '' })
         try { window.localStorage.removeItem('liquid-glass-perf-dpr') } catch {}
         const d = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
         const dprFrac = (d - 0.5) / Math.max(0.0001, d - 0.5)
@@ -593,6 +645,8 @@ export function buildSettings(
         rendererRef?.current?.setToggleTarget('settings-blur-taps', (9 - 1) / 32)
         // Downsample default = 4× → fraction = (8-4)/7 ≈ 0.571
         rendererRef?.current?.setToggleTarget('settings-blur-downsample', (8 - 4) / 7)
+        // Capsule quality default = 0.5 → fraction = (0.5-0.25)/0.75 = 0.333
+        rendererRef?.current?.setToggleTarget('settings-capsule-quality', (0.5 - 0.25) / 0.75)
       },
     }
   }
