@@ -21,6 +21,16 @@ import type { GlassRenderState } from './methods-render-glass-state'
  *  First: theme-aware dim overlay fading OUT on press (SrcOver).
  *  Second: subtle black tint fading IN on press (SrcOver).
  *
+ *  CONTINUOUS-CURVATURE (G2) SUPPORT:
+ *  All three overlays use `tintProgram`, whose sdShape() dispatches to
+ *  sampleClipSdf (G2 Bezier SDF texture) when uUseContinuousSdf=1, else
+ *  sdRoundedRect (G1 analytic arc). For elements with useContinuousSdf=true
+ *  (capsule knobs/tracks, tab indicators), we MUST bind the SDF texture +
+ *  set uUseContinuousSdf=1 here, otherwise the overlay clip uses the G1 arc
+ *  and the visible shape (esp. the knob's solid white pebble at rest) does
+ *  NOT match the G2 glass body underneath. bindTintContinuousSdf() handles
+ *  this; it is a no-op for non-capsule elements.
+ *
  *  Extracted verbatim from renderGlassPostPasses. */
 export function renderGlassGlowAndOverlays(
   renderer: LiquidGlassRenderer,
@@ -35,6 +45,33 @@ export function renderGlassGlowAndOverlays(
   const origRadius = state.origCornerRadius * renderer.dpr
   const layerScaleX = state.layerScaleX
   const layerScaleY = state.layerScaleY
+
+  /** Bind the continuous-curvature SDF texture + uniforms for tintProgram.
+   *  MUST be called after gl.useProgram(renderer.tintProgram) so the uniform
+   *  locations are valid. The SDF texture for this element is already loaded
+   *  by the main element pass (methods-render.ts loadContinuousSdf before
+   *  renderGlassElement), so continuousSdfTexture is the correct one for `el`.
+   *  No-op (sets uUseContinuousSdf=0) for non-capsule elements. */
+  const bindTintContinuousSdf = () => {
+    if (el.useContinuousSdf && renderer.continuousSdfTexture) {
+      gl.activeTexture(gl.TEXTURE2)
+      gl.bindTexture(gl.TEXTURE_2D, renderer.continuousSdfTexture)
+      gl.uniform1i(renderer.uTn['uContinuousSdf'], 2)
+      gl.uniform1f(renderer.uTn['uUseContinuousSdf'], 1.0)
+      gl.uniform2f(
+        renderer.uTn['uContinuousSdfTexSize'],
+        renderer.continuousSdfTexSize[0],
+        renderer.continuousSdfTexSize[1]
+      )
+      gl.uniform2f(
+        renderer.uTn['uContinuousSdfElementSize'],
+        state.origW * renderer.dpr,
+        state.origH * renderer.dpr
+      )
+    } else {
+      gl.uniform1f(renderer.uTn['uUseContinuousSdf'], 0.0)
+    }
+  }
 
   // --- Step 2c: Press glow (button + bottom-tab container) ---
   const isContainer = !!el.isBottomTabContainer
@@ -64,6 +101,9 @@ export function renderGlassGlowAndOverlays(
     gl.uniform2f(renderer.uTn['uLayerScale'], layerScaleX, layerScaleY)
     gl.uniform1f(renderer.uTn['uElementRotation'], state.elementRotation)
     gl.uniform1f(renderer.uTn['uCornerStyle'], renderer.cornerStyle)
+    // Bind G2 continuous-curvature SDF so the press-glow clip matches the
+    // capsule shape (no-op for non-capsule elements).
+    bindTintContinuousSdf()
     gl.uniform4f(renderer.uTn['uColor'], 1, 1, 1, 0.08 * glowP)
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 
@@ -143,6 +183,13 @@ export function renderGlassGlowAndOverlays(
     gl.uniform2f(renderer.uTn['uLayerScale'], layerScaleX, layerScaleY)
     gl.uniform1f(renderer.uTn['uElementRotation'], state.elementRotation)
     gl.uniform1f(renderer.uTn['uCornerStyle'], renderer.cornerStyle)
+    // CRITICAL: bind G2 SDF so the white pebble clip uses the continuous-
+    // curvature Bezier shape. Without this the knob at rest (alpha=1, the
+    // ONLY thing the user sees) renders with the G1 analytic arc — that's
+    // why the knob "still looks wrong" even though useContinuousSdf=true
+    // was set on the element. The glass body underneath is degenerate at
+    // rest (contentScaleY=0), so this white overlay IS the visible knob.
+    bindTintContinuousSdf()
     gl.uniform4f(renderer.uTn['uColor'], 1, 1, 1, whiteAlpha)
     gl.drawArrays(gl.TRIANGLES, 0, 6)
   }
@@ -171,6 +218,9 @@ export function renderGlassGlowAndOverlays(
     gl.uniform2f(renderer.uTn['uLayerScale'], layerScaleX, layerScaleY)
     gl.uniform1f(renderer.uTn['uElementRotation'], state.elementRotation)
     gl.uniform1f(renderer.uTn['uCornerStyle'], renderer.cornerStyle)
+    // Bind G2 SDF so the indicator dim overlay clip matches the capsule
+    // indicator shape (no-op for non-capsule elements).
+    bindTintContinuousSdf()
     // First overlay: dim color at 0.1 * (1 - progress) — fades out on press.
     gl.uniform4f(renderer.uTn['uColor'], dc[0], dc[1], dc[2], 0.1 * (1 - prog))
     gl.drawArrays(gl.TRIANGLES, 0, 6)
