@@ -44,10 +44,20 @@ function elementCacheSignature(el: GlassElementConfig): string {
     el.isToggleKnob, el.isToggleTrack, el.isSliderFill,
     el.isBottomTabContainer, el.isBottomTabContent, el.isBottomTabIndicator,
     el.sceneBlurRadius,
+    // Refraction params (refractionHeight / refractionAmount / depthEffect)
+    // are baked into the elFbo by the element pass shader — changing them
+    // WITHOUT invalidating the cache returns the stale baked elFbo. This was
+    // the root cause of "GP refraction sliders don't refresh the glass body":
+    // the catalog rebuilds gp-square with new refraction params, but the
+    // signature matched → cache HIT → stale texture composited.
+    el.refractionHeight, el.refractionAmount, el.depthEffect,
     // NOTE: cornerStyle is a GLOBAL renderer field (this.cornerStyle), not
     // per-element — its change is handled by the context.tsx effect that
     // calls markAllDirty(). layerScale is derived at render time from
     // element state, not stored on the config. Both deliberately excluded.
+    // elementScaleX/Y are also deliberately excluded — they only affect the
+    // composite-time visual scale (elFbo stays at baseline resolution), so
+    // zoom changes don't need to invalidate the baked glass body.
   ])
 }
 

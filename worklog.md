@@ -2202,3 +2202,81 @@ Stage Summary:
 - 影响范围：仅 toggle/slider/bottom-tabs 等包含 useContinuousSdf 元素的
   页面。其他页面（Buttons/Home/Settings/About）不受影响，因为它们
   从未绑定 TEXTURE2 到 SDF 纹理。
+
+---
+Task ID: 71
+Agent: main (Z.ai Code)
+Task: 修复 GP 拖动参数滑块时玻璃方块不刷新的问题
+
+Work Log:
+- 用户报告：在 Glass Playground 页面拖动参数滑块（Refraction height /
+  Refraction amount 等）时，中央的玻璃方块不实时刷新。
+
+- 架构理解：
+  * GP 页面有 5 个滑块：Corner radius, Blur radius, Refraction height,
+    Refraction amount, Chromatic aberration。
+  * 拖动滑块 → onValueChange → setState({ key: v }) → React 重渲染 →
+    catalog useMemo 重建 → buildGlassPlayground 用新 state 创建新的
+    gp-square element → context.tsx 的 useEffect([elements]) 调用
+    renderer.setElements(newConfigs)。
+  * setButtons (methods-elements.ts) 对比新旧 config 的 elementCacheSignature：
+    签名变了 → markElementDirty → 下一帧 elFbo cache MISS → 重新光栅化。
+    签名没变 → cache HIT → 复用旧 elFbo → 玻璃体不更新。
+
+- 根因定位 — elementCacheSignature (methods-elements.ts L26-52)：
+  签名包含的字段：rect.w/h, cornerRadius, blurRadius, useSeparableBlur,
+  scrimColor, surfaceColor, tintColor, independentBackdrop, sampleWallpaper,
+  chromaticAberration, outerShadow, highlight, isMagnifier, isSdfTexture,
+  enterProgress系列, useGravityAngle, elementRotation, backdropFbo,
+  brightness, contrast, saturation, useContinuousSdf, isToggleKnob/Track/Fill,
+  isBottomTab系列, sceneBlurRadius。
+
+  缺失的字段：refractionHeight, refractionAmount, depthEffect。
+
+  这三个字段在 element pass shader 中被使用（element.ts）：
+  * refractionHeight / refractionAmount → lens 折射偏移量
+  * depthEffect → 折射方向加 depthVec
+  它们都会被 bake 进 elFbo（element pass 渲染到 renderFbo 的结果）。
+
+  所以拖动 Refraction height / Refraction amount 滑块时：
+  * state.refractionHeightFrac 变化 → gp-square.refractionHeight 变化
+  * catalog 重建 → setElements 收到新 config
+  * 但 elementCacheSignature 不含 refractionHeight → 新旧签名相同
+  * → markElementDirty 不触发 → elFbo cache HIT → 复用旧纹理 → 不刷新！
+
+  而 Corner radius / Blur radius / Chromatic aberration 滑块正常工作，
+  因为 cornerRadius / blurRadius / chromaticAberration 都在签名里。
+
+- 修复 — methods-elements.ts elementCacheSignature：
+  在签名数组末尾加入 refractionHeight, refractionAmount, depthEffect，
+  并加注释说明：
+  * 这三个字段被 element pass shader bake 进 elFbo
+  * 不在签名里会导致改它们时 cache HIT → 复用旧纹理（GP bug 根因）
+  * elementScaleX/Y 仍然排除（它们只影响 composite 时的视觉缩放，
+    elFbo 保持 baseline 分辨率，zoom 不需要 invalidate）。
+
+- 验证（Agent Browser + console.log）：
+  * 临时在 markElementDirty 前加 console.log('[GP] signature changed')。
+  * 导航到 ?dest=GlassPlayground。
+  * 拖动 Corner radius 滑块（y=180）：签名第 3 值 cornerRadius 从 64→128，
+    markElementDirty 触发 5 次。✓（原本就正常）
+  * 拖动 Refraction height 滑块（y=316）：签名倒数第 2 值 refractionHeight
+    从 25.6→113.6，markElementDirty 触发 5 次。✓（修复后正常）
+  * 拖动 Refraction amount 滑块（y=384）：签名最后 1 值 refractionAmount
+    从 -51.2→-227.2，markElementDirty 触发 5 次。✓（修复后正常）
+  * 移除临时 console.log。
+  * 视觉验证：拖动后玻璃方块内部像素从均匀 (136,246,229) 变为有折射
+    色彩变化（中心 [138,223,255] 蓝，边缘 [83,252,225] 绿），说明
+    lens 折射效果已重新光栅化。
+  * bun run lint: 0 errors。dev.log: 干净。
+
+Stage Summary:
+- 根因：elementCacheSignature 漏了 refractionHeight / refractionAmount /
+  depthEffect 三个字段。这三个字段被 element pass shader bake 进 elFbo，
+  不在签名里 → 改它们时 elFbo cache HIT → 复用旧纹理 → GP 折射滑块
+  拖动时玻璃方块不刷新。
+- 修复：在签名数组末尾加入这三个字段 + 注释。
+- 影响范围：仅 GP 的 Refraction height / Refraction amount 滑块（Corner
+  radius / Blur radius / Chromatic aberration 原本就在签名里，正常）。
+  其他页面不受影响（它们的 element 不依赖 refractionHeight/Amount 的
+  运行时变化）。
