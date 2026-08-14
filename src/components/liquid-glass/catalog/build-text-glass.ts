@@ -2,6 +2,7 @@ import type { ElementInteraction } from '../context'
 import type { GlassElementConfig } from '../renderer'
 import { DP, LIGHT_PALETTE, type CatalogResult, type CatalogState, type ThemePalette } from './types'
 import { applyVerticalCenter, makeBackButton, makeGlassShape, makeText } from './helpers'
+import { makeTextInputGlass } from './helpers-text-input'
 import { t, type Locale } from './i18n'
 
 // Drag-start offset for TextGlass — module-level so it survives re-renders
@@ -107,6 +108,28 @@ export function buildTextGlass(
       }
     )
   )
+
+  // Input-field glass pill — a rounded-rect glass anchored at the bottom of
+  // the screen, positioned to sit exactly under the transparent HTML input
+  // overlay (see page.tsx: same width/horizontal centering/bottom offset).
+  // scroll=false so applyVerticalCenter leaves it pinned to the bottom
+  // instead of shifting it up with the centered text content. This is the
+  // *visible* "input field" — the real <input> on top of it has NO
+  // background/border (fully transparent chrome) but DOES show its text +
+  // caret so the user sees what they type drawn over the glass pill.
+  const inputW = Math.min(320, W - 32)
+  const inputH = 44
+  const inputX = (W - inputW) / 2
+  // Raised 60px from the bottom (was 24) so the input sits higher and is
+  // easier to reach on tall screens, and leaves room below for the home
+  // indicator / gesture area.
+  const inputY = H - 60 - inputH
+  const tgInputGlass = makeTextInputGlass(
+    'tg-input',
+    { x: inputX, y: inputY, w: inputW, h: inputH },
+    false // scroll=false → fixed at bottom, not vertically centered
+  )
+  elements.push(tgInputGlass)
 
   const contentHeight = glassH + 32 + 40
   const finalHeight = applyVerticalCenter(elements, 0, contentHeight, H)

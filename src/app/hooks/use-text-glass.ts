@@ -24,13 +24,31 @@ export function useTextGlass(opts: {
 }) {
   const { destination, state, setState, rendererRef, rendererReady } = opts
 
+  // Track the previous destination so we can regenerate the SDF immediately
+  // on page entry (no debounce) while still debouncing rapid typing. Without
+  // the immediate regen on entry, the tg-glass element renders its FIRST frame
+  // against a stale this.sdfTexture (e.g. clock_sdf left over from LockScreen)
+  // and shows the wrong shape for the 250ms debounce window.
+  const prevDestRef = React.useRef<CatalogDestination>(destination)
+
   // Regenerate text SDF when textGlassText changes (debounced). Only runs
   // on the TextGlass page so we don't clobber clock_sdf elsewhere.
   React.useEffect(() => {
     if (!rendererReady) return
-    if (destination !== CatalogDestination.TextGlass) return
+    if (destination !== CatalogDestination.TextGlass) {
+      prevDestRef.current = destination
+      return
+    }
     const text = state.textGlassText
-    if (!text) return
+    if (!text) {
+      prevDestRef.current = destination
+      return
+    }
+    // Just entered TextGlass → regenerate now (0ms) so the glass shows the
+    // correct text on the next frame instead of a stale texture. Already on
+    // the page and the text changed → debounce 250ms to coalesce fast typing.
+    const justEntered = prevDestRef.current !== CatalogDestination.TextGlass
+    prevDestRef.current = destination
     const handle = window.setTimeout(() => {
       const renderer = rendererRef.current
       if (!renderer) return
@@ -54,7 +72,7 @@ export function useTextGlass(opts: {
       } catch (e) {
         console.error('[TextGlass] SDF generation failed:', e)
       }
-    }, 250)
+    }, justEntered ? 0 : 250)
     return () => window.clearTimeout(handle)
   }, [destination, state.textGlassText, rendererReady, rendererRef, setState])
 

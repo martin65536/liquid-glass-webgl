@@ -83,6 +83,11 @@ export const wallpaperMethods = {
     this.sdfTexture = tex
     this.sdfTextureSize = [img.naturalWidth || 1, img.naturalHeight || 1]
     this.sdfTextureReady = true
+    // Invalidate every cached elFbo so isSdfTexture elements re-rasterize
+    // with the new texture. Without this, the per-element FBO cache holds a
+    // stale render (from before the texture finished loading) and the glass
+    // stays invisible until a drag/toggle marks it dirty.
+    this.markAllDirty()
     this.requestRender()
   },
 
@@ -105,6 +110,11 @@ export const wallpaperMethods = {
     this.sdfTexture = tex
     this.sdfTextureSize = [w, h]
     this.sdfTextureReady = true
+    // Invalidate every cached elFbo so isSdfTexture elements re-rasterize
+    // with the new text texture. Same rationale as loadSdfTexture above —
+    // without this the TextGlass element keeps showing its stale cached
+    // body until a drag forces a re-render.
+    this.markAllDirty()
     this.requestRender()
   },
 

@@ -435,17 +435,19 @@ export default function Page() {
           onReady={() => setRendererReady(true)}
         />
         {/* TextGlass — HTML text input overlay (only on the TextGlass page).
-            The catalog is fully canvas-rendered except for this input, which
-            lets the user type custom text that gets converted to an SDF glass
-            shape (see use-text-glass.ts). Styled as a frosted-glass pill at
-            the bottom of the screen. */}
+            The <input> has NO background/border/shadow (fully transparent
+            chrome) so the canvas-rendered liquid-glass pill (tg-input, see
+            build-text-glass.ts + helpers-text-input.ts) shows through as the
+            visible "input field". The TEXT and CARET are kept visible
+            (white text + white caret) so the user sees what they type drawn
+            over the glass pill. */}
         {destination === CatalogDestination.TextGlass && rendererReady && (
           <div
             style={{
               position: 'absolute',
               left: '50%',
               transform: 'translateX(-50%)',
-              bottom: 24,
+              bottom: 60,
               width: 'min(320px, calc(100% - 32px))',
               zIndex: 30,
             }}
@@ -455,24 +457,30 @@ export default function Page() {
               value={state.textGlassText}
               onChange={(e) => setState({ textGlassText: e.target.value })}
               maxLength={20}
-              placeholder="Type text…"
+              aria-label="Text glass input"
               style={{
                 width: '100%',
-                padding: '12px 16px',
+                height: 44,
+                padding: '0 16px',
+                margin: 0,
                 borderRadius: 999,
-                border: '1px solid rgba(255,255,255,0.25)',
-                background: 'rgba(255,255,255,0.15)',
-                backdropFilter: 'blur(12px)',
-                WebkitBackdropFilter: 'blur(12px)',
-                color: '#fff',
-                fontSize: 16,
-                fontWeight: 500,
+                // No background / border / shadow / outline — the visible
+                // "input field" is the canvas glass pill underneath. Only
+                // the text + caret are drawn by this element.
+                background: 'transparent',
+                backdropFilter: 'none',
+                WebkitBackdropFilter: 'none',
+                border: 'none',
                 outline: 'none',
+                boxShadow: 'none',
+                // Keep the typed text + caret visible over the glass.
+                color: '#fff',
+                caretColor: '#fff',
+                fontSize: 16,
+                fontWeight: 600,
                 textAlign: 'center',
-                boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
+                cursor: 'text',
               }}
-              onFocus={(e) => { e.target.style.borderColor = 'rgba(255,255,255,0.5)' }}
-              onBlur={(e) => { e.target.style.borderColor = 'rgba(255,255,255,0.25)' }}
             />
           </div>
         )}
