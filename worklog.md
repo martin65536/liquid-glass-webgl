@@ -2118,3 +2118,87 @@ Stage Summary:
 - renderer: element-pass.ts 每帧设置 uNoContinuousSdfInRefraction uniform。
 - context.tsx: sync effect 推 noContinuousSdf 到 renderer + markAllDirty。
 - 旧 originalCorners 字段名向后兼容迁移。
+
+---
+Task ID: 70
+Agent: main (Z.ai Code)
+Task: 修复进入开关/滑块页面后退出按钮背景消失的 bug
+
+Work Log:
+- 用户报告：进入开关(toggle)或滑块(slider)页面后，退出按钮(back button)的
+  玻璃背景消失，只剩一个裸箭头图标。其他页面正常。
+
+- 诊断方法：用 Agent Browser 导航到 toggle 页面，截图后用 PIL 读取 back button
+  区域的像素值。对比 Buttons 页面（正常）和 Toggle 页面（bug）：
+  * Buttons 页：back button 内部像素 (154, 229, 239) — 比壁纸 (136, 207, 220)
+    亮，说明 30% 白色 surfaceColor overlay 已应用 → 玻璃体正常渲染。
+  * Toggle 页：back button 内部像素 (139, 210, 220) — 与壁纸完全相同，
+    说明玻璃体未渲染（无 white overlay），只有前景箭头图标。
+
+- 添加临时 debug 日志，定位到根因：
+  * back button 的 elFbo cache 第一帧 miss → rasterize → 但 raster 后中心
+    像素为 (0,0,0,0) — 完全透明！
+  * 在 drawArrays 前后检查 GL error：drawArrays 返回 GL_INVALID_OPERATION (1282)。
+  * drawArrays 失败 → 无像素写入 → elFbo 保持 clear 的透明色 → composite
+    什么都不画 → back button 玻璃体消失。
+
+- 根因分析：WebGL1 要求 shader 中声明的所有 sampler uniform 都指向一个
+  "texture complete" 的纹理单元，即使当前 uniform 分支（如 uUseContinuousSdf=0）
+  不会采样它。Toggle 页面的渲染顺序：
+  1. t1-knob (useContinuousSdf=true) → element pass 绑定 TEXTURE2 到
+     continuousSdfTexture，设置 uContinuousSdf=2
+  2. t2-knob (useContinuousSdf=true) → 同上
+  3. __back__ (useContinuousSdf=false) → element pass 不绑定 TEXTURE2，
+     只设 uUseContinuousSdf=0，但 uContinuousSdf sampler 仍指向 unit 2
+     （从上一个 toggle knob 的 pass 继承）
+
+  TEXTURE2 仍然绑定着 continuousSdfTexture（表面上完整），但在 toggle knob
+  和 back button 之间，loadContinuousSdf 可能为不同尺寸的 plainRect
+  （toggle-card 176x76, t2-track 64x28）创建新纹理并绑定到 TEXTURE2
+  （loadContinuousSdf 不调用 activeTexture，绑定到当前 active unit）。
+  如果某个中间步骤让 TEXTURE2 指向了一个不完整或已删除的纹理，
+  drawArrays 就会返回 GL_INVALID_OPERATION。
+
+  Buttons 页面没有 useContinuousSdf 元素，TEXTURE2 从未被绑定到 SDF 纹理，
+  所以 back button 不受影响。
+
+- 修复方案（标准 WebGL1 最佳实践）：创建一个 1×1 的 dummy texture（全透明黑），
+  在 element pass 中，当元素不使用 SDF 纹理时，将 dummy texture 绑定到
+  TEXTURE2。这确保 uSdfTexSampler / uContinuousSdf sampler 始终指向一个
+  complete texture，避免 GL_INVALID_OPERATION。
+
+- 修复 1 — renderer/index.ts：
+  * 新增 `dummyTex: WebGLTexture | null = null` 字段，带详细 docstring
+    解释 WebGL1 sampler completeness 规则和 bug 根因。
+  * 在 constructor 中创建 1×1 RGBA dummy texture（[0,0,0,0]），
+    设置 LINEAR + CLAMP_TO_EDGE（NPOT-safe）。
+
+- 修复 2 — methods-render-glass-element-pass.ts：
+  * 在 `if (el.isSdfTexture && this.sdfTexture)` 的 else 分支中，
+    绑定 dummyTex 到 TEXTURE2。
+  * 在 `if (el.useContinuousSdf && this.continuousSdfTexture)` 的 else
+    分支中，也绑定 dummyTex 到 TEXTURE2。
+  * 两个 else 分支的注释解释了为什么需要 dummy texture 以及它如何
+    修复 "back button background disappears on toggle/slider pages" bug。
+
+- 验证：
+  * Toggle 页面：back button 内部像素从 (139, 210, 220) → (154, 229, 239)，
+    比壁纸 (136, 207, 220) 亮 → 30% white overlay 已应用 → 玻璃体正常渲染。✓
+  * Slider 页面：同样修复。✓
+  * VLM 确认："circular back button with a visible frosted glass background"。✓
+  * bun run lint: 0 errors。✓
+  * dev.log: 干净，无 GL error。✓
+
+Stage Summary:
+- 根因：WebGL1 sampler completeness 规则。Toggle/Slider 页面的 toggle knob
+  element pass 将 TEXTURE2 绑定到 continuousSdfTexture 并设置 uContinuousSdf=2。
+  后续的 back button element pass 不使用 SDF，不重绑 TEXTURE2，但 shader 中
+  声明的 uContinuousSdf sampler 仍指向 unit 2。如果 TEXTURE2 上的纹理因
+  loadContinuousSdf 的中间调用变得不完整或被删除，drawArrays 返回
+  GL_INVALID_OPERATION → elFbo 保持透明 → back button 玻璃体消失。
+- 修复：创建 1×1 dummy texture，在 element pass 的两个 else 分支
+  （非 SDF / 非 continuousSDF）绑定到 TEXTURE2，确保所有 sampler
+  始终指向 complete texture。
+- 影响范围：仅 toggle/slider/bottom-tabs 等包含 useContinuousSdf 元素的
+  页面。其他页面（Buttons/Home/Settings/About）不受影响，因为它们
+  从未绑定 TEXTURE2 到 SDF 纹理。

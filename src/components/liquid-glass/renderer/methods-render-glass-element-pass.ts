@@ -275,6 +275,21 @@ export const glassElementPassMethods = {
       )
     } else {
       gl.uniform1f(this.uEl['uUseSdfTexture'], 0.0)
+      // Bind the dummy 1×1 texture to TEXTURE2 so the uSdfTexSampler /
+      // uContinuousSdf samplers (both declared in the shader, both pointing
+      // at unit 2 from a prior element's pass) always see a COMPLETE texture.
+      // WebGL1 requires ALL declared samplers to point to complete textures,
+      // even if the shader's uniform branch never samples them — otherwise
+      // drawArrays returns GL_INVALID_OPERATION and the glass body silently
+      // renders empty. This was the root cause of the "back button background
+      // disappears on toggle/slider pages" bug: the toggle knob's pass bound
+      // TEXTURE2 to the SDF texture, then the back button's pass (which
+      // doesn't use SDF) left TEXTURE2 bound to a potentially stale/deleted
+      // texture → INVALID_OPERATION → empty elFbo → transparent back button.
+      if (this.dummyTex) {
+        gl.activeTexture(gl.TEXTURE2)
+        gl.bindTexture(gl.TEXTURE_2D, this.dummyTex)
+      }
     }
     // --- Continuous-curvature SDF texture (capsule shape) ---
     // Bind the precomputed continuous-curvature SDF texture for elements
@@ -303,6 +318,13 @@ export const glassElementPassMethods = {
       )
     } else {
       gl.uniform1f(this.uEl['uUseContinuousSdf'], 0.0)
+      // Same dummy-texture bind as the uSdfTexSampler branch above. Both
+      // samplers share TEXTURE2; this ensures the unit is always complete
+      // even when neither SDF path is active.
+      if (this.dummyTex) {
+        gl.activeTexture(gl.TEXTURE2)
+        gl.bindTexture(gl.TEXTURE_2D, this.dummyTex)
+      }
     }
     // noContinuousSdf toggle: strip G2 SDF out of the refraction/lens body.
     // Forced to 1.0 (analytic) when capsuleShape is OFF (no G2 texture to use

@@ -651,6 +651,18 @@ export class LiquidGlassRenderer {
   continuousSdfTexSize: [number, number] = [128, 128]
   continuousSdfKey: string | null = null
 
+  /** 1×1 dummy texture (fully transparent black) bound to unused sampler
+   *  units in the element pass. WebGL1 requires ALL sampler uniforms declared
+   *  in a shader to point to texture units with a COMPLETE texture — even if
+   *  the shader's current code path (via a uniform branch) never samples them.
+   *  Without this, elements that render AFTER an element which bound a texture
+   *  to a now-stale unit (e.g. toggle knob binding TEXTURE2 to the SDF texture,
+   *  then the back button not rebinding it) get GL_INVALID_OPERATION from
+   *  drawArrays → the glass body silently renders as empty/transparent.
+   *  This is the root cause of the "back button background disappears on
+   *  toggle/slider pages" bug. */
+  dummyTex: WebGLTexture | null = null
+
   // --- Capsule SDF profiling (debug layer) ---
   // Last generation's timings (ms). 0 when pool hit (no generation/upload).
   _lastCapsuleGenMs = 0        // CPU: generateContinuousCurvatureMask total
@@ -875,6 +887,18 @@ export class LiquidGlassRenderer {
     const fgCtx = this.fgCanvas?.getContext('2d', { alpha: true })
     if (!fgCtx) throw new Error('2D canvas not supported')
     this.fgCtx = fgCtx
+
+    // Create the 1×1 dummy texture used to bind unused sampler units in the
+    // element pass (see dummyTex docstring above). Created once here so every
+    // element pass can cheaply bind it to units that would otherwise hold a
+    // stale or deleted texture from a previous element's pass.
+    this.dummyTex = gl.createTexture()
+    gl.bindTexture(gl.TEXTURE_2D, this.dummyTex)
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0]))
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
 
     // Stroke masks are created lazily in renderGlassPostPasses and cached by
     // exact geometry. Always use HTMLCanvasElement (not OffscreenCanvas) —
