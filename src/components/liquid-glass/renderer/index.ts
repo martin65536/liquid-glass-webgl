@@ -336,17 +336,23 @@ export class LiquidGlassRenderer {
    *  elFbos dirty so new textures are generated at the new resolution.
    *  See generateContinuousCurvatureMask + loadContinuousSdf. */
   capsuleSdfQuality = 0.5
-  /** "Disable smooth-corner SDF" MASTER switch (Settings). When true (default),
-   *  the G2 SDF texture is NOT generated, uploaded, or bound at all — neither
-   *  for refraction NOR for the clip mask (edge shape). The shader falls back
-   *  to analytic sdRoundedRect (circular arc) for both. This avoids the CPU
-   *  cost of Canvas2D raster + chamfer distance transform + GPU upload +
-   *  GPU memory, at the cost of slightly less smooth corners.
-   *  When false, the G2 SDF texture is used for BOTH the clip mask and the
-   *  refraction (full G2 continuous curvature, when capsuleShape is ON).
-   *  The render loop (methods-render.ts) and element-pass both check this
-   *  flag to skip loadContinuousSdf + texture binding. The GPU texture pool
-   *  + CPU mask cache are cleared by context.tsx when the toggle flips ON. */
+  /** "Disable smooth-corner SDF" toggle (Settings) — controls ONLY the G
+   *  channel (refraction SDF), NOT the R channel (clip/edgeAA coverage).
+   *  When true (default): generate an R-only texture — skip the G-channel
+   *  chamfer distance transform (forward + backward passes, the most
+   *  CPU-expensive part of generateContinuousCurvatureMask). The texture is
+   *  still generated, uploaded, and bound; uUseContinuousSdf=1.0 so
+   *  sampleClipMask (clip + edgeAA, reads R) still gets pixel-perfect G2
+   *  Bezier corners. The shader's uNoContinuousSdfInRefraction=1 forces
+   *  sdShape (refraction/lens, reads G) to use analytic sdRoundedRect, so the
+   *  skipped G is never sampled. Saves ~half the per-element SDF generation
+   *  CPU on large elements (512²/1024²) while keeping capsule-shape corners.
+   *  When false: full R+G texture; sdShape samples G for G2 curvature in the
+   *  refraction/lens body (when capsuleShape is ON). loadContinuousSdf reads
+   *  this flag to pass skipSdf to generateContinuousCurvatureMask + include
+   *  it in the pool key. The GPU texture pool + CPU mask cache are cleared by
+   *  context.tsx when the toggle flips (either direction) since the skipSdf
+   *  flag changes the cache key. */
   noContinuousSdf = true
   /** "Direct backdrop sample" toggle (Settings, default true). When true,
    *  glass elements that use the LayerBackdrop semantic in the original

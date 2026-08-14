@@ -101,6 +101,17 @@ export function clearMaskCache(): number {
 /** Generate a dual-channel (coverage + SDF) texture for a continuous-curvature
  *  rounded rect. R = coverage [0,255], G = SDF [0,255] (128 = edge).
  *
+ *  skipSdf: when true, ONLY the R channel (coverage) is generated — the
+ *  chamfer distance transform (forward + backward passes, O(texSize²), the
+ *  most CPU-expensive part) is SKIPPED, and G is filled with 0. Use this when
+ *  the shader only needs the clip mask (R) and not the refraction SDF (G) —
+ *  i.e. when noContinuousSdf is ON. The R channel (browser-native AA coverage
+ *  from the same G2 Bezier path) is still pixel-perfect, so capsule-shape
+ *  clip + edgeAA are unaffected; only the G-based highlight stroke / lens
+ *  SDF falls back to the shader's analytic sdRoundedRect (set via
+ *  uNoContinuousSdfInRefraction). This cuts generation time roughly in half
+ *  for large elements (512²/1024²).
+ *
  *  NOTE: this function + its CPU maskCache are the CLEAN source of truth for
  *  the capsule shape. Debug probes that挖0 part of the texture MUST NOT touch
  *  this cache — they happen on a COPY at GPU upload time (see
@@ -112,7 +123,8 @@ export function generateContinuousCurvatureMask(
   h: number,
   radius: number,
   dpr: number = 1,
-  quality: number = 1.0
+  quality: number = 1.0,
+  skipSdf: boolean = false
 ): { tex: Uint8Array; texSize: number } {
   // texSize: FULLY dynamic — chosen by rounding 2× the element's device-px
   // max dimension UP to the next power of two, clamped to [128, 1024].
@@ -146,7 +158,7 @@ export function generateContinuousCurvatureMask(
   let baseTexSize = 128
   while (baseTexSize < target && baseTexSize < 1024) baseTexSize <<= 1
   const texSize = Math.max(32, Math.ceil(baseTexSize * quality))
-  const key = `${w},${h},${radius},${texSize}`
+  const key = `${w},${h},${radius},${texSize},s${skipSdf ? 1 : 0}`
   const cached = maskCache.get(key)
   if (cached) {
     // Record cache hit (no work done).
@@ -246,6 +258,13 @@ export function generateContinuousCurvatureMask(
   const t4 = performance.now()
   const t5 = t4   // init merged into alpha extract — no separate step
 
+  // skipSdf: skip the chamfer distance transform (forward + backward
+  // passes) entirely — they're the most CPU-expensive part (O(texSize²)).
+  // G will be filled with 0 in the pack step. t6/t7 default to t5 so the
+  // timing breakdown shows 0 for both passes when skipped.
+  let t6 = t5
+  let t7 = t5
+  if (!skipSdf) {
   // --- Step 6: Forward pass (chamfer distance transform) ---
   // Hot loop: extract array refs + texSize into locals so the JIT can
   // keep them in registers (avoid repeated property/const lookups inside
@@ -298,7 +317,7 @@ export function generateContinuousCurvatureMask(
     }
   }
 
-  const t6 = performance.now()
+  t6 = performance.now()
 
   // --- Step 7: Backward pass ---
   for (let y = ts - 1; y >= 0; y--) {
@@ -347,7 +366,8 @@ export function generateContinuousCurvatureMask(
     }
   }
 
-  const t7 = performance.now()
+  t7 = performance.now()
+  } // end if (!skipSdf)
 
   // --- Step 8: Pack RGBA (R=coverage, G=SDF, B=0, A=255) ---
   // Write via Uint32Array view — one 32-bit store per pixel instead of
@@ -358,11 +378,21 @@ export function generateContinuousCurvatureMask(
   const tex = _texBuf
   const tex32 = new Uint32Array(tex.buffer)
   const ALPHA_OPAQUE = 0xff000000   // A=255, B=0
-  for (let i = 0; i < N; i++) {
-    const sd = (inside[i] - outside[i]) / 5.0
-    const normalized = sd / refDist > 1 ? 1 : sd / refDist < -1 ? -1 : sd / refDist
-    const g = ((normalized * 0.5 + 0.5) * 255 + 0.5) | 0
-    tex32[i] = ALPHA_OPAQUE | (g << 8) | alpha[i]
+  if (skipSdf) {
+    // G channel not needed (noContinuousSdf ON — shader uses analytic
+    // sdRoundedRect for refraction, ignoring G). Pack R (coverage) only,
+    // G=0. Saves the per-pixel sd/normalize/quantize math on top of the
+    // skipped distance-transform passes above.
+    for (let i = 0; i < N; i++) {
+      tex32[i] = ALPHA_OPAQUE | alpha[i]
+    }
+  } else {
+    for (let i = 0; i < N; i++) {
+      const sd = (inside[i] - outside[i]) / 5.0
+      const normalized = sd / refDist > 1 ? 1 : sd / refDist < -1 ? -1 : sd / refDist
+      const g = ((normalized * 0.5 + 0.5) * 255 + 0.5) | 0
+      tex32[i] = ALPHA_OPAQUE | (g << 8) | alpha[i]
+    }
   }
 
   const t8 = performance.now()

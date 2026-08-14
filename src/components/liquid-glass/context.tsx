@@ -390,26 +390,30 @@ export function LiquidGlassCanvas({
     renderer.requestRender()
   }, [capsuleSdfQuality])
 
-  // Apply the "disable smooth-corner SDF" toggle. This is now a MASTER switch:
-  // when ON, the G2 SDF texture is NOT generated, uploaded, or bound at all —
-  // neither for refraction NOR for the clip mask. The shader falls back to
-  // analytic sdRoundedRect (circular arc) for both. When OFF, the texture is
-  // used for both (full G2 continuous curvature).
+  // Apply the "disable smooth-corner SDF" toggle. This controls ONLY the G
+  // channel (refraction SDF), NOT the R channel (clip/edgeAA coverage):
+  //   ON  → generate R-only texture (skip the G-channel chamfer distance
+  //         transform — the most CPU-expensive part). The shader's
+  //         uNoContinuousSdfInRefraction=1 forces analytic sdRoundedRect for
+  //         sdShape (which reads G). sampleClipMask (reads R) is unaffected —
+  //         capsule-shape corners stay pixel-perfect from the G2 Bezier path.
+  //   OFF → generate full R+G texture; sdShape samples G for G2 curvature in
+  //         refraction/lens.
   //
-  // When flipping ON: clear the GPU texture pool (free memory) + clear the
-  // CPU mask cache + markAllDirty so elFbos re-rasterize without the texture.
-  // When flipping OFF: just markAllDirty — textures are re-generated on the
-  // next render (loadContinuousSdf is called per-element, cached).
+  // When flipping either way: clear the GPU texture pool + CPU mask cache (the
+  // pool/mask key now includes the skipSdf flag, so old entries are stale) +
+  // markAllDirty so elFbos re-rasterize against the new texture content.
+  // Clearing on both directions keeps the pool from mixing R-only and R+G
+  // textures for the same geometry (wastes GPU memory); the next render
+  // regenerates the correct variant lazily (loadContinuousSdf is cached).
   React.useEffect(() => {
     const renderer = rendererRefInternal.current
     if (!renderer || noContinuousSdf == null) return
     renderer.noContinuousSdf = noContinuousSdf
-    if (noContinuousSdf) {
-      // Clear GPU texture pool + CPU mask cache to free memory while the
-      // toggle is ON (textures won't be regenerated until it's turned OFF).
-      renderer.clearCapsuleSdfPool()
-      clearMaskCache()
-    }
+    // Clear GPU texture pool + CPU mask cache: the skipSdf flag flips, so all
+    // existing entries have the wrong G-channel content. Regenerated lazily.
+    renderer.clearCapsuleSdfPool()
+    clearMaskCache()
     renderer.markAllDirty()
     renderer.requestRender()
   }, [noContinuousSdf])

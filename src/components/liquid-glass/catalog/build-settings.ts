@@ -257,11 +257,15 @@ export function buildSettings(
     Object.assign(interactions, capsuleToggle.interactions)
     nextY += BUTTON_HEIGHT + ITEM_GAP
 
-    // Disable smooth-corner SDF in refraction toggle. ON (default) = strip
-    // the G2 SDF texture out of the refraction/lens body (element.ts forces
-    // analytic sdRoundedRect for sdShape, ignoring uUseContinuousSdf). The
-    // clip mask (edge shape) is NOT affected — capsuleShape still controls it.
-    // OFF = refraction uses the G2 SDF texture when capsuleShape is ON.
+    // Disable smooth-corner SDF in refraction toggle. ON (default) = skip the
+    // G channel (chamfer distance transform) generation in
+    // generateContinuousCurvatureMask — only R (coverage) is generated. The
+    // shader's uNoContinuousSdfInRefraction=1 forces analytic sdRoundedRect
+    // for sdShape (refraction/lens, reads G), so the skipped G is never
+    // sampled. The clip mask + edgeAA (sampleClipMask, reads R) are NOT
+    // affected — capsule-shape corners stay pixel-perfect from the G2 Bezier
+    // path. Saves ~half the per-element SDF generation CPU on large elements.
+    // OFF = full R+G texture; refraction uses G for G2 curvature in lens.
     // DISABLED when capsuleShape is OFF (no G2 SDF to strip — the uniform is
     // forced to 1.0 analytic in element-pass.ts anyway). Shows OFF + no-op.
     const noSdfDisabled = !state.capsuleShape

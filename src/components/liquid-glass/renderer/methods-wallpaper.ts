@@ -105,17 +105,26 @@ export const wallpaperMethods = {
     // without busting the CPU cache.
     const holeR = this.debugSdfHoleTopLeftR
     const holeG = this.debugSdfHoleTopLeftG
-    // Pool key includes capsuleSdfQuality so different quality settings get
-    // distinct pool entries (texSize differs even for the same w/h/radius/dpr).
-    // When the user changes the quality slider, context.tsx clears the pool
-    // entirely so no orphaned textures accumulate.
+    // skipSdf: when noContinuousSdf is ON, generate an R-only texture (skip
+    // the G-channel distance transform). The R channel (coverage) is still
+    // pixel-perfect from the same G2 Bezier path, so capsule-shape clip +
+    // edgeAA are unaffected. G is filled with 0 and the shader's
+    // uNoContinuousSdfInRefraction=1 forces analytic sdRoundedRect for the
+    // refraction/lens SDF (which would have read G). This is the
+    // "don't render G" half of the noContinuousSdf toggle.
+    const skipSdf = !!this.noContinuousSdf
+    // Pool key includes capsuleSdfQuality + skipSdf so different settings get
+    // distinct pool entries (texSize/content differ even for the same
+    // w/h/radius/dpr). When the user changes the quality slider or flips
+    // noContinuousSdf, context.tsx clears the pool entirely so no orphaned
+    // textures accumulate.
     const q = this.capsuleSdfQuality
-    const key = `${w},${h},${radius},${this.dpr},q${q},r${holeR ? 1 : 0},g${holeG ? 1 : 0}`
-    // Pool: each unique (w,h,radius,dpr,holeR,holeG) gets its own texture.
+    const key = `${w},${h},${radius},${this.dpr},q${q},s${skipSdf ? 1 : 0},r${holeR ? 1 : 0},g${holeG ? 1 : 0}`
+    // Pool: each unique (w,h,radius,dpr,skipSdf,holeR,holeG) gets its own texture.
     let entry = this.continuousSdfPool.get(key)
     if (!entry) {
       const genStart = performance.now()
-      const { tex, texSize } = generateContinuousCurvatureMask(w, h, radius, this.dpr, this.capsuleSdfQuality)
+      const { tex, texSize } = generateContinuousCurvatureMask(w, h, radius, this.dpr, this.capsuleSdfQuality, skipSdf)
       const genEnd = performance.now()
       const gl = this.gl
       const texObj = gl.createTexture()!

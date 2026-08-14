@@ -316,13 +316,15 @@ export const renderMethods = {
       // element device-px size) so it only happens once per (w, h, radius,
       // dpr) tuple, on the first frame after a resize.
       //
-      // SKIPPED when noContinuousSdf is ON: the toggle means "don't use the
-      // G2 SDF texture at all" — neither for refraction NOR for the clip mask.
-      // The shader falls back to analytic sdRoundedRect (circular arc) for
-      // both, and we avoid the CPU cost of Canvas2D raster + chamfer distance
-      // transform + GPU upload. The SDF texture pool is also cleared when the
-      // toggle flips ON (see context.tsx), freeing GPU memory.
-      if (el.useContinuousSdf && !this.noContinuousSdf) {
+      // CALLED even when noContinuousSdf is ON: the toggle now only skips the
+      // G channel (distance transform) inside generateContinuousCurvatureMask.
+      // The R channel (coverage, browser-native AA from the G2 Bezier path) is
+      // STILL generated and bound — capsule-shape clip + edgeAA rely on it.
+      // The shader's uNoContinuousSdfInRefraction=1 (set in element-pass.ts)
+      // forces analytic sdRoundedRect for the refraction SDF (which reads G),
+      // so the skipped G channel is never sampled. This is the "don't render
+      // G" half of the toggle; R is always rendered.
+      if (el.useContinuousSdf) {
         this.loadContinuousSdf(el.rect.w, el.rect.h, el.cornerRadius)
       }
 
@@ -694,12 +696,17 @@ export const renderMethods = {
       // "全变成固定宽高比例" bug. loadContinuousSdf is cached, so calling it
       // here is a no-op if the same (w,h,radius) was already loaded.
       //
-      // SKIPPED when noContinuousSdf is ON (same rationale as the glass path
-      // above — no texture generation, shader uses analytic sdRoundedRect).
-      if (el.useContinuousSdf && !this.noContinuousSdf) {
+      // CALLED even when noContinuousSdf is ON (same rationale as the glass
+      // path above — R channel still needed for capsule-shape clip + edgeAA).
+      if (el.useContinuousSdf) {
         this.loadContinuousSdf(r2.w, r2.h, el.cornerRadius)
       }
-      if (el.useContinuousSdf && !this.noContinuousSdf && this.continuousSdfTexture) {
+      // Bind the R-only-or-R+G texture. noContinuousSdf ON still binds (R
+      // needed); the shader's uNoContinuousSdfInRefraction (set in
+      // element-pass.ts for glass, but plainRect uses uPr uniforms) controls
+      // whether G is sampled. plainRect shader only reads R (coverage) for
+      // clip, so it works identically in both modes.
+      if (el.useContinuousSdf && this.continuousSdfTexture) {
         gl.activeTexture(gl.TEXTURE2)
         gl.bindTexture(gl.TEXTURE_2D, this.continuousSdfTexture)
         gl.uniform1i(this.uPr['uContinuousSdf'], 2)

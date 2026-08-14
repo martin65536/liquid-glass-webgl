@@ -2373,3 +2373,88 @@ Stage Summary:
   (dialog card, magnifier)、backdropFbo、gp-sheet（故意采样场景折射 square）。
   固态背景页（Home/Settings/About）independent 强制 false，开关无效。
 - 持久化到 localStorage，Reset 按钮重置到 true。
+
+---
+Task ID: 72
+Agent: main (Z.ai Code)
+Task: noContinuousSdf 开关改为"只跳过 G 通道"，R 通道（clip/edgeAA coverage）照常渲染
+
+Work Log:
+- 用户澄清需求："只不渲染G通道，如果不用sdf渲染玻璃那G通道也没用，但不能全部不渲染"。
+  即：noContinuousSdf ON 时，R 通道（coverage，用于 clip + edgeAA）仍然生成并绑定，
+  只跳过 G 通道（SDF 距离场，用于 refraction/lens 的 sdShape）的 CPU 计算。
+
+- 关键发现：shader (sdf.ts) 早已有完美的 R/G 分离设计：
+  * uUseContinuousSdf 控制 sampleClipMask (R 通道，clip + edgeAA)
+  * uNoContinuousSdfInRefraction 控制 sdShape (G 通道，refraction SDF)
+  两者独立。之前 noContinuousSdf ON 时把 uUseContinuousSdf 也设 0（R 和 G 都不用），
+  这是"全部不渲染"——与用户意图不符。
+
+- 改动 1 — continuous-mask.ts: generateContinuousCurvatureMask 加 skipSdf 参数:
+  * skipSdf=true 时用 `if (!skipSdf) { ... }` 包裹 Step 6 (forward pass) +
+    Step 7 (backward pass) —— 跳过 chamfer distance transform（O(texSize²)，
+    最耗 CPU 的部分）。t6/t7 默认 = t5，timing 显示 0。
+  * Step 8 pack 分支：skipSdf 时 `tex32[i] = ALPHA_OPAQUE | alpha[i]`（G=0，
+    跳过 sd/normalize/quantize math）；else 保留原 R+G pack 逻辑。
+  * cache key 加 `,s${skipSdf?1:0}` —— R-only 和 R+G 是不同缓存条目。
+  * 函数 docstring 更新说明 skipSdf 语义。
+
+- 改动 2 — methods-wallpaper.ts: loadContinuousSdf:
+  * `const skipSdf = !!this.noContinuousSdf`
+  * 传给 generateContinuousCurvatureMask(..., skipSdf)
+  * pool key 加 `,s${skipSdf?1:0}`
+  * 注释说明 "don't render G" half of the toggle。
+
+- 改动 3 — methods-render.ts 两处:
+  * glass path (L325): `if (el.useContinuousSdf && !this.noContinuousSdf)` →
+    `if (el.useContinuousSdf)` —— noContinuousSdf ON 时也调用 loadContinuousSdf
+    （生成 R-only 纹理）。
+  * plainRect path (L699-709): 同样去掉 `!this.noContinuousSdf`（loadContinuousSdf
+    调用 + 纹理绑定条件）。plainRect shader 只读 R (coverage) 不读 G，两种模式
+    行为一致。
+  * 注释更新：CALLED even when noContinuousSdf is ON（R 仍需生成绑定）。
+
+- 改动 4 — methods-render-glass-element-pass.ts (L313-351):
+  * 绑定条件 `el.useContinuousSdf && !this.noContinuousSdf && this.continuousSdfTexture`
+    → `el.useContinuousSdf && this.continuousSdfTexture` —— noContinuousSdf ON 时
+    仍绑定纹理 + uUseContinuousSdf=1.0（R 照常采样）。
+  * uNoContinuousSdfInRefraction 逻辑 `(el.useContinuousSdf && !this.noContinuousSdf) ? 0.0 : 1.0`
+    保持不变 —— capsuleShape ON + noContinuousSdf ON → 1.0（G 不用，sdShape 走 analytic）。
+    这个 uniform 本来就正确，无需改。
+  * 注释重写：BOUND even when noContinuousSdf is ON + "R rendered, G not" split 说明。
+
+- 改动 5 — context.tsx sync effect (L393-419):
+  * 注释重写：ON → R-only texture (skip G distance transform)；OFF → full R+G。
+  * clear 逻辑改为双向都 clearCapsuleSdfPool + clearMaskCache（之前只在 ON 时 clear）。
+    原因：skipSdf flag 进了 cache key，切换时旧条目 stale，双向 clear 避免 pool 混入
+    R-only 和 R+G 同几何的重复纹理（省 GPU 内存）。
+
+- 改动 6 — 注释/docstring 同步更新:
+  * renderer/index.ts: noContinuousSdf docstring 重写（controls ONLY G channel,
+    R still rendered）。
+  * build-settings.ts: noContinuousSdf toggle 注释更新（skip G channel generation,
+    R unaffected, saves ~half CPU）。
+
+- 验证（Agent Browser + VLM + console errors + lint）:
+  * noContinuousSdf ON (R-only): VLM 确认"圆角平滑完整，无异常；玻璃整体正常显示，
+    有玻璃质感与阴影效果"。console 无 error。
+  * noContinuousSdf OFF (full R+G): VLM 确认"圆角平滑、折射正常、无渲染异常"。
+    console 无 error。
+  * 双向切换 (OFF→ON→OFF) 均正常，无崩溃。
+  * lint 通过（eslint . 无错误）。
+  * localStorage 恢复为默认 noContinuousSdf=true（推荐 R-only 模式）。
+
+Stage Summary:
+- noContinuousSdf 语义从"完全禁用纹理（R+G 都不用）"改为"只跳过 G 通道
+  （distance transform），R 通道照常生成绑定"。
+- 核心收益：noContinuousSdf ON（默认）时，capsule-shape 圆角仍由 G2 Bezier 路径
+  的 R coverage 决定（pixel-perfect），不再退化为 analytic 圆弧；同时省掉
+  ~half 的 per-element SDF 生成 CPU（forward+backward pass 是 O(texSize²) 大头）。
+- shader 层零改动（uUseContinuousSdf / uNoContinuousSdfInRefraction 早就是分离设计）。
+- 涉及文件：continuous-mask.ts, methods-wallpaper.ts, methods-render.ts,
+  methods-render-glass-element-pass.ts, context.tsx, renderer/index.ts,
+  build-settings.ts（仅注释）。
+- 注意：post-passes.ts / glow.ts 的绑定条件本就是 `useContinuousSdf && continuousSdfTexture`
+  （不检查 noContinuousSdf），新逻辑下自动正确（R 照常绑定）—— 无需改。
+- directBackdropSample 开关位置确认已在渲染卡片最末尾（capsule quality label 之后），
+  上一会话已完成移动，本次无需再动。

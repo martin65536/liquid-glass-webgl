@@ -302,15 +302,17 @@ export const glassElementPassMethods = {
     // the shader can map element coords to texture UV with the correct
     // aspect ratio + margin (matching continuous-sdf.ts).
     //
-    // SKIPPED when noContinuousSdf is ON: the toggle is now a MASTER switch
-    // that disables the SDF texture entirely — neither refraction NOR the
-    // clip mask samples it. The shader's uUseContinuousSdf is set to 0.0,
-    // so both sdShape and sampleClipMask fall back to analytic sdRoundedRect
-    // (circular arc). This avoids the CPU cost of texture generation + GPU
-    // upload + GPU memory, at the cost of slightly less smooth corners (G2
-    // continuous curvature → circular arc). The texture pool is cleared when
-    // the toggle flips ON (see context.tsx).
-    if (el.useContinuousSdf && !this.noContinuousSdf && this.continuousSdfTexture) {
+    // BOUND even when noContinuousSdf is ON: the toggle now only skips the G
+    // channel (distance transform) generation. The R channel (coverage) is
+    // still generated and bound — sampleClipMask (used by clip + edgeAA in
+    // element.ts, highlight.ts, scene-fg.ts) reads R and relies on it for
+    // pixel-perfect G2 Bezier corner shape. uUseContinuousSdf=1.0 tells the
+    // shader to sample R. The G channel (read by sampleClipSdf via
+    // sdShape) is controlled separately by uNoContinuousSdfInRefraction
+    // below — noContinuousSdf ON sets it to 1.0, forcing sdShape to use
+    // analytic sdRoundedRect (ignoring the G=0 texels). This is the
+    // "R rendered, G not" split.
+    if (el.useContinuousSdf && this.continuousSdfTexture) {
       gl.activeTexture(gl.TEXTURE2)
       gl.bindTexture(gl.TEXTURE_2D, this.continuousSdfTexture)
       gl.uniform1i(this.uEl['uContinuousSdf'], 2)
@@ -335,11 +337,13 @@ export const glassElementPassMethods = {
         gl.bindTexture(gl.TEXTURE_2D, this.dummyTex)
       }
     }
-    // noContinuousSdf MASTER switch: when ON, the G2 SDF texture is not bound
-    // (uUseContinuousSdf=0 above), so sdShape already falls through to analytic.
-    // This uniform is now redundant when noContinuousSdf is ON (both conditions
-    // force analytic), but we keep it for the OFF case where the texture IS
-    // bound and we want sdShape to use it (0.0 = use G2 SDF in refraction).
+    // noContinuousSdf: controls ONLY the G channel (refraction SDF). When ON,
+    // uNoContinuousSdfInRefraction=1.0 → sdShape (in sdf.ts) ignores the G2
+    // SDF texture's G channel and uses analytic sdRoundedRect. The R channel
+    // (coverage, used by sampleClipMask for clip + edgeAA) is UNAFFECTED —
+    // uUseContinuousSdf above stays 1.0, so capsule-shape corners remain
+    // pixel-perfect from the G2 Bezier path. This is the "don't render G"
+    // (skip distance transform) + "don't sample G" (force analytic) split.
     // el.useContinuousSdf encodes capsuleShape (set per-element in catalog).
     gl.uniform1f(
       this.uEl['uNoContinuousSdfInRefraction'],
