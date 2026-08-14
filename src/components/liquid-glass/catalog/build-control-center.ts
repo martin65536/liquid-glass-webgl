@@ -320,7 +320,7 @@ export function buildControlCenter(W: number, H: number, onBack: () => void, sta
       // For non-square tiles (152×68 etc), the original's Continuous style
       // kicks in (width != height → continuous Bezier path). Apply
       // useContinuousSdf when capsuleShape is enabled.
-      if (state.capsuleShape) {
+      if (state.capsuleShape && !state.originalCorners) {
         el.useContinuousSdf = true
       }
     }

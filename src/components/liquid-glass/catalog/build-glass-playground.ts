@@ -101,13 +101,14 @@ export function buildGlassPlayground(W: number, H: number, onBack: () => void, s
   // Use separable 2-pass blur: element pass renders to a dedicated FBO (clear
   // refraction), then that FBO is 2-pass blurred and composited back.
   gpSquare.useSeparableBlur = true
-  // Capsule shape: when state.capsuleShape is true, sample a precomputed
+  // Capsule shape: when state.capsuleShape is true AND originalCorners is
+  // false, sample a precomputed
   // continuous-curvature SDF texture (G2-continuous Bezier path) for the
   // square's shape — pixel-perfect squircle corners, vs the analytic
   // sdRoundedRect which uses a circular arc. Matches build-dialog.ts /
   // build-control-center.ts. The renderer's loadContinuousSdf() is called
   // from the render loop before rendering this element.
-  if (state.capsuleShape) {
+  if (state.capsuleShape && !state.originalCorners) {
     gpSquare.useContinuousSdf = true
   }
   elements.push(gpSquare)
@@ -196,7 +197,7 @@ export function buildGlassPlayground(W: number, H: number, onBack: () => void, s
     )
     gpSheet.independentBackdrop = false
     // Capsule shape for the sheet card (same as the square above).
-    if (state.capsuleShape) {
+    if (state.capsuleShape && !state.originalCorners) {
       gpSheet.useContinuousSdf = true
     }
     elements.push(gpSheet)

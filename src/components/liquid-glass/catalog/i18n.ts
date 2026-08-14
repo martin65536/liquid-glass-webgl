@@ -57,6 +57,7 @@ const translations: Record<string, { zh: string; en: string }> = {
   settings_dynamic_downsample: { zh: '动态降采样', en: 'Dynamic downsample' },
   settings_shape_title:     { zh: '形状', en: 'Shape' },
   settings_capsule:         { zh: '胶囊形', en: 'Capsule' },
+  settings_original_corners: { zh: '原版圆角裁切', en: 'Original corner clip' },
   settings_capsule_quality_label: { zh: '胶囊质量', en: 'Capsule quality' },
   settings_capsule_quality_hint:  { zh: '(左=省内存/锯齿, 右=清晰/慢)', en: '(left=lean/aliased, right=sharp/slow)' },
   settings_ui_title:        { zh: '界面', en: 'UI' },

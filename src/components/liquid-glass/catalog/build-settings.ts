@@ -238,6 +238,26 @@ export function buildSettings(
     Object.assign(interactions, peFboToggle.interactions)
     nextY += BUTTON_HEIGHT + ITEM_GAP
 
+    // Original corners toggle (master switch) — ON (default) = ordinary
+    // rounded rect (analytic sdRoundedRect, faithful to the original Android
+    // app). OFF = let the "capsule shape" toggle below control the G2
+    // continuous-curvature SDF texture upgrade. When ON, all elements use the
+    // analytic SDF regardless of capsuleShape (useContinuousSdf stays false).
+    const cornersToggle = makeSettingsToggle(
+      'settings-original-corners',
+      { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT + ITEM_GAP },
+      t('settings_original_corners', locale),
+      state.originalCorners,
+      () => setState((prev) => ({ originalCorners: !prev.originalCorners })),
+      palette,
+      rendererRef,
+      true,
+      labelPad,
+    )
+    elements.push(...cornersToggle.elements)
+    Object.assign(interactions, cornersToggle.interactions)
+    nextY += BUTTON_HEIGHT + ITEM_GAP
+
     // Capsule shape toggle — full card width row, height includes gap
     const capsuleToggle = makeSettingsToggle(
       'settings-shape-capsule',
@@ -637,7 +657,7 @@ export function buildSettings(
     elements.push(resetBtn)
     interactions['settings-reset'] = {
       onTap: () => {
-        setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 9, blurDownsample: 4, dynamicBlurDownsample: false, capsuleShape: true, capsuleSdfQuality: 0.5, hideOverlayButtons: false, locale: 'zh', pageTransition: true, liveDpr: null, liveTapCap: null, liveBlurDownsample: null, liveCapsuleSdfQuality: null, showFps: false, showPerfMonitor: false, highlightAa: true, usePerElementFbo: false, perfProgress: null, perfDone: false, perfResultDpr: 0, perfStatusText: '' })
+        setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 9, blurDownsample: 4, dynamicBlurDownsample: false, capsuleShape: true, originalCorners: true, capsuleSdfQuality: 0.5, hideOverlayButtons: false, locale: 'zh', pageTransition: true, liveDpr: null, liveTapCap: null, liveBlurDownsample: null, liveCapsuleSdfQuality: null, showFps: false, showPerfMonitor: false, highlightAa: true, usePerElementFbo: false, perfProgress: null, perfDone: false, perfResultDpr: 0, perfStatusText: '' })
         try { window.localStorage.removeItem('liquid-glass-perf-dpr') } catch {}
         const d = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
         const dprFrac = (d - 0.5) / Math.max(0.0001, d - 0.5)

@@ -117,13 +117,14 @@ export function buildDialog(
   card.useSeparableBlur = true
   // Dialog card needs the scene FBO for its backdrop (wallpaper+scrim+cc).
   card.independentBackdrop = false
-  // Capsule shape: when state.capsuleShape is true, the card samples a
+  // Capsule shape: when state.capsuleShape is true AND originalCorners is
+  // false, the card samples a
   // precomputed continuous-curvature SDF texture (generated from the
   // G2-continuous Bezier path) for its shape — pixel-perfect squircle
   // corners, vs the analytic sdRoundedRect which uses a circular arc.
   // The renderer's loadContinuousSdf() is called from the render loop
   // before rendering this element (see methods-render.ts).
-  if (state.capsuleShape) {
+  if (state.capsuleShape && !state.originalCorners) {
     card.useContinuousSdf = true
   }
   elements.push(card)
@@ -205,7 +206,7 @@ export function buildDialog(
   // Capsule shape: Cancel is a 48dp capsule (cornerRadius = h/2 = 24) per the
   // original DialogContent.kt ("Cancel: Capsule"). When capsuleShape is on,
   // use the G2 continuous-curvature SDF texture for smoother corners.
-  if (state.capsuleShape) cancelBtn.useContinuousSdf = true
+  if (state.capsuleShape && !state.originalCorners) cancelBtn.useContinuousSdf = true
   elements.push(cancelBtn)
   interactions['dialog-cancel'] = { onTap: () => {} }
   elements.push(
@@ -239,7 +240,7 @@ export function buildDialog(
   // Capsule shape: Okay is a 48dp capsule (cornerRadius = h/2 = 24) per the
   // original DialogContent.kt ("Okay: Capsule"). When capsuleShape is on,
   // use the G2 continuous-curvature SDF texture for smoother corners.
-  if (state.capsuleShape) okayBtn.useContinuousSdf = true
+  if (state.capsuleShape && !state.originalCorners) okayBtn.useContinuousSdf = true
   elements.push(okayBtn)
   interactions['dialog-okay'] = { onTap: () => {} }
   elements.push(

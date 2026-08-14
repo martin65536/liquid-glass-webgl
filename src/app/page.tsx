@@ -80,6 +80,7 @@ export default function Page() {
         blurDownsample: typeof parsed.blurDownsample === 'number' ? Math.max(1, Math.min(8, parsed.blurDownsample)) : 4,
         dynamicBlurDownsample: typeof parsed.dynamicBlurDownsample === 'boolean' ? parsed.dynamicBlurDownsample : false,
         capsuleShape: typeof parsed.capsuleShape === 'boolean' ? parsed.capsuleShape : true,
+        originalCorners: typeof parsed.originalCorners === 'boolean' ? parsed.originalCorners : true,
         capsuleSdfQuality: typeof parsed.capsuleSdfQuality === 'number' ? Math.max(0.25, Math.min(1.0, parsed.capsuleSdfQuality)) : 0.5,
         locale: (parsed.locale === 'zh' || parsed.locale === 'en') ? parsed.locale : 'zh',
         pageTransition: typeof parsed.pageTransition === 'boolean' ? parsed.pageTransition : true,
@@ -552,7 +553,7 @@ export default function Page() {
             (p.customDpr !== undefined || p.globalSeparableBlur !== undefined ||
              p.blurTapCap !== undefined || p.blurDownsample !== undefined ||
              p.dynamicBlurDownsample !== undefined ||
-             p.capsuleShape !== undefined || p.capsuleSdfQuality !== undefined || p.hideOverlayButtons !== undefined ||
+             p.capsuleShape !== undefined || p.originalCorners !== undefined || p.capsuleSdfQuality !== undefined || p.hideOverlayButtons !== undefined ||
              p.locale !== undefined || p.pageTransition !== undefined ||
              p.showFps !== undefined || p.usePerElementFbo !== undefined ||
              p.showPerfMonitor !== undefined)) {
@@ -564,6 +565,7 @@ export default function Page() {
               blurDownsample: next.blurDownsample,
               dynamicBlurDownsample: next.dynamicBlurDownsample,
               capsuleShape: next.capsuleShape,
+              originalCorners: next.originalCorners,
               capsuleSdfQuality: next.capsuleSdfQuality,
               hideOverlayButtons: next.hideOverlayButtons,
               locale: next.locale,
@@ -830,6 +832,7 @@ export default function Page() {
       targets['settings-blur-global'] = state.globalSeparableBlur ? 1 : 0
       targets['settings-blur-dynamic-ds'] = state.dynamicBlurDownsample ? 1 : 0
       targets['settings-shape-capsule'] = state.capsuleShape ? 1 : 0
+      targets['settings-original-corners'] = state.originalCorners ? 1 : 0
       targets['settings-ui-hide-overlays'] = state.hideOverlayButtons ? 1 : 0
       targets['settings-transition-toggle'] = state.pageTransition ? 1 : 0
       targets['settings-fps-toggle'] = state.showFps ? 1 : 0
@@ -838,7 +841,7 @@ export default function Page() {
       targets['settings-perf-monitor-toggle'] = state.showPerfMonitor ? 1 : 0
     }
     return targets
-  }, [destination, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration, state.customDpr, state.blurTapCap, state.blurDownsample, state.globalSeparableBlur, state.dynamicBlurDownsample, state.capsuleShape, state.capsuleSdfQuality, state.hideOverlayButtons, state.pageTransition, state.showFps, state.highlightAa, state.usePerElementFbo, state.showPerfMonitor])
+  }, [destination, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration, state.customDpr, state.blurTapCap, state.blurDownsample, state.globalSeparableBlur, state.dynamicBlurDownsample, state.capsuleShape, state.originalCorners, state.capsuleSdfQuality, state.hideOverlayButtons, state.pageTransition, state.showFps, state.highlightAa, state.usePerElementFbo, state.showPerfMonitor])
 
   // Tab targets use a separate prop because they need setTabSelected
   // (which sets pressedScale=78/56, not toggle's 1.5).

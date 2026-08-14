@@ -103,7 +103,7 @@ export function buildSlider(
   s1TrackEl.hitRect = { x: s1TrackX, y: s1TrackY + (SLIDER_TRACK_H - SLIDER_HIT_H) / 2, w: s1TrackW, h: SLIDER_HIT_H }
   // Smooth corners: track is a capsule (cornerRadius = SLIDER_TRACK_H/2 = 3dp)
   // in the original LiquidSlider.kt. useContinuousSdf upgrades it to G2.
-  if (state.capsuleShape) s1TrackEl.useContinuousSdf = true
+  if (state.capsuleShape && !state.originalCorners) s1TrackEl.useContinuousSdf = true
   elements.push(s1TrackEl)
   // Fill (accent color) — width is driven by the renderer via isSliderFill,
   // using the toggle group's animated fraction (spring) so it stays in sync
@@ -132,7 +132,7 @@ export function buildSlider(
   )
   s1KnobEl.isToggleKnob = { groupId: 'slider1', dragWidth: s1TrackW - SLIDER_KNOB_W / 2, velocityDivisor: 10 }
   // Smooth corners: knob is a 40×24 capsule (cornerRadius=12) in the original.
-  if (state.capsuleShape) s1KnobEl.useContinuousSdf = true
+  if (state.capsuleShape && !state.originalCorners) s1KnobEl.useContinuousSdf = true
   // Expanded touch target: knob is visually 40×24, but touchable over a 48dp
   // band centered on the knob (faithful to Material touch-target guidelines).
   // The hitRect is centered on the knob's rect so the touch zone extends ~12dp
@@ -170,7 +170,7 @@ export function buildSlider(
   const cardRadius = 32 * DP
   const sliderCardEl = makePlainRect('slider-card', { x: cardX, y: cardY, w: cardW, h: cardH }, CARD_BG_T, cardRadius)
   // Smooth corners: card is a RoundedRectangle(32dp) in the original.
-  if (state.capsuleShape) sliderCardEl.useContinuousSdf = true
+  if (state.capsuleShape && !state.originalCorners) sliderCardEl.useContinuousSdf = true
   elements.push(sliderCardEl)
 
   // Slider 2 inside the card:
@@ -187,7 +187,7 @@ export function buildSlider(
   const s2TrackEl = makePlainRect('slider2-track', { x: s2TrackX, y: s2TrackY, w: s2TrackW, h: SLIDER_TRACK_H }, SLIDER_TRACK_T, SLIDER_TRACK_H / 2)
   s2TrackEl.hitRect = { x: s2TrackX, y: s2TrackY + (SLIDER_TRACK_H - SLIDER_HIT_H) / 2, w: s2TrackW, h: SLIDER_HIT_H }
   // Smooth corners: track is a capsule (cornerRadius = SLIDER_TRACK_H/2 = 3dp).
-  if (state.capsuleShape) s2TrackEl.useContinuousSdf = true
+  if (state.capsuleShape && !state.originalCorners) s2TrackEl.useContinuousSdf = true
   elements.push(s2TrackEl)
   const s2FillEl = makePlainRect('slider2-fill', { x: s2TrackX, y: s2TrackY, w: SLIDER_TRACK_H, h: SLIDER_TRACK_H }, [...SLIDER_ACCENT_T, 1], SLIDER_TRACK_H / 2)
   s2FillEl.isSliderFill = { groupId: 'slider2', trackX: s2TrackX, trackW: s2TrackW, knobW: SLIDER_KNOB_W, minW: 0 }
@@ -211,7 +211,7 @@ export function buildSlider(
   )
   s2KnobEl.isToggleKnob = { groupId: 'slider2', dragWidth: s2TrackW - SLIDER_KNOB_W / 2, velocityDivisor: 10 }
   // Smooth corners: knob is a 40×24 capsule (cornerRadius=12) in the original.
-  if (state.capsuleShape) s2KnobEl.useContinuousSdf = true
+  if (state.capsuleShape && !state.originalCorners) s2KnobEl.useContinuousSdf = true
   // Expanded touch target (same as slider1 knob).
   s2KnobEl.hitRect = {
     x: s2KnobBaseX,

@@ -74,7 +74,7 @@ export function buildButtons(W: number, H: number, onBack: () => void, state: Ca
     // Capsule shape: buttons are capsule (cornerRadius = h/2). When the
     // global capsuleShape toggle is on, sample the G2 continuous-curvature
     // SDF texture instead of the default circular-arc sdRoundedRect.
-    if (state.capsuleShape) btn.useContinuousSdf = true
+    if (state.capsuleShape && !state.originalCorners) btn.useContinuousSdf = true
     elements.push(btn)
     cursorY += BUTTON_HEIGHT + spacing
   }

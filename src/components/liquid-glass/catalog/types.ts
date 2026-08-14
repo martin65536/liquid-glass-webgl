@@ -519,6 +519,14 @@ export interface CatalogState {
   // This gives pixel-perfect squircle corners on the dialog card. Other
   // elements still use the analytic SDF (circular or continuous placeholder).
   capsuleShape: boolean
+  // Settings — original corner clipping (master switch). When true (default),
+  // all elements use the analytic sdRoundedRect (ordinary circular-arc rounded
+  // rect, faithful to the original Android app) REGARDLESS of capsuleShape —
+  // i.e. useContinuousSdf stays false everywhere. When false, the per-element
+  // capsuleShape toggle below takes effect and elements opt into the G2
+  // continuous-curvature SDF texture upgrade (useContinuousSdf=true).
+  // Net condition per element: useContinuousSdf = capsuleShape && !originalCorners.
+  originalCorners: boolean
   // Settings — capsule SDF texture quality coefficient [0.25, 1.0].
   // Scales the base texSize (computed from element device-px size, 2×
   // oversampling rounded up to POT, clamped [128,1024]) by this factor,
@@ -627,6 +635,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   blurDownsample: 4,
   dynamicBlurDownsample: false,
   capsuleShape: true,
+  originalCorners: true,
   capsuleSdfQuality: 0.5,
   liveDpr: null,
   liveTapCap: null,
