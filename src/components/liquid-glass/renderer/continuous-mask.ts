@@ -95,7 +95,14 @@ export function clearMaskCache(): number {
 }
 
 /** Generate a dual-channel (coverage + SDF) texture for a continuous-curvature
- *  rounded rect. R = coverage [0,255], G = SDF [0,255] (128 = edge). */
+ *  rounded rect. R = coverage [0,255], G = SDF [0,255] (128 = edge).
+ *
+ *  NOTE: this function + its CPU maskCache are the CLEAN source of truth for
+ *  the capsule shape. Debug probes that挖0 part of the texture MUST NOT touch
+ *  this cache — they happen on a COPY at GPU upload time (see
+ *  loadContinuousSdf in methods-wallpaper.ts). Keeping the cache clean means
+ *  toggling a probe never pollutes the real shape data other elements rely
+ *  on, and the cache hit-rate is unaffected by debug state. */
 export function generateContinuousCurvatureMask(
   w: number,
   h: number,

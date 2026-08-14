@@ -44,7 +44,40 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
   const [collapsed, setCollapsed] = React.useState(false)
   const [showPackImages, setShowPackImages] = React.useState(false)
   const [maskEntries, setMaskEntries] = React.useState<MaskCacheEntry[]>([])
+  const [holeR, setHoleR] = React.useState(false)
+  const [holeG, setHoleG] = React.useState(false)
   const [pos, setPos] = React.useState({ x: -1, y: 120 })
+
+  // Read the renderer's actual probe flags on mount (they may have been
+  // toggled by a previous overlay instance). The flags are independent —
+  // both R and G can be ON at the same time.
+  React.useEffect(() => {
+    const r = rendererRef.current
+    if (r) {
+      setHoleR(r.debugSdfHoleTopLeftR)
+      setHoleG(r.debugSdfHoleTopLeftG)
+    }
+  }, [rendererRef])
+
+  const flipHole = (channel: 'R' | 'G') => {
+    const r = rendererRef.current
+    if (!r) return
+    if (channel === 'R') {
+      const next = !holeR
+      r.debugSdfHoleTopLeftR = next
+      setHoleR(next)
+    } else {
+      const next = !holeG
+      r.debugSdfHoleTopLeftG = next
+      setHoleG(next)
+    }
+    // The GPU texture pool key includes both flags, so toggling creates a
+    // fresh pool entry next frame — the CPU maskCache is never touched.
+    // markAllDirty forces every capsule element's elFbo to re-raster so
+    // the new (挖0'd or clean) SDF texture is sampled immediately.
+    r.markAllDirty()
+    r.requestRender()
+  }
 
   React.useEffect(() => {
     const id = setInterval(() => {
@@ -162,6 +195,28 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
         <span style={{ display: 'flex', gap: 6 }}>
           <button
             onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => flipHole('R')}
+            title="PROBE clip source: zero R (coverage) in the TOP-LEFT 1/4 of the capsule SDF texture (image row<128 && col<128). Done on a COPY at GPU upload — CPU maskCache stays clean; GPU pool key includes the flag so toggling is instant. Due to UNPACK_FLIP_Y + Y-down centeredOrigRot, this image-top-left region maps to the element's BOTTOM-LEFT corner on screen. If that corner of the glass body then VANISHES (sampleClipMask → 0 → discard), the clip edge really comes from sampling R. If nothing changes, the edge is from elsewhere (analytic sdRoundedRect / scissor / elFbo composite bounds). Independent of G — both can be ON."
+            style={{
+              background: holeR ? 'rgba(255,0,255,0.35)' : 'none',
+              border: `1px solid ${holeR ? '#f0f' : '#0f0'}`,
+              color: holeR ? '#f0f' : '#0f0',
+              cursor: 'pointer', fontSize: 10, padding: '0 5px', borderRadius: 3, fontWeight: 'bold',
+            }}
+          >R</button>
+          <button
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => flipHole('G')}
+            title="PROBE stroke/SDF source: zero G (SDF) in the TOP-LEFT 1/4 of the capsule SDF texture. Same copy-at-upload mechanism as R — CPU maskCache untouched, GPU pool key includes the flag. If the highlight / rim-stroke shape in the corresponding corner then changes or disappears, it really does come from sampling G (sampleClipSdf). Independent of R — both can be ON."
+            style={{
+              background: holeG ? 'rgba(255,0,255,0.35)' : 'none',
+              border: `1px solid ${holeG ? '#f0f' : '#0f0'}`,
+              color: holeG ? '#f0f' : '#0f0',
+              cursor: 'pointer', fontSize: 10, padding: '0 5px', borderRadius: 3, fontWeight: 'bold',
+            }}
+          >G</button>
+          <button
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={() => {
               // Clear BOTH the CPU mask cache (Uint8Array entries) and the
               // GPU texture pool (WebGLTextures). Next render re-generates
@@ -216,6 +271,14 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
         {bottleneck && (
           <div style={{ marginTop: 4, color: '#fa0' }}>
             Bottleneck: {bottleneck[0]} = {bottleneck[1].toFixed(2)}ms
+          </div>
+        )}
+        {(holeR || holeG) && (
+          <div style={{ marginTop: 4, color: '#f0f', fontWeight: 'bold' }}>
+            ⚠ HOLE PROBE (top-left 1/4 of image → bottom-left on screen):
+            {holeR ? ' R(coverage)' : ''}{holeG ? ' G(SDF)' : ''} zeroed.
+            {holeR ? ' Glass bottom-left should VANISH if clip comes from R.' : ''}
+            {holeG ? ' Highlight/stroke should change if shape comes from G.' : ''}
           </div>
         )}
       </div>

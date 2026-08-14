@@ -419,23 +419,33 @@ export class LiquidGlassRenderer {
    *  Only populated when this flag is true. */
   showShadowBbox = false
   debugShadowBboxes: { x: number; y: number; w: number; h: number; alpha: number; skipped: boolean; r: number; ox: number; oy: number }[] = []
-  /** Debug: when true, the capsule SDF texture uploaded to the GPU has its
-   *  R channel (coverage) zeroed in the top-left quadrant of the IMAGE
-   *  (Canvas2D space, row<texSize/2 && col<texSize/2). Due to
-   *  UNPACK_FLIP_Y=true on upload, this image-top-left maps to the
-   *  element's BOTTOM-LEFT quadrant on screen (uv.y>0.5).
+  /** Debug probe: when true, the capsule SDF texture uploaded to the GPU has
+   *  its R channel (coverage) zeroed in the TOP-LEFT QUADRANT of the SOURCE
+   *  IMAGE (Canvas2D space: row < texSize/2 && col < texSize/2). Due to
+   *  UNPACK_FLIP_Y=true on upload + the Y-down convention of
+   *  centeredOrigRot in the element shader, this image-top-left region
+   *  maps to the element's BOTTOM-LEFT quadrant on screen.
    *
    *  PURPOSE: prove whether the glass body's clip edge actually comes from
-   *  sampling this SDF texture. If ON → the corresponding screen corner of
-   *  every capsule glass element becomes transparent (sampleClipMask
-   *  returns 0 → `mask < 0.01 discard`), then the SDF texture IS the clip
-   *  source. If nothing changes, the clip edge is coming from somewhere
-   *  else (analytic sdRoundedRect, scissor, elFbo composite bounds, …).
+   *  sampling this SDF texture. If ON → the bottom-left corner of every
+   *  capsule glass element should become transparent (sampleClipMask
+   *  returns 0 → `mask < 0.01 discard`), confirming the SDF texture IS
+   *  the clip source. If nothing changes, the clip edge is coming from
+   *  somewhere else (analytic sdRoundedRect, scissor, elFbo composite
+   *  bounds, …).
    *
-   *  Cache key includes the flag so the挖掉'd GPU texture is a separate
-   *  pool entry — toggling is instant, no eviction needed. The CPU-side
-   *  maskCache is never polluted (挖掉 happens on a copy at upload time). */
-  debugSdfHoleTopLeft = false
+   *  The挖0 happens on a COPY at GPU upload time — the CPU maskCache
+   *  (continuous-mask.ts) is NEVER touched, so other elements + the cache
+   *  hit-rate are unaffected. The GPU texture pool key includes this flag
+   *  so toggling creates a fresh pool entry instantly (no eviction of the
+   *  clean texture). Independent of debugSdfHoleTopLeftG — both can be ON
+   *  at once to test both channels simultaneously. */
+  debugSdfHoleTopLeftR = false
+  /** Debug probe: same as debugSdfHoleTopLeftR but zeroes the G channel
+   *  (SDF) instead of R (coverage). Tests whether highlight / rim-stroke
+   *  shapes that use sampleClipSdf are actually fed by this texture.
+   *  Independent of debugSdfHoleTopLeftR. */
+  debugSdfHoleTopLeftG = false
   /** Debug: when true, the renderer records each element's CULL decision
    *  (made in methods-render.ts's two element loops) into `debugCullRects`
    *  during render. The React overlay draws each element's effective

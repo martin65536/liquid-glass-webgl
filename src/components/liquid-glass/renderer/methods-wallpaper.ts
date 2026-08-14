@@ -94,10 +94,17 @@ export const wallpaperMethods = {
    *  The R channel holds the normalized SDF (decoded as sample*2 - 1 in the
    *  shader); G and B mirror R; A = 255. */
   loadContinuousSdf(this: LiquidGlassRenderer, w: number, h: number, radius: number) {
-    // Cache key includes the debug hole flag so the挖掉'd GPU texture is a
-    // separate pool entry — toggling the flag is instant (no eviction).
-    const key = `${w},${h},${radius},${this.dpr}${this.debugSdfHoleTopLeft ? ',hole' : ''}`
-    // Pool: each unique (w,h,radius,dpr) gets its own texture.
+    // Debug probe: the挖0 (top-left 1/4 of R and/or G) happens on a COPY at
+    // GPU upload time. The CPU maskCache (generateContinuousCurvatureMask)
+    // is NEVER touched — it always holds the clean shape. The GPU texture
+    // pool key includes both probe flags so toggling creates a fresh pool
+    // entry instantly (the clean texture is NOT evicted, so toggling back
+    // is also instant). This is what makes the probe actually take effect
+    // without busting the CPU cache.
+    const holeR = this.debugSdfHoleTopLeftR
+    const holeG = this.debugSdfHoleTopLeftG
+    const key = `${w},${h},${radius},${this.dpr},r${holeR ? 1 : 0},g${holeG ? 1 : 0}`
+    // Pool: each unique (w,h,radius,dpr,holeR,holeG) gets its own texture.
     let entry = this.continuousSdfPool.get(key)
     if (!entry) {
       const genStart = performance.now()
@@ -107,21 +114,27 @@ export const wallpaperMethods = {
       const texObj = gl.createTexture()!
       gl.bindTexture(gl.TEXTURE_2D, texObj)
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true)
-      // Debug:挖掉 R channel (coverage) of the image's top-left quadrant on a
-      // COPY, so the CPU-side maskCache is never polluted. The挖掉'd region
-      // maps to the element's bottom-left on screen (UNPACK_FLIP_Y). If the
-      // glass body's bottom-left corner disappears, the SDF texture IS the
-      // clip source. See debugSdfHoleTopLeft docstring on the renderer.
+      // Debug probe:挖0 the top-left 1/4 of the requested channel(s) on a
+      // COPY, so the CPU-side maskCache is never polluted. The挖0'd region
+      // (image row<texSize/2 && col<texSize/2) maps to the element's
+      // bottom-left on screen (UNPACK_FLIP_Y + Y-down centeredOrigRot).
+      //   - holeR → zero R (coverage) → sampleClipMask returns 0 → discard.
+      //     If the bottom-left corner of the glass then vanishes, the clip
+      //     edge really does come from sampling R.
+      //   - holeG → zero G (SDF) → sampleClipSdf returns 0. Tests whether
+      //     highlight / stroke shapes that read G are fed by this texture.
+      // Both can be ON at once. See debugSdfHoleTopLeftR/G docstrings.
       let uploadTex = tex
-      if (this.debugSdfHoleTopLeft) {
-        // Aggressive probe: zero the ENTIRE R channel (coverage). If the glass
-        // body disappears completely, the SDF texture IS the clip source. If
-        // the glass is still fully visible, the SDF R channel is NOT used for
-        // clipping (the edge comes from somewhere else).
+      if (holeR || holeG) {
         uploadTex = tex.slice()
-        const n = texSize * texSize
-        for (let i = 0; i < n; i++) {
-          uploadTex[i * 4] = 0 // R = coverage → 0 everywhere
+        const half = texSize >> 1   // top-left 1/4 = rows [0,half), cols [0,half)
+        for (let row = 0; row < half; row++) {
+          const rowBase = row * texSize * 4
+          for (let col = 0; col < half; col++) {
+            const idx = rowBase + col * 4
+            if (holeR) uploadTex[idx] = 0       // R = coverage → 0
+            if (holeG) uploadTex[idx + 1] = 0   // G = SDF → 0
+          }
         }
       }
       const uploadStart = performance.now()

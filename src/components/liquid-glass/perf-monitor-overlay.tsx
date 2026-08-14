@@ -565,7 +565,6 @@ function DebugToggles({ rendererRef, capsuleDebug, onToggleCapsuleDebug }: { ren
   const [showCull, setShowCull] = React.useState(false)
   const [showPefPass, setShowPefPass] = React.useState(false)
   const [showPlainRect, setShowPlainRect] = React.useState(false)
-  const [sdfHole, setSdfHole] = React.useState(false)
 
   // Read the renderer's actual flags on mount (they may have been seeded from
   // props by context.tsx, or toggled by a previous overlay instance).
@@ -579,7 +578,6 @@ function DebugToggles({ rendererRef, capsuleDebug, onToggleCapsuleDebug }: { ren
       setShowCull(r.showCullDebug)
       setShowPefPass(r.showPefPassDebug)
       setShowPlainRect(r.showPlainRectDebug)
-      setSdfHole(r.debugSdfHoleTopLeft)
     }
   }, [rendererRef])
 
@@ -629,18 +627,6 @@ function DebugToggles({ rendererRef, capsuleDebug, onToggleCapsuleDebug }: { ren
     const r = rendererRef.current
     if (r) {
       r.showCullDebug = next
-      r.requestRender()
-    }
-  }
-  const flipSdfHole = () => {
-    const next = !sdfHole
-    setSdfHole(next)
-    const r = rendererRef.current
-    if (r) {
-      r.debugSdfHoleTopLeft = next
-      // Force every capsule element to re-resolve its SDF texture next frame
-      // so the挖掉'd (or clean) version is uploaded immediately.
-      r.markAllDirty()
       r.requestRender()
     }
   }
@@ -742,22 +728,12 @@ function DebugToggles({ rendererRef, capsuleDebug, onToggleCapsuleDebug }: { ren
       </button>
       <button
         onClick={() => onToggleCapsuleDebug?.()}
-        title="Open the Capsule SDF debug overlay — shows per-step timing (Canvas2D fill / getImageData readback / alpha extract / distance-transform fwd+bwd pass / RGBA pack / GPU upload) for every capsule SDF texture generation. Use to find which step is the bottleneck when GP corner-radius slider feels laggy."
+        title="Open the Capsule SDF debug overlay — shows per-step timing (Canvas2D fill / getImageData readback / alpha extract / distance-transform fwd+bwd pass / RGBA pack / GPU upload) for every capsule SDF texture generation. Use to find which step is the bottleneck when GP corner-radius slider feels laggy. Also hosts the SDF hole probe (zero R or G in the top-left 1/4 of the GPU texture, on a copy at upload time — CPU cache untouched — to test whether the glass body clip really comes from sampling this texture)."
         style={debugBtnStyle(!!capsuleDebug)}
       >
         <span>Capsule SDF debug</span>
         <span style={{ color: capsuleDebug ? '#fa0' : '#888', fontWeight: 700, fontSize: 10 }}>
           {capsuleDebug ? 'ON' : 'OFF'}
-        </span>
-      </button>
-      <button
-        onClick={flipSdfHole}
-        title="DEBUG PROBE: zero the R channel (coverage) of the capsule SDF texture's top-left quadrant (image space → maps to element's bottom-left on screen due to UNPACK_FLIP_Y). If the glass body's corresponding corner DISAPPEARS, the clip edge really does come from sampling this SDF texture. If NOTHING changes, the clip edge is from somewhere else (analytic sdRoundedRect / scissor / elFbo composite bounds). Toggling invalidates elFbo cache so the挖掉'd version re-rasters next frame."
-        style={debugBtnStyle(sdfHole)}
-      >
-        <span>SDF hole (probe clip source)</span>
-        <span style={{ color: sdfHole ? '#f0f' : '#888', fontWeight: 700, fontSize: 10 }}>
-          {sdfHole ? 'ON' : 'OFF'}
         </span>
       </button>
     </div>

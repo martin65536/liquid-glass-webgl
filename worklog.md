@@ -1058,3 +1058,116 @@ Stage Summary:
   （圆形圆角矩形），uniform uUseContinuousSdf 保持 GL 默认 0.0。
 - 其他 pass（element / foreground / plain-rect）的 capsule SDF 绑定不动，
   玻璃本体仍是 G2 capsule 形。
+
+---
+Task ID: 56
+Agent: main (Z.ai Code)
+Task: 修复 SDF hole probe 的三个问题（用户："我不是让你只挖左上1/4吗？而且为什么不能同时挖，还有你忽略了缓存（没让你改缓存的意思）"）
+
+Work Log:
+- 用户三个抱怨 + 对应根因：
+  1. "只挖左上1/4" → 之前的实现（包括 committed 的 debugSdfHoleTopLeft
+     和我未提交的 holeMode 版）都把【整个】R 或 G 通道清零，而不是
+     只挖 top-left 1/4 quadrant。用户要的是 image-space 的
+     row<texSize/2 && col<texSize/2 这一块。
+  2. "为什么不能同时挖" → 我未提交的版本用了互斥的
+     `debugSdfHoleMode: 'none' | 'hole-r' | 'hole-g'`，R 和 G 只能选一个。
+     用户要 R 和 G 能同时 ON。
+  3. "你忽略了缓存（没让你改缓存的意思）" → 我未提交的版本把 holeMode
+     烧进了 CPU maskCache（continuous-mask.ts 加了 holeMode 参数 + cache
+     key + 挖0 loop）。用户明确说【不要改缓存】。但探针要生效又必须让
+     GPU texture 真的换一张——所以正确做法是：CPU maskCache 完全不动，
+     挖0 发生在 GPU upload 时的一份 COPY 上，GPU texture pool key 包含
+     probe flags（这样 toggle 时 pool miss → 重新 upload 挖0'd 版本，
+     而 CPU cache 全程 clean、hit-rate 不受影响）。
+
+- 修复 1 — continuous-mask.ts（CPU cache 完全还原）：
+  * 删除 CapsuleSdfHoleMode type export。
+  * generateContinuousCurvatureMask 删除 holeMode 参数，签名回到
+    (w, h, radius, dpr)。
+  * cache key 回到 `${w},${h},${radius},${texSize}`（不含 holeMode）。
+  * 删除 texCopy 之后的挖0 loop。
+  * 只保留一段 docstring NOTE 说明"this cache is the CLEAN source of
+    truth, probes must挖0 on a copy at GPU upload time"。
+  * net diff vs HEAD：仅 +7 行 docstring，功能代码 0 变化。
+
+- 修复 2 — index.ts（两个独立 boolean）：
+  * 删除 `debugSdfHoleMode: 'none'|'hole-r'|'hole-g'`。
+  * 新增 `debugSdfHoleTopLeftR = false` + `debugSdfHoleTopLeftG = false`，
+    互相独立，可同时 ON。
+  * docstring 说明：挖 image top-left 1/4（row<128 && col<128）；
+    由于 UNPACK_FLIP_Y=true + element shader 里 centeredOrigRot 是
+    Y-down（localDown = vec2(localUp.x, -localUp.y)），image-top-left
+    在屏幕上映射到 element 的【左下角】—— 这样用户知道该看哪个角。
+  * docstring 说明挖0 发生在 GPU upload 时的 copy 上，CPU cache 不动，
+    GPU pool key 含 flags → toggle 即时生效。
+
+- 修复 3 — methods-wallpaper.ts loadContinuousSdf（挖0 在 upload 时）：
+  * GPU pool key = `${w},${h},${radius},${dpr},r${holeR?1:0},g${holeG?1:0}`
+    （含两个 flag，toggle → pool miss → 重新 upload，CPU cache 不动）。
+  * generateContinuousCurvatureMask 调用不再传 holeMode（拿 clean tex）。
+  * 若 holeR || holeG：uploadTex = tex.slice()（copy），然后双层循环
+    `for row in [0,half) for col in [0,half)` 在 copy 上把对应通道清零：
+      holeR → uploadTex[idx] = 0       (R = coverage)
+      holeG → uploadTex[idx+1] = 0     (G = SDF)
+    half = texSize >> 1 (=128)。两个 flag 都 ON 时同一像素的 R 和 G
+    都被清零。
+  * texImage2D 上传 uploadTex（clean 或挖0'd copy）。
+  * 删除之前 temp 的 console.log('[sdf-probe] loadContinuousSdf …')。
+
+- 清理 temp debug（之前为排查加的，现已不需要）：
+  * element.ts：删除 `mask = 0.0;` 强制覆盖 + 注释。恢复
+    `float mask = sampleClipMask(...); if (mask<0.01) discard; edgeAlpha = mask;`
+    （与 HEAD 完全一致）。
+  * methods-render-glass-element-pass.ts：删除 console.log('[sdf-probe]
+    element pass capsule ON …')。与 HEAD 完全一致。
+
+- 修复 4 — capsule-sdf-debug-overlay.tsx（两个独立按钮）：
+  * 删除 CapsuleSdfHoleMode import。
+  * state：`holeR` + `holeG` 两个独立 boolean（替代互斥的 holeMode）。
+  * mount 时读 r.debugSdfHoleTopLeftR / debugSdfHoleTopLeftG 同步高亮。
+  * flipHole('R'|'G') 独立 toggle 各自的 flag + markAllDirty + requestRender。
+  * 两个按钮 R / G 各自独立高亮（magenta when ON），可同时 ON。
+  * tooltip 更新：说明挖的是 top-left 1/4（row<128 && col<128）、
+    在 copy at upload 上做、CPU cache 不动、映射到屏幕左下角。
+  * warning banner：当 holeR||holeG 时显示，分别列出哪些通道被挖、
+    预期效果（R→玻璃左下消失证明 clip 来自 R；G→高光/描边变化证明
+    shape 来自 G）。
+
+- 修复 5 — perf-monitor-overlay.tsx：
+  * 更新 "Capsule SDF debug" 按钮的 tooltip，描述新探针行为
+    （top-left 1/4、copy at upload、CPU cache untouched）。
+
+- 坐标映射核对（确保 docstring 准确，否则用户看错角会误判探针无效）：
+  * elFbo path: localUp = gl_FragCoord - fboCenter (Y-up, BL origin)；
+    localDown = (localUp.x, -localUp.y) (Y-down)；centeredOrigRot = localDown*origScale。
+    → coord.y > 0 = 屏幕下方。
+  * sampleClipMask: tex = texSize*0.5 + coord*scale; uv = tex/texSize。
+    → coord.y > 0 → uv.y > 0.5（texture 上半）。
+  * UNPACK_FLIP_Y=true: image row 0 (canvas top) → texture uv.y=1 (top)。
+    → uv.y > 0.5 采样 image row < texSize/2（image 上半）。
+  * coord.x < 0 (左) → uv.x < 0.5 → image col < texSize/2（image 左半）。
+  * 结论：image top-left 1/4 (row<128, col<128) ↔ coord.x<0 && coord.y>0
+    ↔ element 屏幕左下角。docstring 与 banner 都写明了这个映射。
+
+- bun run lint：通过（0 errors）。
+- 未做浏览器测试（遵照用户一贯要求"永远不要自己测试"）。
+
+Stage Summary:
+- 三个问题全部修复：
+  1. 只挖 top-left 1/4 quadrant（row<128 && col<128），不再清整个通道。
+  2. R 和 G 两个独立 boolean（debugSdfHoleTopLeftR / debugSdfHoleTopLeftG），
+     可同时 ON；overlay 两个独立按钮。
+  3. CPU maskCache（continuous-mask.ts）完全不动（仅 +docstring），挖0
+     发生在 loadContinuousSdf 的 GPU upload 时的一份 copy 上；GPU pool
+     key 含 r/g flags → toggle 即时 pool miss 重新 upload，CPU cache
+     hit-rate 不受影响。
+- 附带清理：删除 element.ts 的强制 mask=0.0 + 两处 console.log temp debug。
+- 坐标映射已核对：image top-left 1/4 → element 屏幕左下角（UNPACK_FLIP_Y
+  + Y-down centeredOrigRot），docstring/banner/tooltip 均写明。
+- 用户现在可以：开 R → 看玻璃左下角是否消失（证明 clip 来自 sampleClipMask
+  的 R 通道）；开 G → 看左下角高光/描边是否变化（证明 shape 来自
+  sampleClipSdf 的 G 通道）；两个都开 → 同时验证。若开了之后【什么都没
+  变】，则证明 clip/shape 根本不是从这张 SDF texture 来的（而是 analytic
+  sdRoundedRect / scissor / elFbo composite bounds 等），即用户怀疑的
+  "玻璃体和高光对不齐"的根因不在 SDF 裁剪这一层。
