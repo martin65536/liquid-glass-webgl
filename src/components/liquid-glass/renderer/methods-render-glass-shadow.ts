@@ -77,6 +77,29 @@ export function renderGlassShadowPass(
   gl.uniform2f(this.uSh['uLayerScale'], state.layerScaleX, state.layerScaleY)
   gl.uniform1f(this.uSh['uElementRotation'], state.elementRotation)
   gl.uniform1f(this.uSh['uCornerStyle'], this.cornerStyle)
+  // Continuous-curvature SDF texture (capsule shape). Without this, sdShape()
+  // in the shadow shader falls through to sdRoundedRect (circular arc), so the
+  // shadow shape is a plain rounded rect while the glass body is a G2 capsule —
+  // the two mismatch at the corners and the shadow "leaks" ~1px outside the
+  // capsule edge. Bind the capsule SDF so the shadow shape matches the body.
+  if (el.useContinuousSdf && this.continuousSdfTexture) {
+    gl.activeTexture(gl.TEXTURE2)
+    gl.bindTexture(gl.TEXTURE_2D, this.continuousSdfTexture)
+    gl.uniform1i(this.uSh['uContinuousSdf'], 2)
+    gl.uniform1f(this.uSh['uUseContinuousSdf'], 1.0)
+    gl.uniform2f(
+      this.uSh['uContinuousSdfTexSize'],
+      this.continuousSdfTexSize[0],
+      this.continuousSdfTexSize[1]
+    )
+    gl.uniform2f(
+      this.uSh['uContinuousSdfElementSize'],
+      state.origW * this.dpr,
+      state.origH * this.dpr
+    )
+  } else {
+    gl.uniform1f(this.uSh['uUseContinuousSdf'], 0.0)
+  }
   // Shadow radius + offset in ORIGINAL px (NOT scaled by layerScale).
   // Faithful to original: BlurMaskFilter blurs the shadow at original size,
   // then graphicsLayer scales the entire shadow layer — so the blur sigma

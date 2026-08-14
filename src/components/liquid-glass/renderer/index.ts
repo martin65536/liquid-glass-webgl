@@ -875,6 +875,7 @@ export class LiquidGlassRenderer {
       'uShadowRadius', 'uShadowOffset', 'uShadowColor',
       'uOriginalSize', 'uOriginalCornerRadius', 'uLayerScale', 'uElementRotation',
       'uCornerStyle',
+      'uUseContinuousSdf', 'uContinuousSdf', 'uContinuousSdfTexSize', 'uContinuousSdfElementSize',
     ]
     for (const n of shNames) this.uSh[n] = gl.getUniformLocation(this.shadowProgram, n)
     const wpNames = ['uBackdrop', 'uCanvasSize', 'uWallpaperSize']

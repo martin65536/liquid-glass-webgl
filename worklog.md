@@ -964,3 +964,68 @@ Stage Summary:
 - 效果：capsule 形元素（buttons / control-center tiles / scroll-container
   cards / toggle knobs / bottom-tab container & indicator / pick-image /
   GP square & sheet）现在能命中 PEF 缓存，静帧 cache hit 不再每帧重 raster。
+
+---
+Task ID: 54
+Agent: main (Z.ai Code)
+Task: 修复 capsule 打开后 (1) highlight 透明度看似不生效 (2) 玻璃溢出一圈像素、裁切像普通圆角矩形
+
+Work Log:
+- 问题2（玻璃溢出一圈，裁切是普通圆角矩形）—— 根因确认：
+  * shadow shader (shadow.ts) 用 sdShape() 计算 shadow 形状 SDF，sdShape 会
+    dispatch：uUseContinuousSdf>0.5 时用 sampleClipSdf（capsule G 通道 SDF），
+    否则用 sdRoundedRect（圆形圆角矩形）。
+  * 但 renderGlassShadowPass (methods-render-glass-shadow.ts) 【完全没有】设置
+    uUseContinuousSdf + 绑定 capsule SDF texture！而且 shadowProgram 的 uniform
+    列表 (index.ts shNames) 也【没有】查询这4个 uniform location。
+  * 结果：capsule 元素的 shadow 永远走 sdRoundedRect（圆形圆角矩形），而玻璃
+    本体是 G2 capsule 形 → 两者在角部形状不匹配 → shadow 在 capsule 边缘外
+    "溢出"一圈（圆形圆角矩形的角比 G2 capsule 的角略大）。
+  * 这就是用户看到的"玻璃溢出一圈像素，裁切好像还是普通圆角矩形"——看到的
+    那圈"溢出"其实是 shadow 的普通圆角矩形形状。
+
+- 问题1（highlight 透明度 capsule 打开后不生效）—— 分析结论：是问题2的视觉
+  副作用，不是独立 bug。
+  * highlight alpha 传递链完整审查：
+    el.highlight.alpha → rimAlpha (rim-highlight L44，非 knob/indicator 用
+    el.highlight.alpha) → finalAlpha (L50: * enterAlpha * paintAlpha) →
+    uHighlightAlpha (L234) → shader a = mask * uHighlightAlpha (L572)
+  * 这条链在 capsule 和非 capsule 下完全一致，alpha 确实被正确应用。
+  * highlight 的 stroke mask 在 capsule 模式下用 G2 路径生成（rim-highlight
+    L84/L136-137 useG2 → continuousCurvatureRoundedRectPath），shape 正确。
+  * 用户感觉"alpha 不生效"的真实原因：shadow 溢出的那圈普通圆角矩形阴影
+    盖在玻璃边缘，和 highlight（特别是 Ambient mode 的暗边）混在一起，
+    视觉上 highlight 的透明度渐变被 shadow 淹没 → 误以为 alpha 没生效。
+    修复 shadow 后玻璃边缘干净，highlight 效果恢复正常。
+
+- 修复（仅 shadow，2 处）：
+  1. index.ts shNames 加入4个 uniform：uUseContinuousSdf / uContinuousSdf /
+     uContinuousSdfTexSize / uContinuousSdfElementSize
+  2. methods-render-glass-shadow.ts 在 uCornerStyle 之后加入 if/else：
+     capsule 元素 → bind continuousSdfTexture to TEXTURE2 + 设 4 个 uniform
+     非 capsule → uUseContinuousSdf = 0.0
+     （与 element pass / foreground pass / plain-rect pass 的绑定模式一致）
+- 确认无需改动的 pass：
+  * element pass (methods-render-glass-element-pass.ts L270-287)：已有 capsule
+    SDF 绑定 ✓（玻璃本体 clip 正确，用 sampleClipMask）
+  * foreground pass (methods-render-glass-post-passes.ts L69-86)：已有 ✓
+  * plain-rect pass (methods-render.ts L667-675)：已有 ✓
+  * rim-highlight (methods-render-glass-post-passes-rim-highlight.ts L84/L136)：
+    stroke mask 用 G2 路径生成 ✓，composite 不需要 SDF clip（mask 本身是形状）
+  * inner-shadow (methods-render-glass-post-passes-inner-shadow.ts L72/L87)：
+    mask 用 G2 路径生成 ✓，composite 不需要 SDF clip
+  * elFbo composite (scene-bg.ts)：只是 blit elFbo（形状已烘焙）✓
+  唯一遗漏的就是 shadow pass，现已修复。
+- bun run lint：通过（0 errors）。
+- 未做浏览器测试（遵照用户要求"永远不要自己测试"）。
+
+Stage Summary:
+- 根因：shadowProgram 缺少 capsule SDF uniform（index.ts shNames 没查询 +
+  renderGlassShadowPass 没绑定），导致 capsule 元素的 shadow 用 sdRoundedRect
+  （圆形圆角矩形）而非 capsule G2 形状，在玻璃边缘外溢出一圈。
+- highlight alpha "不生效"是 shadow 溢出的视觉副作用——alpha 传递链本身正确，
+  修复 shadow 后 highlight 恢复正常。
+- 修复：2 处改动（index.ts +4 uniform location；methods-render-glass-shadow.ts
+  +20 行 SDF 绑定 if/else）。
+- 其他 pass（element/foreground/plain-rect/rim-highlight/inner-shadow/composite）
+  经审查均已有正确的 capsule 处理，无需改动。
