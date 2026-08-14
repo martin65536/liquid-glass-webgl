@@ -202,6 +202,10 @@ export function buildDialog(
   cancelBtn.blurRadius = 0
   cancelBtn.highlight = null
   cancelBtn.outerShadow = null
+  // Capsule shape: Cancel is a 48dp capsule (cornerRadius = h/2 = 24) per the
+  // original DialogContent.kt ("Cancel: Capsule"). When capsuleShape is on,
+  // use the G2 continuous-curvature SDF texture for smoother corners.
+  if (state.capsuleShape) cancelBtn.useContinuousSdf = true
   elements.push(cancelBtn)
   interactions['dialog-cancel'] = { onTap: () => {} }
   elements.push(
@@ -232,6 +236,10 @@ export function buildDialog(
   okayBtn.blurRadius = 0
   okayBtn.highlight = null
   okayBtn.outerShadow = null
+  // Capsule shape: Okay is a 48dp capsule (cornerRadius = h/2 = 24) per the
+  // original DialogContent.kt ("Okay: Capsule"). When capsuleShape is on,
+  // use the G2 continuous-curvature SDF texture for smoother corners.
+  if (state.capsuleShape) okayBtn.useContinuousSdf = true
   elements.push(okayBtn)
   interactions['dialog-okay'] = { onTap: () => {} }
   elements.push(

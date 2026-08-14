@@ -1516,3 +1516,60 @@ Stage Summary:
   scrollbarColor 双覆盖，与 perf-monitor overlay 风格一致。
 - Agent Browser 验证：内容少时不滚动、内容多时 root 被 maxHeight 限制在
   视口内 + body 可滚动，scrollTop 可设置。修复确认有效。
+
+---
+Task ID: 62
+Agent: main (Z.ai Code)
+Task: 退回全局 capsule catch-all 循环，只保留原版有平滑圆角的元素
+
+Work Log:
+- 用户反馈：上一轮 commit 7688fdb 加了一个全局 catch-all 循环
+  (catalog/index.ts 末尾)，把 useContinuousSdf=true 强制套到所有有
+  cornerRadius 的元素上，结果"全变成固定宽高比例"——非胶囊元素
+  (slider track、settings card、magnifier、perf 按钮等)的形状被
+  256×256 SDF 纹理采样扭曲了。
+
+- 修复 1 — catalog/index.ts：
+  * 删除整个全局 catch-all 循环（原 lines 232-283，约 52 行）。
+  * 替换为一段 NOTE 注释，说明 G2 平滑圆角是 PER-BUILDER 设置的，
+    只给原版 Apple/Kotlin 设计里真正用 Capsule /
+    ContinuousCurvatureRoundedRectangle 的元素加。
+  * 列出所有已有 per-builder 行覆盖的元素：
+    buttons / toggle knobs / tab container+indicator / dialog card /
+    GP square+sheet / scroll cards / CC tiles / pick-image。
+
+- 修复 2 — build-dialog.ts：
+  * 发现 dialog 的 Cancel / Okay 按钮在原版 DialogContent.kt 里是
+    Capsule（注释 line 33-34: "Cancel: Capsule" / "Okay: Capsule"，
+    cornerRadius = h/2 = 24），但之前只有 catch-all 覆盖它们，没有
+    per-builder 行。退回 catch-all 后它们会丢掉 G2。
+  * 给 cancelBtn 加 `if (state.capsuleShape) cancelBtn.useContinuousSdf = true`
+  * 给 okayBtn 加 `if (state.capsuleShape) okayBtn.useContinuousSdf = true`
+  * 这两个是 48dp 胶囊按钮（solid 背景，无 refraction/blur/highlight），
+    G2 只影响 clip 形状（圆角曲率），不影响玻璃效果。
+
+- 已有 per-builder 行（退回后仍然保留 G2 的元素）：
+  build-buttons.ts:77       — 按钮（capsule）
+  build-toggle.ts:222,315   — toggle knob（capsule）
+  build-bottom-tabs.ts:115,276 — tab container + indicator（capsule）
+  build-dialog.ts:126       — dialog card（RoundedRect 48dp）
+  build-glass-playground.ts:110,199 — GP square + sheet
+  build-scroll-container.ts:42 — scroll cards（32dp rounded）
+  build-control-center.ts:323 — CC tiles
+  catalog/index.ts:196      — pick-image button（capsule）
+  build-dialog.ts:208,242   — Cancel + Okay（capsule）← 新增
+
+- 未加 G2 的元素（原版不用 ContinuousCurvature，或属于自定义 UI）：
+  slider knob/track/fill、settings toggle knob/track、settings card bg、
+  magnifier glass/cursor、adaptive-luminance square、perf 按钮/进度条。
+  这些在 catch-all 之前就没有 G2，退回后恢复原状。
+
+- bun run lint：通过（0 errors）。
+- dev.log：干净，无 runtime error。
+
+Stage Summary:
+- 删除 catalog/index.ts 的全局 catch-all 循环（52 行），G2 平滑圆角
+  恢复为 per-builder 方式，只给原版胶囊/连续曲率元素加。
+- 新增 dialog Cancel/Okay 按钮的 per-builder useContinuousSdf 行
+  （原版是 Capsule，之前被 catch-all 漏掉）。
+- 非胶囊元素不再被 SDF 纹理扭曲，恢复正确的宽高比和圆角形状。
