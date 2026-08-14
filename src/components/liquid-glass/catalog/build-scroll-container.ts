@@ -39,7 +39,7 @@ export function buildScrollContainer(W: number, onBack: () => void, count: numbe
     // Capsule shape: cards are 32dp rounded rects. When capsuleShape is on,
     // use the G2 continuous-curvature SDF for smoother corners. All cards
     // share the same (w,h,radius) → one SDF texture cached for all of them.
-    if (!state.originalCorners) card.useContinuousSdf = true
+    if (state.capsuleShape) card.useContinuousSdf = true
     elements.push(card)
     y += cardH + spacing
   }

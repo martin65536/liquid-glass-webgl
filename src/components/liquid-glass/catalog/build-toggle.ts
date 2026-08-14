@@ -177,7 +177,7 @@ export function buildToggle(
   }
   // Smooth corners: track is a 64×28 capsule (cornerRadius=14) in the original.
   // useContinuousSdf upgrades it from circular-arc to G2 continuous curvature.
-  if (!state.originalCorners) t1TrackEl.useContinuousSdf = true
+  if (state.capsuleShape) t1TrackEl.useContinuousSdf = true
   elements.push(t1TrackEl)
 
   // Knob: glass-shape with isToggleKnob marker
@@ -222,7 +222,7 @@ export function buildToggle(
   }
   // Smooth corners: knob is a 40×24 capsule (cornerRadius=12) in the original.
   // useContinuousSdf upgrades it from circular-arc to G2 continuous curvature.
-  if (!state.originalCorners) t1KnobEl.useContinuousSdf = true
+  if (state.capsuleShape) t1KnobEl.useContinuousSdf = true
   elements.push(t1KnobEl)
 
   // --- White card with toggle 2 (faithful to ToggleContent.kt) ---
@@ -246,7 +246,7 @@ export function buildToggle(
   const cardBg: [number, number, number, number] = CARD_BG_T
   // Smooth corners: card is a RoundedRectangle(32dp) in the original.
   const toggleCardEl = makePlainRect('toggle-card', { x: cardX, y: cardY, w: cardW, h: cardH }, cardBg, cardRadius)
-  if (!state.originalCorners) toggleCardEl.useContinuousSdf = true
+  if (state.capsuleShape) toggleCardEl.useContinuousSdf = true
   elements.push(toggleCardEl)
 
   // Toggle 2 inside the card:
@@ -275,7 +275,7 @@ export function buildToggle(
     onColor: [...TOGGLE_ACCENT_T, 1] as [number, number, number, number],
   }
   // Smooth corners: track is a 64×28 capsule (cornerRadius=14) in the original.
-  if (!state.originalCorners) t2TrackEl.useContinuousSdf = true
+  if (state.capsuleShape) t2TrackEl.useContinuousSdf = true
   elements.push(t2TrackEl)
   const t2KnobEl = makeGlassShape(
     'toggle2-knob',
@@ -319,7 +319,7 @@ export function buildToggle(
     solidBackdropColor: cardBg,
   }
   // Smooth corners: knob is a 40×24 capsule (cornerRadius=12) in the original.
-  if (!state.originalCorners) t2KnobEl.useContinuousSdf = true
+  if (state.capsuleShape) t2KnobEl.useContinuousSdf = true
   elements.push(t2KnobEl)
 
   // --- Interactions ---

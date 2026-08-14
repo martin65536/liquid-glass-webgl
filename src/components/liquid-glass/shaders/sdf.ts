@@ -16,6 +16,7 @@ uniform float uCornerStyle;
 // falls through to the analytic sdRoundedRect / sdContinuousRoundedRect path.
 uniform sampler2D uContinuousSdf;
 uniform float uUseContinuousSdf;        // 0 or 1
+uniform float uNoContinuousSdfInRefraction;  // 0 or 1 — when 1, refraction/highlight SDF forces analytic sdRoundedRect (ignores uUseContinuousSdf). Mask/clip still uses uUseContinuousSdf.
 uniform vec2  uContinuousSdfTexSize;    // SDF texture size in px (256, 256)
 uniform vec2  uContinuousSdfElementSize; // element's original w,h in px
 
@@ -92,10 +93,13 @@ float sdClipShape(vec2 coord, vec2 halfSize, float radius) {
 }
 
 // sdShape — SDF for refraction/highlight internal calculations.
-// When uUseContinuousSdf=1, uses sampleClipSdf (same shape as clip mask).
-// Otherwise uses sdRoundedRect.
+// When uUseContinuousSdf=1 AND uNoContinuousSdfInRefraction=0, uses
+// sampleClipSdf (same G2 shape as clip mask). Otherwise uses the analytic
+// sdRoundedRect. This lets the "disable smooth SDF in glass" toggle strip
+// the G2 SDF out of the refraction/lens computation while keeping the G2
+// clip mask intact (capsuleShape still controls edge shape).
 float sdShape(vec2 coord, vec2 halfSize, float radius) {
-    if (uUseContinuousSdf > 0.5) {
+    if (uUseContinuousSdf > 0.5 && uNoContinuousSdfInRefraction < 0.5) {
         return sampleClipSdf(coord, halfSize, radius);
     }
     return sdRoundedRect(coord, halfSize, radius);

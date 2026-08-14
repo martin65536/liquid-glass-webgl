@@ -90,6 +90,10 @@ export interface LiquidGlassCanvasProps {
    *  the GPU pool + CPU maskCache are cleared and all elFbos marked dirty so
    *  new textures are generated at the new resolution. */
   capsuleSdfQuality?: number
+  /** "Disable smooth-corner SDF in liquid-glass refraction" toggle. When true,
+   *  the refraction/lens body forces the analytic sdRoundedRect (ignores the
+   *  G2 SDF texture). The clip mask is NOT affected. Default true. */
+  noContinuousSdf?: boolean
   /** Performance monitor toggle. When true, the renderer's PerfMonitor is
    *  enabled (frame timing + per-frame render counters + GPU info). The
    *  React overlay (rendered by the parent) polls the snapshot. */
@@ -181,6 +185,7 @@ export function LiquidGlassCanvas({
   showPefBboxOverlay = false,
   usePerElementFbo,
   capsuleSdfQuality,
+  noContinuousSdf,
   perfMonitorEnabled,
 }: LiquidGlassCanvasProps) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null)
@@ -373,6 +378,19 @@ export function LiquidGlassCanvas({
     renderer.markAllDirty()
     renderer.requestRender()
   }, [capsuleSdfQuality])
+
+  // Apply the "disable smooth-corner SDF in refraction" toggle. This only
+  // changes a shader uniform (no texture rebuild), so we just push the value
+  // to the renderer + mark all elFbos dirty + request a re-render. The
+  // element-pass reads renderer.noContinuousSdf each frame when setting
+  // uNoContinuousSdfInRefraction.
+  React.useEffect(() => {
+    const renderer = rendererRefInternal.current
+    if (!renderer || noContinuousSdf == null) return
+    renderer.noContinuousSdf = noContinuousSdf
+    renderer.markAllDirty()
+    renderer.requestRender()
+  }, [noContinuousSdf])
 
   // Apply perf-monitor enable toggle when it changes (Settings page).
   // When turning ON, reset accumulated stats so the overlay starts fresh.

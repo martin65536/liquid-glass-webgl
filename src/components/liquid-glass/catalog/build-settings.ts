@@ -257,17 +257,20 @@ export function buildSettings(
     Object.assign(interactions, capsuleToggle.interactions)
     nextY += BUTTON_HEIGHT + ITEM_GAP
 
-    // Disable smooth-corner SDF toggle — independent master switch (does NOT
-    // sync with capsuleShape). ON (default) = skip the G2 SDF texture entirely,
-    // use only the analytic sdRoundedRect (Rmask glass path, no texture, no
-    // resolution issues). OFF = let capsuleShape control G2 SDF as before
-    // (current behavior). Net: useContinuousSdf = capsuleShape && !noContinuousSdf.
+    // Disable smooth-corner SDF in refraction toggle. ON (default) = strip
+    // the G2 SDF texture out of the refraction/lens body (element.ts forces
+    // analytic sdRoundedRect for sdShape, ignoring uUseContinuousSdf). The
+    // clip mask (edge shape) is NOT affected — capsuleShape still controls it.
+    // OFF = refraction uses the G2 SDF texture when capsuleShape is ON.
+    // DISABLED when capsuleShape is OFF (no G2 SDF to strip — the uniform is
+    // forced to 1.0 analytic in element-pass.ts anyway). Shows OFF + no-op.
+    const noSdfDisabled = !state.capsuleShape
     const noSdfToggle = makeSettingsToggle(
       'settings-no-continuous-sdf',
       { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT + ITEM_GAP },
       t('settings_no_continuous_sdf', locale),
-      state.noContinuousSdf,
-      () => setState((prev) => ({ noContinuousSdf: !prev.noContinuousSdf })),
+      noSdfDisabled ? false : state.noContinuousSdf,
+      noSdfDisabled ? () => {} : () => setState((prev) => ({ noContinuousSdf: !prev.noContinuousSdf })),
       palette,
       rendererRef,
       true,

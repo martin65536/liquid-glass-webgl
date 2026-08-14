@@ -160,7 +160,9 @@ void main() {
         return;
     }
 
-    // SDF for refraction/highlight — always analytic sdRoundedRect.
+    // SDF for refraction/highlight — sdShape() dispatches to the G2 SDF
+    // texture (sampleClipSdf) when uUseContinuousSdf=1 AND
+    // uNoContinuousSdfInRefraction=0, else the analytic sdRoundedRect.
     float sd = sdShape(centeredOrigRot, origHalfSize, origRadius);
     // Clip + edgeAA: alpha mask (browser-native AA) when capsule enabled.
     float edgeAlpha;

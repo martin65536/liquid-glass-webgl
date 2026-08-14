@@ -304,6 +304,15 @@ export const glassElementPassMethods = {
     } else {
       gl.uniform1f(this.uEl['uUseContinuousSdf'], 0.0)
     }
+    // noContinuousSdf toggle: strip G2 SDF out of the refraction/lens body.
+    // Forced to 1.0 (analytic) when capsuleShape is OFF (no G2 texture to use
+    // anyway) so the shader's sdShape falls through to sdRoundedRect.
+    // el.useContinuousSdf already encodes capsuleShape (set per-element in the
+    // catalog builders), so we reuse it here as the capsuleShape gate.
+    gl.uniform1f(
+      this.uEl['uNoContinuousSdfInRefraction'],
+      (el.useContinuousSdf && !this.noContinuousSdf) ? 0.0 : 1.0
+    )
 
     // Global enter alpha (ControlCenter enter progress)
     gl.uniform1f(this.uEl['uEnterAlpha'], state.enterAlpha)

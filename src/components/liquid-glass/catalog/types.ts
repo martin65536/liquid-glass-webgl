@@ -519,13 +519,15 @@ export interface CatalogState {
   // This gives pixel-perfect squircle corners on the dialog card. Other
   // elements still use the analytic SDF (circular or continuous placeholder).
   capsuleShape: boolean
-  // Settings — disable smooth-corner SDF in liquid-glass computation.
-  // Independent master switch (does NOT sync with capsuleShape). When true
-  // (default), all elements skip the G2 continuous-curvature SDF texture and
-  // use only the analytic sdRoundedRect (Rmask glass path in element.ts else
-  // branch — no texture, no resolution issues). When false, elements opt into
-  // the G2 SDF texture upgrade (useContinuousSdf=true) IF capsuleShape is also
-  // on. Net condition per element: useContinuousSdf = capsuleShape && !noContinuousSdf.
+  // Settings — disable smooth-corner SDF in the liquid-glass refraction body.
+  // Independent of capsuleShape (does NOT sync). When true (default), the
+  // refraction/lens computation in element.ts forces the analytic sdRoundedRect
+  // for sdShape (ignores uUseContinuousSdf), stripping the G2 SDF texture out
+  // of the glass-body refraction. The clip mask (edge shape) is NOT affected —
+  // capsuleShape still controls the edge via uUseContinuousSdf.
+  // When false, refraction uses the G2 SDF texture (sampleClipSdf) when
+  // capsuleShape is ON. Disabled (no-op, shows OFF) when capsuleShape is OFF.
+  // Net shader condition: sdShape uses G2 ⟺ (uUseContinuousSdf && !uNoContinuousSdfInRefraction).
   noContinuousSdf: boolean
   // Settings — capsule SDF texture quality coefficient [0.25, 1.0].
   // Scales the base texSize (computed from element device-px size, 2×

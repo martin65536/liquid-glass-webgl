@@ -840,7 +840,7 @@ export default function Page() {
       targets['settings-blur-global'] = state.globalSeparableBlur ? 1 : 0
       targets['settings-blur-dynamic-ds'] = state.dynamicBlurDownsample ? 1 : 0
       targets['settings-shape-capsule'] = state.capsuleShape ? 1 : 0
-      targets['settings-no-continuous-sdf'] = state.noContinuousSdf ? 1 : 0
+      targets['settings-no-continuous-sdf'] = (state.capsuleShape && state.noContinuousSdf) ? 1 : 0
       targets['settings-ui-hide-overlays'] = state.hideOverlayButtons ? 1 : 0
       targets['settings-transition-toggle'] = state.pageTransition ? 1 : 0
       targets['settings-fps-toggle'] = state.showFps ? 1 : 0
@@ -1076,6 +1076,7 @@ export default function Page() {
           dynamicBlurDownsample={state.dynamicBlurDownsample}
           usePerElementFbo={perfMeasuring ? false : state.usePerElementFbo}
           capsuleSdfQuality={state.capsuleSdfQuality}
+          noContinuousSdf={state.noContinuousSdf}
           perfMonitorEnabled={state.showPerfMonitor}
           className="w-full h-full"
           onReady={() => setRendererReady(true)}

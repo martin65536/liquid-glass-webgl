@@ -336,6 +336,14 @@ export class LiquidGlassRenderer {
    *  elFbos dirty so new textures are generated at the new resolution.
    *  See generateContinuousCurvatureMask + loadContinuousSdf. */
   capsuleSdfQuality = 0.5
+  /** "Disable smooth-corner SDF in liquid-glass refraction" toggle (Settings).
+   *  When true, the refraction/lens body computation in element.ts forces the
+   *  analytic sdRoundedRect (sdShape ignores uUseContinuousSdf). The clip mask
+   *  (edge shape) is NOT affected — capsuleShape still controls it. Only
+   *  meaningful when capsuleShape is ON; element-pass.ts forces the uniform
+   *  to 1.0 (analytic) when the element has useContinuousSdf=false. Default
+   *  true (ON = strip G2 SDF from refraction). */
+  noContinuousSdf = true
   /** Per-element FBO optimization toggle (Settings). When true, each glass
    *  element renders into a small bbox-sized FBO instead of a fullscreen
    *  ping-pong blit. See methods-render-glass.ts.
@@ -945,6 +953,7 @@ export class LiquidGlassRenderer {
       'uUseMagnifier', 'uMagnifierZoom', 'uMagnifierOffsetY',
       'uElementRotation',
       'uContinuousSdf', 'uUseContinuousSdf', 'uContinuousSdfTexSize', 'uContinuousSdfElementSize',
+      'uNoContinuousSdfInRefraction',
       'uInnerStrokeMask', 'uInnerStrokeMaskOffset', 'uInnerStrokeMaskSize',
     ]
     for (const n of elNames) this.uEl[n] = gl.getUniformLocation(this.elementProgram, n)

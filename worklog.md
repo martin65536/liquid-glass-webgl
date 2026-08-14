@@ -2026,3 +2026,95 @@ Stage Summary:
 - 旧用户迁移：有 capsuleShape 无 originalCorners → 推导 originalCorners=!capsuleShape；
   两者不一致 → 强制同步 capsuleShape=!originalCorners。
 - 默认值：originalCorners=true（ON），capsuleShape=false（OFF，同步逆）。
+
+---
+Task ID: 69
+Agent: main (Z.ai Code)
+Task: 重新实现两个独立开关——胶囊形(只mask) + 不使用平滑圆角SDF参与液态玻璃渲染(移除折射中SDF)
+
+Work Log:
+- 上一版的错误：把 originalCorners 做成了 capsuleShape 的互斥同步镜像，功能
+  不对。用户要求的是两个**独立**开关：
+  1. 胶囊形(capsuleShape)：ON=用 G2 mask 纹理做边缘裁切(只mask，不渲染玻璃体)
+  2. 不使用平滑圆角SDF参与液态玻璃渲染(noContinuousSdf)：ON=把折射中平滑圆角
+     SDF 计算部分移除掉(强制解析式 sdRoundedRect)；OFF=折射用 G2 SDF。
+     胶囊形关闭时此开关禁用。
+
+- 字段重命名 + 语义重定义：
+  * originalCorners → noContinuousSdf（types.ts / i18n.ts / page.tsx / build-settings.ts）
+  * 默认值：capsuleShape=true, noContinuousSdf=true
+  * 两者独立，不同步。
+
+- shader 层改动（核心）：
+  * sdf.ts：新增 uniform `uNoContinuousSdfInRefraction`（在 SDF_GLSL 里声明，
+    所有 include SDF_GLSL 的 shader 都能看到）。
+  * sdf.ts sdShape()：从 `if (uUseContinuousSdf > 0.5)` 改为
+    `if (uUseContinuousSdf > 0.5 && uNoContinuousSdfInRefraction < 0.5)`。
+    即：只有 capsuleShape ON(uUseContinuousSdf=1) 且 noContinuousSdf OFF
+    (uNoContinuousSdfInRefraction=0) 时，折射才用 G2 SDF 纹理(sampleClipSdf)。
+    否则用解析式 sdRoundedRect。
+  * element.ts L164 sdShape 调用注释更新。
+  * element-uniforms.ts：移除重复声明（uNoContinuousSdfInRefraction 已在
+    SDF_GLSL 声明，element.ts 同时 include 两者，重复声明会导致 GLSL 编译错误）。
+
+- renderer 层改动：
+  * index.ts：新增 `noContinuousSdf = true` 字段（带 docstring）。
+  * index.ts elNames uniform 列表：加 'uNoContinuousSdfInRefraction'。
+  * methods-render-glass-element-pass.ts：在设置 uUseContinuousSdf 之后，
+    设置 uNoContinuousSdfInRefraction：
+    `(el.useContinuousSdf && !this.noContinuousSdf) ? 0.0 : 1.0`
+    即 capsuleShape OFF 或 noContinuousSdf ON 时，强制 1.0(解析式)。
+    el.useContinuousSdf 复用为 capsuleShape 的 per-element 标志。
+
+- context.tsx：
+  * LiquidGlassCanvasProps 新增 `noContinuousSdf?: boolean`。
+  * 解构 props 加 noContinuousSdf。
+  * 新增 sync effect：noContinuousSdf 变化时设置 renderer.noContinuousSdf +
+    markAllDirty + requestRender（只改 uniform，不需要清纹理缓存）。
+
+- page.tsx：
+  * loadPersistedSettings：迁移 originalCorners → noContinuousSdf（旧字段名
+    兼容）。capsuleShape 恢复独立加载（默认 true）。
+  * 持久化条件 / 保存字段 / toggleTargets / useMemo deps 全部用 noContinuousSdf。
+  * toggleTargets['settings-no-continuous-sdf']：
+    `(state.capsuleShape && state.noContinuousSdf) ? 1 : 0`
+    ——capsuleShape OFF 时开关显示 OFF(禁用语义)。
+  * LiquidGlassCanvas 传 noContinuousSdf={state.noContinuousSdf} prop。
+
+- build-settings.ts（Shape 卡片）：
+  * 胶囊形开关：恢复独立（移除同步逻辑），callback 只设 capsuleShape。
+  * 不使用平滑圆角SDF开关（在胶囊形下面）：
+    - noSdfDisabled = !state.capsuleShape
+    - isOn: noSdfDisabled ? false : state.noContinuousSdf（禁用时显示 OFF）
+    - onTap: noSdfDisabled ? () => {} : () => setState(...)（禁用时 no-op）
+  * Reset 按钮：capsuleShape: true, noContinuousSdf: true。
+  * 注释更新：说明 ON=移除折射中 G2 SDF，OFF=折射用 G2 SDF，mask 不受影响。
+
+- catalog builders（11 个文件 + index.ts）：
+  * 上一版错误地把条件改成了 `!state.originalCorners`，这一版改回
+    `if (state.capsuleShape)`（capsuleShape 控制 useContinuousSdf/mask）。
+    noContinuousSdf 只在 shader uniform 层起作用，不参与 builder 条件。
+  * 注释里的 originalCorners 引用同步改回 capsuleShape。
+
+- i18n.ts：
+  * settings_no_continuous_sdf: { zh: '不使用平滑圆角 SDF', en: 'Disable smooth SDF' }
+  * 移除 settings_original_corners。
+
+- types.ts：
+  * originalCorners → noContinuousSdf，docstring 重写说明只影响折射不影响 mask。
+  * DEFAULT_CATALOG_STATE: capsuleShape: true, noContinuousSdf: true。
+
+- bun run lint: 通过（0 errors）。
+- tsc --noEmit: 无新增类型错误（预存错误与本次改动无关）。
+- dev.log: 编译成功(GET / 200)，无 shader 编译错误。
+
+Stage Summary:
+- 两个独立开关：
+  * 胶囊形(capsuleShape)：ON=用 G2 mask 纹理裁切边缘(只mask)。默认 ON。
+  * 不使用平滑圆角SDF(noContinuousSdf)：ON=折射中移除 G2 SDF(强制解析式)。
+    默认 ON。胶囊形 OFF 时禁用(显示 OFF + no-op)。
+- shader: sdShape() 在 (uUseContinuousSdf && !uNoContinuousSdfInRefraction) 时
+  用 G2 SDF 纹理，否则解析式 sdRoundedRect。mask 裁切不受影响。
+- renderer: element-pass.ts 每帧设置 uNoContinuousSdfInRefraction uniform。
+- context.tsx: sync effect 推 noContinuousSdf 到 renderer + markAllDirty。
+- 旧 originalCorners 字段名向后兼容迁移。

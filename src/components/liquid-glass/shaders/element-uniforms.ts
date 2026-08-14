@@ -122,6 +122,10 @@ uniform vec4  uBackdropRect;        // (x, y, w, h) top-left origin, scene devic
 // FBO, matching the original's colorControls→blur→lens order). Used by
 // backdropFbo + useSeparableBlur elements (dialog card).
 uniform float uSkipColorControls;   // 0 or 1
+// (uNoContinuousSdfInRefraction is declared in SDF_GLSL — included by element.ts.
+//  When 1.0, the refraction/lens computation forces analytic sdRoundedRect,
+//  stripping the G2 SDF texture out of the glass-body refraction. The clip
+//  mask is NOT affected — capsuleShape still controls the edge.)
 // --- Magnifier glass (faithful to MagnifierContent.kt) ---
 uniform float uUseMagnifier;        // 0 or 1
 uniform float uMagnifierZoom;       // zoom factor (1.5)
