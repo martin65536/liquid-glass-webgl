@@ -260,10 +260,11 @@ export const glassElementPassMethods = {
     }
     // --- Continuous-curvature SDF texture (capsule shape) ---
     // Bind the precomputed continuous-curvature SDF texture for elements
-    // with useContinuousSdf=true (currently only the dialog card). The
-    // shader's sdShape() dispatches to sdContinuousCurvature which samples
-    // this texture instead of the analytic sdRoundedRect. The texture is
-    // 256×256, RGBA, cached by (w, h, radius) — see loadContinuousSdf().
+    // with useContinuousSdf=true. The shader's sdShape() dispatches to
+    // sdContinuousCurvature which samples this texture instead of the
+    // analytic sdRoundedRect. The texture is 256×256 OR 512×512 (chosen
+    // dynamically based on element device-px size), RGBA, cached by
+    // (w, h, radius, dpr) — see loadContinuousSdf().
     // uContinuousSdfElementSize = the element's ORIGINAL (unscaled) w,h so
     // the shader can map element coords to texture UV with the correct
     // aspect ratio + margin (matching continuous-sdf.ts).

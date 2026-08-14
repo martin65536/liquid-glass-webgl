@@ -61,6 +61,11 @@ export function buildMagnifier(W: number, H: number, onBack: () => void, state: 
   const textH = measureWrappedHeight(LOREM_IPSUM, fontPx, textW)
   const cardH = textH + 2 * innerPad
   elements.push(makePlainRect('mag-card', { x: cardX, y: cardY, w: cardW, h: cardH }, palette.magnifierCardBg, cardRadius))
+  // Smooth corners: the card is a RoundedRectangle(32dp) in the original
+  // MagnifierContent.kt. useContinuousSdf upgrades it from circular-arc to
+  // G2 continuous curvature. (Applied retroactively — makePlainRect returns
+  // a plain rect; we set the flag on the last-pushed card element.)
+  if (state.capsuleShape) elements[elements.length - 1].useContinuousSdf = true
   elements.push(
     makeText(
       'mag-text',
@@ -89,6 +94,9 @@ export function buildMagnifier(W: number, H: number, onBack: () => void, state: 
   const cursorEl = makePlainRect('mag-cursor', { x: cursorX, y: cursorY, w: 4 * DP, h: 24 * DP }, palette.magnifierAccent, 2 * DP)
   // Larger hit area for easy dragging (48×48dp touch target)
   cursorEl.hitRect = { x: cursorX - 22 * DP, y: cursorY - 12 * DP, w: 48 * DP, h: 48 * DP }
+  // Smooth corners: cursor is a 4×24 capsule (cornerRadius = 2 = h/2) in the
+  // original. useContinuousSdf upgrades it to G2.
+  if (state.capsuleShape) cursorEl.useContinuousSdf = true
   elements.push(cursorEl)
 
   // Magnifier glass (128×96 capsule, sits 80dp above the cursor)
@@ -122,6 +130,10 @@ export function buildMagnifier(W: number, H: number, onBack: () => void, state: 
   magGlass.isMagnifier = { zoom: 1.5, sampleOffsetY: 80 * DP }
   // Magnifier needs the scene FBO (it samples the composited scene).
   magGlass.independentBackdrop = false
+  // Smooth corners: the glass is a 128×96 capsule (cornerRadius = h/2 = 48)
+  // in the original MagnifierContent.kt. useContinuousSdf upgrades it from
+  // circular-arc to G2 continuous curvature.
+  if (state.capsuleShape) magGlass.useContinuousSdf = true
   elements.push(magGlass)
 
   // Drag interaction — bound to BOTH the cursor and the glass (either can be

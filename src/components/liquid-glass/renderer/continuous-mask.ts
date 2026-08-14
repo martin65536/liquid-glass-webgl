@@ -29,7 +29,8 @@ const maskCache = new Map<string, { tex: Uint8Array; texSize: number }>()
  * ~1MB of per-call allocation (alpha + inside + outside + tex) that
  * triggers major GC pauses during slider drags. GC pauses show up as
  * random 10-50ms spikes in fwdPass/bwdPass/pack timings. Grows lazily
- * if a larger texSize is requested. */
+ * if a larger texSize is requested (256² → 512² when a big element
+ * needs the higher-resolution SDF). */
 let _alphaBuf = new Uint8Array(256 * 256)
 let _insideBuf = new Int32Array(256 * 256)
 let _outsideBuf = new Int32Array(256 * 256)
@@ -109,11 +110,22 @@ export function generateContinuousCurvatureMask(
   radius: number,
   dpr: number = 1
 ): { tex: Uint8Array; texSize: number } {
-  // texSize: distance transform is O(texSize²). 256² gives good SDF quality;
-  // LINEAR filtering interpolates smoothly. Profiling shows the bottleneck is
-  // NOT distance transform but getImageData readback + texImage2D upload —
-  // see capsuleSdfTimings in the debug layer.
-  const texSize = 256
+  // texSize: dynamically chosen based on the element's device-pixel size.
+  // Small elements (knobs, tracks) use 256² — cheap to generate (~1ms) and
+  // plenty of resolution for a 40×24 capsule. Large elements (cards, dialog,
+  // GP square, magnifier) use 512² so the G2 corner curve stays smooth at
+  // big sizes — a 176×76 card at 256² has only ~30px per corner, making the
+  // Bezier curve look faceted; 512² doubles that to ~60px.
+  //
+  // Threshold: max(w, h) * dpr > 128 → 512, else 256. At dpr=1.5 this means
+  // elements larger than ~85 CSS px use 512. Capsule knobs (40×24) stay 256;
+  // cards (176×76), dialog (300×200), magnifier (128×96) use 512.
+  //
+  // Distance transform is O(texSize²) so 512² is 4× slower than 256² (~4ms
+  // vs ~1ms), but large elements are few (1–4 per page) and cache stably
+  // (their w/h/radius don't change), so the cost is paid once per resize.
+  const devMaxDim = Math.max(w, h) * (dpr || 1)
+  const texSize = devMaxDim > 128 ? 512 : 256
   const key = `${w},${h},${radius},${texSize}`
   const cached = maskCache.get(key)
   if (cached) {

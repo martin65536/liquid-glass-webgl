@@ -235,15 +235,30 @@ export function buildCatalog(
   // design sets `if (state.capsuleShape) el.useContinuousSdf = true` inline.
   // This covers:
   //   • Capsule buttons (build-buttons, build-dialog cancel/okay, pick-image)
-  //   • Toggle knobs (build-toggle)
+  //   • Toggle knobs + tracks + card (build-toggle)
+  //   • Slider knobs + tracks + card (build-slider)
   //   • Tab container + indicator (build-bottom-tabs)
   //   • Dialog card (build-dialog)
   //   • GP square + sheet (build-glass-playground)
   //   • Scroll cards (build-scroll-container)
   //   • CC tiles (build-control-center)
-  // A previous global catch-all loop was reverted because it applied the SDF
-  // texture to EVERY rounded element (slider tracks, settings cards, magnifier,
-  // perf buttons, etc.), which distorted their shapes — the 256×256 SDF texture
-  // sampling made non-capsule elements look like they had a fixed aspect ratio.
+  //   • Adaptive luminance glass (build-adaptive-luminance)
+  //   • Magnifier glass + card + cursor (build-magnifier)
+  //
+  // PLUS the targeted loop below, which catches knobs + tracks created by
+  // shared helpers (makeSettingsToggle, makeLiquidSlider) that don't receive
+  // `state` and so can't check `capsuleShape` themselves. The loop is TARGETED:
+  // it only touches isToggleKnob (capsule knobs) and isToggleTrack (capsule
+  // tracks) — both are always capsules in the original design (cornerRadius =
+  // h/2), so applying G2 to them is always correct. It does NOT touch any
+  // other element kind, avoiding the previous "fixed aspect ratio" bug where
+  // a blanket catch-all distorted non-capsule plain-rects.
+  if (state.capsuleShape) {
+    for (const el of result.elements) {
+      if (el.isToggleKnob || el.isToggleTrack) {
+        el.useContinuousSdf = true
+      }
+    }
+  }
   return result
 }

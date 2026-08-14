@@ -1652,3 +1652,99 @@ Stage Summary:
 - "胶囊"和"平滑圆角"不是对立概念：胶囊是轮廓，平滑圆角是角几何。
   原版液态玻璃所有形状都用 G2 连续曲率，包括胶囊形的开关/滑块。
 - VLM 验证两个页面渲染正确，角平滑，无变形。
+
+---
+Task ID: 64
+Agent: main (Z.ai Code)
+Task: 动态 256/512 texSize + knob 形状修复 + adaptive luminance/magnifier 加 G2 平滑圆角
+
+Work Log:
+- 用户要求 4 件事：
+  1. 根据元素大小动态选择 256 或 512 的 texSizeCap
+  2. knob 没有正确应用形状
+  3. adaptive luminance glass 没设置平滑圆角
+  4. magnifier 没设置平滑圆角
+
+- 修复 1 — continuous-mask.ts（动态 texSize）：
+  * 原来硬编码 `const texSize = 256`。小元素（40×24 knob）256² 够用，
+    但大元素（176×76 card、128×96 magnifier、160×160 GP square、
+    300×200 dialog）在 256² 下每个角只有 ~30px，G2 Bezier 曲线会显得
+    有棱角（faceted）。
+  * 改为：`const devMaxDim = Math.max(w, h) * (dpr || 1)`，
+    `const texSize = devMaxDim > 128 ? 512 : 256`。
+  * 阈值 128 device-px：dpr=1.5 时 ≈ 85 CSS px。
+    - 40×24 knob → devMaxDim=36 → 256（保持低成本 ~1ms）
+    - 176×76 card → devMaxDim=264 → 512（~4ms，但大元素少且缓存稳定）
+    - 128×96 magnifier → devMaxDim=192 → 512
+    - 160×160 GP square → devMaxDim=240 → 512
+  * 距离变换 O(texSize²)，512² 比 256² 慢 4×，但大元素每页只有 1–4 个，
+    且 (w,h,radius) 不变 → 缓存命中后不再重算，成本只在 resize 时付一次。
+  * 模块级 scratch buffers（_alphaBuf/_insideBuf/_outsideBuf/_texBuf）
+    已有 lazy grow 逻辑（`if (_alphaBuf.length < N)`），512² 时自动
+    扩容到 512×512，无需额外改动。
+  * 缓存 key 已包含 texSize（`${w},${h},${radius},${texSize}`），
+    所以同一 (w,h,radius) 不会因为 texSize 变化而冲突。
+  * GPU pool key 也包含 dpr（`${w},${h},${radius},${this.dpr},...`），
+    texSize 由 (w,h,radius,dpr) 确定性推导，无 key 碰撞。
+
+- 修复 2 — catalog/index.ts（knob 形状修复）：
+  * 根因：Settings 页的 toggle knob/track 和 slider knob/track 通过
+    `makeSettingsToggle` / `makeLiquidSlider` helpers 创建，这些 helpers
+    不接收 `state` 参数，无法检查 `state.capsuleShape`，所以创建出来的
+    knob/track 没有 useContinuousSdf=true → G2 没应用。
+  * 修复：在 catalog/index.ts 末尾加一个 TARGETED 全局循环，只针对
+    `isToggleKnob` 和 `isToggleTrack` 元素设 useContinuousSdf=true。
+    这两类在原版设计里永远是胶囊（cornerRadius = h/2），所以应用 G2
+    永远正确。
+  * 安全性：循环是 TARGETED 的，只碰 isToggleKnob/isToggleTrack，
+    不碰其他元素 → 不会重蹈之前"全局 catch-all 把所有圆角元素都扭曲"
+    的覆辙（Task 62 已 revert 那个 catch-all）。
+  * 覆盖：Settings 页的所有 toggle knob/track + slider knob/track 现在都
+    拿到 G2。demo 页（build-toggle/build-slider）的 knob/track 已有
+    per-builder 行，这个循环对它们是 no-op（重复设 true 无害）。
+
+- 修复 3 — build-adaptive-luminance.ts：
+  * algSquare（160dp square，RoundedRectangle(24dp)）加
+    `if (state.capsuleShape) algSquare.useContinuousSdf = true`。
+  * 160dp 是大元素 → 动态 texSize 会选 512²，G2 角曲线分辨率充足。
+
+- 修复 4 — build-magnifier.ts：
+  * magGlass（128×96 capsule，cornerRadius=h/2=48）加
+    `if (state.capsuleShape) magGlass.useContinuousSdf = true`。
+  * mag-card（RoundedRectangle(32dp)）加 useContinuousSdf（retroactive
+    设在 elements 最后一个元素上）。
+  * mag-cursor（4×24 capsule，cornerRadius=2）加 useContinuousSdf。
+  * 128×96 magnifier → 动态 texSize=512；4×24 cursor → 256。
+
+- 注释更新：
+  * methods-wallpaper.ts loadContinuousSdf docstring：256×256 → 
+    "256×256 OR 512×512 (chosen dynamically)"。
+  * methods-render-glass-element-pass.ts：同上。
+  * methods-render.ts line 310-320：同上。
+  * index.ts continuousSdfTexSize：加注释说明 dynamic。
+  * catalog/index.ts NOTE：更新覆盖列表，加上 adaptive-luminance +
+    magnifier，并说明 targeted loop 的存在理由和安全性。
+
+- Agent Browser 验证：
+  * Magnifier 页（?dest=Magnifier）：VLM 确认 — 大玻璃胶囊、白色圆角
+    卡、蓝色竖条 cursor 三者角都平滑无变形/拉伸/锯齿。✓
+  * Settings 页（?dest=Settings）：VLM 确认 — toggle knob/track +
+    slider knob/track 全部平滑胶囊，无变形。✓（targeted loop 生效）
+  * AdaptiveLuminanceGlass 页：VLM 确认 — 160dp 方块角平滑。✓
+  * console/errors：无。
+  * dev.log：干净。
+
+- bun run lint：通过（0 errors）。
+
+Stage Summary:
+- continuous-mask.ts：texSize 从硬编码 256 改为动态 256/512，阈值
+  max(w,h)*dpr > 128。小元素（knob/track）保持 256² 低成本，大元素
+  （card/dialog/magnifier/GP square）升级到 512² 让 G2 角曲线更平滑。
+  scratch buffers 自动扩容，缓存 key 已含 texSize 无碰撞。
+- catalog/index.ts：新增 targeted 全局循环，给所有 isToggleKnob +
+  isToggleTrack 元素设 useContinuousSdf=true（capsuleShape 开时）。
+  修复 Settings 页 helpers 创建的 knob/track 拿不到 G2 的问题。
+  只碰 knob/track 两类，不误伤其他元素。
+- build-adaptive-luminance.ts：algSquare 加 G2（160dp square, r=24）。
+- build-magnifier.ts：magGlass + mag-card + mag-cursor 全部加 G2。
+- VLM 验证三个页面形状全部平滑无变形，lint 通过，dev.log 干净。

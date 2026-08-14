@@ -97,6 +97,10 @@ export function buildAdaptiveLuminanceGlass(
   // caches when idle; it misses on backdrop_overlap (drag / overlapping
   // element changes), same as other non-independent glass-shapes.
   algSquare.independentBackdrop = false
+  // Smooth corners: the square is a RoundedRectangle(24dp) in the original
+  // AdaptiveLuminanceGlassContent.kt. useContinuousSdf upgrades it from
+  // circular-arc to G2 continuous curvature.
+  if (state.capsuleShape) algSquare.useContinuousSdf = true
   elements.push(algSquare)
   // Drag interaction — pan the glass square (module-level state, like gp-square).
   interactions['alg-square'] = {
