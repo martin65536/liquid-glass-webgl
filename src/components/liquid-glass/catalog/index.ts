@@ -229,5 +229,57 @@ export function buildCatalog(
       }
     }
   }
+  // Global capsule (continuous-curvature SDF) shape: when capsuleShape is enabled
+  // in Settings, apply useContinuousSdf to EVERY rounded element that uses a
+  // Capsule or RoundedRectangle shape in the original Apple/Kotlin design.
+  //
+  // This is a CENTRAL catch-all that complements the per-builder
+  // `if (state.capsuleShape) el.useContinuousSdf = true` lines. The per-builder
+  // lines handle specific elements (buttons, toggle knobs, tab container/
+  // indicator, dialog card, GP square/sheet, scroll cards, CC tiles, pick-image).
+  // This loop catches everything else — especially elements created by shared
+  // helpers (makeLiquidSlider, makeSettingsToggle) that don't receive `state`:
+  //
+  //   • Slider knobs (glass capsule, cornerRadius = h/2)
+  //   • Slider tracks (plain-rect pills, cornerRadius = h/2)
+  //   • Slider/toggle/magnifier cards (plain-rect, 32dp radius)
+  //   • Toggle tracks (plain-rect pill, cornerRadius = h/2)
+  //   • Magnifier glass (glass capsule, cornerRadius = h/2)
+  //   • Magnifier cursor (tiny plain-rect pill)
+  //   • Adaptive-luminance square (glass, 24dp radius)
+  //   • Settings card backgrounds (plain-rect, 24dp radius)
+  //   • Settings toggle knobs + tracks (via makeSettingsToggle)
+  //   • Settings/GP slider knobs + tracks (via makeLiquidSlider)
+  //   • Perf progress track (plain-rect pill, stable width)
+  //   • Perf main/exit buttons (capsule buttons)
+  //   • Dialog cancel/okay buttons (capsule buttons)
+  //
+  // PERFECT CIRCLES are SKIPPED (w ≈ h && cornerRadius ≈ w/2): the back button,
+  // theme toggle, GP toggle/reset, and CC inner icons use CircleShape in the
+  // original — a true circle, NOT a squircle. Applying G2 to them would
+  // produce a superellipse (slightly squarer), which is unfaithful.
+  // (Circular CC tiles like cc-c/cc-d already have useContinuousSdf set by
+  // the per-builder code; this skip doesn't clear an already-set true.)
+  //
+  // CHANGING-GEOMETRY elements are SKIPPED: the SDF texture is cached by
+  // (w, h, radius) — each distinct tuple generates a fresh 256×256 texture
+  // via Canvas2D raster + chamfer distance transform (~5-50ms). Elements
+  // whose w/h/radius changes every frame would thrash this cache:
+  //   • isSliderFill — width grows/shrinks as the knob moves
+  //   • perf-glass-* — size oscillates during the benchmark animation
+  //   • perf-progress-fill — width grows with benchmark progress
+  if (state.capsuleShape) {
+    for (const el of result.elements) {
+      if (el.kind === 'text') continue
+      if (!el.cornerRadius || el.cornerRadius <= 0) continue
+      // Skip perfect circles — keep analytic circle (CircleShape in original)
+      const minDim = Math.min(el.rect.w, el.rect.h)
+      if (el.rect.w === el.rect.h && el.cornerRadius >= minDim / 2 - 0.5) continue
+      // Skip elements with changing geometry (would thrash the SDF cache)
+      if (el.isSliderFill) continue
+      if (el.id.startsWith('perf-glass-') || el.id === 'perf-progress-fill') continue
+      el.useContinuousSdf = true
+    }
+  }
   return result
 }
