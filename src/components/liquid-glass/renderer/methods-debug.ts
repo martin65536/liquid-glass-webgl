@@ -240,6 +240,14 @@ declare module './index' {
      *  scan a specific one (e.g. the knob vs the card). */
     debugCycleEdgeScanTarget(): number
 
+    /** Clear any pending + completed edge scan. Used by the overlay's "scan"
+     *  button to toggle the scan panel OFF (the button is a toggle: click
+     *  once to scan, click again to dismiss). Clears _pendingEdgeScan (so an
+     *  in-flight request doesn't repopulate the result next frame) +
+     *  _edgeScanResult + bumps _edgeScanCounter so any stale scanId the
+     *  overlay already saw is invalidated. */
+    debugClearEdgeScan(): void
+
     /** Called from the render loop after the final drawCopy. If a scan is
      *  pending, performs gl.readPixels on the default framebuffer + stores
      *  the analyzed result. Package-private — do not call from the overlay. */
@@ -284,6 +292,18 @@ export const debugMethods = {
     this._pendingEdgeScan = { halfRangeCss: 20 }
     this.requestRender()
     return this._edgeScanTargetIdx
+  },
+
+  /** Clear any pending + completed edge scan (toggle OFF). Clears
+   *  _pendingEdgeScan so an in-flight request doesn't repopulate the result
+   *  next frame, drops _edgeScanResult so the overlay's next poll sees null,
+   *  and bumps _edgeScanCounter so the overlay's lastConsumedScanId is stale
+   *  (a subsequent new scan will have a fresh scanId the overlay will pick
+   *  up). No requestRender — clearing is purely state, no draw needed. */
+  debugClearEdgeScan(this: LiquidGlassRenderer): void {
+    this._pendingEdgeScan = null
+    this._edgeScanResult = null
+    this._edgeScanCounter++
   },
 
   /** Called from the render loop (methods-render.ts) right after the final

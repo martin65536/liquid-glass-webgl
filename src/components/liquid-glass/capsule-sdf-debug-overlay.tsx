@@ -5,6 +5,9 @@ import type { LiquidGlassRenderer, EdgeScanResult } from './renderer'
 import {
   getCapsuleSdfTimings,
   getMaskCacheEntries,
+  getMaskCacheBytes,
+  getMaskCacheSize,
+  getMaskCacheMaxBytes,
   clearMaskCache,
   type CapsuleSdfTiming,
   type MaskCacheEntry,
@@ -53,6 +56,16 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
   const [showPackImages, setShowPackImages] = React.useState(false)
   const [showHighlightMasks, setShowHighlightMasks] = React.useState(false)
   const [maskEntries, setMaskEntries] = React.useState<MaskCacheEntry[]>([])
+  // Total entries in the CPU maskCache (before active-element filtering).
+  // Shown as "showing X of Y" so the user knows how many orphan entries
+  // (left over from previous slider positions / pages) are still cached
+  // but not displayed. The cache is bounded by a 32MB byte-budget LRU
+  // (continuous-mask.ts MAX_MASK_CACHE_BYTES) so orphans auto-evict once
+  // the budget is exceeded; 'clr' does a full manual purge (for cold-start
+  // timing measurement). maskBytes/maskMaxBytes show the live fill ratio.
+  const [maskTotalCount, setMaskTotalCount] = React.useState(0)
+  const [maskBytes, setMaskBytes] = React.useState(0)
+  const [maskMaxBytes] = React.useState(getMaskCacheMaxBytes())
   const [highlightMaskEntries, setHighlightMaskEntries] = React.useState<Array<{
     key: string
     canvas: HTMLCanvasElement
@@ -130,9 +143,54 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
       setLastGenMs(r._lastCapsuleGenMs)
       setLastUploadMs(r._lastCapsuleUploadMs)
       setLastKey(r._lastCapsuleKey || '')
-      // Only read mask cache when the user wants to see pack images —
-      // avoids Array.from on every poll otherwise.
-      if (showPackImages) setMaskEntries(getMaskCacheEntries())
+      // CPU maskCache size + bytes are O(1) reads (getMaskCacheSize /
+      // getMaskCacheBytes) so we update them every poll — the always-visible
+      // summary line shows "CPU cache: N entries, Z.Z MB / 32 MB" so the
+      // user can watch the LRU budget fill up + evict even with "img" off.
+      setMaskTotalCount(getMaskCacheSize())
+      setMaskBytes(getMaskCacheBytes())
+      // Only materialize the full entry array when the user wants to see
+      // pack images — Array.from over the whole map every poll is wasteful
+      // otherwise.
+      if (showPackImages) {
+        // Filter to only entries whose key matches a CURRENTLY-ACTIVE
+        // useContinuousSdf element's (w, h, radius). The maskCache is a
+        // module-level Map bounded by a 32MB byte-budget LRU — orphan
+        // entries (from old slider positions / previous pages) age out
+        // automatically once the budget is exceeded, but until then they
+        // coexist with active entries. Without this filter the "img" view
+        // would list stale textures (#0..#N) that are no longer visually
+        // relevant. We hide them from the debug view and show "showing X
+        // of Y (Z MB / 32MB)" so the user knows orphans exist, how much
+        // memory they consume, and that they'll auto-evict (or can be
+        // fully purged via 'clr').
+        //
+        // Key format: "w,h,radius,texSize,sX" (continuous-mask.ts). The
+        // first 3 segments (w,h,radius) are the element-identity part —
+        // texSize + skipSdf are derived from dpr/quality/noContinuousSdf
+        // and are the same for all elements on a given settings config, so
+        // matching on the first 3 segments is sufficient.
+        const allEntries = getMaskCacheEntries()
+        const activePrefixes = new Set<string>()
+        for (const e of r.buttonConfigs) {
+          if (e.useContinuousSdf && e.rect.w > 0 && e.rect.h > 0) {
+            // Key uses the raw (un-rounded) w/h/radius values, joined by ','.
+            // Match continuous-mask.ts's `${w},${h},${radius},` prefix.
+            activePrefixes.add(`${e.rect.w},${e.rect.h},${e.cornerRadius},`)
+          }
+        }
+        const filtered = activePrefixes.size === 0
+          ? []
+          : allEntries.filter(e => {
+            // Extract the first 3 comma-separated segments + the trailing ','.
+            const c1 = e.key.indexOf(',')
+            const c2 = e.key.indexOf(',', c1 + 1)
+            const c3 = e.key.indexOf(',', c2 + 1)
+            if (c1 < 0 || c2 < 0 || c3 < 0) return false
+            return activePrefixes.has(e.key.slice(0, c3 + 1))
+          })
+        setMaskEntries(filtered)
+      }
       // Same for highlight stroke masks.
       if (showHighlightMasks) {
         setHighlightMaskEntries(Array.from(r.strokeMaskCache.entries()).map(([k, v]) => ({
@@ -222,6 +280,11 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
     return steps[0]
   })() : null
 
+  // CPU maskCache fill ratio (0..1) — drives the green→red color on the
+  // "CPU cache: N entries, Z.Z/32 MB LRU" summary line so the user can see
+  // at a glance how close the byte budget is to triggering eviction.
+  const fillPct = maskMaxBytes > 0 ? maskBytes / maskMaxBytes : 0
+
   return (
     <div
       style={{
@@ -299,6 +362,8 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
               clearMaskCache()
               rendererRef.current?.clearCapsuleSdfPool()
               setMaskEntries([])
+              setMaskTotalCount(0)
+              setMaskBytes(0)
               rendererRef.current?.requestRender?.()
             }}
             title="Clear both CPU mask cache + GPU texture pool. Forces re-generation on next render."
@@ -348,16 +413,23 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
           <button
             onPointerDown={(e) => e.stopPropagation()}
             onClick={() => {
-              // Request an edge scan. This sets a pending flag +
-              // requestRender(). The render loop does gl.readPixels at the
-              // end of the next frame (while the drawing buffer is valid)
-              // and stores the result in _edgeScanResult. The poll loop
-              // picks it up within ~200ms and updates edgeScan state.
+              // Toggle: if a scan result is already displayed, clear it
+              // (dismiss the Edge Scan panel). Otherwise request a new scan.
+              // debugClearEdgeScan cancels any in-flight pending request +
+              // drops the stored result + bumps the scanId counter so the
+              // poll loop won't re-pick-up a stale result that lands next
+              // frame.
               const r = rendererRef.current
               if (!r) return
-              r.debugReadEdgeScanline(20)
+              if (edgeScan) {
+                r.debugClearEdgeScan()
+                setEdgeScan(null)
+                lastConsumedScanId.current = r._edgeScanCounter
+              } else {
+                r.debugReadEdgeScanline(20)
+              }
             }}
-            title="EDGE SCAN: GPU readback of a horizontal scanline across the first capsule element's right edge. Shows the RGBA profile at the AA transition + automatic black-fringe detection. Answers: 'is there a black edge, and what does it look like?'. Click to request — result appears within ~200ms (one render frame + poll)."
+            title="EDGE SCAN (toggle): click to request a GPU readback of a scanline across the first capsule element's right edge — shows the RGBA profile at the AA transition + automatic black-fringe detection. Click again (while a result is shown) to dismiss the Edge Scan panel."
             style={{
               background: edgeScan ? 'rgba(255,255,0,0.25)' : 'none',
               border: `1px solid ${edgeScan ? '#ff0' : '#0f0'}`,
@@ -400,7 +472,7 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
       {/* Summary */}
       <div style={{ padding: '8px 10px', borderBottom: '1px solid rgba(0,255,0,0.2)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <span>Pool size: <b style={{ color: '#ff0' }}>{poolSize}</b></span>
+          <span>GPU pool: <b style={{ color: '#ff0' }}>{poolSize}</b>/16</span>
           <span>
             cur texSize: <b style={{ color: curTexSize >= 1024 ? '#f44' : curTexSize >= 512 ? '#fa0' : curTexSize >= 256 ? '#ff0' : '#0f0' }}>{curTexSize || '—'}</b>
           </span>
@@ -415,6 +487,17 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
           {' '}<span style={{ color: '#ff0' }}>{pool256}</span>×256²
           {' '}<span style={{ color: '#fa0' }}>{pool512}</span>×512²
           {' '}<span style={{ color: '#f44' }}>{pool1024}</span>×1024²
+        </div>
+        {/* CPU maskCache — the second-tier cache (Uint8Array RGBA buffers
+            that feed GPU uploads). Bounded by a 32MB byte-budget LRU, NOT
+            the 16-entry GPU pool. Orphaned entries from old slider positions
+            age out automatically; 'clr' does a full purge. The fill-ratio
+            color (green→red) shows how close the budget is to triggering
+            eviction. Two tiers exist because CPU buffers are cheaper than
+            VRAM textures, so keeping more of them improves hit-rate when
+            the GPU pool evicts (re-upload from CPU instead of full regen). */}
+        <div style={{ marginTop: 2, color: '#888', fontSize: 10 }}>
+          CPU cache: <b style={{ color: fillPct >= 0.9 ? '#f44' : fillPct >= 0.7 ? '#fa0' : fillPct >= 0.4 ? '#ff0' : '#0f0' }}>{maskTotalCount}</b> entries, <b style={{ color: fillPct >= 0.9 ? '#f44' : fillPct >= 0.7 ? '#fa0' : fillPct >= 0.4 ? '#ff0' : '#0f0' }}>{(maskBytes / (1024 * 1024)).toFixed(1)}</b>/{(maskMaxBytes / (1024 * 1024)).toFixed(0)} MB LRU
         </div>
         <div style={{ marginTop: 4 }}>
           Last CPU gen: <b style={{ color: lastGenMs > 50 ? '#f44' : lastGenMs > 10 ? '#fa0' : '#0f0' }}>{lastGenMs.toFixed(2)}ms</b>
@@ -521,14 +604,21 @@ export function CapsuleSdfDebugOverlay({ rendererRef }: Props) {
       {showPackImages && (
         <div style={{ padding: '8px 10px', borderTop: '1px solid rgba(0,255,0,0.2)' }}>
           <div style={{ color: '#888', marginBottom: 6 }}>
-            Pack images ({(holeR || holeG) ? 'GPU upload (probed)' : `CPU cache: ${maskEntries.length}`}):
+            Pack images ({(holeR || holeG)
+              ? 'GPU upload (probed)'
+              : `active: ${maskEntries.length}${maskTotalCount !== maskEntries.length ? ` of ${maskTotalCount} cached` : ''}, ${(maskBytes / (1024 * 1024)).toFixed(1)} MB / ${(maskMaxBytes / (1024 * 1024)).toFixed(0)} MB LRU`}):
           </div>
           {(holeR || holeG) ? (
             <ProbedUploadImage rendererRef={rendererRef} />
           ) : (
             <>
               {maskEntries.length === 0 && (
-                <div style={{ color: '#666' }}>No cached textures yet.</div>
+                <div style={{ color: '#666' }}>No active capsule elements on screen.{maskTotalCount > 0 ? ` (${maskTotalCount} orphaned entries, ${(maskBytes / (1024 * 1024)).toFixed(1)} MB — auto-evict by LRU; click 'clr' for full purge.)` : ''}</div>
+              )}
+              {maskTotalCount > maskEntries.length && maskEntries.length > 0 && (
+                <div style={{ color: '#fa0', fontSize: 10, marginBottom: 4 }}>
+                  {maskTotalCount - maskEntries.length} orphaned entr{maskTotalCount - maskEntries.length === 1 ? 'y' : 'ies'} hidden (no longer on screen). Auto-evicted by the {(maskMaxBytes / (1024 * 1024)).toFixed(0)} MB LRU budget; click 'clr' for a full purge.
+                </div>
               )}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 {maskEntries.map((e, i) => (

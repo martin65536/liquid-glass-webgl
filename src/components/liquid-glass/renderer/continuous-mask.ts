@@ -13,7 +13,12 @@
  * Both channels use the SAME continuous Bezier path, so clip and stroke
  * shapes are always identical — no mismatch.
  *
- * Cached by (w, h, radius, dpr) so each unique element size generates once.
+ * Cached by (w, h, radius, texSize, skipSdf) so each unique element size
+ * generates once. The CPU maskCache is bounded by a 32MB byte-budget LRU
+ * (see MAX_MASK_CACHE_BYTES below) — orphaned entries from old slider
+ * positions age out automatically instead of accumulating forever. The
+ * GPU-side texture pool (renderer.continuousSdfPool) is a separate 16-entry
+ * LRU that uploads these CPU buffers to VRAM.
  *
  * PROFILING: every generation records per-step timings into
  * capsuleSdfTimings (module-level ring buffer). The debug layer reads
@@ -23,6 +28,27 @@
 import { continuousCurvatureRoundedRectPath } from './continuous-curve'
 
 const maskCache = new Map<string, { tex: Uint8Array; texSize: number }>()
+
+/* Byte-budget LRU for the CPU maskCache. The GPU-side pool
+ * (renderer.continuousSdfPool) is bounded at 16 ENTRIES (textures are
+ * expensive in VRAM). The CPU cache stores Uint8Array RGBA buffers which
+ * are cheaper per-entry but vary wildly in size (64KB at 128² up to 4MB at
+ * 1024²), so an entry-count cap would give unpredictable memory (48 × 4MB
+ * = 192MB worst case). A byte budget gives a hard, predictable ceiling.
+ *
+ * 32MB ≈ 2.4× the scratch-buffer budget (documented "acceptable" at ~13MB),
+ * generous enough to retain slider-drag history for hit-rate (dragging the
+ * corner-radius slider across many values creates one entry per tick —
+ * keeping the recent ones avoids regenerating the Bezier path + distance
+ * transform on drag-back) while preventing the unbounded growth that
+ * previously leaked ~170MB (671 orphaned entries).
+ *
+ * Eviction: Map preserves insertion order, so keys().next() yields the
+ * LEAST-recently-used entry. Hits re-insert (delete+set) to move to the
+ * end, so insertion order == true recency — active elements stay cached
+ * while stale slider-drag orphans age out first. */
+const MAX_MASK_CACHE_BYTES = 32 * 1024 * 1024
+let maskCacheBytes = 0
 
 /* Reusable scratch buffers for generateContinuousCurvatureMask.
  * Allocated once at module load and reused across every call — avoids
@@ -86,6 +112,26 @@ export function getMaskCacheEntries(): MaskCacheEntry[] {
   }))
 }
 
+/** Total bytes currently held in the CPU maskCache (sum of every entry's
+ *  Uint8Array.byteLength). For the debug overlay to show "Z MB / 32MB" so
+ *  the user can see how close the cache is to its eviction threshold. */
+export function getMaskCacheBytes(): number {
+  return maskCacheBytes
+}
+
+/** Number of entries in the CPU maskCache (O(1), no Array.from). Cheaper
+ *  than getMaskCacheEntries() for the debug overlay's always-visible summary
+ *  line — the full entry array is only materialized when "img" is toggled. */
+export function getMaskCacheSize(): number {
+  return maskCache.size
+}
+
+/** The byte budget above which the oldest maskCache entries are evicted.
+ *  Exposed so the debug overlay can show "Z MB / N MB". */
+export function getMaskCacheMaxBytes(): number {
+  return MAX_MASK_CACHE_BYTES
+}
+
 /** Clear the CPU-side mask cache AND the timing ring buffer. The GPU-side
  *  texture pool (renderer.continuousSdfPool) is NOT cleared here — call
  *  renderer.clearCapsuleSdfPool() for that. Provided for the debug overlay's
@@ -94,6 +140,7 @@ export function getMaskCacheEntries(): MaskCacheEntry[] {
 export function clearMaskCache(): number {
   const n = maskCache.size
   maskCache.clear()
+  maskCacheBytes = 0
   capsuleSdfTimings.length = 0
   return n
 }
@@ -161,6 +208,15 @@ export function generateContinuousCurvatureMask(
   const key = `${w},${h},${radius},${texSize},s${skipSdf ? 1 : 0}`
   const cached = maskCache.get(key)
   if (cached) {
+    // TRUE LRU: re-insert to move this entry to the END of the Map (most-
+    // recently-used). Without this, insertion order would be FIFO and the
+    // active elements (inserted first on page load) would be evicted before
+    // the newer orphan entries created by slider drags — causing the active
+    // elements to regenerate every frame (cache thrashing, the opposite of
+    // what we want). delete+set is O(1) and touches no bytes (the Uint8Array
+    // is reused by reference).
+    maskCache.delete(key)
+    maskCache.set(key, cached)
     // Record cache hit (no work done).
     if (capsuleSdfTimings.length >= TIMING_RING_SIZE) capsuleSdfTimings.shift()
     capsuleSdfTimings.push({
@@ -401,6 +457,22 @@ export function generateContinuousCurvatureMask(
   // the cache, otherwise the next generation would overwrite this entry.
   const texCopy = tex.slice(0, N * 4)
   maskCache.set(key, { tex: texCopy, texSize })
+  maskCacheBytes += texCopy.byteLength
+
+  // Byte-budget LRU eviction: drop least-recently-used entries (Map head;
+  // hits re-insert to the tail so this is true LRU, not FIFO) until we're
+  // under the 32MB ceiling. `size > 1` guard ensures we never evict the
+  // entry we just added (a single entry larger than the budget still stays
+  // — better one oversized cache hit than an infinite regeneration loop).
+  // This auto-cleans the orphaned slider-drag entries the user saw piling
+  // up to 671; previously they only left via the manual 'clr' button.
+  while (maskCacheBytes > MAX_MASK_CACHE_BYTES && maskCache.size > 1) {
+    const oldest = maskCache.keys().next().value
+    if (oldest === undefined) break
+    const old = maskCache.get(oldest)
+    if (old) maskCacheBytes -= old.tex.byteLength
+    maskCache.delete(oldest)
+  }
 
   // Record timing. (stepInitArrays=0: merged into stepAlphaExtract.)
   if (capsuleSdfTimings.length >= TIMING_RING_SIZE) capsuleSdfTimings.shift()
