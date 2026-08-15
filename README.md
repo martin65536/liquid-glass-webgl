@@ -28,6 +28,19 @@
 
 💡 **小贴士**：如果感觉画面卡顿，可到主页底部设置入口，适当降低 DPR（设备像素比）提升流畅度。
 
+## 📋 最近更新
+
+- **🆕 TextGlass 文字玻璃页面** —— 输入任意文字，实时渲染为带真实光学折射的 SDF 纹理玻璃；配套 GP 风格控制面板：字号滑块、字重滑块、字体选择器、玻璃化输入框，所见即所得
+- **真正接入 Google Sans 字体** —— 自托管 Google Sans v70 变量字体（Latin + Latin-Ext 子集），Canvas2D SDF 生成与 DOM 渲染统一使用同一字族，字重滑块在常见档位都有真实字形
+- **文字渲染质量升级** —— 新增 render resolution 质量滑块；DPR 上限由 1.5 提升至 3，大字号下文字边缘更锐利
+- **⚡ 性能监测面板大幅优化** —— 新增完整 PerfMonitor 工具：240 采样帧时环形缓冲、FPS 实时折线图、draw call / glass 元素 / blur pass 计数、per-element FBO vs ping-pong 路径统计、GPU 信息（vendor/renderer/扩展）；支持可拖拽可折叠面板 + 6 个省电快切开关，软件渲染器自动识别并告警
+- **⚡ 平滑圆角与模糊管线重构，大幅提升性能** —— 按钮与自适应亮度玻璃改走 separable 2-pass Gaussian 路径（取代原 poisson-disc），模糊质量与性能同时提升；per-element FBO 缓存命中瀑布（no_entry → size_mismatch → position_mismatch → invalidated → wallpaper_version → dpr → backdrop_overlap）判定更精确，静帧 cache hit 率显著提高
+- **Capsule SDF 调试面板优化** —— maskCache 加入 32MB 字节预算 LRU 上限，R/G 通道切换时清理 GPU pool，移动端动态导航栏适配
+- **Chromium 74 兼容性修复** —— 修复旧版浏览器下 body margin 偏移与 lg-frame 宽度问题，CSS @layer 不支持时也能正常布局
+- **架构重构** —— 拆分 9 个超大文件为模块化结构；GP sheet 改为直接采样壁纸，减少一层间接
+- **新增 "direct backdrop sample" 开关**（默认开启）—— 直接采样背景纹理，提升静帧缓存命中率
+
+
 ## 目录内容
 
 镜像原 Android App 导航的可浏览目录：
