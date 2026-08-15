@@ -149,3 +149,38 @@ Stage Summary:
 - 效果：Home/Settings/About 每帧省掉 2 个全屏 shader pass（bg fill + final blit）+ fboA 纹理 R/W 带宽。在 DPR=2 的真实设备上预计省 ~0.2-0.3W，缩小与原版 0.8W 的差距。
 - 原理：原版 native 直接渲染到 Surface，本实现多了一层 fboA 往返。directToCanvas 在「没有玻璃元素需要采样场景纹理」时消除这个往返，让 WebGL 路径与 native 路径对齐。
 - 远程：webgl-port-integration @ cd18b6d。
+
+---
+Task ID: 11
+Agent: main (Z.ai Code)
+Task: 为什么knob会映出其他页面的纹理（slider knob on solid-bg pages showing stale scene texture from other pages）
+
+Work Log:
+- 定位 "knob" 元素：排查 isToggleKnob（toggle knob + slider knob 共用）与 isBottomTabIndicator 两条采样路径。
+- 确认 toggle knob（build-toggle.ts / makeSettingsToggle）有 trackColorOff/On → shader 走 sampleToggleBackdrop（采样 wallpaper 或 solidBackdropColor，不读 curTex），无此 bug。
+- 确认 bottom tab indicator 只在 BottomTabs 页（wallpaper）出现，directToCanvas 不激活，无此 bug。
+- 定位根因：**slider knob（makeLiquidSlider）**。它设置 isToggleKnob = { groupId, dragWidth, velocityDivisor: 10 }，但**不设** trackColorOff/On 也不设 solidBackdropColor。
+  - createElementPassContext: useSolidBackdrop=0（el.solidBackdropColor 顶层未设）
+  - applyToggleKnobBackdrop: trackColorOff/On 未设 → if 块跳过 → useToggleBackdrop 保持 0
+  - shader 分发：uUseToggleBackdrop=0 → 落入 sampleBackdrop（不是 sampleToggleBackdrop）
+  - sampleBackdrop：uUseSolidBackdrop=0 + uSampleWallpaper=0（solid-bg 页 independent=false）→ 采样 uBackdrop（curTex）
+  - directToCanvas 模式下 curTex = fboATex 是**陈旧内容**（本帧未渲染到 fboA）→ knob 折射出上一帧 wallpaper 页的渲染内容 = "其他页面的纹理"
+- elementReadsSceneTexture 的误判：原来 `if (el.isToggleKnob) return false` 把所有 isToggleKnob 都视为不读场景纹理。但 slider knob（无 trackColor）实际落入 sampleBackdrop → 读 curTex。这导致 directToCanvas 在有 slider knob 的 solid-bg 页（Settings）错误激活。
+- 修复（3 文件）：
+  1. helpers-slider.ts：makeLiquidSlider 新增 solidBackdropColor? 参数。设置时 knobEl.solidBackdropColor = solidBgColor（顶层）→ createElementPassContext 播种 useSolidBackdrop=1.0 → sampleBackdrop 短路返回平色。
+  2. build-settings-rendering-card.ts + build-settings-blur-card.ts：4 个 makeLiquidSlider 调用全部传入 cardBg（= palette.toggleCardBg，与 toggle knob 一致）。
+  3. methods-render.ts：elementReadsSceneTexture 精确化——isToggleKnob 有 trackColorOff/On → return false（走 sampleToggleBackdrop）；无 trackColor → return true（走 sampleBackdrop 读 curTex），除非 el.solidBackdropColor 已设（前面已检查）。这是安全网：未来若有人在 solid-bg 页加 slider 却忘传 solidBackdropColor，directToCanvas 会自动关闭而非喂陈旧纹理。
+- 验证（agent-browser + VLM）：
+  - 先打开 Toggle 页（wallpaper）填充 fboA，再导航到 Settings（solid-bg，directToCanvas 激活，curTex=fboA 陈旧）。
+  - VLM 确认 Settings slider knobs 显示"clean, solid white/light color, no colorful wallpaper textures, gradients, or content from behind"。
+  - VLM 确认 Settings toggle knobs + theme button 也是 clean solid colors。
+  - Toggle 页（wallpaper）toggle knobs 仍正常渲染（走 sampleToggleBackdrop，未改动）。
+  - browser errors/console 无错误。dev.log 干净编译。
+- lint：主项目 0 error（唯一剩余 error 在 gitignored 的 liquid-glass-webgl/examples/websocket/frontend.tsx）。
+- 推送：commit c822061 → webgl-port-integration。
+
+Stage Summary:
+- 根因：slider knob（isToggleKnob 无 trackColor）落入 sampleBackdrop 读 curTex，directToCanvas 模式下 curTex=fboA 陈旧 → 映出其他页面纹理。
+- 修复：makeLiquidSlider 增加 solidBackdropColor 参数，Settings 4 个 slider 传 cardBg，elementReadsSceneTexture 精确判断。
+- 修改文件：helpers-slider.ts（+solidBackdropColor 参数 + knob patch）、build-settings-rendering-card.ts（2 处传 cardBg）、build-settings-blur-card.ts（2 处传 cardBg）、methods-render.ts（elementReadsSceneTexture 精确化），共 4 文件 +37/-2。
+- 远程：webgl-port-integration @ c822061。
