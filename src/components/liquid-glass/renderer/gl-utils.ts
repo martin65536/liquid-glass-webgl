@@ -47,17 +47,35 @@ export function wrapText(
   text: string,
   maxW: number
 ): string[] {
-  // Simple greedy wrap on word boundaries. Soft-hyphenate long words.
-  const words = text.split(/\s+/)
+  // Greedy wrap. Tokenizes on whitespace (ASCII/Unicode spaces), but each
+  // whitespace-separated token is then broken character-by-character if it
+  // still exceeds maxW — this is what makes CJK text (Chinese/Japanese/
+  // Korean, which has no word separators) wrap correctly instead of
+  // overflowing as a single unbreakable "word".
+  const tokens = text.split(/\s+/).filter(t => t.length > 0)
   const lines: string[] = []
   let cur = ''
-  for (const word of words) {
-    const test = cur ? cur + ' ' + word : word
+  for (const token of tokens) {
+    // Fast path: token fits on the current line (or starts a new one).
+    const test = cur ? cur + ' ' + token : token
     if (ctx.measureText(test).width <= maxW || !cur) {
       cur = test
-    } else {
-      lines.push(cur)
-      cur = word
+      continue
+    }
+    // Token doesn't fit on current line — flush current line, then
+    // attempt to place token on its own line, breaking by character
+    // if the token itself is wider than maxW (CJK case).
+    lines.push(cur)
+    cur = ''
+    // Walk the token character by character, flushing when the line fills.
+    for (const ch of token) {
+      const t = cur + ch
+      if (ctx.measureText(t).width <= maxW || !cur) {
+        cur = t
+      } else {
+        lines.push(cur)
+        cur = ch
+      }
     }
   }
   if (cur) lines.push(cur)

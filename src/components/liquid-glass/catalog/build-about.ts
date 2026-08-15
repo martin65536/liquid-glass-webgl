@@ -5,19 +5,29 @@ import { makeBackButton, makeText } from './helpers'
 import { t, type Locale } from './i18n'
 
 /** Measure the wrapped height of `text` at `fontPx` within `maxW`.
- *  Uses the same greedy word-wrap as the rasterizer (gl-utils.ts wrapText). */
+ *  Uses the same greedy wrap as the rasterizer (gl-utils.ts wrapText):
+ *  whitespace-tokenized with per-character fallback so CJK text wraps. */
 function measureWrappedHeight(text: string, fontPx: number, maxW: number): number {
   const lineH = fontPx * 1.35
-  const words = text.split(/\s+/)
+  const tokens = text.split(/\s+/).filter(t => t.length > 0)
   let cur = ''
   let lines = 0
-  for (const word of words) {
-    const test = cur ? cur + ' ' + word : word
+  for (const token of tokens) {
+    const test = cur ? cur + ' ' + token : token
     if (measureTextWidth(test, fontPx) <= maxW || !cur) {
       cur = test
-    } else {
-      lines++
-      cur = word
+      continue
+    }
+    lines++
+    cur = ''
+    for (const ch of token) {
+      const t = cur + ch
+      if (measureTextWidth(t, fontPx) <= maxW || !cur) {
+        cur = t
+      } else {
+        lines++
+        cur = ch
+      }
     }
   }
   if (cur) lines++
@@ -259,7 +269,51 @@ export function buildAbout(W: number, H: number, onBack: () => void, palette: Th
   interactions['about-shame-evidence'] = {
     onTap: () => { if (typeof window !== 'undefined') window.open('https://github.com/Kyant0/AndroidLiquidGlass/issues/112', '_blank') },
   }
-  cursorY += 16 + bottomPad
+  cursorY += 16 + 24
+
+  // ---- Section 3: Wall of Shame — MillonW (B站抄袭/参赛/开盒未遂/封号) ----
+  // Local helper to push a wrapped text block with consistent styling.
+  const pushMillonWText = (
+    id: string,
+    key: string,
+    fontPx: number,
+    color: [number, number, number, number],
+    weight: 400 | 500 | 600 | 700,
+    gapAfter: number,
+  ) => {
+    const text = t(key, locale)
+    const h = measureWrappedHeight(text, fontPx, W - 2 * pad)
+    const el = makeText(
+      id,
+      { x: pad, y: cursorY, w: W - 2 * pad, h },
+      text,
+      { color, fontSizePx: fontPx, fontWeight: weight, align: 'left', wrap: true, paddingPx: 0, halo: palette.homeTextHalo }
+    )
+    el.scroll = true
+    elements.push(el)
+    cursorY += h + gapAfter
+  }
+
+  // MillonW section title (larger, red, bold — matches the GooseHyperGlass title style)
+  pushMillonWText('about-shame-millonw-title', 'shame_millonw_title', 16, shameColor, 700, 6)
+  // Intro paragraph
+  pushMillonWText('about-shame-millonw-intro', 'shame_millonw_intro', 13, shameTextColor, 400, 6)
+  // "Admitted downstream" sub-title + body
+  pushMillonWText('about-shame-millonw-admit-title', 'shame_millonw_admit_title', 13, shameColor, 600, 4)
+  pushMillonWText('about-shame-millonw-admit', 'shame_millonw_admit', 13, shameTextColor, 400, 6)
+  // "Standard playbook" sub-title + 3 tactics
+  pushMillonWText('about-shame-millonw-tactics-title', 'shame_millonw_tactics_title', 13, shameColor, 600, 4)
+  pushMillonWText('about-shame-millonw-tactic-1', 'shame_millonw_tactic_1', 13, shameTextColor, 400, 3)
+  pushMillonWText('about-shame-millonw-tactic-2', 'shame_millonw_tactic_2', 13, shameTextColor, 400, 3)
+  pushMillonWText('about-shame-millonw-tactic-3', 'shame_millonw_tactic_3', 13, shameTextColor, 400, 6)
+  // "Happy retreat" paragraph
+  pushMillonWText('about-shame-millonw-retreat', 'shame_millonw_retreat', 13, shameTextColor, 400, 6)
+  // Backfire paragraph
+  pushMillonWText('about-shame-millonw-backfire', 'shame_millonw_backfire', 13, shameTextColor, 400, 6)
+  // Account ban paragraph
+  pushMillonWText('about-shame-millonw-ban', 'shame_millonw_ban', 13, shameTextColor, 500, 6)
+  // Verdict (bold)
+  pushMillonWText('about-shame-millonw-conclusion', 'shame_millonw_conclusion', 13, shameTextColor, 600, bottomPad)
 
   // Return the total content height — scroll will kick in when this exceeds H.
   return { elements, interactions, contentHeight: cursorY }
