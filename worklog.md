@@ -2600,3 +2600,73 @@ Stage Summary:
 - 教训：dev server（Turbopack）无法兼容旧浏览器——降级只在 production build 生效；
   browserslist 只管语法降级，运行时 API（OffscreenCanvas 等）需单独 polyfill/特性检测。
 - 本次无代码净变化（browserslist 加了又 revert），仅记录排查过程。
+
+---
+Task ID: 36
+Agent: main (Z.ai Code)
+Task: 修复 TextGlass 输入框错位 + 替换 Inter 为真正的 Google Sans + 移除调大小的防抖
+
+Work Log:
+- Bug 1 — 输入框错位根因分析：
+  * page.tsx 的 HTML <input> overlay 计算 sheetH 时用了 `sliderRowH * 3`，
+    但底部 sheet 实际有 4 个 slider 行（大小、字重、高光距离、质量）。
+    build-text-glass.ts 的 sheetH 用 `TG_ROW_H * 4`（正确），但 page.tsx
+    没同步更新 → overlay 计算的 sheetH 比实际少 68px → pillBottom 少算
+    68px → <input> 比实际 glass pill 低 68px（"错位"）。
+  * constants.ts 的 computeTextGlassFontSizeMax 也有同样的 `* 3` bug
+    （少算 68px reserved height → fontSizeMax 偏大 68px）。
+  * 修复：page.tsx 和 constants.ts 都改为 `* 4`，注释标明 4 行。
+
+- Bug 2 — Google Sans 替换 Inter：
+  * 原状：layout.tsx 用 next/font/google 的 Inter 作为 "Google Sans 替代"
+    （因为真正的 Google Sans 是私有字体，不在 Google Fonts 公开 API 上）。
+  * 方案：直接从 Google CDN (fonts.gstatic.com) 抓取真正的 Google Sans
+    v70 变体字体 woff2（latin + latin-ext 子集），自托管在 /public/fonts/。
+    用 Google referer 请求 fonts.googleapis.com 的 CSS API 获取 woff2 URL，
+    然后 curl 下载。fc-query 确认 weight axis = [80 200] = CSS [400 700]。
+  * 集成方式：在 globals.css 加普通 @font-face（family: "Google Sans",
+    weight: 400 700, font-display: swap）。不用 next/font/local 因为它生成
+    哈希 family name，无法在模块级 TEXT_GLASS_FONTS 常量里引用。普通
+    @font-face 让 Canvas2D 直接用 "Google Sans" family name。
+  * layout.tsx：移除 Inter import + inter 变量；在 <head> 加两个
+    <link rel=preload> 预加载 woff2，确保首次进入 TextGlass 时字体已缓存。
+  * types.ts：TEXT_GLASS_FONTS[1].family 从 'Inter, "Google Sans", ...'
+    改为 '"Google Sans", "Product Sans", system-ui, sans-serif'。
+  * use-text-glass.ts：在 generateTextSdf 前加 await document.fonts.load(font)
+    确保字体已加载（防止首次 SDF 生成时 Canvas2D 回退到 system-ui）。
+  * 验证：agent-browser eval 确认 2 个 @font-face 都 status="loaded"，
+    weight "400 700"。VLM 确认选 Google Sans 后文字渲染为 geometric sans
+    风格（circular letterforms, double-story 'a'）。
+
+- Bug 3 — 移除调大小的防抖：
+  * 原状：use-text-glass.ts 对所有 SDF 重建统一 250ms 防抖（包括滑块拖动），
+    导致拖大小滑块时文字响应有 250ms 延迟（"调大小有防抖"）。
+  * 方案：用 prevTextRef 跟踪 textGlassText 的前值。effect 里判断：
+    - justEntered（刚进 TextGlass）→ delay=0（立即重建，避免首帧脏纹理）
+    - textChanged（只有文字变了 = 打字）→ delay=250（合并快速击键）
+    - 其它（滑块/字体参数变了）→ delay=0（立即重建，滑块实时响应）
+  * SDF 生成 ~5-15ms，每个滑块 tick 立即重建不会掉帧。
+  * setTimeout 回调改为 async 以支持 await document.fonts.load()。
+
+- 验证（Agent Browser + VLM）：
+  * 输入框：text "Glass" 坐在 glass pill 内部，垂直居中 ✓
+  * Google Sans 按钮：选中后蓝色高亮，文字渲染为 Google Sans 风格 ✓
+  * 大小滑块：点左边 → 文字消失（size=0, 1×1 透明纹理）；点右边 →
+    文字重新出现且变大 ✓（SDF 立即重建，无 250ms 延迟）
+  * bun run lint: 0 errors。dev.log + console: 无 error/warning。
+
+Stage Summary:
+- 三个问题全部修复：
+  1. 输入框错位 → page.tsx + constants.ts 的 sliderRowH * 3 → * 4
+     （根因：加质量滑块后 sheet 多了一行，overlay 计算没同步）
+  2. Inter → 真正 Google Sans v70 → 自托管 woff2 + @font-face + preload
+  3. 调大小防抖 → 按 textChanged 分流：打字 250ms，滑块 0ms
+- 涉及文件：globals.css, layout.tsx, types.ts, constants.ts, page.tsx,
+  use-text-glass.ts, /public/fonts/GoogleSans-Latin.woff2,
+  /public/fonts/GoogleSans-LatinExt.woff2
+- 关键设计决策：
+  * 用普通 @font-face 而非 next/font/local，因为 Canvas2D 需要已知 family
+    name（"Google Sans"），next/font/local 生成哈希 name 无法在模块级常量引用
+  * Google Sans v70 是变体字体，单一 woff2 文件覆盖 weight 400-700
+    （font-weight 滑块 1-1000 在 400-700 外会 clamp 到端点）
+  * 防抖分流用 prevTextRef 而非拆成两个 effect，避免 double-regen

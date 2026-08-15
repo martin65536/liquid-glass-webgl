@@ -3,6 +3,34 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ------------------------------------------------------------------ *
+ * Google Sans — the REAL Google Sans (v70 variable font), self-hosted.
+ * Fetched from Google's CDN (fonts.gstatic.com) — Google Sans is
+ * proprietary and NOT on the public Google Fonts API, but the woff2
+ * files are served to any client with a Google referer. We host the
+ * latin + latin-ext subsets locally so Canvas2D (TextGlass SDF gen)
+ * and the DOM can both reference the family name "Google Sans".
+ *
+ * Variable weight axis 400..700 (Regular..Bold). The font-weight slider
+ * (1..1000) clamps to this range — weights outside 400-700 render as
+ * the nearest endpoint (a font-availability limit, not a bug).
+ * ------------------------------------------------------------------ */
+@font-face {
+  font-family: 'Google Sans';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/fonts/GoogleSans-Latin.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Google Sans';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+  src: url('/fonts/GoogleSans-LatinExt.woff2') format('woff2');
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

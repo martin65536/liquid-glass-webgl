@@ -448,9 +448,10 @@ export default function Page() {
           (() => {
             // Match build-text-glass.ts geometry (CSS px; DP≈1 on these screens).
             // Keep this IN SYNC with the sheet height formula in build-text-glass.ts
-            // (TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 3 + TG_FONT_ROW_H +
+            // (TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 4 + TG_FONT_ROW_H +
             //  TG_TOGGLE_ROW_H + TG_INNER_PAD). Any row count change there must
             // be mirrored here or the <input> overlay drifts off the glass pill.
+            // 4 slider rows: size, weight, highlight-scale, quality.
             const sheetX = 16
             const innerPad = 24
             const labelW = 48
@@ -458,12 +459,12 @@ export default function Page() {
             const pillH = 40
             const inputRowH = 48
             const toggleBtnSpace = 20 + 56 + 12 // bottom button row height
-            // Sheet height = innerPad + inputRow + 3 sliderRows (size, weight,
-            // highlight scale) + fontRow + rawSdf toggle row + innerPad.
+            // Sheet height = innerPad + inputRow + 4 sliderRows (size, weight,
+            // highlight scale, quality) + fontRow + rawSdf toggle row + innerPad.
             const sliderRowH = 16 + 12 + 24 + 16
             const fontRowH = 48
             const toggleRowH = 44
-            const sheetH = innerPad + inputRowH + sliderRowH * 3 + fontRowH + toggleRowH + innerPad
+            const sheetH = innerPad + inputRowH + sliderRowH * 4 + fontRowH + toggleRowH + innerPad
             // pillY from top = sheetY + innerPad + (inputRowH - pillH)/2
             // sheetY from top = H - toggleBtnSpace - sheetH
             // → pill bottom from screen bottom =

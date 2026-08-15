@@ -101,8 +101,11 @@ export const TG_TOGGLE_BTN_SIZE = 56 * DP
  *  reserved height subtracted from H, then * 0.7. */
 export function computeTextGlassFontSizeMax(W: number, H: number): number {
   const bottomBtnSpace = 20 * DP + TG_TOGGLE_BTN_SIZE + 12 * DP
+  // 4 slider rows: size, weight, highlight-scale, quality. MUST match
+  // build-text-glass.ts sheetH (TG_ROW_H * 4) — if this undercounts, the
+  // slider's top end lets text overflow into the sheet.
   const sheetReservedH =
-    TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 3 + TG_FONT_ROW_H + TG_TOGGLE_ROW_H + TG_INNER_PAD
+    TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 4 + TG_FONT_ROW_H + TG_TOGGLE_ROW_H + TG_INNER_PAD
   const availableH = H - bottomBtnSpace - sheetReservedH
   return Math.max(40, Math.round(availableH * 0.7))
 }

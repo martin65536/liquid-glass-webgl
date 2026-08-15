@@ -404,15 +404,15 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
  * Index 0 is "不设置" (None) — a generic system sans-serif, selected by
  * default so no custom font is applied until the user picks one.
  *
- * NOTE on "Google Sans": real Google Sans / Product Sans is a proprietary
- * Google font and is NOT available via Google Fonts. We self-host Inter
- * (the closest free open-source geometric-humanist substitute, designed
- * for screens) via next/font and reference it as the primary family. The
- * fallback chain ('"Google Sans", "Product Sans", system-ui') lets the
- * browser use a locally-installed real Google Sans if one is present.
+ * NOTE on "Google Sans": the REAL Google Sans v70 variable font is
+ * self-hosted in /public/fonts/ and exposed via a plain @font-face in
+ * globals.css (family name "Google Sans", weight axis 400..700). Canvas2D
+ * references it directly by family name. The fallback chain
+ * ('"Product Sans", system-ui') lets the browser use a locally-installed
+ * Product Sans if present, then the OS default.
  * ------------------------------------------------------------------ */
 export const TEXT_GLASS_FONTS: { family: string; labelKey: string }[] = [
   { family: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif', labelKey: 'text_glass_font_none' },
-  { family: 'Inter, "Google Sans", "Product Sans", system-ui, sans-serif', labelKey: 'text_glass_font_google' },
+  { family: '"Google Sans", "Product Sans", system-ui, sans-serif', labelKey: 'text_glass_font_google' },
   { family: 'Nunito, system-ui, sans-serif', labelKey: 'text_glass_font_nunito' },
 ]
