@@ -52,22 +52,30 @@ export function wrapText(
   // still exceeds maxW — this is what makes CJK text (Chinese/Japanese/
   // Korean, which has no word separators) wrap correctly instead of
   // overflowing as a single unbreakable "word".
+  //
+  // CRITICAL: a token that ALONE is wider than maxW (e.g. a long Chinese
+  // paragraph with no whitespace) MUST be broken character-by-character.
+  // The previous `|| !cur` shortcut accepted the whole token when `cur`
+  // was empty, which let single-token CJK paragraphs render as one
+  // overflowing line (clipped at the texture's right edge → looked like
+  // "no auto-wrap"). Now we only shortcut when the token actually fits.
   const tokens = text.split(/\s+/).filter(t => t.length > 0)
   const lines: string[] = []
   let cur = ''
   for (const token of tokens) {
-    // Fast path: token fits on the current line (or starts a new one).
+    // Fast path: token fits on the current line.
     const test = cur ? cur + ' ' + token : token
-    if (ctx.measureText(test).width <= maxW || !cur) {
+    if (ctx.measureText(test).width <= maxW) {
       cur = test
       continue
     }
-    // Token doesn't fit on current line — flush current line, then
-    // attempt to place token on its own line, breaking by character
-    // if the token itself is wider than maxW (CJK case).
-    lines.push(cur)
-    cur = ''
-    // Walk the token character by character, flushing when the line fills.
+    // Token doesn't fit on current line — flush current line (if any),
+    // then walk the token character by character so a single over-wide
+    // CJK token gets broken across lines instead of overflowing.
+    if (cur) {
+      lines.push(cur)
+      cur = ''
+    }
     for (const ch of token) {
       const t = cur + ch
       if (ctx.measureText(t).width <= maxW || !cur) {

@@ -125,46 +125,47 @@ const translations: Record<string, { zh: string; en: string }> = {
   },
   shame_evidence:           { zh: '详细证据 → #112 & #114', en: 'Detailed evidence → #112 & #114' },
 
-  // ---- Wall of Shame: MillonW (B站抄袭/参赛/开盒未遂/封号) ----
-  shame_millonw_title:      { zh: 'B站 @MillonW——抄袭下游·参赛诈奖·开盒未遂·现已封号', en: 'Bilibili @MillonW — plagiarism downstream, contest fraud, doxxing attempt, now banned' },
+  // ---- Wall of Shame: MillonW (B站抄袭/参赛/开盒未遂/封号) — 精简版 ----
+  shame_millonw_title:      { zh: 'B站 @MillonW——抄袭·参赛诈奖·开盒未遂·现已封号', en: 'Bilibili @MillonW — plagiarism, contest fraud, doxxing attempt, now banned' },
   shame_millonw_intro:      {
-    zh: 'B站UP主@MillonW（粉丝约3.8万）发布视频，WebGL Shader实现与本项目核心代码大面积雷同，且该视频被用于参加B站AI创作公开赛——把别人开源作品换个皮就拿去参赛诈奖。视频地址BV1ji356NEZ1（现已因抄袭被下架）。',
-    en: 'Bilibili creator @MillonW (~38k followers) published a video whose WebGL shader implementation heavily overlaps with this project\'s core code, and the video was submitted to a Bilibili AI creation contest — passing off someone else\'s open-source work as original for a prize. Video BV1ji356NEZ1 (now taken down for plagiarism).',
+    zh: 'B站UP主@MillonW（约3.8万粉）发布视频，WebGL Shader实现与本项目核心代码大面积雷同，并拿去参加B站AI创作公开赛——把别人开源作品换个皮就去诈奖。视频BV1ji356NEZ1（现已因抄袭被下架）。',
+    en: 'Bilibili creator @MillonW (~38k followers) published a video whose WebGL shader heavily overlaps with this project\'s core code, then submitted it to a Bilibili AI contest — passing off someone else\'s open-source work for a prize. Video BV1ji356NEZ1 (now taken down for plagiarism).',
   },
-  shame_millonw_admit_title:{ zh: '自认抄袭链条下游，随即删评销毁证据：', en: 'Admitted being downstream of the plagiarism chain, then deleted the comment to destroy evidence:' },
+  shame_millonw_admit_title:{ zh: '自认抄袭下游，随即删评销毁证据：', en: 'Admitted being downstream, then deleted the comment to destroy evidence:' },
   shame_millonw_admit:      {
-    zh: '在它自己视频的评论区，它亲口承认是@Minecraftgoose（即上文GooseHyperGlass抄袭者）的下游——等于当众承认整条抄袭链条：本项目→GooseHyperGlass（抄袭）→MillonW视频（再下游）。承认之后迅速删除该评论，试图销毁证据。但删评删不掉事实，自己亲口承认的上下游关系，比任何第三方指控都更铁。',
-    en: 'In its own video\'s comment section, it admitted being downstream of @Minecraftgoose (the GooseHyperGlass plagiarist above) — effectively confessing the entire chain: this project → GooseHyperGlass (plagiarism) → MillonW video (downstream). It then hastily deleted the comment to destroy evidence. But deletion doesn\'t erase facts; a self-admitted downstream relationship is more damning than any third-party accusation.',
+    zh: '在自己视频评论区亲口承认是@Minecraftgoose（即上文GooseHyperGlass抄袭者）的下游——等于当众承认整条抄袭链：本项目→GooseHyperGlass→MillonW视频。承认后迅速删评，但删评删不掉事实。',
+    en: 'In its own comments it admitted being downstream of @Minecraftgoose (the GooseHyperGlass plagiarist above) — confessing the whole chain: this project → GooseHyperGlass → MillonW video. It then deleted the comment, but deletion doesn\'t erase facts.',
   },
   shame_millonw_tactics_title:{ zh: '抄袭者标准动作：不防守，只攻击', en: 'Standard plagiarist playbook: no defense, only attack' },
   shame_millonw_tactic_1:   {
-    zh: '·胡搅蛮缠——对证据置之不理，对标题里"抄袭并参赛"字样视而不见，只反复狡辩"我没参赛"，仿佛赖掉这两个字shader雷同就能一起蒸发。',
-    en: '· Obfuscation — ignored the evidence, pretended not to see "plagiarism and contest" in the title, and just kept denying "I didn\'t enter a contest," as if denying those two words could evaporate the shader overlap.',
+    zh: '·胡搅蛮缠——对证据视而不见，只反复狡辩"我没参赛"。',
+    en: '· Obfuscation — ignored the evidence, just kept denying "I didn\'t enter a contest."',
   },
   shame_millonw_tactic_2:   {
-    zh: '·只攻击不防守——全程没有一句技术层面的正面回应，所有精力用来质疑动机、扣帽子、转移话题，因为技术问题一个字都接不住，一接就露馅。',
-    en: '· Attack without defending — not a single technical response; all energy went into questioning motives, name-calling, and deflecting, because it couldn\'t answer a single technical question without exposing itself.',
+    zh: '·只攻击不防守——全程零技术回应，全靠质疑动机、扣帽子、转移话题。',
+    en: '· Attack without defending — zero technical response; only motive-smearing and deflection.',
   },
   shame_millonw_tactic_3:   {
-    zh: '·图谋开盒——在公开评论区反复索要作者个人QQ号。在被指控抄袭的语境下反复要对方真实身份联系方式，意图是什么自己心里最清楚。这不是交流，这是开盒未遂。',
-    en: '· Doxxing attempt — repeatedly demanded the author\'s personal QQ number in the public comments. In a plagiarism-dispute context, repeatedly seeking the other party\'s real identity is not "communication" — it\'s an attempted doxxing.',
+    zh: '·图谋开盒——在公开评论区反复索要作者个人QQ号。在被指控抄袭的语境下反复要对方真实身份，意图开盒未遂。',
+    en: '· Doxxing attempt — repeatedly demanded the author\'s personal QQ number in public comments. In a plagiarism dispute, repeatedly seeking the other party\'s real identity is an attempted doxxing.',
   },
   shame_millonw_retreat:    {
-    zh: '"幸福者退让"——抄袭者的标准退场姿势：作者用它自己的逻辑反诘，它接不住，最后说"触发幸福者退让不理论了"就跑了。谁不让它理论了？真占理的话恨不得理论到天亮。所谓幸福者退让，翻译成人话就是理屈词穷、谎言编不下去、再聊就要露底，于是找个体面的词溜之大吉。',
-    en: '"The happy retreat" — a plagiarist\'s standard exit: when the author countered with its own logic, it couldn\'t take it, said "triggering happy-person retreat, won\'t argue anymore," and ran. Who stopped it from arguing? If it were truly in the right, it would argue till dawn. "Happy retreat" in plain terms = out of arguments, lies no longer sustainable, afraid of exposure, so it found a dignified-sounding excuse to flee.',
+    zh: '"幸福者退让"——作者用它自己的逻辑反诘，它接不住，丢下一句"触发幸福者退让不理论了"就跑了。理屈词穷的体面说辞罢了。',
+    en: '"Happy retreat" — when the author countered with its own logic, it couldn\'t take it, said "triggering happy-person retreat, won\'t argue," and ran. Just a dignified excuse for being out of arguments.',
   },
   shame_millonw_backfire:   {
-    zh: '反咬一口的下场：它投诉下架作者的维权视频，作者依法反投诉，该视频现已被B站下架。先动手投诉，结果自己的视频也没保住，搬起石头砸自己的脚。',
-    en: 'Backfire of the counterattack: it filed a takedown on the author\'s rights-defense video, the author filed a counter-notice, and its video was taken down by Bilibili. It struck first, then lost its own video — shot itself in the foot.',
+    zh: '反咬一口的下场：它投诉下架作者的维权视频，作者依法反投诉，它自己的视频反被B站下架。搬起石头砸自己的脚。',
+    en: 'Backfire: it filed a takedown on the author\'s rights-defense video, the author counter-noticed, and its own video was taken down by Bilibili. Shot itself in the foot.',
   },
   shame_millonw_ban:        {
-    zh: '账号封禁：截至本文撰写时，@MillonW的B站账号已处于封禁状态。抄袭、参赛诈奖、开盒未遂、反咬一口——一条龙做尽，最终把自己送上了封号的下场。3.8万粉丝的号，毁在自己手里。',
-    en: 'Account banned: as of writing, @MillonW\'s Bilibili account is banned. Plagiarism, contest fraud, doxxing attempt, counterattack — the whole package, and it ended in a ban. A 38k-follower account, destroyed by its own hand.',
+    zh: '账号封禁：截至本文撰写时，@MillonW的B站账号已处于封禁状态。抄袭、诈奖、开盒未遂、反咬一口——一条龙做尽，3.8万粉的号毁在自己手里。',
+    en: 'Account banned: as of writing, @MillonW\'s Bilibili account is banned. Plagiarism, contest fraud, doxxing attempt, counterattack — the whole package; a 38k-follower account destroyed by its own hand.',
   },
   shame_millonw_conclusion: {
-    zh: '定性：把别人开源项目Shader搬到B站当原创发、拿去参赛诈奖、在自己评论区亲口承认是已被实锤抄袭者GooseHyperGlass的下游、删评销毁证据、面对技术比对全程哑火只敢攻击不敢防守、反复试图获取对方真实身份信息意图开盒、理屈词穷后用"幸福者退让"找台阶溜走——一条龙表演，全程毫无廉耻。3.8万粉丝的体量，配不上一丁点原创者的骨气，最后连号都保不住，求锤得锤。',
-    en: 'Verdict: passed off someone else\'s open-source shaders as original on Bilibili, entered them in a contest for fraud, admitted in its own comments to being downstream of the proven plagiarist GooseHyperGlass, deleted evidence, stayed mute on every technical comparison while only attacking, repeatedly tried to obtain the author\'s real identity for doxxing, then fled with "happy retreat" when cornered — a full-band performance without a shred of shame. 38k followers, not an ounce of an original creator\'s backbone, and in the end couldn\'t even keep the account — got exactly what it asked for.',
+    zh: '定性：换皮参赛诈奖、自认下游、删评毁证、面对技术比对全程哑火只敢攻击、图谋开盒、理屈词穷后找台阶溜走——全程毫无廉耻，最后连号都保不住，求锤得锤。',
+    en: 'Verdict: skinned someone else\'s shaders for a contest, admitted being downstream, deleted evidence, stayed mute on every technical comparison while only attacking, attempted doxxing, then fled when cornered — without a shred of shame, and in the end couldn\'t even keep the account.',
   },
+  shame_millonw_evidence:   { zh: '完整对话证据 → chat.z.ai/s/53ad9176', en: 'Full conversation evidence → chat.z.ai/s/53ad9176' },
 
   // ---- Misc ----
   pick_image:               { zh: '选择图片', en: 'Pick an image' },

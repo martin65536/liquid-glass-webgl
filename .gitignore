@@ -52,6 +52,15 @@ prompt
 server.log
 # Skills directory
 /skills/
-# tool output artifacts
-tool-results/
-tool-results/
+
+# Cloned reference repo (has its own .git + large worklogs/screenshots)
+/liquid-glass-webgl/
+
+# Local tool artifacts
+/tool-results/
+/agent-ctx/
+
+# Verification / debug screenshots captured at the repo root during
+# agent-browser + VLM self-verification. None of these are project assets.
+/*.png
+worklog-archive.md

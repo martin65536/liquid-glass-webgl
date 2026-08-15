@@ -4,25 +4,39 @@ import { DP, measureTextWidth, type CatalogResult, type CatalogState, type Theme
 import { makeBackButton, makeText } from './helpers'
 import { t, type Locale } from './i18n'
 
-/** Measure the wrapped height of `text` at `fontPx` within `maxW`.
+/** Measure the wrapped height of `text` at `fontPx`/`weight` within `maxW`.
  *  Uses the same greedy wrap as the rasterizer (gl-utils.ts wrapText):
- *  whitespace-tokenized with per-character fallback so CJK text wraps. */
-function measureWrappedHeight(text: string, fontPx: number, maxW: number): number {
+ *  whitespace-tokenized with per-character fallback so CJK text wraps.
+ *
+ *  CRITICAL: `weight` MUST match the weight passed to makeText() — bold text
+ *  is wider than regular text, so measuring with weight=400 (the old default)
+ *  underestimates the width of weight=500/600/700 paragraphs. The wrap then
+ *  thinks fewer lines are needed → element height too small → rasterizer
+ *  clips the bottom of the paragraph (looks like "no auto-wrap"). */
+function measureWrappedHeight(text: string, fontPx: number, maxW: number, weight = 400): number {
   const lineH = fontPx * 1.35
   const tokens = text.split(/\s+/).filter(t => t.length > 0)
   let cur = ''
   let lines = 0
   for (const token of tokens) {
+    // Fast path: token fits on the current line. MUST NOT shortcut when
+    // `cur` is empty if the token itself exceeds maxW — otherwise a long
+    // CJK paragraph (single token, no whitespace) is counted as 1 line
+    // while the rasterizer wraps it to many → element height too small →
+    // text clipped (looks like "no auto-wrap"). Mirrors wrapText() in
+    // gl-utils.ts exactly.
     const test = cur ? cur + ' ' + token : token
-    if (measureTextWidth(test, fontPx) <= maxW || !cur) {
+    if (measureTextWidth(test, fontPx, weight) <= maxW) {
       cur = test
       continue
     }
-    lines++
-    cur = ''
+    if (cur) {
+      lines++
+      cur = ''
+    }
     for (const ch of token) {
       const t = cur + ch
-      if (measureTextWidth(t, fontPx) <= maxW || !cur) {
+      if (measureTextWidth(t, fontPx, weight) <= maxW || !cur) {
         cur = t
       } else {
         lines++
@@ -31,7 +45,12 @@ function measureWrappedHeight(text: string, fontPx: number, maxW: number): numbe
     }
   }
   if (cur) lines++
-  return lines * lineH
+  // Safety pad: +1 line of slack + 2px. Defends against minor font-metric
+  // drift between the measure canvas and the rasterize canvas (e.g. when
+  // the browser swaps in a fallback font for a missing weight). Better to
+  // leave a few px of empty space than to clip the last line.
+  const safeLines = lines + 1
+  return safeLines * lineH + 2
 }
 
 /* ------------------------------------------------------------------ *
@@ -144,7 +163,7 @@ export function buildAbout(W: number, H: number, onBack: () => void, palette: Th
   const descText = t('about_desc', locale)
   const descFontPx = 14
   const descW = W - 2 * pad
-  const descH = measureWrappedHeight(descText, descFontPx, descW)
+  const descH = measureWrappedHeight(descText, descFontPx, descW, 400)
   const descEl = makeText(
     'about-desc',
     { x: pad, y: cursorY, w: descW, h: descH },
@@ -187,7 +206,7 @@ export function buildAbout(W: number, H: number, onBack: () => void, palette: Th
 
   // Plagiarism
   const shamePlagiarismText = t('shame_plagiarism', locale)
-  const shamePlagiarismH = measureWrappedHeight(shamePlagiarismText, 13, W - 2 * pad)
+  const shamePlagiarismH = measureWrappedHeight(shamePlagiarismText, 13, W - 2 * pad, 400)
   const shamePlagiarismEl = makeText(
     'about-shame-plagiarism',
     { x: pad, y: cursorY, w: W - 2 * pad, h: shamePlagiarismH },
@@ -200,7 +219,7 @@ export function buildAbout(W: number, H: number, onBack: () => void, palette: Th
 
   // Quality
   const shameQualityText = t('shame_quality', locale)
-  const shameQualityH = measureWrappedHeight(shameQualityText, 13, W - 2 * pad)
+  const shameQualityH = measureWrappedHeight(shameQualityText, 13, W - 2 * pad, 400)
   const shameQualityEl = makeText(
     'about-shame-quality',
     { x: pad, y: cursorY, w: W - 2 * pad, h: shameQualityH },
@@ -230,7 +249,7 @@ export function buildAbout(W: number, H: number, onBack: () => void, palette: Th
   ]
   for (const item of shameCoverups) {
     const text = t(item.key, locale)
-    const h = measureWrappedHeight(text, 13, W - 2 * pad)
+    const h = measureWrappedHeight(text, 13, W - 2 * pad, 400)
     const el = makeText(
       item.id,
       { x: pad, y: cursorY, w: W - 2 * pad, h: h },
@@ -245,7 +264,7 @@ export function buildAbout(W: number, H: number, onBack: () => void, palette: Th
 
   // Conclusion
   const shameConclusionText = t('shame_conclusion', locale)
-  const shameConclusionH = measureWrappedHeight(shameConclusionText, 13, W - 2 * pad)
+  const shameConclusionH = measureWrappedHeight(shameConclusionText, 13, W - 2 * pad, 600)
   const shameConclusionEl = makeText(
     'about-shame-conclusion',
     { x: pad, y: cursorY, w: W - 2 * pad, h: shameConclusionH },
@@ -282,7 +301,7 @@ export function buildAbout(W: number, H: number, onBack: () => void, palette: Th
     gapAfter: number,
   ) => {
     const text = t(key, locale)
-    const h = measureWrappedHeight(text, fontPx, W - 2 * pad)
+    const h = measureWrappedHeight(text, fontPx, W - 2 * pad, weight)
     const el = makeText(
       id,
       { x: pad, y: cursorY, w: W - 2 * pad, h },
@@ -313,7 +332,27 @@ export function buildAbout(W: number, H: number, onBack: () => void, palette: Th
   // Account ban paragraph
   pushMillonWText('about-shame-millonw-ban', 'shame_millonw_ban', 13, shameTextColor, 500, 6)
   // Verdict (bold)
-  pushMillonWText('about-shame-millonw-conclusion', 'shame_millonw_conclusion', 13, shameTextColor, 600, bottomPad)
+  pushMillonWText('about-shame-millonw-conclusion', 'shame_millonw_conclusion', 13, shameTextColor, 600, 12)
+
+  // ---- Closing evidence link — full conversation transcript ----
+  // The MillonW section ends with a one-tap link to the complete chat record
+  // (chat.z.ai shared conversation) so readers can verify every claim above
+  // against the primary source.
+  const millonwEvidenceText = t('shame_millonw_evidence', locale)
+  const millonwEvidenceH = measureWrappedHeight(millonwEvidenceText, 13, W - 2 * pad, 500)
+  const millonwEvidenceEl = makeText(
+    'about-shame-millonw-evidence',
+    { x: pad, y: cursorY, w: W - 2 * pad, h: millonwEvidenceH },
+    millonwEvidenceText,
+    { color: linkColor, fontSizePx: 13, fontWeight: 500, align: 'left', wrap: true, paddingPx: 0, halo: palette.homeTextHalo }
+  )
+  millonwEvidenceEl.isInteractive = true
+  millonwEvidenceEl.scroll = true
+  elements.push(millonwEvidenceEl)
+  interactions['about-shame-millonw-evidence'] = {
+    onTap: () => { if (typeof window !== 'undefined') window.open('https://chat.z.ai/s/53ad9176-c907-49be-a254-fb2f6f90dc61', '_blank') },
+  }
+  cursorY += millonwEvidenceH + bottomPad
 
   // Return the total content height — scroll will kick in when this exceeds H.
   return { elements, interactions, contentHeight: cursorY }
