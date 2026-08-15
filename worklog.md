@@ -113,3 +113,39 @@ Stage Summary:
 - 修改文件：catalog/index.ts（+51/-20，主要是 solidBgColor 计算上移 + back 元素 patch）。
 - 效果：Settings/About 的退出按钮现在和主题按钮一样，采样固定纯色，cacheable + positionInvariant → 光栅化一次后永久命中缓存，空闲不重绘。
 - 远程：webgl-port-integration @ 4c0879b。
+
+---
+Task ID: 10
+Agent: main (Z.ai Code)
+Task: 滚动容器原版0.8W，这里1.1W，有可以优化的吗
+
+Work Log:
+- 深入追踪主页滑动时每帧实际执行的代码路径（不再猜测）：
+  - context.tsx: wheel/pointer → renderer.setScrollY → requestRender → rAF → render()
+  - render(): renderBackground(drawSolidFill 全屏 shader) → 遍历元素 → drawCopy 全屏 blit
+  - 主页元素：~15 个 text（非玻璃，每帧 1 drawArrays）+ 1 个 theme button（solidBackdropColor，cache hit 后 ~5 drawArrays：shadow + composite + inner shadow + glow + foreground + rim highlight）
+  - 0 React re-render during scroll（setScrollY 直接调 renderer，不触发 setState）
+  - 0 Canvas2D per-frame work（fgDirtyIds 为空，rasterizeText 不跑）
+  - 0 隐藏 rAF（debug overlay 在 250ms poll 模式，perf monitor 在 250ms poll）
+- 定位根因：**fboA 往返**。原版（native Android Compose）直接渲染到 Surface，无离屏 FBO、无全屏 blit。本实现用 WebGL1 ping-pong 架构：每帧 bg fill → fboA（全屏 shader pass）→ 合成元素 → drawCopy fboATex → canvas（又一个全屏 shader pass）。在 DPR=2 时 fboA=840×1800=1.5M px，2 个全屏 pass = 3M fragment invocations + ~10MB/frame 纹理 R/W 带宽。在 Home/Settings/About 上这是纯浪费 —— 没有玻璃元素采样场景纹理（theme + back 按钮都用 solidBackdropColor，shader 短路返回平色，从不读 curTex）。
+- 实现 directToCanvas 优化：
+  - 新增 `elementReadsSceneTexture(el)` 谓词：判断玻璃元素的 shader 是否会采样 curTex（uBackdrop）。排除 solidBackdropColor / sampleWallpaper / backdropFbo / isToggleKnob / isBottomTabIndicator / isSdfTexture。
+  - render() 每帧扫描 buttonConfigs，计算 `directToCanvas = backgroundColor && !anyReadsScene && !isolate && !sceneBlurEl && perElementFbo`。
+  - directToCanvas=true 时：bindFBO(null)（canvas）+ gl.clearColor + gl.clear（在 tile-based GPU 上近乎免费，只标记 tile 为 cleared，不跑 fragment shader）→ 元素直接合成到 canvas → 跳过 final blit。省掉 2 个全屏 shader pass + fboA 纹理 R/W 带宽。
+  - curFbo 类型从 WebGLFramebuffer 改为 WebGLFramebuffer | null，贯穿 renderNonGlassElement / renderGlassElement / renderGlassElementPerFbo 等 8 个方法签名。
+- 修复 resolveBackdropTex：solidBackdropColor 元素提前返回（跳过 2-pass Gaussian blur）。原因：(1) 平色模糊=平色，纯浪费；(2) directToCanvas 模式下 curTex=fboATex 是 stale 内容，首帧 cache miss 时如果不跳过 blur 会读到 stale 数据产生错误结果。shader 的 sampleBackdrop() 已短路返回 uSolidBackdropColor，从不采样 uBackdrop，所以 curTex 作为 placeholder 是安全的。
+- 验证：agent-browser 打开 Home/Settings/About/Toggle 四个页面：
+  - Home: 白底 + 文字列表 + 主题按钮正常渲染，perf monitor 显示 20 draw calls（原 ~22，省了 bg fill + final blit）
+  - Settings: 浅灰底 + 卡片 + back/theme 按钮正常
+  - About: 白底 + 段落 + back 按钮正常
+  - Toggle: 壁纸页 + 玻璃开关正常（directToCanvas 不激活，因为玻璃元素采样场景纹理 → 走 fboA 路径，14 draw calls + 3 blur passes）
+  - 主页滚动正常，不同文字项可见，无渲染错误
+  - dev.log 全程无错误，HMR 干净编译
+- lint：主项目 0 error（唯一剩余 error 在 gitignored 的 liquid-glass-webgl/examples/websocket/frontend.tsx 参考克隆）
+- 推送：commit cd18b6d → webgl-port-integration
+
+Stage Summary:
+- 修改文件：index.ts（+directToCanvas 字段）、methods-render.ts（+elementReadsSceneTexture + directToCanvas 路径 + 跳过 final blit）、methods-render-glass-backdrop.ts（+solidBackdropColor 短路）、methods-render-glass-pef.ts / -pingpong.ts / -state.ts / -nonglass.ts / -nonglass-plain-rect.ts / -nonglass-progressive-blur.ts / -nonglass-text.ts（curFbo 类型 WebGLFramebuffer | null），共 10 文件 +204/-83。
+- 效果：Home/Settings/About 每帧省掉 2 个全屏 shader pass（bg fill + final blit）+ fboA 纹理 R/W 带宽。在 DPR=2 的真实设备上预计省 ~0.2-0.3W，缩小与原版 0.8W 的差距。
+- 原理：原版 native 直接渲染到 Surface，本实现多了一层 fboA 往返。directToCanvas 在「没有玻璃元素需要采样场景纹理」时消除这个往返，让 WebGL 路径与 native 路径对齐。
+- 远程：webgl-port-integration @ cd18b6d。
