@@ -75,6 +75,7 @@ export function buildBlurCard(ctx: BuildSettingsCtx): void {
     tapInitFrac,
     tapSnapFrac,
     (f) => { setState({ liveTapCap: tapFracToTaps(tapSnapFrac(f)) }) },
+    cardBg,
   )
   elements.push(...tapSlider.elements)
   Object.assign(interactions, tapSlider.interactions)
@@ -139,6 +140,7 @@ export function buildBlurCard(ctx: BuildSettingsCtx): void {
     dsInitFrac,
     dsClampFrac,
     (f) => { setState({ liveBlurDownsample: dsFracToDs(f) }) },
+    cardBg,
   )
   elements.push(...dsSlider.elements)
   Object.assign(interactions, dsSlider.interactions)

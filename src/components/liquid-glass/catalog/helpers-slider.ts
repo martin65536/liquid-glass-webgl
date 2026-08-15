@@ -26,6 +26,11 @@ export function makeLiquidSlider(
   initFraction = 0,
   snap?: (f: number) => number,
   onLiveValue?: (fraction: number) => void,
+  /** When set, the knob samples this flat color instead of the scene texture.
+   *  Used on solid-bg pages (Settings) so the knob doesn't refract a stale
+   *  fboA in directToCanvas mode (which would show other pages' textures).
+   *  Omit on wallpaper pages — the knob should sample the real backdrop. */
+  solidBackdropColor?: [number, number, number, number],
 ): { elements: GlassElementConfig[]; interactions: Record<string, ElementInteraction> } {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
@@ -70,6 +75,15 @@ export function makeLiquidSlider(
     scroll
   )
   knobEl.isToggleKnob = { groupId, dragWidth: dragW, velocityDivisor: 10 }
+  // Solid backdrop: when on a solid-bg page (Settings), the knob samples this
+  // flat color via sampleBackdrop's solid shortcut. Without it, the knob
+  // falls through to sampling curTex (the scene texture), which is STALE in
+  // directToCanvas mode → the knob would refract another page's rendered
+  // content. Omitted on wallpaper pages (Slider page) where the knob should
+  // sample the real backdrop.
+  if (solidBackdropColor) {
+    knobEl.solidBackdropColor = solidBackdropColor
+  }
   knobEl.hitRect = { x: knobX, y: knobY + (SLIDER_KNOB_H - SLIDER_HIT_H) / 2, w: SLIDER_KNOB_W, h: SLIDER_HIT_H }
   elements.push(knobEl)
 

@@ -27,11 +27,21 @@ declare module './index' {
  *    - solidBackdropColor  → sampleBackdrop() short-circuits to flat color
  *    - sampleWallpaper     → shader samples uWallpaperSampler (clean wallpaper)
  *    - backdropFbo         → resolveBackdropTex returns dialogBackdropTex
- *    - isToggleKnob        → shader calls sampleToggleBackdrop (wallpaper + track)
+ *    - isToggleKnob WITH trackColorOff/On → shader calls sampleToggleBackdrop
+ *      (wallpaper + track color, not scene)
+ *    - isToggleKnob WITH solidBackdropColor → sampleBackdrop solid shortcut
+ *      (slider knob on solid-bg pages, e.g. Settings)
  *    - isBottomTabIndicator → shader calls sampleIndicatorBackdrop
  *    - isSdfTexture        → shader calls sampleWallpaperBlurred
  *    - independent (render-time) → uSampleWallpaper=1 (but on solid-bg pages
  *      independent is ALWAYS false, so this branch is irrelevant there)
+ *
+ *  IMPORTANT: a slider knob (isToggleKnob WITHOUT trackColorOff/On and WITHOUT
+ *  solidBackdropColor) falls through to sampleBackdrop → reads curTex. This is
+ *  the case on wallpaper pages (Slider page) where the knob should refract the
+ *  scene. On solid-bg pages, such a knob MUST have solidBackdropColor set
+ *  (done in makeLiquidSlider when called from Settings card builders),
+ *  otherwise directToCanvas would feed it a stale fboATex.
  *
  *  The default glass element (button / glass-shape with none of the above)
  *  falls through to `texture2D(uBackdrop, uv)` in sampleBackdrop() → reads
@@ -41,7 +51,14 @@ function elementReadsSceneTexture(el: GlassElementConfig): boolean {
   if (el.solidBackdropColor) return false
   if (el.sampleWallpaper) return false
   if (el.backdropFbo) return false
-  if (el.isToggleKnob) return false
+  if (el.isToggleKnob) {
+    // Toggle knobs WITH trackColorOff/On use sampleToggleBackdrop (wallpaper +
+    // track color, not scene). Slider knobs (no trackColor) fall through to
+    // sampleBackdrop → read curTex, UNLESS solidBackdropColor is set (checked
+    // above) which short-circuits to the flat color.
+    if (el.isToggleKnob.trackColorOff && el.isToggleKnob.trackColorOn) return false
+    return true
+  }
   if (el.isBottomTabIndicator) return false
   if (el.isSdfTexture) return false
   // `independent` is render-time (depends on backgroundColor + directBackdropSample
