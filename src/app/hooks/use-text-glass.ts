@@ -66,15 +66,18 @@ export function useTextGlass(opts: {
           targetHeight: state.textGlassFontSize,
         })
         renderer.loadSdfTextureFromData(data, width, height)
-        // Push the real aspect ratio into state so the builder sizes the
-        // glass element to match the text. Use functional update to avoid
-        // re-render storms if the aspect didn't actually change.
+        // Push the real aspect ratio + texture height (CSS px) into state so
+        // the builder sizes the glass element to EXACTLY match the texture
+        // (1:1 texel→pixel mapping, no stretching). texH drives glassH
+        // directly — since texH ≈ fontSize + 2*padding, the visible glass
+        // height tracks the fontSize slider LINEARLY across the whole range.
         const aspect = width / height
-        setState((prev) =>
-          Math.abs(prev.textGlassAspect - aspect) < 0.01
-            ? {}
-            : { textGlassAspect: aspect }
-        )
+        setState((prev) => {
+          if (Math.abs(prev.textGlassAspect - aspect) < 0.01 && prev.textGlassTexH === height) {
+            return {}
+          }
+          return { textGlassAspect: aspect, textGlassTexH: height }
+        })
       } catch (e) {
         console.error('[TextGlass] SDF generation failed:', e)
       }

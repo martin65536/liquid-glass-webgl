@@ -80,17 +80,36 @@ export function buildTextGlass(
   const bottomBtnSpace = 20 * DP + TG_TOGGLE_BTN_SIZE + 12 * DP
 
   // ---- Center glass text (SDF texture) ----
-  // Sized to the SDF texture's aspect ratio (state.textGlassAspect). The
-  // available vertical space is the screen minus the bottom button row AND
-  // minus the sheet height (when expanded) so the text isn't covered.
+  // The glass element size = the SDF texture's REAL CSS-pixel dimensions
+  // (texH from state, texW = texH * aspect). This gives a 1:1 texel→pixel
+  // mapping — no stretching — and since texH ≈ fontSize + 2*padding, the
+  // visible glass height tracks the fontSize slider LINEARLY across the
+  // whole range.
+  //
+  // NO screen clamping. Previously the glass width was pinned to maxW (360dp)
+  // and the height was derived from the aspect ratio — which made the glass
+  // barely change size (even shrink!) as fontSize increased, because the
+  // fixed width dominated. Now the glass grows freely with fontSize; if it
+  // overflows the screen, the WebGL canvas clips it naturally and the user
+  // can drag via textGlassOffsetX/Y to inspect the overflow.
   const sheetVisibleH = state.textGlassSheetExpanded
     ? TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 2 + TG_FONT_ROW_H + TG_INNER_PAD
     : 0
   const availableH = H - bottomBtnSpace - sheetVisibleH
-  const maxW = Math.min(W * 0.9, 360 * DP)
-  const glassW = maxW
   const aspect = state.textGlassAspect > 0 ? state.textGlassAspect : 3
-  const glassH = Math.max(40 * DP, Math.min(glassW / aspect, availableH * 0.6))
+  // texH from state (set by use-text-glass.ts when the SDF is generated).
+  // Fallback: approximate from fontSize if state hasn't been populated yet
+  // (first frame before the SDF effect runs).
+  const texH = state.textGlassTexH > 0
+    ? state.textGlassTexH
+    : (state.textGlassFontSize * 1.05 + 80)
+  let glassH = texH
+  let glassW = glassH * aspect
+  // Only a 40dp min floor to avoid a zero-size element; NO max clamp.
+  if (glassH < 40 * DP) {
+    glassH = 40 * DP
+    glassW = glassH * aspect
+  }
   const baseX = (W - glassW) / 2
   const baseY = Math.max(40, (availableH - glassH) / 2)
   const glassX = baseX + state.textGlassOffsetX

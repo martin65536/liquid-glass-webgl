@@ -289,6 +289,11 @@ export interface CatalogState {
   // builder can size the glass element to match the text. Updated by the
   // same effect that uploads the SDF texture. Defaults to 3:1 (wide text).
   textGlassAspect: number
+  // TextGlass — texture height in CSS px (= textH + 2*padding from the SDF
+  // generator). The builder uses this DIRECTLY as the glass element height
+  // (no screen clamping) so the visible glass size tracks fontSize linearly
+  // across the whole slider range. Updated alongside textGlassAspect.
+  textGlassTexH: number
   // TextGlass — drag offset (cumulative from press start).
   textGlassOffsetX: number
   textGlassOffsetY: number
@@ -360,6 +365,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   perfExitProgress: 0,
   textGlassText: 'Glass',
   textGlassAspect: 3,
+  textGlassTexH: 0,
   textGlassOffsetX: 0,
   textGlassOffsetY: 0,
   textGlassFontSize: 200,
