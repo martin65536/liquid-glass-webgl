@@ -73,3 +73,26 @@ Stage Summary:
 - 文案精简：MillonW 耻辱柱每段从 3-5 句压到 1-2 句，zh/en 同步。
 - 新增结尾证据链接：`完整对话证据 → chat.z.ai/s/53ad9176`，点击打开 https://chat.z.ai/s/53ad9176-c907-49be-a254-fb2f6f90dc61 。
 - 修改文件：`src/components/liquid-glass/renderer/gl-utils.ts`、`src/components/liquid-glass/catalog/build-about.ts`、`src/components/liquid-glass/catalog/i18n.ts`。
+
+---
+Task ID: 8
+Agent: main (Z.ai Code)
+Task: 把主页（及 Settings/About 等纯色背景页）的主题按钮改成只采背景色、不重绘，做好后先推再测试。
+
+Work Log:
+- 定位根因：在纯色背景页（Home/Settings/About）`independent` 被强制为 false（methods-render-glass-transform.ts L295），主题按钮走 `sampleBackdrop`（采样 curTex 场景）。虽然 `wallpaperTexture` 仍加载使 `cacheable=true`，但 `backdrop_overlap` 失效检查处于激活态——任何与之重叠的 dirty rect 都会触发缓存未命中 → 每帧重绘。背景虽是平色，玻璃仍每帧采样+模糊场景，纯浪费。
+- 设计方案：给玻璃元素加一个顶层 `solidBackdropColor` 字段。设置后：(1) shader 的 `sampleBackdrop` 短路返回该平色（平色模糊=平色，跳过全部纹理采样+高斯 tap）；(2) `computeCacheFlags` 标记 `cacheable=true` + `positionInvariant=true`（位置无关 + 跳过 backdrop_overlap 检查）→ 光栅化一次后永久命中 elFbo 缓存。
+- types.ts：在 GlassElementConfig 末尾新增顶层 `solidBackdropColor?: [number,number,number,number]`，注释说明与 `isToggleKnob.solidBackdropColor`（仅管 toggle knob 的 CombinedBackdrop 外层）的区别。
+- shaders/element-utils.ts：`sampleBackdrop()` 开头加 `if (uUseSolidBackdrop > 0.5) return uSolidBackdropColor;`。复用已有 uniform（uUseSolidBackdrop/uSolidBackdropColor 已声明）。折射重采样 + chromatic tap 也走此短路（平场折射/色散=平场）。注意：GLSL 在 JS 模板字符串内，注释里不能用反引号（会终止模板字面量）——首次 lint 报 parse error，已改为不带反引号的注释。
+- methods-render-glass-element-pass-context.ts：`createElementPassContext` 从 `el.solidBackdropColor` 播种 `useSolidBackdrop=1.0` + solidRGBA。toggle knob 的 `applyToggleKnobBackdrop` 仍可覆盖（但它走 sampleToggleBackdrop，不冲突）。
+- methods-render-glass-pef-cache-flags.ts：`cacheable = solidTopLevel || (wallpaperTexture && !backdropFbo)`；`positionInvariant = solidTopLevel || (isToggleKnob.solidBackdropColor && !backdropFbo)`。
+- catalog/helpers-buttons.ts：`makeThemeToggleButton` 新增 `solidBgColor?` 参数。设置时 `el.solidBackdropColor=solidBgColor`、`directBackdropSample=false`（不需要壁纸）；未设置时保持原 LayerBackdrop 行为。
+- catalog/index.ts：`buildCatalog` 在 Home/Settings/About 三页计算 solidBgColor（Home/About: 白/黑；Settings light: [0.94,0.94,0.96]），传入 `makeThemeToggleButton`。镜像 page.tsx 的 backgroundColor 逻辑。
+- lint：主项目代码 0 error（唯一剩余 error 在 gitignored 的 liquid-glass-webgl/examples/websocket/frontend.tsx，参考克隆，非主项目）。dev.log HMR 干净编译，GET / 200。
+- 推送：commit `79dedd7` → `git push origin main:webgl-port-integration` 成功。
+
+Stage Summary:
+- 修改文件：types.ts、shaders/element-utils.ts、methods-render-glass-element-pass-context.ts、methods-render-glass-pef-cache-flags.ts、catalog/helpers-buttons.ts、catalog/index.ts（6 文件，+98/-12）。
+- 效果：Home/Settings/About 的主题按钮现在采样固定纯色背景，cacheable + positionInvariant → 光栅化一次后永久命中缓存，空闲不再每帧重绘。视觉无变化（按钮后方本就是平色）。
+- 远程：webgl-port-integration @ 79dedd7。
+- 待用户测试确认功耗下降。

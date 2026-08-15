@@ -137,6 +137,26 @@ export function buildCatalog(
       result = buildHome(W, onNavigate, palette)
       break
   }
+  // Solid-background pages (Home/Settings/About) — the backdrop behind the
+  // top-left back button + top-right theme button is a flat color. We compute
+  // it once here and apply it to BOTH overlay buttons so they sample the flat
+  // color (no texture sampling/blur) and become cacheable + positionInvariant
+  // → rasterized once, never redrawn. This mirrors the backgroundColor logic
+  // in page.tsx (Home/About: pure white/black; Settings: light gray in light
+  // mode). Wallpaper pages keep solidBgColor=null → original LayerBackdrop
+  // (directBackdropSample) behavior.
+  const isSolidBgPage =
+    dest === CatalogDestination.Home ||
+    dest === CatalogDestination.Settings ||
+    dest === CatalogDestination.About
+  let solidBgColor: [number, number, number, number] | null = null
+  if (isSolidBgPage) {
+    if (dest === CatalogDestination.Settings && isLightTheme) {
+      solidBgColor = [0.94, 0.94, 0.96, 1]
+    } else {
+      solidBgColor = isLightTheme ? [1, 1, 1, 1] : [0, 0, 0, 1]
+    }
+  }
   // Move the back button to the end of the element list so it's on top of
   // all layers (scrims, overlays, glass elements). It was pushed first by
   // each builder, but scrims/overlays pushed after it would cover it.
@@ -155,6 +175,14 @@ export function buildCatalog(
       delete result.interactions['__back__']
     } else {
       const [backEl] = result.elements.splice(backIdx, 1)
+      // Solid-bg optimization: on Home/Settings/About, patch the back button
+      // to sample the flat solid color (same treatment as the theme button).
+      // Home has no back button (root destination), so in practice this only
+      // fires on Settings/About.
+      if (solidBgColor) {
+        backEl.solidBackdropColor = solidBgColor
+        backEl.directBackdropSample = false
+      }
       result.elements.push(backEl)
     }
   }
@@ -162,27 +190,7 @@ export function buildCatalog(
   // in z-order (tappable even over other glass elements). The button is
   // non-scrolling (stays at top-right when the page scrolls).
   // Skipped when hideOverlays is true.
-  //
-  // On solid-background pages (Home/Settings/About) the backdrop behind the
-  // button is a flat color, so we pass `solidBgColor` → the button samples
-  // that flat color (no texture sampling/blur) and becomes cacheable +
-  // positionInvariant → rasterized once, never redrawn. This mirrors the
-  // backgroundColor logic in page.tsx (Home/About: pure white/black; Settings:
-  // light gray in light mode). Wallpaper pages pass null → original
-  // LayerBackdrop (directBackdropSample) behavior is kept.
   if (onToggleTheme && !hideOverlays) {
-    const isSolidBgPage =
-      dest === CatalogDestination.Home ||
-      dest === CatalogDestination.Settings ||
-      dest === CatalogDestination.About
-    let solidBgColor: [number, number, number, number] | null = null
-    if (isSolidBgPage) {
-      if (dest === CatalogDestination.Settings && isLightTheme) {
-        solidBgColor = [0.94, 0.94, 0.96, 1]
-      } else {
-        solidBgColor = isLightTheme ? [1, 1, 1, 1] : [0, 0, 0, 1]
-      }
-    }
     const themeBtn = makeThemeToggleButton(onToggleTheme, palette, isLightTheme, W, false, solidBgColor)
     // Apply global separable blur to the theme toggle too (it's created
     // AFTER the globalSeparableBlur loop above, so it misses the mark).
