@@ -169,6 +169,29 @@ Settings 页提供 DPR 覆盖、模糊 tap cap、模糊降采样、全局可分�
 
 详细事实陈述见 [Kyant0/AndroidLiquidGlass #112](https://github.com/Kyant0/AndroidLiquidGlass/issues/112) 与 [#114](https://github.com/Kyant0/AndroidLiquidGlass/issues/114)。
 
+
+### B 站 @MillonW 投诉下架维权视频事件
+
+B 站 UP 主 [@MillonW](https://space.bilibili.com/)（粉丝约 3.8 万）发布了一期视频，其 WebGL Shader 代码与本项目核心渲染算法大面积雷同。作者在 B 站发布视频 [BV1ji356NEZ1](https://www.bilibili.com/video/BV1ji356NEZ1/) 指出该问题并质疑其将本项目作品用于参赛，该维权视频随即被投诉下架。
+
+#### 事实陈述
+
+- **Shader 大面积雷同**：被指控视频的 WebGL Shader 实现、渲染管线结构与本项目高度重合，相似程度远超合理"借鉴"的边界。面对这一核心指控，对方在评论区全程未给出任何技术层面的正面回应。
+- **回避参赛指控**：作者视频标题明确指向"抄袭并参赛"，对方在评论区否认参赛，却对标题中直接呈现的相关证据置之不理，只反复否认、不正面回应。
+- **索取 QQ**：在公开评论区多次试图索要作者个人 QQ 号码，意图获取作者真实身份信息——在涉及抄袭争议的上下文中，此举存在明显的"开盒"（人肉搜索）意图。
+- **言论反复**：在作者以其自身逻辑反诘后，对方最终以"幸福者退让"为由单方面结束对话并离开，此前持续攻击式回应与此形成鲜明对比。
+
+#### 处理结果
+
+作者维权视频被投诉下架后，作者依法对被指控视频提起反投诉，该视频现已被 B 站下架处理，双方视频目前均处于下架状态。
+
+#### 定性
+
+把别人的开源项目搬到 B 站当作自己的原创作品发布、面对原创者的技术比对指控全程回避核心问题只做攻击式回应、试图获取对方真实身份信息、被反投诉后视频下架——这不是"参考"，不是"受启发"，这是对开源作品署名权的侵犯，是对原创者维权正当性的蓄意干扰。
+
+原创证据见本项目 [git 提交历史](https://github.com/martin65536/liquid-glass-webgl/commits/main) 与 [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass) 上游项目。本项目采用 Apache-2.0 开源协议，任何使用均须保留原作者署名。
+
+
 ## 许可证
 
 Apache-2.0 —— 见 [LICENSE](./LICENSE)，与上游 AndroidLiquidGlass 项目一致。
