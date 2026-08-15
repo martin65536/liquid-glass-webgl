@@ -19,7 +19,7 @@ declare module './index' {
       el: GlassElementConfig,
       r: { x: number; y: number; w: number; h: number },
       r2: { x: number; y: number; w: number; h: number },
-      curFbo: WebGLFramebuffer
+      curFbo: WebGLFramebuffer | null
     ): boolean
   }
 }
@@ -32,7 +32,7 @@ export const nonGlassPlainRectMethods = {
     el: GlassElementConfig,
     r: { x: number; y: number; w: number; h: number },
     r2: { x: number; y: number; w: number; h: number },
-    curFbo: WebGLFramebuffer
+    curFbo: WebGLFramebuffer | null
   ): boolean {
     const gl = this.gl
 

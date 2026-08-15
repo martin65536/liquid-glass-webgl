@@ -11,7 +11,7 @@ declare module './index' {
     renderProgressiveBlurElement(
       el: GlassElementConfig,
       r2: { x: number; y: number; w: number; h: number },
-      curFbo: WebGLFramebuffer
+      curFbo: WebGLFramebuffer | null
     ): boolean
   }
 }
@@ -23,7 +23,7 @@ export const nonGlassProgressiveBlurMethods = {
     this: LiquidGlassRenderer,
     el: GlassElementConfig,
     r2: { x: number; y: number; w: number; h: number },
-    curFbo: WebGLFramebuffer
+    curFbo: WebGLFramebuffer | null
   ): boolean {
     const gl = this.gl
 

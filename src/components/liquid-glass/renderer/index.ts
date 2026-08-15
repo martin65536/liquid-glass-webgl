@@ -198,6 +198,23 @@ export class LiquidGlassRenderer {
   fboBTex: WebGLTexture | null = null
   fboW = 0
   fboH = 0
+  /** directToCanvas: when true, the renderer renders directly to the default
+   *  framebuffer (the visible canvas) instead of ping-ponging through fboA.
+   *  This skips the fullscreen bg-fill shader pass (replaced by gl.clear,
+   *  which is nearly free on tile-based GPUs) AND the fullscreen final blit
+   *  (drawCopy from fboATex → canvas), saving ~2 fullscreen fragment passes
+   *  + ~10MB/frame texture R/W bandwidth at DPR=2.
+   *
+   *  Activated ONLY when ALL of:
+   *    - backgroundColor is set (solid bg, not wallpaper)
+   *    - No glass element on the page samples the scene texture (curTex).
+   *      On Home/Settings/About, theme + back buttons both have
+   *      solidBackdropColor → shader short-circuits → never reads curTex.
+   *    - isolateBackdrop quick-toggle is OFF (it needs fboA to seed bgOnlyFbo)
+   *    - No element has sceneBlurRadius (ControlCenter dim blur needs fboA)
+   *
+   *  Computed per-frame in render() by scanning buttonConfigs. */
+  directToCanvas = false
 
   // --- tabsBackdrop FBO (indicator's hidden tinted layer) ---
   // Faithful to LiquidBottomTabs.kt: the indicator's backdrop is

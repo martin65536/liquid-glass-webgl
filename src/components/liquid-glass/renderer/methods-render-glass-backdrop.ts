@@ -164,6 +164,22 @@ export function resolveBackdropTex(
 ): BackdropResolution {
   const { el, independent, sx, sy, sw, sh, layerScale } = state
 
+  // Solid backdrop shortcut: when uUseSolidBackdrop=1.0 (top-level
+  // solidBackdropColor, e.g. theme/back button on solid-bg pages), the
+  // shader's sampleBackdrop() short-circuits to the flat color — it NEVER
+  // samples uBackdrop. So there is no reason to run the 2-pass Gaussian
+  // blur on curTex (blurring a flat color = the flat color, pure waste).
+  // Returning curTex as a placeholder is safe because the shader ignores it.
+  //
+  // This is also REQUIRED for the directToCanvas optimization: when the
+  // renderer renders directly to the canvas (null framebuffer) instead of
+  // fboA, curTex = fboATex has stale/undefined content. Without this
+  // shortcut, a cache-miss on the first frame would blur that stale content
+  // and produce a wrong result. With the shortcut, curTex is never sampled.
+  if (el.solidBackdropColor) {
+    return { backdropTex: curTex, didBlur: false }
+  }
+
   // Independent elements (LayerBackdrop = wallpaper): the shader samples the
   // WALLPAPER directly via uWallpaperSampler, not the scene FBO. To apply
   // separable blur, we render the wallpaper cover-fitted into gpElementFbo

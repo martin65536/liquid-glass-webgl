@@ -16,6 +16,42 @@ declare module './index' {
   }
 }
 
+/** Check whether a glass element's shader samples the SCENE texture (curTex /
+ *  fboATex) at render time. This is the key predicate for the directToCanvas
+ *  optimization: if NO element on the page samples the scene texture, we can
+ *  render directly to the canvas (null framebuffer) and skip fboA + the final
+ *  fullscreen blit.
+ *
+ *  An element does NOT sample the scene texture when its shader uses a
+ *  different sampling path:
+ *    - solidBackdropColor  → sampleBackdrop() short-circuits to flat color
+ *    - sampleWallpaper     → shader samples uWallpaperSampler (clean wallpaper)
+ *    - backdropFbo         → resolveBackdropTex returns dialogBackdropTex
+ *    - isToggleKnob        → shader calls sampleToggleBackdrop (wallpaper + track)
+ *    - isBottomTabIndicator → shader calls sampleIndicatorBackdrop
+ *    - isSdfTexture        → shader calls sampleWallpaperBlurred
+ *    - independent (render-time) → uSampleWallpaper=1 (but on solid-bg pages
+ *      independent is ALWAYS false, so this branch is irrelevant there)
+ *
+ *  The default glass element (button / glass-shape with none of the above)
+ *  falls through to `texture2D(uBackdrop, uv)` in sampleBackdrop() → reads
+ *  curTex. This is the only case that returns true. */
+function elementReadsSceneTexture(el: GlassElementConfig): boolean {
+  if (el.kind !== 'button' && el.kind !== 'glass-shape') return false
+  if (el.solidBackdropColor) return false
+  if (el.sampleWallpaper) return false
+  if (el.backdropFbo) return false
+  if (el.isToggleKnob) return false
+  if (el.isBottomTabIndicator) return false
+  if (el.isSdfTexture) return false
+  // `independent` is render-time (depends on backgroundColor + directBackdropSample
+  // toggle). On solid-bg pages (the only pages where directToCanvas activates),
+  // independent is ALWAYS false, so we don't need to check it here. On wallpaper
+  // pages, directToCanvas is never activated (backgroundColor is null), so this
+  // function is never consulted for independent-eligible elements on wallpaper.
+  return true
+}
+
 export const renderMethods = {
   render(this: LiquidGlassRenderer) {
     // PERFORMANCE: Skip render if nothing changed since last frame.
@@ -85,64 +121,106 @@ export const renderMethods = {
       }
     }
 
-    // --- 1. Render background (wallpaper or solid color) into fboA ----
-    // fboA is the "current scene" — everything rendered so far. Glass
-    // elements will sample from fboA.texture to compute refraction of
-    // the actual colors behind them (track color, card background, etc).
-    this.renderBackground()
-    this.perfMonitor.incDrawCall() // wallpaper pass = 1 draw call
-
-    if (this.buttonConfigs.length === 0) {
-      // No elements — blit fboA to the default framebuffer and done.
-      this.bindFBO(null)
-      this.drawCopy(this.fboATex!)
-      this.perfMonitor.incDrawCall() // final blit
-      this.perfMonitor.frameEnd()
-      return
-    }
-
-    // --- Global backdrop blur (ControlCenter) ---
-    // Faithful to ControlCenterContent.kt: the backdrop Image has
-    //   .graphicsLayer { BlurEffect(4dp * progress) }
-    // which blurs the WALLPAPER (not the dim, not the tiles). We replicate
-    // by blurring fboA (wallpaper) right after renderBackground, BEFORE any
-    // element composites on top. The cc-dim element (drawn next) renders a
-    // crisp dim on top of the blurred wallpaper — matching the original's
-    // drawWithContent { drawContent(); drawRect(dim) } where drawContent()
-    // draws the blurred wallpaper and drawRect(dim) is crisp.
+    // --- directToCanvas optimization ---
+    // On solid-bg pages (Home/Settings/About) where NO glass element samples
+    // the scene texture, render directly to the canvas (null framebuffer)
+    // instead of ping-ponging through fboA. This eliminates:
+    //   1. The fullscreen drawSolidFill pass (replaced by gl.clear — nearly
+    //      free on tile-based GPUs, just marks tiles as cleared, no fragment
+    //      shader runs).
+    //   2. The fullscreen drawCopy final blit (fboATex → canvas).
+    //   3. ~10MB/frame texture R/W bandwidth at DPR=2 (fboA write + read).
     //
-    // sceneBlurRadius is set on the cc-dim element (CSS px). We scan for it
-    // here (once per frame) and blur fboA in-place (blurTexture → blurFboB,
-    // then drawCopy back to fboA).
+    // This is the single biggest power win for solid-bg pages: it closes the
+    // gap with the original native renderer, which renders directly to the
+    // Surface with no offscreen FBO round-trip.
+    //
+    // Conditions (all must hold):
+    //   - backgroundColor is set (solid bg, not wallpaper)
+    //   - No glass element reads the scene texture (all use solidBackdropColor
+    //     / sampleWallpaper / backdropFbo / toggle-knob / etc.)
+    //   - isolateBackdrop quick-toggle is OFF (needs fboA to seed bgOnlyFbo)
+    //   - No element has sceneBlurRadius (ControlCenter dim blur needs fboA)
     const sceneBlurEl = this.buttonConfigs.find((e) => (e.sceneBlurRadius ?? 0) >= 0.5)
-    if (sceneBlurEl) {
-      const r = sceneBlurEl.sceneBlurRadius! * this.dpr
-      const blurred = this.blurTexture(this.fboATex!, r)
-      // blurTexture restored the FBO binding to fboA (what renderBackground
-      // bound). Rebind explicitly + copy blurred result back into fboA.
-      this.bindFBO(this.fboA!)
-      this.drawCopy(blurred)
-      this.perfMonitor.incBlurPass()
-      this.perfMonitor.incDrawCall(2) // blur = 2 passes + 1 copy
-    }
-
-    // Enable blending for the remaining passes.
-    gl.enable(gl.BLEND)
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-
-    // --- Isolate backdrop: snapshot the wallpaper into bgOnlyFbo ---
-    // When the isolateBackdrop quick-toggle is on, glass elements sample
-    // bgOnlyFbo (wallpaper + non-glass UI) instead of curTex (which also
-    // contains other glass). This snapshot seeds bgOnlyFbo with the
-    // wallpaper; non-glass elements rendered below also composite into it.
     const isolate = this.quickToggles.isolateBackdrop
-    if (isolate && this.bgOnlyFbo && this.bgOnlyTex) {
-      this.bindFBO(this.bgOnlyFbo)
-      this.gl.viewport(0, 0, this.fboW, this.fboH)
-      this.drawCopy(this.fboATex!)
-      // drawCopy disables blend; re-enable for subsequent non-glass draws.
-      this.gl.enable(this.gl.BLEND)
-      this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA)
+    const anyReadsScene = this.buttonConfigs.some(elementReadsSceneTexture)
+    // Also require perElementFbo (default ON): the legacy ping-pong path
+    // binds otherFbo + drawCopy(curTex), which assumes real FBOs. In
+    // directToCanvas mode otherFbo=null would break the ping-pong blit.
+    // PEF doesn't swap curFbo, so null is safe there.
+    this.directToCanvas =
+      !!this.backgroundColor && !anyReadsScene && !isolate && !sceneBlurEl &&
+      this.quickToggles.perElementFbo
+
+    if (this.directToCanvas) {
+      // --- directToCanvas path: render directly to the canvas ---
+      // gl.clear replaces drawSolidFill — on tile-based GPUs (Apple GPU,
+      // Mali, Adreno) clear is nearly free (just marks tiles as cleared,
+      // no fragment shader). This alone saves a fullscreen fragment pass.
+      const [r, g, b] = this.backgroundColor!
+      this.bindFBO(null)
+      gl.clearColor(r, g, b, 1)
+      gl.clear(gl.COLOR_BUFFER_BIT)
+      gl.enable(gl.BLEND)
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+    } else {
+      // --- 1. Render background (wallpaper or solid color) into fboA ----
+      // fboA is the "current scene" — everything rendered so far. Glass
+      // elements will sample from fboA.texture to compute refraction of
+      // the actual colors behind them (track color, card background, etc).
+      this.renderBackground()
+      this.perfMonitor.incDrawCall() // wallpaper pass = 1 draw call
+
+      if (this.buttonConfigs.length === 0) {
+        // No elements — blit fboA to the default framebuffer and done.
+        this.bindFBO(null)
+        this.drawCopy(this.fboATex!)
+        this.perfMonitor.incDrawCall() // final blit
+        this.perfMonitor.frameEnd()
+        return
+      }
+
+      // --- Global backdrop blur (ControlCenter) ---
+      // Faithful to ControlCenterContent.kt: the backdrop Image has
+      //   .graphicsLayer { BlurEffect(4dp * progress) }
+      // which blurs the WALLPAPER (not the dim, not the tiles). We replicate
+      // by blurring fboA (wallpaper) right after renderBackground, BEFORE any
+      // element composites on top. The cc-dim element (drawn next) renders a
+      // crisp dim on top of the blurred wallpaper — matching the original's
+      // drawWithContent { drawContent(); drawRect(dim) } where drawContent()
+      // draws the blurred wallpaper and drawRect(dim) is crisp.
+      //
+      // sceneBlurRadius is set on the cc-dim element (CSS px). We scan for it
+      // here (once per frame) and blur fboA in-place (blurTexture → blurFboB,
+      // then drawCopy back to fboA).
+      if (sceneBlurEl) {
+        const r = sceneBlurEl.sceneBlurRadius! * this.dpr
+        const blurred = this.blurTexture(this.fboATex!, r)
+        // blurTexture restored the FBO binding to fboA (what renderBackground
+        // bound). Rebind explicitly + copy blurred result back into fboA.
+        this.bindFBO(this.fboA!)
+        this.drawCopy(blurred)
+        this.perfMonitor.incBlurPass()
+        this.perfMonitor.incDrawCall(2) // blur = 2 passes + 1 copy
+      }
+
+      // Enable blending for the remaining passes.
+      gl.enable(gl.BLEND)
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+
+      // --- Isolate backdrop: snapshot the wallpaper into bgOnlyFbo ---
+      // When the isolateBackdrop quick-toggle is on, glass elements sample
+      // bgOnlyFbo (wallpaper + non-glass UI) instead of curTex (which also
+      // contains other glass). This snapshot seeds bgOnlyFbo with the
+      // wallpaper; non-glass elements rendered below also composite into it.
+      if (isolate && this.bgOnlyFbo && this.bgOnlyTex) {
+        this.bindFBO(this.bgOnlyFbo)
+        this.gl.viewport(0, 0, this.fboW, this.fboH)
+        this.drawCopy(this.fboATex!)
+        // drawCopy disables blend; re-enable for subsequent non-glass draws.
+        this.gl.enable(this.gl.BLEND)
+        this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA)
+      }
     }
 
     // Cull + iterate. We render elements in DECLARED ORDER (no Wave 1 /
@@ -183,9 +261,14 @@ export const renderMethods = {
     // Iterate elements in declared order. Track which FBO is "current"
     // (i.e. contains the scene built up so far). Glass elements trigger
     // a ping-pong; non-glass elements render directly to the current FBO.
-    let curFbo: WebGLFramebuffer = this.fboA!
+    //
+    // directToCanvas: curFbo = null (the visible canvas). curTex = fboATex
+    // as a PLACEHOLDER — it is never sampled because no glass element reads
+    // the scene texture (the directToCanvas precondition guarantees this).
+    // otherFbo/otherTex are also placeholders (PEF path doesn't swap curFbo).
+    let curFbo: WebGLFramebuffer | null = this.directToCanvas ? null : this.fboA!
     let curTex: WebGLTexture = this.fboATex!
-    let otherFbo: WebGLFramebuffer = this.fboB!
+    let otherFbo: WebGLFramebuffer | null = this.directToCanvas ? null : this.fboB!
     let otherTex: WebGLTexture = this.fboBTex!
 
     for (const el of this.buttonConfigs) {
@@ -361,9 +444,14 @@ export const renderMethods = {
     }
 
     // --- Final: blit curFbo → default framebuffer (visible canvas) ---
-    this.bindFBO(null)
-    this.drawCopy(curTex)
-    this.perfMonitor.incDrawCall() // final blit
+    // directToCanvas: curFbo IS already the canvas (null framebuffer) — elements
+    // composited directly onto it during the loop. Skip the fullscreen blit
+    // entirely (saves ~1.3M fragment invocations at DPR=2 + the fboATex read).
+    if (!this.directToCanvas) {
+      this.bindFBO(null)
+      this.drawCopy(curTex)
+      this.perfMonitor.incDrawCall() // final blit
+    }
 
     // --- Debug: edge scan readback (if pending) ---
     // MUST happen here — synchronously after drawCopy, while the drawing

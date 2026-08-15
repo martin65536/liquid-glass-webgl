@@ -17,7 +17,7 @@ declare module './index' {
       el: GlassElementConfig,
       r2: { x: number; y: number; w: number; h: number },
       st: ElementState | undefined,
-      curFbo: WebGLFramebuffer
+      curFbo: WebGLFramebuffer | null
     ): boolean
   }
 }
@@ -30,7 +30,7 @@ export const nonGlassTextMethods = {
     el: GlassElementConfig,
     r2: { x: number; y: number; w: number; h: number },
     st: ElementState | undefined,
-    curFbo: WebGLFramebuffer
+    curFbo: WebGLFramebuffer | null
   ): boolean {
     const gl = this.gl
     this.bindFBO(curFbo)
