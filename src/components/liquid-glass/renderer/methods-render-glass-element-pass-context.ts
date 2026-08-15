@@ -55,6 +55,13 @@ export interface ElementPassContext {
  *  indicator helpers will mutate the relevant fields; the rest stay at
  *  these element-derived defaults. */
 export function createElementPassContext(el: GlassElementConfig): ElementPassContext {
+  // Top-level solidBackdropColor (theme/back button on solid-bg pages):
+  // seed the solid-backdrop uniforms here so the generic glass path
+  // (sampleBackdrop) short-circuits to the flat color. applyToggleKnobBackdrop
+  // may still override these for toggle knobs with their own
+  // isToggleKnob.solidBackdropColor — but those go through sampleToggleBackdrop,
+  // not sampleBackdrop, so there's no conflict.
+  const sb = el.solidBackdropColor
   return {
     elRefractionHeight: el.refractionHeight,
     elRefractionAmount: el.refractionAmount,
@@ -64,11 +71,11 @@ export function createElementPassContext(el: GlassElementConfig): ElementPassCon
     elContentScaleX: 1.0,
     elContentScaleY: 1.0,
     useToggleBackdrop: 0.0,
-    useSolidBackdrop: 0.0,
-    solidR: 1,
-    solidG: 1,
-    solidB: 1,
-    solidA: 1,
+    useSolidBackdrop: sb ? 1.0 : 0.0,
+    solidR: sb ? sb[0] : 1,
+    solidG: sb ? sb[1] : 1,
+    solidB: sb ? sb[2] : 1,
+    solidA: sb ? sb[3] : 1,
     trackColorR: 0,
     trackColorG: 0,
     trackColorB: 0,

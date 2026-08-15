@@ -141,6 +141,17 @@ vec2 sceneUv(vec2 canvasPx) {
 // re-sampled the clean wallpaper (without scrim), making the edge brighter
 // than the interior.
 vec4 sampleBackdrop(vec2 canvasPx, float radius) {
+    // Solid backdrop shortcut: when uUseSolidBackdrop=1.0 (set by elements
+    // with a top-level solidBackdropColor, e.g. the theme/back button on
+    // solid-background pages Home/Settings/About), the backdrop is a flat
+    // color. Blur of a flat color is the flat color, so skip ALL texture
+    // sampling + Gaussian taps and return the solid color directly.
+    // (Refraction re-samples + chromatic taps also hit this shortcut, so
+    // they return the same flat color, which is correct: refraction/chromatic
+    // of a flat field is the flat field.)
+    if (uUseSolidBackdrop > 0.5) {
+        return uSolidBackdropColor;
+    }
     if (uSampleWallpaper > 0.5) {
         vec2 uv = coverUv(canvasPx);
         vec4 c;

@@ -88,13 +88,21 @@ export function makeThemeToggleButton(
   palette: ThemePalette,
   isLightTheme: boolean,
   canvasW: number,
-  scroll = false
+  scroll = false,
+  /** When the page has a solid background (Home/Settings/About), pass the
+   *  solid bg color here so the button samples THAT flat color instead of
+   *  the scene/wallpaper. The button then becomes cacheable + position-
+   *  invariant → rasterized once, never redrawn (idle power win).
+   *  `null`/omitted on wallpaper pages → keeps the original LayerBackdrop
+   *  (directBackdropSample) behavior. */
+  solidBgColor?: [number, number, number, number] | null
 ): { element: GlassElementConfig; interaction: ElementInteraction } {
   const size = 56 * DP
   const iconSize = 32 * DP
   // Mirrored position: back button is at (16, 16); theme button is at
   // (W - 16 - size, 16) so the two buttons are symmetric across the
   // horizontal centerline.
+  const useSolid = !!solidBgColor
   const element: GlassElementConfig = {
     id: '__theme__',
     kind: 'button',
@@ -105,9 +113,14 @@ export function makeThemeToggleButton(
     surfaceColor: palette.buttonSurface,
     // Use the separable-blur backdrop path (see makeButton / makeBackButton).
     independentBackdrop: false,
-    // LayerBackdrop-eligible (see makeButton): when directBackdropSample is
-    // ON (default), samples the clean wallpaper.
-    directBackdropSample: true,
+    // On solid-bg pages we use solidBackdropColor (which takes priority and
+    // makes the element sample the flat color). On wallpaper pages we keep
+    // directBackdropSample=true (LayerBackdrop → clean wallpaper).
+    directBackdropSample: useSolid ? false : true,
+    // Solid backdrop color: when set, sampleBackdrop() short-circuits to this
+    // flat color and computeCacheFlags marks the element cacheable +
+    // positionInvariant → never redrawn after the first frame.
+    solidBackdropColor: solidBgColor ?? undefined,
     highlight: null, // no edge highlight (matches back button)
     outerShadow: { ...DEFAULT_SHADOW }, // faithful to drawBackdrop default: Shadow.Default
     label: '',
