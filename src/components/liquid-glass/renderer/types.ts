@@ -397,6 +397,21 @@ export interface GlassElementConfig extends GlassButtonConfig {
   isSdfTexture?: {
     refractionHeight: number
     lightAngle: number
+    /** Highlight generation distance multiplier (default 1.5). Controls how
+     *  far from the text edge the bevel highlight extends into the interior.
+     *  Shader: `intensity = circleMap(1.0 - min(1.0, -sd * highlightScale))`.
+     *  Higher = highlight reaches further inward; lower = tighter edge. */
+    highlightScale?: number
+    /** Raw SDF debug render — when true, the shader bypasses all glass
+     *  effects (refraction, bevel, colorControls, surface tint) and outputs
+     *  the SDF texture's R channel directly as grayscale (inside = white,
+     *  outside = black, edge AA preserved via the A channel). Used by the
+     *  TextGlass page to inspect SDF texture quality / aliasing. */
+    debugMode?: boolean
+    /** Coverage (A channel) → mask smoothstep lower bound. Default 0.5
+     *  (matches clock_sdf.webp's narrow AA). Text SDF sets 0.0 to preserve
+     *  the full Canvas2D AA gradient → smooth edges at all font sizes. */
+    aaMin?: number
   }
   /**
    * Magnifier glass — samples the scene FBO with 1.5x zoom + offset toward

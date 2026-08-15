@@ -47,6 +47,23 @@ export function useTextGlass(opts: {
       prevDestRef.current = destination
       return
     }
+    // fontSize=0 → nothing to render. Upload a 1×1 transparent texture so the
+    // glass element is invisible (shader discards everything), and set the
+    // glass height to a tiny value so the element collapses. This lets the
+    // slider's 0 endpoint act as "hidden text" without crashing SDF
+    // generation (which would divide by zero / produce a 0-height canvas).
+    if (state.textGlassFontSize <= 0) {
+      const renderer = rendererRef.current
+      if (renderer) {
+        renderer.loadSdfTextureFromData(new Uint8ClampedArray(4), 1, 1)
+      }
+      setState((prev) => {
+        if (Math.abs(prev.textGlassTexH - 1) < 1 && Math.abs(prev.textGlassAspect - 1) < 0.01) return {}
+        return { textGlassAspect: 1, textGlassTexH: 1 }
+      })
+      prevDestRef.current = destination
+      return
+    }
     // Just entered TextGlass → regenerate now (0ms) so the glass shows the
     // correct text on the next frame instead of a stale texture. Already on
     // the page and params changed → debounce 250ms to coalesce fast typing
@@ -59,24 +76,53 @@ export function useTextGlass(opts: {
       try {
         const fontIdx = state.textGlassFontIdx
         const family = (TEXT_GLASS_FONTS[fontIdx] ?? TEXT_GLASS_FONTS[0]).family
-        const font = `${state.textGlassFontWeight} ${Math.round(state.textGlassFontSize)}px ${family}`
+        // DPR-adapted SDF generation: render the text + padding at device-pixel
+        // resolution so the SDF texture has a 1:1 mapping with the on-screen
+        // device pixels. Without this, a 200px-tall SDF texture gets stretched
+        // to ~400 device px (at DPR 2) → bilinear upscaling → blurry text +
+        // aliased SDF gradients. By scaling fontSize+padding by dpr, the
+        // texture becomes (fontSize*dpr + 2*padding*dpr) px tall, matching the
+        // element's device-px size exactly (sampleSdfTexture maps UV 0..1 over
+        // uOriginalSize = origW*dpr, so a dpr-scaled texture samples 1:1).
+        const dpr = renderer.dpr > 0 ? renderer.dpr : 1
+        // CONSTANT padding (independent of fontSize). Previously this was
+        // proportional to fontSize (0.2×, clamped 16..40), which made texH
+        // (= textH + 2*padding) grow NON-LINEARLY with fontSize: at small
+        // fontSize the padding dominated (texH jumped fast), at large
+        // fontSize the padding saturated at 40 (texH growth slowed). That
+        // made the font-size slider feel non-linear ("左边变化飞快，到右边
+        // 几乎不变"). A small constant 8px padding keeps texH ≈ textH ≈
+        // fontSize → the glass height tracks the slider linearly.
+        // 8px is enough SDF spread for the bevel/refraction edge falloff
+        // without bloating the texture at small sizes.
+        const basePadding = 8
+        const font = `${state.textGlassFontWeight} ${Math.round(state.textGlassFontSize * dpr)}px ${family}`
         const { data, width, height } = generateTextSdf(text, {
           font,
-          padding: 40,
-          targetHeight: state.textGlassFontSize,
+          padding: Math.round(basePadding * dpr),
+          targetHeight: state.textGlassFontSize * dpr,
         })
         renderer.loadSdfTextureFromData(data, width, height)
-        // Push the real aspect ratio + texture height (CSS px) into state so
-        // the builder sizes the glass element to EXACTLY match the texture
-        // (1:1 texel→pixel mapping, no stretching). texH drives glassH
-        // directly — since texH ≈ fontSize + 2*padding, the visible glass
-        // height tracks the fontSize slider LINEARLY across the whole range.
+        // Push the CSS-pixel aspect ratio + texture height into state so the
+        // builder sizes the glass element to match the text. generateTextSdf
+        // now uses fontBoundingBoxAscent/Descent (the font's FIXED metrics)
+        // instead of actualBoundingBoxAscent/Descent, so textH — and thus the
+        // texture height — is a pure function of fontSize. Typing "Hello" vs
+        // "hello" vs "gpy" no longer changes the glass element's HEIGHT; only
+        // the WIDTH changes (more characters = wider text, naturally). This
+        // is "以 fontSize 为准": the glass height depends ONLY on fontSize.
+        // The texture HEIGHT (in CSS px = device-px / dpr) drives the on-screen
+        // glass height; aspect (w/h) is dimensionless so dpr cancels out.
         const aspect = width / height
+        const texH = height / dpr
         setState((prev) => {
-          if (Math.abs(prev.textGlassAspect - aspect) < 0.01 && prev.textGlassTexH === height) {
-            return {}
+          const sameAspect = Math.abs(prev.textGlassAspect - aspect) < 0.01
+          const sameTexH = Math.abs(prev.textGlassTexH - texH) < 1
+          if (sameAspect && sameTexH) return {}
+          return {
+            ...(sameAspect ? {} : { textGlassAspect: aspect }),
+            ...(sameTexH ? {} : { textGlassTexH: texH }),
           }
-          return { textGlassAspect: aspect, textGlassTexH: height }
         })
       } catch (e) {
         console.error('[TextGlass] SDF generation failed:', e)

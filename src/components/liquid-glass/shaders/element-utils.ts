@@ -85,6 +85,14 @@ float circleMap(float x) {
 // SDF-texture glass sampling (faithful to SdfShader.kt).
 // Samples the clock_sdf texture at element-local coords.
 // Returns vec4(intensity, maskAlpha, normalX, normalY); zeroes if outside.
+//
+// uSdfHighlightScale controls how far from the text edge the bevel highlight
+// extends into the interior. Original hardcoded constant was 1.5; exposed as
+// a uniform so the TextGlass page can tune it live via a slider.
+//
+// uSdfAaMin controls the coverage→mask smoothstep lower bound. clock_sdf uses
+// 0.5 (narrow AA); text SDF uses 0.0 (full Canvas2D AA gradient → smooth at
+// all sizes, no aliasing on small text).
 vec4 sampleSdfTexture(vec2 localPx) {
     vec2 uv = vec2(localPx.x / uOriginalSize.x,
                    localPx.y / uOriginalSize.y);
@@ -93,11 +101,11 @@ vec4 sampleSdfTexture(vec2 localPx) {
     }
     vec4 v = texture2D(uSdfTexSampler, uv);
     float sd = v.r * 2.0 - 1.0;
-    float mask = smoothstep(0.5, 1.0, v.a);
+    float mask = smoothstep(uSdfAaMin, 1.0, v.a);
     if (mask <= 0.0) return vec4(0.0);
     if (mask < 1.0) sd = 0.0;
     vec2 normal = normalize(v.gb * 2.0 - 1.0);
-    float intensity = circleMap(1.0 - min(1.0, -sd * 1.5));
+    float intensity = circleMap(1.0 - min(1.0, -sd * uSdfHighlightScale));
     return vec4(intensity, mask, normal.x, normal.y);
 }
 

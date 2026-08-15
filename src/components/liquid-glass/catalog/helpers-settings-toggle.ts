@@ -25,6 +25,13 @@ export function makeSettingsToggle(
   scroll = true,
   /** Padding inside the row (for label text alignment). Defaults to 0. */
   labelPad = 0,
+  /** When true, the toggle sits on a GLASS card (semi-transparent, over
+   *  wallpaper) instead of a solid-color card. In that case we must NOT
+   *  set solidBackdropColor — the knob should sample the real backdrop
+   *  (the rendered glass sheet) so it picks up the sheet's tint/blur.
+   *  Setting solidBackdropColor on a glass card makes the knob render
+   *  with a wrong (often dark, in dark-theme) flat color → "knob全黑". */
+  onGlassCard = false,
 ): { elements: GlassElementConfig[]; interactions: Record<string, ElementInteraction> } {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
@@ -115,7 +122,10 @@ export function makeSettingsToggle(
     trackH: TOGGLE_H,
     trackOriginalX: trackX,
     trackOriginalY: trackY,
-    solidBackdropColor: palette.toggleCardBg,
+    // Only set solidBackdropColor when the toggle is on a SOLID card (settings
+    // page). On a glass card (TextGlass sheet), omit it so the knob samples
+    // the real backdrop (the rendered glass sheet) instead of a flat color.
+    ...(onGlassCard ? {} : { solidBackdropColor: palette.toggleCardBg }),
   }
   elements.push(knobEl)
 

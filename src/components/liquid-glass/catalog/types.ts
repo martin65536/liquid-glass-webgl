@@ -289,10 +289,9 @@ export interface CatalogState {
   // builder can size the glass element to match the text. Updated by the
   // same effect that uploads the SDF texture. Defaults to 3:1 (wide text).
   textGlassAspect: number
-  // TextGlass — texture height in CSS px (= textH + 2*padding from the SDF
-  // generator). The builder uses this DIRECTLY as the glass element height
-  // (no screen clamping) so the visible glass size tracks fontSize linearly
-  // across the whole slider range. Updated alongside textGlassAspect.
+  // TextGlass — SDF texture height in px (textH + 2*padding). Drives the
+  // on-screen glass height so fontSize actually changes the visible text
+  // size (1:1 mapping: texture-px → screen-px, clamped to fit).
   textGlassTexH: number
   // TextGlass — drag offset (cumulative from press start).
   textGlassOffsetX: number
@@ -306,6 +305,19 @@ export interface CatalogState {
   textGlassFontIdx: number
   // TextGlass — whether the bottom control sheet is expanded (GP-style).
   textGlassSheetExpanded: boolean
+  // TextGlass — highlight generation distance multiplier (controls how far
+  // from the text edge the bevel highlight extends). The shader formula is
+  // `intensity = circleMap(1.0 - min(1.0, -sd * highlightScale))` where sd
+  // is the normalized signed distance (-1 deep inside, 0 at edge, +1 far
+  // outside). Higher scale = highlight reaches further into the interior.
+  // Default 1.5 (matches the original hardcoded constant). Range [0.5, 3.0].
+  textGlassHighlightScale: number
+  // TextGlass — raw SDF debug render toggle. When true, the glass element
+  // bypasses all glass effects (refraction, bevel, colorControls, surface
+  // tint) and renders the SDF texture's R channel directly as a grayscale
+  // image (inside = white, outside = black, edge AA preserved). Useful for
+  // inspecting the SDF texture quality / padding / aliasing.
+  textGlassRawSdf: boolean
 }
 
 export const DEFAULT_CATALOG_STATE: CatalogState = {
@@ -365,22 +377,33 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   perfExitProgress: 0,
   textGlassText: 'Glass',
   textGlassAspect: 3,
-  textGlassTexH: 0,
+  textGlassTexH: 280,
   textGlassOffsetX: 0,
   textGlassOffsetY: 0,
   textGlassFontSize: 200,
   textGlassFontWeight: 700,
   textGlassFontIdx: 0,
   textGlassSheetExpanded: true,
+  textGlassHighlightScale: 1.5,
+  textGlassRawSdf: false,
 }
 
 /* ------------------------------------------------------------------ *
- * TextGlass font catalog. Each entry: { family, label }.
+ * TextGlass font catalog. Each entry: { family, labelKey }.
  * The family is the CSS font-family used in the Canvas2D font string
  * (must be loaded before SDF generation — see layout.tsx next/font).
- * Google Sans is a Google product sans; Nunito is a rounded sans.
+ * Index 0 is "不设置" (None) — a generic system sans-serif, selected by
+ * default so no custom font is applied until the user picks one.
+ *
+ * NOTE on "Google Sans": real Google Sans / Product Sans is a proprietary
+ * Google font and is NOT available via Google Fonts. We self-host Inter
+ * (the closest free open-source geometric-humanist substitute, designed
+ * for screens) via next/font and reference it as the primary family. The
+ * fallback chain ('"Google Sans", "Product Sans", system-ui') lets the
+ * browser use a locally-installed real Google Sans if one is present.
  * ------------------------------------------------------------------ */
-export const TEXT_GLASS_FONTS: { family: string; label: string }[] = [
-  { family: '"Google Sans", "Product Sans", system-ui, sans-serif', label: 'Google Sans' },
-  { family: 'Nunito, system-ui, sans-serif', label: 'Nunito' },
+export const TEXT_GLASS_FONTS: { family: string; labelKey: string }[] = [
+  { family: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif', labelKey: 'text_glass_font_none' },
+  { family: 'Inter, "Google Sans", "Product Sans", system-ui, sans-serif', labelKey: 'text_glass_font_google' },
+  { family: 'Nunito, system-ui, sans-serif', labelKey: 'text_glass_font_nunito' },
 ]

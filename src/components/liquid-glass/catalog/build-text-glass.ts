@@ -10,12 +10,22 @@ import {
   SLIDER_KNOB_W,
   SLIDER_TRACK_H,
   TEXT_GLASS_FONTS,
+  TG_FONT_ROW_H,
+  TG_INNER_PAD,
+  TG_INPUT_ROW_H,
+  TG_ROW_H,
+  TG_SHEET_RADIUS,
+  TG_SHEET_X,
+  TG_TOGGLE_BTN_SIZE,
+  TG_TOGGLE_ROW_H,
+  computeTextGlassFontSizeMax,
   type CatalogResult,
   type CatalogState,
   type ThemePalette,
 } from './types'
-import { applyVerticalCenter, makeBackButton, makeGlassShape, makeLiquidSlider, makeText } from './helpers'
+import { applyVerticalCenter, makeBackButton, makeButton, makeGlassShape, makeLiquidSlider, makeText } from './helpers'
 import { makeTextInputGlass } from './helpers-text-input'
+import { makeSettingsToggle } from './helpers-settings-toggle'
 import { t, type Locale } from './i18n'
 
 // Drag-start offset for TextGlass — module-level so it survives re-renders
@@ -28,16 +38,6 @@ const EXPAND_MORE_ICON_PATH =
   'M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z'
 const EXPAND_LESS_ICON_PATH =
   'M16.59 15.41L12 10.83l-4.59 4.58L6 14l6-6 6 6-1.41 1.41z'
-
-// Layout constants for the control sheet — mirrors GP's sheet geometry so the
-// panel looks/behaves identically to the Glass Playground's bottom sheet.
-const TG_SHEET_X = 16 * DP
-const TG_SHEET_RADIUS = 32 * DP
-const TG_INNER_PAD = 24 * DP
-const TG_ROW_H = 16 + 12 + 24 + 16 // label(16) + gap(12) + slider(24) + gap(16)
-const TG_INPUT_ROW_H = 48          // input glass pill row height
-const TG_FONT_ROW_H = 48           // font-picker toggle row height
-const TG_TOGGLE_BTN_SIZE = 56 * DP
 
 /* ------------------------------------------------------------------ *
  * TEXT GLASS — custom text rendered as an SDF-texture glass shape, with
@@ -80,32 +80,53 @@ export function buildTextGlass(
   const bottomBtnSpace = 20 * DP + TG_TOGGLE_BTN_SIZE + 12 * DP
 
   // ---- Center glass text (SDF texture) ----
-  // The glass element size = the SDF texture's REAL CSS-pixel dimensions
-  // (texH from state, texW = texH * aspect). This gives a 1:1 texel→pixel
-  // mapping — no stretching — and since texH ≈ fontSize + 2*padding, the
-  // visible glass height tracks the fontSize slider LINEARLY across the
-  // whole range.
+  // Sized from the SDF texture's REAL dimensions: the texture height
+  // (textH + 2*padding) drives the on-screen glass height 1:1, so fontSize
+  // actually changes the visible text size. The width is derived from the
+  // text's true aspect ratio and clamped preserving aspect — so text is
+  // NEVER stretched regardless of fontSize or text length.
   //
-  // NO screen clamping. Previously the glass width was pinned to maxW (360dp)
-  // and the height was derived from the aspect ratio — which made the glass
-  // barely change size (even shrink!) as fontSize increased, because the
-  // fixed width dominated. Now the glass grows freely with fontSize; if it
-  // overflows the screen, the WebGL canvas clips it naturally and the user
-  // can drag via textGlassOffsetX/Y to inspect the overflow.
-  const sheetVisibleH = state.textGlassSheetExpanded
-    ? TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 2 + TG_FONT_ROW_H + TG_INNER_PAD
-    : 0
-  const availableH = H - bottomBtnSpace - sheetVisibleH
+  // textH is computed from fontBoundingBoxAscent/Descent (the font's FIXED
+  // metrics) in generateTextSdf, so it depends ONLY on fontSize — NOT on
+  // which characters the user typed. This means the glass HEIGHT is stable
+  // across all text content ("以 fontSize 为准"); only the WIDTH grows/
+  // shrinks with the number of characters (natural text behavior).
+  //
+  // STABLE POSITIONING: availableH always reserves the EXPANDED sheet's
+  // height, even when the sheet is collapsed. This prevents the glass text
+  // from moving/rescaling when the user expands/collapses the control sheet
+  // ("展开收起面板字要移动缩放"). The text stays put; the sheet slides
+  // up/down over the reserved space below it.
+  const sheetReservedH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 3 + TG_FONT_ROW_H + TG_TOGGLE_ROW_H + TG_INNER_PAD
+  const availableH = H - bottomBtnSpace - sheetReservedH
   const aspect = state.textGlassAspect > 0 ? state.textGlassAspect : 3
-  // texH from state (set by use-text-glass.ts when the SDF is generated).
-  // Fallback: approximate from fontSize if state hasn't been populated yet
-  // (first frame before the SDF effect runs).
+  // The glass element height = texH (texture height in CSS px = textH + 2*pad).
+  // The shader maps the texture UV 0..1 over uOriginalSize (= texW*dpr ×
+  // texH*dpr), so the glass box MUST equal texH for a 1:1 texel→pixel mapping
+  // (otherwise the text gets scaled — squished if smaller, blurry if larger).
+  //
+  // The non-linearity the user saw ("左边变化飞快，到右边几乎不变") came from
+  // the padding being PROPORTIONAL to fontSize (0.2×, clamped 16..40): at small
+  // fontSize the padding dominated texH (16px pad on a 10px font = texH jumps
+  // fast), at large fontSize the padding saturated at 40 (so texH growth
+  // slowed relative to fontSize). The fix is in use-text-glass.ts: padding is
+  // now a SMALL CONSTANT (8px) independent of fontSize, so texH ≈ textH ≈
+  // fontSize → glassH tracks fontSize linearly across the whole slider range.
   const texH = state.textGlassTexH > 0
     ? state.textGlassTexH
-    : (state.textGlassFontSize * 1.05 + 80)
+    : (state.textGlassFontSize + 16)
   let glassH = texH
   let glassW = glassH * aspect
-  // Only a 40dp min floor to avoid a zero-size element; NO max clamp.
+  // NO screen-clamping. Previously there were two `if (glassW > maxW) / if
+  // (glassH > maxH)` blocks here that scaled the whole glass down to fit —
+  // but because aspect defaults to 3, glassW hits maxW (~360dp) at fontSize
+  // ≈120, and the equal-ratio shrink PINS glassH too. That was the REAL
+  // cause of "右边几乎不变": every fontSize above ~120 got scaled back to
+  // the same maxW-limited size. Now glassH = texH = fontSize+16 is STRICTLY
+  // LINEAR across the whole slider range. If the glass overflows the screen
+  // (wide aspect or large fontSize), the WebGL canvas clips it naturally
+  // and the user can drag it via textGlassOffsetX/Y to inspect the rest.
+  // Only a 40dp floor is kept to avoid a zero-size element at fontSize=0.
   if (glassH < 40 * DP) {
     glassH = 40 * DP
     glassW = glassH * aspect
@@ -130,7 +151,18 @@ export function buildTextGlass(
       outerShadow: null,
     }
   )
-  tgGlass.isSdfTexture = { refractionHeight: 48 * DP, lightAngle: 45 }
+  // Pass the highlight-scale multiplier + raw-SDF debug toggle + AA range
+  // through to the shader via the isSdfTexture config. The renderer's element
+  // pass reads these and sets uSdfHighlightScale / uSdfDebugMode / uSdfAaMin.
+  // aaMin=0.0 widens the coverage→mask smoothstep to (0.0, 1.0) so the full
+  // Canvas2D AA gradient is preserved → smooth text edges at all font sizes.
+  tgGlass.isSdfTexture = {
+    refractionHeight: 48 * DP,
+    lightAngle: 45,
+    highlightScale: state.textGlassHighlightScale,
+    debugMode: state.textGlassRawSdf,
+    aaMin: 0.0,
+  }
   tgGlass.independentBackdrop = false
   tgGlass.scroll = false
   elements.push(tgGlass)
@@ -172,8 +204,9 @@ export function buildTextGlass(
     const trackX = sheetX + TG_INNER_PAD
     const trackW = sheetW - 2 * TG_INNER_PAD
 
-    // Sheet height: input row + 2 slider rows + font row + padding
-    const sheetH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 2 + TG_FONT_ROW_H + TG_INNER_PAD
+    // Sheet height: input row + 3 slider rows (size, weight, highlight scale)
+    // + font row + raw-SDF toggle row + padding.
+    const sheetH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 3 + TG_FONT_ROW_H + TG_TOGGLE_ROW_H + TG_INNER_PAD
     const sheetY = H - bottomBtnSpace - sheetH
 
     // Sheet glass card (independentBackdrop → samples wallpaper directly,
@@ -193,6 +226,8 @@ export function buildTextGlass(
     )
     tgSheet.independentBackdrop = true
     tgSheet.scroll = false
+    // Smooth (continuous-curvature squircle) corners on the sheet card.
+    if (state.capsuleShape) tgSheet.useContinuousSdf = true
     elements.push(tgSheet)
 
     let rowY = sheetY + TG_INNER_PAD
@@ -217,13 +252,55 @@ export function buildTextGlass(
       { x: inputPillX, y: inputPillY, w: inputPillW, h: inputPillH },
       false
     )
+    // NON-GLASS input pill: strip refraction/blur/highlight/shadow so the
+    // input matches the dialog-style font-picker buttons (solid surface,
+    // no glass material). saturation=1 + brightness=0 + contrast=1 disable
+    // colorControls so the surface color renders as-is (no vibrancy).
+    // surfaceColor = subtle white wash (like dialog Cancel's containerColor
+    // .copy(0.2)) so the pill is visible against the glass sheet but still
+    // flat/non-glassy. The transparent HTML <input> overlay on top still
+    // draws the typed text + caret over this solid pill.
+    tgInputGlass.refractionHeight = 0
+    tgInputGlass.refractionAmount = 0
+    tgInputGlass.blurRadius = 0
+    tgInputGlass.highlight = null
+    tgInputGlass.outerShadow = null
+    tgInputGlass.saturation = 1
+    tgInputGlass.brightness = 0
+    tgInputGlass.contrast = 1
+    tgInputGlass.surfaceColor = [1, 1, 1, 0.2]
+    // Smooth (continuous-curvature squircle) corners on the input pill.
+    if (state.capsuleShape) tgInputGlass.useContinuousSdf = true
     elements.push(tgInputGlass)
     rowY += TG_INPUT_ROW_H
 
-    // --- Rows 2-3: Font size + font weight sliders ---
+    // --- Rows 2-4: Font size + font weight + highlight scale sliders ---
+    // Ranges widened so the user can explore extremes:
+    //   fontSize      0..1000  (0 = empty/hidden texture; 1000 = huge)
+    //   fontWeight    1..1000  (1 = thinnest CSS weight; 1000 = thickest.
+    //                          Standard fonts cap at 100, but variable fonts
+    //                          support the full 1..1000 range. Inter/Nunito
+    //                          via next/font only ship discrete weights
+    //                          100..900, so values outside that clamp to the
+    //                          nearest available weight — the slider still
+    //                          moves but the rendered weight stops changing
+    //                          once the font's min/max real weight is hit.
+    //                          That's a font-availability limit, not a bug.)
+    //   highlightScale 0..5    (0 = no highlight; 5 = highlight fills most of
+    //                          the glyph interior)
+    // Highlight scale uses a fractional value so we keep full float precision
+    // instead of Math.round-ing like the integer sliders do.
+    //
+    // fontSize max = availableH * 0.7 (= maxH), so the slider's TOP end
+    // maps exactly to the largest text that fits on screen — the whole
+    // range is LINEAR and useful, with no dead plateau at the top where
+    // the text is clamped and stops growing ("到右边几乎不变了"). The slider
+    // value IS the on-screen glass height (CSS px), 1:1.
+    const fontSizeMax = computeTextGlassFontSizeMax(W, H)
     const sliderDefs = [
-      { key: 'textGlassFontSize' as const, label: t('text_glass_font_size', locale), range: [80, 280] as const },
-      { key: 'textGlassFontWeight' as const, label: t('text_glass_font_weight', locale), range: [100, 900] as const },
+      { key: 'textGlassFontSize' as const, label: t('text_glass_font_size', locale), range: [0, fontSizeMax] as const, round: true },
+      { key: 'textGlassFontWeight' as const, label: t('text_glass_font_weight', locale), range: [1, 1000] as const, round: true },
+      { key: 'textGlassHighlightScale' as const, label: t('text_glass_highlight_scale', locale), range: [0, 5] as const, round: false },
     ]
     let sliderIdx = 0
     for (const s of sliderDefs) {
@@ -254,7 +331,9 @@ export function buildTextGlass(
         rendererRef,
         (f) => {
           const v = range[0] + (range[1] - range[0]) * f
-          setState({ [key]: Math.round(v) } as Partial<CatalogState>)
+          // Highlight scale stays fractional; size/weight round to integers.
+          const out = s.round ? Math.round(v) : Math.round(v * 100) / 100
+          setState({ [key]: out } as Partial<CatalogState>)
         },
         false, // scroll = false
         true,  // liveUpdate = true — real-time SDF regen preview
@@ -265,7 +344,13 @@ export function buildTextGlass(
       rowY += TG_ROW_H
     }
 
-    // --- Row 4: Font family picker ---
+    // --- Row 5: Font family picker (NON-GLASS dialog-style capsule buttons) ---
+    // Three capsule buttons (None / Google Sans / Nunito) styled EXACTLY like
+    // the dialog's Cancel/Okay capsules: solid background (no refraction, no
+    // blur, no glass highlight). Selected = filled accent (like dialog Okay);
+    // unselected = subtle surface tint (like dialog Cancel). The label is drawn
+    // as a separate text element on top (matching dialog's makeButton + makeText
+    // pattern). Index 0 = "不设置" (None), selected by default.
     elements.push(
       makeText(
         'tg-label-fontfamily',
@@ -274,36 +359,86 @@ export function buildTextGlass(
         { color: labelColor, fontSizePx: 13, fontWeight: 500, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
       )
     )
-    // Two toggle buttons side by side, each takes half the remaining width.
-    const fontBtnX = trackX + 48 + 12
-    const fontBtnW = (trackW - 48 - 12 - 12) / 2
+    const fontLabelW = 48
+    const fontGap = 8
+    const fontBtnAreaX = trackX + fontLabelW + 12
+    const fontBtnAreaW = trackW - fontLabelW - 12
     const fontBtnH = 36
+    const fontBtnW = (fontBtnAreaW - fontGap * (TEXT_GLASS_FONTS.length - 1)) / TEXT_GLASS_FONTS.length
     const fontBtnY = rowY + (TG_FONT_ROW_H - fontBtnH) / 2
     TEXT_GLASS_FONTS.forEach((font, idx) => {
       const selected = state.textGlassFontIdx === idx
-      const btn: GlassElementConfig = {
-        id: `tg-font-${idx}`,
-        kind: 'button',
-        rect: { x: fontBtnX + idx * (fontBtnW + 12), y: fontBtnY, w: fontBtnW, h: fontBtnH },
-        ...GLASS_PARAMS,
-        cornerRadius: fontBtnH / 2,
-        // Selected = filled accent tint; unselected = subtle surface.
-        tintColor: selected ? [...palette.sliderAccent, 1] : [0, 0, 0, 0],
-        surfaceColor: selected ? [0, 0, 0, 0] : [1, 1, 1, 0.12],
-        highlight: { ...DEFAULT_HIGHLIGHT },
-        outerShadow: { ...DEFAULT_SHADOW },
-        label: font.label,
-        labelColor: selected ? [1, 1, 1, 1] : labelColor,
-        labelFontSizePx: 13,
-        showChevron: false,
-        isInteractive: true,
-        scroll: false,
-      }
+      const btnX = fontBtnAreaX + idx * (fontBtnW + fontGap)
+      // makeButton with refraction/blur/highlight/shadow ALL stripped → solid
+      // capsule (non-glass), matching dialog Cancel/Okay. saturation=1 +
+      // brightness=0 + contrast=1 disable colorControls so the surface color
+      // is rendered as-is (no vibrancy).
+      const btn = makeButton(
+        `tg-font-${idx}`,
+        { x: btnX, y: fontBtnY, w: fontBtnW, h: fontBtnH },
+        {
+          label: '',
+          tintColor: [0, 0, 0, 0],
+          // Selected = accent fill (opaque); unselected = 12% white wash.
+          surfaceColor: selected
+            ? [...palette.sliderAccent, 1] as [number, number, number, number]
+            : [1, 1, 1, 0.12] as [number, number, number, number],
+          labelColor: selected ? [1, 1, 1, 1] : labelColor,
+          labelFontSizePx: 12,
+        },
+        false
+      )
+      btn.refractionHeight = 0
+      btn.refractionAmount = 0
+      btn.blurRadius = 0
+      btn.highlight = null
+      btn.outerShadow = null
+      btn.saturation = 1
+      btn.brightness = 0
+      btn.contrast = 1
+      // Dialog-style smooth (continuous-curvature) corners.
+      if (state.capsuleShape) btn.useContinuousSdf = true
       elements.push(btn)
+      // Label as separate text element (matches dialog's pattern).
+      elements.push(
+        makeText(
+          `tg-font-${idx}-label`,
+          { x: btnX, y: fontBtnY, w: fontBtnW, h: fontBtnH },
+          t(font.labelKey, locale),
+          { color: selected ? [1, 1, 1, 1] : labelColor, fontSizePx: 12, fontWeight: 500, align: 'center', paddingPx: 0, halo: 'none' }
+        )
+      )
       interactions[`tg-font-${idx}`] = {
         onTap: () => setState({ textGlassFontIdx: idx }),
       }
     })
+    rowY += TG_FONT_ROW_H
+
+    // --- Row 6: Raw SDF debug toggle (settings-style toggle switch) ---
+    // A real toggle switch (track + sliding knob) matching the Settings page's
+    // makeSettingsToggle, NOT a capsule button. When ON, the glass text element
+    // renders the SDF texture's R channel directly as grayscale (bypassing all
+    // glass effects) so the user can inspect texture quality / padding /
+    // aliasing. The toggle sits on the right side of the row; the label on
+    // the left explains what it does.
+    const rawToggleRow = { x: trackX, y: rowY, w: trackW, h: TG_TOGGLE_ROW_H }
+    const rawToggle = makeSettingsToggle(
+      'tg-rawsdf',
+      rawToggleRow,
+      t('text_glass_raw_sdf', locale),
+      state.textGlassRawSdf,
+      () => setState((prev) => ({ textGlassRawSdf: !prev.textGlassRawSdf })),
+      palette,
+      rendererRef,
+      false, // scroll = false
+      0,    // labelPad = 0 (label at row left edge)
+      true, // onGlassCard = true — toggle sits on the glass sheet, NOT a
+            // solid card. This omits solidBackdropColor so the knob samples
+            // the real backdrop (the rendered glass sheet) instead of a flat
+            // color that would make it appear black in dark theme.
+    )
+    elements.push(...rawToggle.elements)
+    Object.assign(interactions, rawToggle.interactions)
   } // end if (state.textGlassSheetExpanded)
 
   // ---- Collapse/expand toggle button (bottom-left, GP-style) ----
@@ -329,6 +464,8 @@ export function buildTextGlass(
       color: [1, 1, 1, 1],
     },
   }
+  // Smooth (continuous-curvature squircle) corners on the toggle button.
+  if (state.capsuleShape) toggleBtn.useContinuousSdf = true
   elements.push(toggleBtn)
   interactions['tg-toggle'] = {
     onTap: () => setState((prev) => ({ textGlassSheetExpanded: !prev.textGlassSheetExpanded })),

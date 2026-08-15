@@ -101,6 +101,25 @@ uniform float uUseSdfTexture;       // 0 or 1
 uniform vec2  uSdfTexSize;          // texture natural dimensions (px)
 uniform float uSdfLightAngle;       // bevel light angle (degrees)
 uniform float uEnterAlpha;          // global element alpha (enterProgress, 0..1)
+// Highlight generation distance multiplier. The SDF-texture shader computes
+// intensity = circleMap(1.0 - min(1.0, -sd * uSdfHighlightScale)) where sd is
+// the normalized signed distance (-1 deep inside, 0 at edge, +1 far outside).
+// Higher value = highlight extends further into the interior. Default 1.5
+// matches the original hardcoded constant in SdfShader.kt.
+uniform float uSdfHighlightScale;   // default 1.5
+// Raw SDF debug render — when > 0.5, the SDF-texture glass path bypasses all
+// glass effects and outputs the SDF's R channel directly as grayscale
+// (inside = white, outside = black, AA via A channel). Used by TextGlass to
+// inspect texture quality / aliasing / padding.
+uniform float uSdfDebugMode;        // 0 or 1
+// Coverage (A channel) → mask smoothstep range. The clock_sdf.webp texture
+// uses (0.5, 1.0) — its A channel is 0 outside, 255 inside with a 1px AA
+// edge, so smoothstep(0.5, 1.0) gives a 0.5px AA edge. The text SDF texture
+// stores the raw Canvas2D alpha (0..255 with a 1-2px AA edge); using
+// (0.5, 1.0) clips the lower half of the AA range → hard aliased edges,
+// especially on small text. For text SDF, we widen to (0.0, 1.0) so the
+// full Canvas2D AA gradient is preserved → smooth edges at all sizes.
+uniform float uSdfAaMin;            // default 0.5 (clock_sdf); 0.0 for text SDF
 // --- Per-element FBO optimization ---
 // When uUsePerElementFbo > 0.5, the element is being rendered into a small
 // bbox-sized FBO (NOT the fullscreen scene FBO). In that case gl_FragCoord

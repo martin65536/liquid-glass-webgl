@@ -73,3 +73,36 @@ export const SLIDER_TRACK_H = 6 * DP
 export const SLIDER_KNOB_W = 40 * DP
 export const SLIDER_KNOB_H = 24 * DP
 export const SLIDER_HIT_H = 48 * DP
+
+/* ------------------------------------------------------------------ *
+ * TextGlass layout constants + fontSize range helper.
+ *
+ * These are shared between build-text-glass.ts (which sizes the glass
+ * element + slider ranges) and use-catalog-targets.ts (which maps slider
+ * state → renderer fraction). Both MUST use the same fontSizeMax, otherwise
+ * the slider knob position drifts out of sync with the state value.
+ * ------------------------------------------------------------------ */
+export const TG_SHEET_X = 16 * DP
+export const TG_SHEET_RADIUS = 32 * DP
+export const TG_INNER_PAD = 24 * DP
+export const TG_ROW_H = 16 + 12 + 24 + 16 // label(16) + gap(12) + slider(24) + gap(16)
+export const TG_INPUT_ROW_H = 48
+export const TG_FONT_ROW_H = 48
+export const TG_TOGGLE_ROW_H = 44
+export const TG_TOGGLE_BTN_SIZE = 56 * DP
+
+/** Compute the font-size slider's MAX value for a given viewport (W, H).
+ *  This equals the glass element's maxH (= availableH * 0.7), so the slider's
+ *  top end maps exactly to the largest text that fits on screen — the whole
+ *  range is LINEAR and useful, with no dead plateau where the text is clamped
+ *  and stops growing. The slider value IS the on-screen glass height (CSS px).
+ *
+ *  Mirrors the geometry in build-text-glass.ts: bottomBtnSpace + sheet
+ *  reserved height subtracted from H, then * 0.7. */
+export function computeTextGlassFontSizeMax(W: number, H: number): number {
+  const bottomBtnSpace = 20 * DP + TG_TOGGLE_BTN_SIZE + 12 * DP
+  const sheetReservedH =
+    TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 3 + TG_FONT_ROW_H + TG_TOGGLE_ROW_H + TG_INNER_PAD
+  const availableH = H - bottomBtnSpace - sheetReservedH
+  return Math.max(40, Math.round(availableH * 0.7))
+}

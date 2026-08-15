@@ -25,6 +25,11 @@ export interface TextSdfResult {
   data: Uint8ClampedArray
   width: number
   height: number
+  /** Actual (unpadded) text metrics in px — the glyph box before padding.
+   *  Used by the builder to size the glass element so fontSize truly maps
+   *  to on-screen size (instead of a fixed-width box that ignores fontSize). */
+  textW: number
+  textH: number
 }
 
 export interface TextSdfOptions {
@@ -113,7 +118,7 @@ export function generateTextSdf(text: string, opts: TextSdfOptions): TextSdfResu
 
   if (!text || text.trim().length === 0) {
     // Empty text → 1×1 transparent texture (shader discards everything).
-    return { data: new Uint8ClampedArray(4), width: 1, height: 1 }
+    return { data: new Uint8ClampedArray(4), width: 1, height: 1, textW: 0, textH: 0 }
   }
 
   // 1. Measure text on a temporary canvas.
@@ -122,10 +127,21 @@ export function generateTextSdf(text: string, opts: TextSdfOptions): TextSdfResu
   measureCtx.font = opts.font
   const metrics = measureCtx.measureText(text)
   const textW = Math.max(1, Math.ceil(metrics.width))
-  // Approximate ascent+descent from the metrics where available, else fall
-  // back to a typical 0.8 ascent / 0.25 descent ratio for the font size.
-  const ascent = (metrics as TextMetrics).actualBoundingBoxAscent || targetHeight * 0.8
-  const descent = (metrics as TextMetrics).actualBoundingBoxDescent || targetHeight * 0.25
+  // Use the FONT's bounding box (fontBoundingBoxAscent/Descent) — the font
+  // designer's fixed metrics — instead of the actual rendered glyphs' box
+  // (actualBoundingBoxAscent/Descent). The latter depends on WHICH characters
+  // are typed: "Hello" (capitals) has a taller ascent than "hello", "gpy"
+  // (descenders) has a deeper descent than "abc". That made textH (and thus
+  // the glass element size) change whenever the user typed more or fewer
+  // characters — "字多字少会影响渲染大小". The font bounding box is identical
+  // for all glyphs in the font, so textH becomes a pure function of fontSize
+  // → the glass element size depends ONLY on fontSize ("以 fontSize 为准").
+  const ascent = (metrics as TextMetrics).fontBoundingBoxAscent
+    || (metrics as TextMetrics).actualBoundingBoxAscent
+    || targetHeight * 0.8
+  const descent = (metrics as TextMetrics).fontBoundingBoxDescent
+    || (metrics as TextMetrics).actualBoundingBoxDescent
+    || targetHeight * 0.25
   const textH = Math.max(1, Math.ceil(ascent + descent))
 
   // 2. Final texture dimensions: text + padding, aspect-preserving.
@@ -210,5 +226,5 @@ export function generateTextSdf(text: string, opts: TextSdfOptions): TextSdfResu
     }
   }
 
-  return { data: out, width: w, height: h }
+  return { data: out, width: w, height: h, textW, textH }
 }

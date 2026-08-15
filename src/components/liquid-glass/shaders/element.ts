@@ -107,6 +107,32 @@ void main() {
         float sdfMask = sdfData.y;
         vec2 normal = sdfData.zw;
 
+        // --- Raw SDF debug render -----------------------------------
+        // Bypass all glass effects and output the SDF texture's R channel
+        // directly as grayscale. Inside (sd<0) → white, edge (sd=0) → 0.5,
+        // outside (sd>0) → black. The A channel is preserved for AA. This
+        // makes SDF quality / padding / aliasing directly visible — useful
+        // when tuning DPR-adapted generation or highlight scale.
+        if (uSdfDebugMode > 0.5) {
+            vec2 uv = vec2(localPx.x / uOriginalSize.x,
+                           localPx.y / uOriginalSize.y);
+            vec4 v = texture2D(uSdfTexSampler, uv);
+            // Decode R back to [-1,1]: negative = inside, positive = outside.
+            float sd = v.r * 2.0 - 1.0;
+            // Map sd ∈ [-1, 1] → gray ∈ [1, 0] (inside white, outside black).
+            float gray = clamp(0.5 - sd * 0.5, 0.0, 1.0);
+            // Overlay the normal as a faint RGB tint (so gradient direction is
+            // visible). Multiplied by 0.15 so it doesn't swamp the gray.
+            vec3 normalTint = vec3(v.g * 2.0 - 1.0, v.b * 2.0 - 1.0, 0.0) * 0.15;
+            vec3 dbg = vec3(gray) + normalTint;
+            // Use the same AA range as the non-debug path so the debug view
+            // shows the real edge quality (not a hard threshold).
+            float mask = smoothstep(uSdfAaMin, 1.0, v.a);
+            float coverage = mask * uEnterAlpha;
+            gl_FragColor = vec4(dbg * coverage, coverage);
+            return;
+        }
+
         // Sample the WALLPAPER directly (not the scene FBO) — faithful to
         // LockScreenContent.kt's drawPlainBackdrop which uses the LayerBackdrop
         // (raw wallpaper, before the dark scrim is drawn).

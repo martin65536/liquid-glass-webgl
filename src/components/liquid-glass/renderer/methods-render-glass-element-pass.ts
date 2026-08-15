@@ -273,8 +273,34 @@ export const glassElementPassMethods = {
         this.uEl['uRefractionHeight'],
         (this.quickToggles.refraction ? el.isSdfTexture.refractionHeight : 0) * this.dpr
       )
+      // Highlight scale (default 1.5) + raw-SDF debug toggle. Both fall back
+      // to safe defaults when the element doesn't specify them (e.g. the
+      // LockScreen clock_sdf uses defaults).
+      gl.uniform1f(
+        this.uEl['uSdfHighlightScale'],
+        el.isSdfTexture.highlightScale ?? 1.5
+      )
+      gl.uniform1f(
+        this.uEl['uSdfDebugMode'],
+        el.isSdfTexture.debugMode ? 1.0 : 0.0
+      )
+      // AA range: clock_sdf uses (0.5, 1.0) for its narrow precomputed AA.
+      // Text SDF uses (0.0, 1.0) to preserve the full Canvas2D AA gradient
+      // (the text SDF's A channel is the raw alpha 0..255 with a 1-2px edge).
+      gl.uniform1f(
+        this.uEl['uSdfAaMin'],
+        el.isSdfTexture.aaMin ?? 0.5
+      )
     } else {
       gl.uniform1f(this.uEl['uUseSdfTexture'], 0.0)
+      // Reset the SDF-specific uniforms to safe defaults so a non-SDF element
+      // rendered after an SDF one doesn't accidentally pick up the prior
+      // element's debug-mode / highlight-scale (the shader's uUseSdfTexture=0
+      // branch skips the SDF path entirely, but keeping the uniforms sane
+      // avoids confusion when debugging).
+      gl.uniform1f(this.uEl['uSdfHighlightScale'], 1.5)
+      gl.uniform1f(this.uEl['uSdfDebugMode'], 0.0)
+      gl.uniform1f(this.uEl['uSdfAaMin'], 0.5)
       // Bind the dummy 1×1 texture to TEXTURE2 so the uSdfTexSampler /
       // uContinuousSdf samplers (both declared in the shader, both pointing
       // at unit 2 from a prior element's pass) always see a COMPLETE texture.

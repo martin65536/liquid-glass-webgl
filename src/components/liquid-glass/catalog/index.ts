@@ -13,7 +13,9 @@ import {
   measureTextWidth,
   setGravityAngle,
   draggingGroups,
+  TEXT_GLASS_FONTS,
 } from './types'
+import { computeTextGlassFontSizeMax } from './constants'
 import { t, type Locale } from './i18n'
 import { makeButton, makeThemeToggleButton } from './helpers'
 import { buildHome } from './build-home'
@@ -39,6 +41,7 @@ export {
   CatalogDestination,
   DEFAULT_CATALOG_STATE,
   TEXT_GLASS_FONTS,
+  computeTextGlassFontSizeMax,
   type CatalogState,
   type CatalogResult,
   type ThemePalette,
