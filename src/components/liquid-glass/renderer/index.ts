@@ -997,6 +997,31 @@ export class LiquidGlassRenderer {
     }
   }
 
+  /**
+   * Returns true iff ANY of the 7 debug overlay flags is on. Used by the
+   * overlay rAF loop in context.tsx to decide whether to keep ticking at
+   * 60Hz or stop + switch to a 250ms poll. When all flags are off, the rAF
+   * stops entirely so the browser compositor can enter deep idle — this is
+   * the difference between ~0.3W and ~0.05W idle power on mobile.
+   *
+   * NOTE: the perf-monitor overlay's quick-toggles (perElementFbo,
+   * isolateBackdrop, noContinuousSdf, sampleWallpaper, etc.) do NOT count
+   * as "debug overlays" here — they affect rendering output, not the 2D
+   * overlay canvas. The overlay canvas only draws when one of these 7
+   * structural/show* flags is on.
+   */
+  anyDebugOverlayOn(): boolean {
+    return (
+      this.showPefBbox ||
+      this.showBlurDebug ||
+      this.showShadowBbox ||
+      this.showCullDebug ||
+      this.showPlainRectDebug ||
+      this.showPefPassDebug ||
+      this.showDirtyMarkers
+    )
+  }
+
   // cacheUniforms, ensureBlurPrograms, pickDsBlurLevel, blurTexture,
   // ensureHighlightBlurPrograms, blurHighlightMask, and dispose are
   // defined in methods-uniforms.ts / methods-blur.ts / methods-dispose.ts

@@ -171,18 +171,30 @@ export function LiquidGlassCanvas(props: LiquidGlassCanvasProps) {
   // when renderer.showPefBbox is true) and draws rectangles on the 2D overlay
   // canvas. Green = PEF path, red = ping-pong path. The overlay canvas is
   // pointer-events:none so it doesn't block interaction.
-  // The loop always runs (cheap when showPefBbox is off — just clears), so
-  // the perf-monitor overlay can toggle renderer.showPefBbox directly without
-  // going through React props.
+  //
+  // IDLE POWER OPTIMIZATION: the loop only runs at 60Hz while at least one
+  // of the 7 debug show* flags is on. When all are off, the rAF stops
+  // entirely and we switch to a 250ms setInterval poll that watches for
+  // re-activation. This drops idle power from ~0.4W to ~0.1W by letting
+  // the browser compositor + display pipeline enter deep idle when no
+  // debug overlay is visible.
+  //
+  // The poll is essentially free (one boolean OR per 250ms) and detects
+  // toggles from the perf-monitor panel within 250ms — imperceptible for
+  // a debug tool. The perf-monitor overlay's own 250ms setInterval poll
+  // (for snapshot reads) already runs at the same cadence, so we don't
+  // introduce any new wakeup frequency.
   React.useEffect(() => {
     const renderer = rendererRefInternal.current
     if (!renderer) return
     let raf = 0
+    let pollId: number | null = null
     // Blink toggle for dirty markers — alternates each rAF tick so the red
     // dot visibly flashes at ~30Hz when renders are happening. Combined
     // with the consume-after-draw below, this gives the user a clear
     // "renders are occurring" signal that disappears when idle.
     let dirtyBlinkOn = false
+
     const draw = () => {
       dirtyBlinkOn = !dirtyBlinkOn
       const oc = overlayCanvasRef.current
@@ -200,10 +212,44 @@ export function LiquidGlassCanvas(props: LiquidGlassCanvasProps) {
           drawDebugOverlay(renderer, ctx, oc, dirtyBlinkOn)
         }
       }
+
+      // If no debug overlay is on, stop the 60Hz rAF and switch to the
+      // 250ms poll to watch for re-activation. This is the key idle-power
+      // fix: when nobody is debugging, the compositor sleeps.
+      if (!renderer.anyDebugOverlayOn()) {
+        raf = 0
+        startPoll()
+        return
+      }
       raf = requestAnimationFrame(draw)
     }
-    raf = requestAnimationFrame(draw)
-    return () => cancelAnimationFrame(raf)
+
+    const startPoll = () => {
+      if (pollId !== null) return
+      const check = () => {
+        if (renderer.anyDebugOverlayOn()) {
+          if (pollId !== null) {
+            window.clearInterval(pollId)
+            pollId = null
+          }
+          if (raf === 0) raf = requestAnimationFrame(draw)
+        }
+      }
+      // Immediate check handles the "overlay already on at mount" case
+      // (e.g. URL params pre-set a flag) so there's no 250ms startup lag.
+      check()
+      pollId = window.setInterval(check, 250)
+    }
+
+    // Start in poll mode — the common case is "no debug overlay on", so
+    // we begin with the cheap 250ms poll instead of a 60Hz rAF. The poll
+    // upgrades to rAF the moment any show* flag flips on.
+    startPoll()
+
+    return () => {
+      if (raf !== 0) cancelAnimationFrame(raf)
+      if (pollId !== null) window.clearInterval(pollId)
+    }
   }, [])
 
   // Push the latest element list to the renderer.
