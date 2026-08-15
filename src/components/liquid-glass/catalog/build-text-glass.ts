@@ -180,23 +180,6 @@ export function buildTextGlass(
     onDragEnd: () => {},
   }
 
-  // Hint text (under the glass text)
-  elements.push(
-    makeText(
-      'tg-hint',
-      { x: 24, y: glassY + glassH + 12, w: W - 48, h: 32 },
-      t('text_glass_hint', locale),
-      {
-        color: [1, 1, 1, 0.8],
-        fontSizePx: 13,
-        fontWeight: 400,
-        align: 'center',
-        paddingPx: 0,
-        halo: 'dark',
-      }
-    )
-  )
-
   // ---- Control sheet (bottom, glass card) — only when expanded ----
   if (state.textGlassSheetExpanded) {
     const sheetX = TG_SHEET_X
