@@ -252,8 +252,15 @@ export const wallpaperMethods = {
   resize(this: LiquidGlassRenderer, cssW: number, cssH: number) {
     // Don't override dpr if it was set externally (e.g. Settings page).
     // Only set the default cap on first call.
+    //
+    // Cap raised from 1.5 → 3. The old 1.5 cap caused text-glass SDF textures
+    // (generated at fontSize*dpr) to be rendered at 1.5× while the screen
+    // displays at 2× or 3× — the texture got upscaled 1.33×–2× on every
+    // Retina/mobile device, making large font sizes look blurry/jagged. dpr=3
+    // covers virtually all phones (iPhone Pro Max = 3) and Retina displays (2)
+    // without the memory blow-up of unbounded dpr (some devices report 4).
     if (this.dpr <= 0) {
-      this.dpr = Math.min(window.devicePixelRatio || 1, 1.5)
+      this.dpr = Math.min(window.devicePixelRatio || 1, 3)
     }
     const w = Math.round(cssW * this.dpr)
     const h = Math.round(cssH * this.dpr)
