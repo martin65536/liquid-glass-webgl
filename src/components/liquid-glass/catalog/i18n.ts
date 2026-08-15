@@ -148,6 +148,8 @@ const translations: Record<string, { zh: string; en: string }> = {
   page_text_glass:          { zh: '文字玻璃', en: 'Text glass' },
   text_glass_hint:          { zh: '拖动文字 · 在下方面板调整字体', en: 'Drag the text · tweak font in the panel below' },
   text_glass_font_size:     { zh: '字号', en: 'Font size' },
+  text_glass_size:          { zh: '大小', en: 'Size' },
+  text_glass_quality:       { zh: '质量', en: 'Quality' },
   text_glass_font_weight:   { zh: '字重', en: 'Font weight' },
   text_glass_font_family:   { zh: '字体', en: 'Font' },
   text_glass_font_none:     { zh: '不设置', en: 'None' },

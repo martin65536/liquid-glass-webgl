@@ -85,6 +85,14 @@ export function useTextGlass(opts: {
         // element's device-px size exactly (sampleSdfTexture maps UV 0..1 over
         // uOriginalSize = origW*dpr, so a dpr-scaled texture samples 1:1).
         const dpr = renderer.dpr > 0 ? renderer.dpr : 1
+        // Quality multiplier (0.5..2.0) decouples RENDER RESOLUTION from
+        // on-screen SIZE. The texture is generated at (fontSize * dpr * quality)
+        // px tall: quality=1 = native device-pixel res; 0.5 = half-res (faster,
+        // blurrier); 2 = 2× supersampled (sharper, heavier). The on-screen
+        // glass height is unaffected because texH is divided back by (dpr*quality)
+        // below — only the internal texture resolution changes.
+        const quality = state.textGlassQuality > 0 ? state.textGlassQuality : 1
+        const resScale = dpr * quality
         // CONSTANT padding (independent of fontSize). Previously this was
         // proportional to fontSize (0.2×, clamped 16..40), which made texH
         // (= textH + 2*padding) grow NON-LINEARLY with fontSize: at small
@@ -96,11 +104,11 @@ export function useTextGlass(opts: {
         // 8px is enough SDF spread for the bevel/refraction edge falloff
         // without bloating the texture at small sizes.
         const basePadding = 8
-        const font = `${state.textGlassFontWeight} ${Math.round(state.textGlassFontSize * dpr)}px ${family}`
+        const font = `${state.textGlassFontWeight} ${Math.round(state.textGlassFontSize * resScale)}px ${family}`
         const { data, width, height } = generateTextSdf(text, {
           font,
-          padding: Math.round(basePadding * dpr),
-          targetHeight: state.textGlassFontSize * dpr,
+          padding: Math.round(basePadding * resScale),
+          targetHeight: state.textGlassFontSize * resScale,
         })
         renderer.loadSdfTextureFromData(data, width, height)
         // Push the CSS-pixel aspect ratio + texture height into state so the
@@ -111,10 +119,13 @@ export function useTextGlass(opts: {
         // "hello" vs "gpy" no longer changes the glass element's HEIGHT; only
         // the WIDTH changes (more characters = wider text, naturally). This
         // is "以 fontSize 为准": the glass height depends ONLY on fontSize.
-        // The texture HEIGHT (in CSS px = device-px / dpr) drives the on-screen
-        // glass height; aspect (w/h) is dimensionless so dpr cancels out.
+        // The texture HEIGHT (in CSS px = device-px / resScale) drives the
+        // on-screen glass height; aspect (w/h) is dimensionless so resScale
+        // cancels out. Dividing by resScale (not just dpr) means the glass
+        // size is independent of quality — quality only changes internal
+        // texture resolution, not the on-screen element size.
         const aspect = width / height
-        const texH = height / dpr
+        const texH = height / resScale
         setState((prev) => {
           const sameAspect = Math.abs(prev.textGlassAspect - aspect) < 0.01
           const sameTexH = Math.abs(prev.textGlassTexH - texH) < 1
@@ -133,6 +144,7 @@ export function useTextGlass(opts: {
     destination,
     state.textGlassText,
     state.textGlassFontSize,
+    state.textGlassQuality,
     state.textGlassFontWeight,
     state.textGlassFontIdx,
     rendererReady,

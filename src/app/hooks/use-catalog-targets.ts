@@ -48,10 +48,10 @@ export function useCatalogTargets({ destination, state, W, H }: UseCatalogTarget
       // state.textGlassRawSdf but the knob never moves (the spring has no
       // target). Map isOn → fraction 1/0 so setToggleTarget drives the knob.
       targets['tg-rawsdf'] = state.textGlassRawSdf ? 1 : 0
-      // Three sliders on the TextGlass sheet. The builder assigns groupIds
-      // `tg-slider-0`, `tg-slider-1`, `tg-slider-2` (NOT keyed by state name),
-      // so we must map state → slider index in the SAME ORDER as the
-      // builder's sliderDefs array: [fontSize, fontWeight, highlightScale].
+      // Four sliders on the TextGlass sheet. The builder assigns groupIds
+      // `tg-slider-0`..`tg-slider-3` (NOT keyed by state name), so we must
+      // map state → slider index in the SAME ORDER as the builder's
+      // sliderDefs array: [fontSize, fontWeight, highlightScale, quality].
       // Ranges must match build-text-glass.ts sliderDefs exactly.
       // fontSizeMax is DYNAMIC (= maxH, the largest text that fits on screen),
       // computed via computeTextGlassFontSizeMax so the slider's top end maps
@@ -63,6 +63,8 @@ export function useCatalogTargets({ destination, state, W, H }: UseCatalogTarget
       targets['tg-slider-0'] = Math.max(0, Math.min(1, state.textGlassFontSize / fontSizeMax))
       targets['tg-slider-1'] = (state.textGlassFontWeight - 1) / (1000 - 1)
       targets['tg-slider-2'] = (state.textGlassHighlightScale - 0) / (5 - 0)
+      // Quality slider: range [0.5, 2.0]. fraction = (quality - 0.5) / 1.5.
+      targets['tg-slider-3'] = Math.max(0, Math.min(1, (state.textGlassQuality - 0.5) / 1.5))
     }
     if (destination === CatalogDestination.Settings) {
       const deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
@@ -93,7 +95,7 @@ export function useCatalogTargets({ destination, state, W, H }: UseCatalogTarget
       targets['settings-perf-monitor-toggle'] = state.showPerfMonitor ? 1 : 0
     }
     return targets
-  }, [destination, W, H, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration, state.textGlassRawSdf, state.textGlassFontSize, state.textGlassFontWeight, state.textGlassHighlightScale, state.customDpr, state.blurTapCap, state.blurDownsample, state.globalSeparableBlur, state.dynamicBlurDownsample, state.capsuleShape, state.noContinuousSdf, state.capsuleSdfQuality, state.hideOverlayButtons, state.pageTransition, state.showFps, state.highlightAa, state.usePerElementFbo, state.showPerfMonitor, state.directBackdropSample])
+  }, [destination, W, H, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration, state.textGlassRawSdf, state.textGlassFontSize, state.textGlassQuality, state.textGlassFontWeight, state.textGlassHighlightScale, state.customDpr, state.blurTapCap, state.blurDownsample, state.globalSeparableBlur, state.dynamicBlurDownsample, state.capsuleShape, state.noContinuousSdf, state.capsuleSdfQuality, state.hideOverlayButtons, state.pageTransition, state.showFps, state.highlightAa, state.usePerElementFbo, state.showPerfMonitor, state.directBackdropSample])
 
   const tabTargets = React.useMemo<Record<string, { tabIndex: number; tabsCount: number }>>(() => {
     const targets: Record<string, { tabIndex: number; tabsCount: number }> = {}

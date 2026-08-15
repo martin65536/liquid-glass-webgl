@@ -97,7 +97,7 @@ export function buildTextGlass(
   // from moving/rescaling when the user expands/collapses the control sheet
   // ("展开收起面板字要移动缩放"). The text stays put; the sheet slides
   // up/down over the reserved space below it.
-  const sheetReservedH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 3 + TG_FONT_ROW_H + TG_TOGGLE_ROW_H + TG_INNER_PAD
+  const sheetReservedH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 4 + TG_FONT_ROW_H + TG_TOGGLE_ROW_H + TG_INNER_PAD
   const availableH = H - bottomBtnSpace - sheetReservedH
   const aspect = state.textGlassAspect > 0 ? state.textGlassAspect : 3
   // The glass element height = texH (texture height in CSS px = textH + 2*pad).
@@ -204,9 +204,9 @@ export function buildTextGlass(
     const trackX = sheetX + TG_INNER_PAD
     const trackW = sheetW - 2 * TG_INNER_PAD
 
-    // Sheet height: input row + 3 slider rows (size, weight, highlight scale)
+    // Sheet height: input row + 4 slider rows (size, weight, highlight, quality)
     // + font row + raw-SDF toggle row + padding.
-    const sheetH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 3 + TG_FONT_ROW_H + TG_TOGGLE_ROW_H + TG_INNER_PAD
+    const sheetH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 4 + TG_FONT_ROW_H + TG_TOGGLE_ROW_H + TG_INNER_PAD
     const sheetY = H - bottomBtnSpace - sheetH
 
     // Sheet glass card (independentBackdrop → samples wallpaper directly,
@@ -274,9 +274,12 @@ export function buildTextGlass(
     elements.push(tgInputGlass)
     rowY += TG_INPUT_ROW_H
 
-    // --- Rows 2-4: Font size + font weight + highlight scale sliders ---
+    // --- Rows 2-5: Size + Font weight + Highlight scale + Quality sliders ---
     // Ranges widened so the user can explore extremes:
-    //   fontSize      0..1000  (0 = empty/hidden texture; 1000 = huge)
+    //   fontSize      0..fontSizeMax  (on-screen glass height in CSS px, 1:1.
+    //                                 0 = empty/hidden texture; max = largest
+    //                                 text that fits on screen. The slider
+    //                                 value IS the glass height.)
     //   fontWeight    1..1000  (1 = thinnest CSS weight; 1000 = thickest.
     //                          Standard fonts cap at 100, but variable fonts
     //                          support the full 1..1000 range. Inter/Nunito
@@ -288,8 +291,13 @@ export function buildTextGlass(
     //                          That's a font-availability limit, not a bug.)
     //   highlightScale 0..5    (0 = no highlight; 5 = highlight fills most of
     //                          the glyph interior)
-    // Highlight scale uses a fractional value so we keep full float precision
-    // instead of Math.round-ing like the integer sliders do.
+    //   quality       0.5..2.0 (render-resolution multiplier, INDEPENDENT of
+    //                          on-screen size. quality=1 = native device-pixel
+    //                          res; 0.5 = half-res (faster, blurrier); 2 = 2×
+    //                          supersampled (sharper, heavier). Decouples SIZE
+    //                          from SHARPNESS so big text can be crisp and
+    //                          small text can be fast.)
+    // Highlight scale + quality stay fractional; size/weight round to integers.
     //
     // fontSize max = availableH * 0.7 (= maxH), so the slider's TOP end
     // maps exactly to the largest text that fits on screen — the whole
@@ -298,9 +306,10 @@ export function buildTextGlass(
     // value IS the on-screen glass height (CSS px), 1:1.
     const fontSizeMax = computeTextGlassFontSizeMax(W, H)
     const sliderDefs = [
-      { key: 'textGlassFontSize' as const, label: t('text_glass_font_size', locale), range: [0, fontSizeMax] as const, round: true },
+      { key: 'textGlassFontSize' as const, label: t('text_glass_size', locale), range: [0, fontSizeMax] as const, round: true },
       { key: 'textGlassFontWeight' as const, label: t('text_glass_font_weight', locale), range: [1, 1000] as const, round: true },
       { key: 'textGlassHighlightScale' as const, label: t('text_glass_highlight_scale', locale), range: [0, 5] as const, round: false },
+      { key: 'textGlassQuality' as const, label: t('text_glass_quality', locale), range: [0.5, 2] as const, round: false },
     ]
     let sliderIdx = 0
     for (const s of sliderDefs) {

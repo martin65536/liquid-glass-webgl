@@ -299,6 +299,14 @@ export interface CatalogState {
   // TextGlass — font size (px) used to render the SDF texture. Larger =
   // sharper but heavier SDF generation + GPU upload.
   textGlassFontSize: number
+  // TextGlass — render quality multiplier (0.5..2.0). Scales the SDF texture's
+  // internal resolution independently of the on-screen glass size. The texture
+  // is generated at (fontSize * quality * dpr) px tall, so quality=1 = native
+  // device-pixel resolution; quality=0.5 = half-res (faster, blurrier);
+  // quality=2 = 2× supersampled (sharper, heavier). Decouples visual SIZE
+  // (fontSize slider) from RENDER RESOLUTION (quality slider) so the user can
+  // pick a big glass AND high sharpness, or a small glass at low quality.
+  textGlassQuality: number
   // TextGlass — CSS font-weight (100..900) used to render the SDF texture.
   textGlassFontWeight: number
   // TextGlass — selected font family index into TEXT_GLASS_FONTS.
@@ -381,6 +389,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   textGlassOffsetX: 0,
   textGlassOffsetY: 0,
   textGlassFontSize: 200,
+  textGlassQuality: 1,
   textGlassFontWeight: 700,
   textGlassFontIdx: 0,
   textGlassSheetExpanded: true,
