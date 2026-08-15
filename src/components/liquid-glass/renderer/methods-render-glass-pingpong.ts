@@ -19,15 +19,15 @@ export function renderGlassElement(
   this: LiquidGlassRenderer,
   el: GlassElementConfig,
   st: ElementState | undefined,
-  curFbo: WebGLFramebuffer | null,
+  curFbo: WebGLFramebuffer,
   curTex: WebGLTexture,
-  otherFbo: WebGLFramebuffer | null,
+  otherFbo: WebGLFramebuffer,
   otherTex: WebGLTexture,
   r: { x: number; y: number; w: number; h: number }
 ): {
-  curFbo: WebGLFramebuffer | null
+  curFbo: WebGLFramebuffer
   curTex: WebGLTexture
-  otherFbo: WebGLFramebuffer | null
+  otherFbo: WebGLFramebuffer
   otherTex: WebGLTexture
 } {
   const gl = this.gl

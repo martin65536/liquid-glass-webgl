@@ -27,9 +27,9 @@ export function renderGlassElementPerFbo(
   this: LiquidGlassRenderer,
   el: GlassElementConfig,
   st: ElementState | undefined,
-  curFbo: WebGLFramebuffer | null,
+  curFbo: WebGLFramebuffer,
   curTex: WebGLTexture,
-  otherFbo: WebGLFramebuffer | null,
+  otherFbo: WebGLFramebuffer,
   otherTex: WebGLTexture,
   computed: {
     sx: number; sy: number; sw: number; sh: number
@@ -42,9 +42,9 @@ export function renderGlassElementPerFbo(
     elDirty: boolean
   }
 ): {
-  curFbo: WebGLFramebuffer | null
+  curFbo: WebGLFramebuffer
   curTex: WebGLTexture
-  otherFbo: WebGLFramebuffer | null
+  otherFbo: WebGLFramebuffer
   otherTex: WebGLTexture
 } {
   const gl = this.gl

@@ -61,7 +61,6 @@ export function buildRenderingCard(ctx: BuildSettingsCtx): void {
     initFrac,
     snapFrac,
     (f) => { setState({ liveDpr: fracToDpr(snapFrac(f)) }) },
-    cardBg,
   )
   elements.push(...dprSlider.elements)
   Object.assign(interactions, dprSlider.interactions)
@@ -185,7 +184,6 @@ export function buildRenderingCard(ctx: BuildSettingsCtx): void {
     qInitFrac,
     qClampFrac,
     (f) => { setState({ liveCapsuleSdfQuality: qFracToQ(f) }) },
-    cardBg,
   )
   elements.push(...qSlider.elements)
   Object.assign(interactions, qSlider.interactions)

@@ -18,7 +18,7 @@ declare module './index' {
       el: GlassElementConfig,
       r: { x: number; y: number; w: number; h: number },
       st: ElementState | undefined,
-      curFbo: WebGLFramebuffer | null
+      curFbo: WebGLFramebuffer
     ): boolean
   }
 }
@@ -36,7 +36,7 @@ export const nonGlassMethods = {
     el: GlassElementConfig,
     r: { x: number; y: number; w: number; h: number },
     st: ElementState | undefined,
-    curFbo: WebGLFramebuffer | null
+    curFbo: WebGLFramebuffer
   ): boolean {
     // Apply enterProgress translationY (ControlCenter) to the rect.
     // Uses DERIVED progress (with ProgressConverter) — faithful to

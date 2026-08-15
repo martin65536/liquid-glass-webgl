@@ -45,15 +45,8 @@ export function computeCacheFlags(
   // useContinuousSdf (capsule shape) is NOT an exclusion: the SDF texture is
   // baked into the cached elFbo at raster time and never re-read on a cache
   // hit (the element pass is skipped). See the docstring above for full rationale.
-  // Top-level solidBackdropColor (theme/back button on solid-bg pages):
-  // the element samples a flat color (no texture), so its cached elFbo is
-  // valid forever regardless of wallpaperTexture. cacheable=true makes it
-  // rasterize ONCE and cache-hit every subsequent frame ("不用重绘").
-  // positionInvariant=true also skips the backdrop_overlap miss check, so
-  // no dirty rect from scrolling/animation can bust this element's cache.
-  const solidTopLevel = !!el.solidBackdropColor
-  const cacheable = solidTopLevel || !!(this.wallpaperTexture && !el.backdropFbo)
-  const positionInvariant = solidTopLevel || !!(
+  const cacheable = !!(this.wallpaperTexture && !el.backdropFbo)
+  const positionInvariant = !!(
     el.isToggleKnob?.solidBackdropColor &&
     !el.backdropFbo
   )

@@ -184,3 +184,30 @@ Stage Summary:
 - 修复：makeLiquidSlider 增加 solidBackdropColor 参数，Settings 4 个 slider 传 cardBg，elementReadsSceneTexture 精确判断。
 - 修改文件：helpers-slider.ts（+solidBackdropColor 参数 + knob patch）、build-settings-rendering-card.ts（2 处传 cardBg）、build-settings-blur-card.ts（2 处传 cardBg）、methods-render.ts（elementReadsSceneTexture 精确化），共 4 文件 +37/-2。
 - 远程：webgl-port-integration @ c822061。
+
+---
+Task ID: 12
+Agent: main (Z.ai Code)
+Task: 用户反馈性能优化（solidBackdropColor + directToCanvas）没明显改善滚动功耗，回退到优化前状态。
+
+Work Log:
+- 确认回退范围 = 4 个滚动功耗优化 commit：79dedd7（主题按钮 solidBackdropColor）、4c0879b（退出按钮）、cd18b6d（directToCanvas 跳过 fboA+final blit）、c822061（slider knob solidBackdropColor 修复）。目标 1.1W→0.8W 未达成。
+- 保留 da7d7a4（idle debug-overlay rAF→250ms poll，空闲功耗优化 0.4W→0.1W，另一条线，与滚动功耗无关）。
+- 用 `git checkout da7d7a4 -- <19 个源文件>` 把性能优化改动的文件恢复到 Task 8 之前状态。da7d7a4 只改了 context.tsx + renderer/index.ts，所以其他文件 checkout 到 da7d7a4 = 等同优化前；renderer/index.ts checkout 到 da7d7a4 保留 anyDebugOverlayOn、移除 directToCanvas。
+- 验证回退完整性（grep 全 src/components/liquid-glass）：
+  - 顶层 el.solidBackdropColor 已移除（types.ts:294 仅剩 isToggleKnob 内部的原生 solidBackdropColor 字段）
+  - sampleBackdrop 短路已移除（element-utils.ts:204 的 uUseSolidBackdrop 分支在 sampleToggleBackdrop 内，是原生 toggle knob 机制）
+  - directToCanvas / elementReadsSceneTexture 已移除（methods-render.ts）
+  - solidBgColor 参数已移除（helpers-buttons.ts makeThemeToggleButton、helpers-slider.ts makeLiquidSlider）
+  - catalog/index.ts 的 solidBgColor 计算已移除
+  - build-settings-{blur,rendering}-card.ts 的 slider cardBg 传参已移除
+  - anyDebugOverlayOn 保留（da7d7a4 idle 优化，context.tsx + renderer/index.ts 各引用点 intact）
+- lint：主项目 0 error（唯一 error 在 gitignored 的 liquid-glass-webgl/examples/websocket/frontend.tsx 参考克隆，非主项目代码）。
+- dev.log：HMR 干净编译，GET / 200 正常（27-313ms）。
+
+Stage Summary:
+- 回退 4 个性能优化 commit（79dedd7/4c0879b/cd18b6d/c822061），恢复 19 个源文件到 Task 8 前状态。
+- 保留 da7d7a4 idle 功耗优化（debug overlay rAF→250ms poll）。
+- 视觉行为回到优化前：Home/Settings/About 的主题/退出按钮、slider knob 恢复走 sampleBackdrop 采样场景纹理 + fboA ping-pong 往返架构。
+- 修改文件（19）：catalog/{helpers-buttons,helpers-slider,index,build-settings-blur-card,build-settings-rendering-card}.ts、renderer/{index,methods-render,methods-render-glass-backdrop,methods-render-glass-element-pass-context,methods-render-glass-pef,methods-render-glass-pef-cache-flags,methods-render-glass-pingpong,methods-render-glass-state,methods-render-nonglass,methods-render-nonglass-plain-rect,methods-render-nonglass-progressive-blur,methods-render-nonglass-text,types}.ts、shaders/element-utils.ts。
+- 待推送。

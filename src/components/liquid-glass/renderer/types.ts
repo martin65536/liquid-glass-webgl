@@ -541,34 +541,6 @@ export interface GlassElementConfig extends GlassButtonConfig {
    *    - backdropFbo elements
    *    - gp-sheet (deliberately samples scene to refract the gp-square) */
   directBackdropSample?: boolean
-  /**
-   * Solid backdrop color (RGBA 0..1) — when set, the element's glass body
-   * samples THIS flat color instead of the scene/wallpaper texture. Used on
-   * solid-background pages (Home/Settings/About) where the backdrop behind a
-   * glass button is a flat color, so sampling + blurring the scene is pure
-   * waste (the blurred result equals the flat color anyway).
-   *
-   * Effects of setting this:
-   *   - The element-pass shader sets uUseSolidBackdrop=1.0 + uSolidBackdropColor,
-   *     and `sampleBackdrop()` short-circuits to return the solid color
-   *     (skipping all texture sampling + Gaussian blur taps).
-   *   - `computeCacheFlags` marks the element `cacheable` AND
-   *     `positionInvariant` — the cached elFbo is valid forever (the flat
-   *     color never changes), so the element is rasterized ONCE and never
-   *     redrawn. This is the "不用重绘" power optimization: on solid-bg pages
-   *     the theme/back buttons stop hitting the GPU every frame.
-   *   - `directBackdropSample` / `independentBackdrop` are ignored (no
-   *     wallpaper to sample).
-   *
-   * Visual: identical to sampling the scene, because the scene behind the
-   * button IS the flat solid color. The surface tint, edge highlight, and
-   * outer shadow still apply on top of the solid backdrop as usual.
-   *
-   * Distinct from `isToggleKnob.solidBackdropColor` (which only governs the
-   * outer-backdrop portion of a toggle knob's CombinedBackdrop, sampled via
-   * `sampleToggleBackdrop`). This top-level field governs the GENERIC glass
-   * path (`sampleBackdrop`) used by buttons / glass-shapes. */
-  solidBackdropColor?: [number, number, number, number]
 }
 
 /* Per-element interaction state — mirrors InteractiveHighlight.kt. */

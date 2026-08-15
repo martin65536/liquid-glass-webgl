@@ -56,14 +56,14 @@ declare module './index' {
     renderGlassElement(
       el: GlassElementConfig,
       st: ElementState | undefined,
-      curFbo: WebGLFramebuffer | null,
+      curFbo: WebGLFramebuffer,
       curTex: WebGLTexture,
-      otherFbo: WebGLFramebuffer | null,
+      otherFbo: WebGLFramebuffer,
       otherTex: WebGLTexture
     ): {
-      curFbo: WebGLFramebuffer | null
+      curFbo: WebGLFramebuffer
       curTex: WebGLTexture
-      otherFbo: WebGLFramebuffer | null
+      otherFbo: WebGLFramebuffer
       otherTex: WebGLTexture
     }
     renderGlassShadowPass(state: GlassRenderState): void
@@ -72,9 +72,9 @@ declare module './index' {
     renderGlassElementPerFbo(
       el: GlassElementConfig,
       st: ElementState | undefined,
-      curFbo: WebGLFramebuffer | null,
+      curFbo: WebGLFramebuffer,
       curTex: WebGLTexture,
-      otherFbo: WebGLFramebuffer | null,
+      otherFbo: WebGLFramebuffer,
       otherTex: WebGLTexture,
       computed: {
         sx: number; sy: number; sw: number; sh: number
@@ -87,9 +87,9 @@ declare module './index' {
         elDirty: boolean
       }
     ): {
-      curFbo: WebGLFramebuffer | null
+      curFbo: WebGLFramebuffer
       curTex: WebGLTexture
-      otherFbo: WebGLFramebuffer | null
+      otherFbo: WebGLFramebuffer
       otherTex: WebGLTexture
     }
     // renderGlassElementPass and renderGlassPostPasses are declared in
