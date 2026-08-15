@@ -100,12 +100,10 @@ export const TG_TOGGLE_BTN_SIZE = 56 * DP
  *  Mirrors the geometry in build-text-glass.ts: bottomBtnSpace + sheet
  *  reserved height subtracted from H, then * 0.7. */
 export function computeTextGlassFontSizeMax(W: number, H: number): number {
-  const bottomBtnSpace = 20 * DP + TG_TOGGLE_BTN_SIZE + 12 * DP
-  // NOTE: intentionally * 3 (not * 4) so the slider's max stays at the
-  // original larger value the user is used to. The 0.7 multiplier leaves
-  // enough headroom that max-size text still fits above the 4-row sheet.
-  const sheetReservedH =
-    TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 3 + TG_FONT_ROW_H + TG_TOGGLE_ROW_H + TG_INNER_PAD
-  const availableH = H - bottomBtnSpace - sheetReservedH
-  return Math.max(40, Math.round(availableH * 0.7))
+  // Max = default (200). The slider's top end is the default font size, so
+  // the slider starts at max and the user can only drag DOWN to shrink the
+  // text. (W, H kept in the signature for API stability but unused.)
+  void W
+  void H
+  return 200
 }
