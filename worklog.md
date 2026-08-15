@@ -96,3 +96,20 @@ Stage Summary:
 - 效果：Home/Settings/About 的主题按钮现在采样固定纯色背景，cacheable + positionInvariant → 光栅化一次后永久命中缓存，空闲不再每帧重绘。视觉无变化（按钮后方本就是平色）。
 - 远程：webgl-port-integration @ 79dedd7。
 - 待用户测试确认功耗下降。
+
+---
+Task ID: 9
+Agent: main (Z.ai Code)
+Task: 把退出按钮也改成纯色背景页只采背景色（同主题按钮），推 GitHub。
+
+Work Log:
+- 将 Task 8 的 solidBackdropColor 优化扩展到 __back__ 退出按钮。
+- catalog/index.ts：重构 buildCatalog —— 把 solidBgColor 的计算上移到 back/theme 两个 overlay 按钮处理之前，统一算一次。在 back 元素 splice/re-push 时，若 solidBgColor 非空，patch `backEl.solidBackdropColor = solidBgColor` + `backEl.directBackdropSample = false`。theme 按钮路径不变（仍通过 makeThemeToggleButton 的 solidBgColor 参数传入）。
+- 实际生效页面：Settings、About（Home 是根目的地，没有 back 按钮）。
+- lint 干净（主项目 0 error），dev.log HMR 干净编译。
+- 推送：commit `4c0879b` → webgl-port-integration。
+
+Stage Summary:
+- 修改文件：catalog/index.ts（+51/-20，主要是 solidBgColor 计算上移 + back 元素 patch）。
+- 效果：Settings/About 的退出按钮现在和主题按钮一样，采样固定纯色，cacheable + positionInvariant → 光栅化一次后永久命中缓存，空闲不重绘。
+- 远程：webgl-port-integration @ 4c0879b。
