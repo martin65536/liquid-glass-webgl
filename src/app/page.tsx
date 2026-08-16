@@ -19,6 +19,7 @@ import { useAdaptiveLuminance } from './hooks/use-adaptive-luminance'
 import { useCatalogTargets } from './hooks/use-catalog-targets'
 import { useTextGlass } from './hooks/use-text-glass'
 import { TextGlassAdvancedPanel } from '@/components/liquid-glass/text-glass-advanced-panel'
+import { SettingsImportExport } from '@/components/liquid-glass/settings-import-export'
 
 /* ------------------------------------------------------------------ *
  * Faithful WebGL reproduction of Kyant's AndroidLiquidGlass catalog.
@@ -547,6 +548,20 @@ export default function Page() {
             H={H}
             locale={state.locale}
             onClose={() => setState({ textGlassAdvanced: false })}
+          />
+        )}
+        {/* Settings — import/export params overlay. Mounts only on the
+            Settings page. Renders a fixed bottom card with two buttons:
+            Export (download JSON + clipboard copy) and Import (file
+            picker → parse → setState merge). Lets users save/restore
+            their full CatalogState (all slider/toggle values across
+            every page) as a JSON file. */}
+        {destination === CatalogDestination.Settings && rendererReady && (
+          <SettingsImportExport
+            state={state}
+            setState={setState}
+            isLightTheme={isLightTheme}
+            locale={state.locale}
           />
         )}
         {/* FPS overlay — always shown on PerfBenchmark during test, or when

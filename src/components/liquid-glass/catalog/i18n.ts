@@ -77,6 +77,11 @@ const translations: Record<string, { zh: string; en: string }> = {
   settings_per_element_fbo:  { zh: '逐元素 FBO', en: 'Per-element FBO' },
   settings_direct_backdrop_sample: { zh: '直接采样背景', en: 'Direct backdrop sample' },
   settings_reset:           { zh: '重置', en: 'Reset' },
+  settings_export:          { zh: '导出参数', en: 'Export params' },
+  settings_import:          { zh: '导入参数', en: 'Import params' },
+  settings_export_copied:   { zh: '已复制到剪贴板', en: 'Copied to clipboard' },
+  settings_import_ok:       { zh: '导入成功', en: 'Imported' },
+  settings_import_fail:     { zh: '导入失败：文件格式错误', en: 'Import failed: invalid file' },
 
   // Card category titles
   settings_cat_rendering:   { zh: '渲染', en: 'Rendering' },

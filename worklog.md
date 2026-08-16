@@ -944,3 +944,59 @@ Stage Summary:
 - 修改文件（1）：shaders/element.ts
 - 效果：提亮层哑光现在 ONLY 削减提亮（brightness），不触碰饱和度/对比度。边缘 brightness 按 edgeFactor × strength 衰减，内部全提亮。
 - 未浏览器验证（用户要求不要自己测试）。
+
+---
+Task ID: 31
+Agent: main (Z.ai Code)
+Task: 加导入导出默认参数功能（用户："加一个导入导出默认参数的"）
+
+Work Log:
+- 需求：用户希望能导出/导入 CatalogState（所有页面所有滑块/开关的参数值），方便保存配置或分享给他人。
+
+- 实现方案：在 Settings 页面加一个 DOM 浮层卡片，含"导出参数"和"导入参数"两个按钮。
+  - Settings 页面主体是纯 canvas 渲染（makeText 行），但导入导出需要文件对话框 + 剪贴板 API，必须用真实 DOM，所以用 fixed-position overlay。
+  - 只在 destination === Settings 时挂载。
+
+- 新文件：src/components/liquid-glass/settings-import-export.tsx
+  - SettingsImportExport 组件
+  - 导出 (handleExport):
+    1. 序列化 state 为 JSON（排除 live*/perf*/textGlassAdvanced/sheetExpanded/adaptiveLuminance 等显示/瞬态字段）
+    2. 复制到剪贴板（navigator.clipboard.writeText，best-effort）
+    3. 下载为 .liquid-glass.json 文件（Blob + URL.createObjectURL + <a download>）
+    4. 文件名带时间戳：liquid-glass-2024-01-01T00-00-00.json
+    5. 显示 toast "已复制到剪贴板"
+  - 导入 (handleImportFile):
+    1. FileReader 读 JSON
+    2. 验证是 object（非 null/array）
+    3. 遍历 DEFAULT_CATALOG_STATE 的 key，只接受类型匹配的值（防止格式错误污染 state）
+    4. 排除 EXCLUDED_KEYS（live/perf/sheet 等瞬态字段）
+    5. setState(patch) 合并
+    6. 显示 toast "导入成功" / "导入失败：文件格式错误"
+  - UI:
+    - fixed bottom card，左右 16px，bottom 16px
+    - backdrop-filter blur 12px（玻璃感）
+    - 两个按钮 flex:1，导出用蓝色填充，导入用半透明
+    - toast 浮在卡片上方，2.2s 自动消失
+    - 适配深色/浅色主题
+  - input[type=file] accept="application/json,.json"，导入后 reset value 允许重选同一文件
+
+- i18n (catalog/i18n.ts): 新增 5 个文案
+  - settings_export (导出参数/Export params)
+  - settings_import (导入参数/Import params)
+  - settings_export_copied (已复制到剪贴板/Copied to clipboard)
+  - settings_import_ok (导入成功/Imported)
+  - settings_import_fail (导入失败：文件格式错误/Import failed: invalid file)
+
+- page.tsx: 在 TextGlassAdvancedPanel 渲染块之后加 SettingsImportExport 渲染块（destination === Settings && rendererReady 时挂载）
+
+- lint: 0 error。dev.log: HMR 干净编译（✓ Compiled in 558ms）。
+
+Stage Summary:
+- 新增文件（1）：src/components/liquid-glass/settings-import-export.tsx
+- 修改文件（2）：catalog/i18n.ts、app/page.tsx
+- 效果：Settings 页面底部出现导入/导出卡片。
+  - 导出：点"导出参数" → 下载 JSON 文件 + 复制到剪贴板 + toast 提示
+  - 导入：点"导入参数" → 文件选择器 → 选 JSON → 解析验证 → 应用到 state + toast 提示
+  - 导出格式：CatalogState 的 JSON（排除瞬态字段），可分享/备份
+  - 导入安全：类型检查 + 白名单（只接受 DEFAULT_CATALOG_STATE 里有的 key），防止格式错误污染 state
+- 未浏览器验证（用户要求不要自己测试）。
