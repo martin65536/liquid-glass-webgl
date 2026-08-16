@@ -214,10 +214,36 @@ void main() {
         // bit 2 (base): floor(targets/4) mod 2
         float t4 = floor(uSdfEdgeMatteTargets / 4.0);
         bool matteBase = matteOn && (t4 - 2.0 * floor(t4 / 2.0)) >= 1.0;
+        // bit 3 (brighten/提亮): floor(targets/8) mod 2. The brighten layer
+        // is the overall brightness increment (uBrightness from the 提亮
+        // slider). When matteBrighten is true, the edge is pulled back toward
+        // the pre-brightness rawContent — i.e. the edge gets LESS brightening
+        // than the interior, producing a matte rim on the brightness layer.
+        float t8 = floor(uSdfEdgeMatteTargets / 8.0);
+        bool matteBrighten = matteOn && (t8 - 2.0 * floor(t8 / 2.0)) >= 1.0;
         // Per-layer matte edge factor — shaped by (range, min) params.
         float matteEdgeBase = clamp(intensity / max(uSdfEdgeMatteBaseParams.x, 0.001), 0.0, 1.0)
             * (1.0 - uSdfEdgeMatteBaseParams.y) + uSdfEdgeMatteBaseParams.y;
+        // Brighten layer edge factor — shaped by the BRIGHTEN layer's params.
+        float matteEdgeBrighten = clamp(intensity / max(uSdfEdgeMatteBrightenParams.x, 0.001), 0.0, 1.0)
+            * (1.0 - uSdfEdgeMatteBrightenParams.y) + uSdfEdgeMatteBrightenParams.y;
         // Bevel / tint edge factors computed where they're used (below).
+
+        // --- Brighten layer matte (bit 3) ---
+        // The 提亮 (brighten) slider drives uBrightness, applied via
+        // applyColorControls on rawContent. When matteBrighten is true, the
+        // edge is pulled back toward the PRE-brightness rawContent — i.e. the
+        // edge gets LESS brightening than the interior, producing a visible
+        // matte rim on the brightness layer. This is the "哑光作用于提亮层"
+        // effect: the user can now make the brighten slider's effect be
+        // suppressed at the text edge, so the edge stays dim/raw while the
+        // interior stays brightened. Strength scales how far the edge is
+        // pulled back (0 = no pull-back, 1 = edge fully reverted to raw).
+        if (matteBrighten) {
+            vec3 rawMasked = rawContent * sdfMask;
+            float s = uSdfEdgeMatteBrightenStrength;
+            color.rgb = mix(color.rgb, rawMasked, matteEdgeBrighten * s);
+        }
 
         // --- Base layer matte (bit 2) ---
         // Desaturate + darken the base refraction/body color at the edge.

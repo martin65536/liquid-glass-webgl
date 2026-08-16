@@ -290,6 +290,7 @@ export function TextGlassAdvancedPanel({
           <div style={{ display: 'flex', gap: 8 }}>
             {([
               { bit: 1, key: 'text_glass_edge_matte_bevel' as const },
+              { bit: 8, key: 'text_glass_edge_matte_brighten' as const },
               { bit: 2, key: 'text_glass_edge_matte_tint' as const },
               { bit: 4, key: 'text_glass_edge_matte_base' as const },
             ] as const).map(({ bit, key }) => {
@@ -308,7 +309,7 @@ export function TextGlassAdvancedPanel({
                   }
                   style={{
                     flex: 1,
-                    fontSize: 12,
+                    fontSize: 11,
                     height: 30,
                     padding: 0,
                   }}
@@ -331,6 +332,14 @@ export function TextGlassAdvancedPanel({
               strength: state.textGlassEdgeMatteBevelStrength,
               setRange: (v: number) => setState({ textGlassEdgeMatteBevelRange: v }),
               setStrength: (v: number) => setState({ textGlassEdgeMatteBevelStrength: v }),
+            },
+            {
+              key: 'text_glass_edge_matte_brighten' as const,
+              label: t('text_glass_edge_matte_brighten', locale),
+              range: state.textGlassEdgeMatteBrightenRange,
+              strength: state.textGlassEdgeMatteBrightenStrength,
+              setRange: (v: number) => setState({ textGlassEdgeMatteBrightenRange: v }),
+              setStrength: (v: number) => setState({ textGlassEdgeMatteBrightenStrength: v }),
             },
             {
               key: 'text_glass_edge_matte_tint' as const,

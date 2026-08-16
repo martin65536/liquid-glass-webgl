@@ -798,3 +798,67 @@ Stage Summary:
 - 效果：提亮层强度滑块现在有可见效果——0=无哑光（纯高光），1=边缘去饱和65%+压暗18%，2=强磨砂。用户能看到调强度的视觉变化。
 - lint: 0 error。dev.log: HMR 干净编译（✓ Compiled in 152ms）。
 - 未浏览器验证（用户要求不要自己测试）。
+
+---
+Task ID: 27
+Agent: main (Z.ai Code)
+Task: 新增"提亮"作为哑光作用层（bit 3）—— 用户要给主滑块的"提亮"（brightness）加哑光控制
+
+Work Log:
+- 用户愤怒反馈："他妈的你做的提亮那个滑块看到没有？我要给它加哑光"
+- 根因诊断：我之前一直把"提亮"和"光影"混淆了。实际上：
+  - 提亮 (textGlassBrighten, 0.32) → uBrightness → applyColorControls(rawContent, brightness, contrast, saturation) 整体亮度增量
+  - 光影 (bevel) → 边缘法线方向性高光（lightDir dot normal）
+  - 两者是完全不同的层！哑光作用层只有 光影/染色/底色 三个 bit，没有"提亮"。用户要的是给"提亮"层加哑光。
+
+- Task: 新增 bit 3 = 提亮（brighten）作为哑光作用第 4 层
+
+- shaders/element-uniforms.ts:
+  - 新增 uniform vec2 uSdfEdgeMatteBrightenParams (range, min)
+  - 新增 uniform float uSdfEdgeMatteBrightenStrength
+  - 注释更新：bevel/tint/base/brighten 四层
+
+- shaders/element.ts:
+  - 新增 bit 3 提取: float t8 = floor(targets/8.0); bool matteBrighten = matteOn && (t8 - 2.0*floor(t8/2.0)) >= 1.0
+  - 新增 edge factor: matteEdgeBrighten = clamp(intensity/range, 0, 1) * (1-min) + min
+  - 新增提亮层哑光应用块（在 contentColor*sdfMask 之后，base matte 之前）:
+      if (matteBrighten) {
+          vec3 rawMasked = rawContent * sdfMask;
+          float s = uSdfEdgeMatteBrightenStrength;
+          color.rgb = mix(color.rgb, rawMasked, matteEdgeBrighten * s);
+      }
+  - 效果：边缘处把 color 拉回到"提亮前"的 rawContent（边缘少加提亮），strength 控制拉回强度，range 控制向内延伸范围
+
+- renderer/types.ts: isSdfTexture config 新增 edgeMatteBrightenParams?: [number, number] + edgeMatteBrightenStrength?: number
+
+- renderer/methods-uniforms.ts: elNames 加 'uSdfEdgeMatteBrightenParams' + 'uSdfEdgeMatteBrightenStrength'
+
+- renderer/methods-render-glass-element-pass.ts:
+  - isSdfTexture 分支: set uniform2f(BrightenParams, range, min) + uniform1f(BrightenStrength)
+  - else 分支: reset [1.0, 0.0] + 1.0
+
+- catalog/types.ts:
+  - CatalogState 新增 textGlassEdgeMatteBrightenRange/Min/Strength
+  - DEFAULT: textGlassEdgeMatteTargets 从 7 改为 15（0b1111，默认四层全开）
+  - DEFAULT: BrightenRange=1, BrightenMin=0, BrightenStrength=1
+
+- catalog/build-text-glass.ts: isSdfTexture 传 edgeMatteBrightenParams + edgeMatteBrightenStrength
+
+- catalog/i18n.ts: 新增 text_glass_edge_matte_brighten (提亮/Brighten)
+
+- text-glass-advanced-panel.tsx:
+  - 哑光作用层按钮: 从 3 个加到 4 个（光影/提亮/染色/底色），bit 1/8/2/4
+  - 按钮字号 12→11（4 个按钮英文也能放下）
+  - 每层参数 section 新增"提亮"（在光影和染色之间）：range + strength 滑块
+
+- lint: 0 error。dev.log: HMR 干净编译（✓ Compiled in 130ms）。
+
+Stage Summary:
+- 修改文件（7）：shaders/{element,element-uniforms}.ts、renderer/{types,methods-uniforms,methods-render-glass-element-pass}.ts、catalog/{types,i18n,build-text-glass}.ts、text-glass-advanced-panel.tsx。
+- 效果：
+  ① 哑光作用层新增"提亮"按钮（bit 3 = 8），现在有 4 层：光影/提亮/染色/底色
+  ② 提亮层哑光 = 边缘处把 color 朝"提亮前"的 rawContent 拉回，模拟"边缘少加提亮"
+  ③ 每层参数新增"提亮"section（range + strength 滑块），用户可独立调节提亮哑光的范围和强度
+  ④ 默认 targets 从 7→15，开哑光时四层默认全开
+- 用户现在可以：开边缘哑光 → 哑光作用于"提亮" → 调"提亮"的 range/strength 滑块，看到提亮滑块（0.32）的亮度增量在边缘被抑制的效果
+- 未浏览器验证（用户要求不要自己测试）。

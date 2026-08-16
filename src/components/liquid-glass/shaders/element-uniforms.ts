@@ -180,12 +180,14 @@ uniform float uSdfEdgeMatteTargets; // default 7 (all three layers)
 //     0.3 = interior always has at least 30% matte. The final edge factor is
 //     edgeClamped * (1.0 - min) + min. Faithful to "给哑光每层加上作用参数
 //     调节，比如范围，最小值".
-// One vec2 per layer: bevel (bit 0), tint (bit 1), base (bit 2). When the
-// overall uSdfEdgeMatteEnabled is OFF, these are ignored. When a layer's bit
-// in uSdfEdgeMatteTargets is unset, that layer's params are also ignored.
+// One vec2 per layer: bevel (bit 0), tint (bit 1), base (bit 2), brighten
+// (bit 3). When the overall uSdfEdgeMatteEnabled is OFF, these are ignored.
+// When a layer's bit in uSdfEdgeMatteTargets is unset, that layer's params
+// are also ignored.
 uniform vec2  uSdfEdgeMatteBevelParams; // (range, min) for bevel layer
 uniform vec2  uSdfEdgeMatteTintParams;  // (range, min) for tint layer
 uniform vec2  uSdfEdgeMatteBaseParams;  // (range, min) for base layer
+uniform vec2  uSdfEdgeMatteBrightenParams; // (range, min) for brighten layer
 // Per-layer matte STRENGTH (0..2, default 1.0). Scales the desaturate amount
 // (matteStrength 0.65) AND the darken amount (matteDarken 0.18) for that
 // layer. 0 = no matte effect at all (even at full edge); 1 = original
@@ -195,6 +197,7 @@ uniform vec2  uSdfEdgeMatteBaseParams;  // (range, min) for base layer
 uniform float uSdfEdgeMatteBevelStrength; // default 1.0
 uniform float uSdfEdgeMatteTintStrength;  // default 1.0
 uniform float uSdfEdgeMatteBaseStrength;  // default 1.0
+uniform float uSdfEdgeMatteBrightenStrength; // default 1.0
 // Raw SDF debug render — when > 0.5, the SDF-texture glass path bypasses all
 // glass effects and outputs the SDF's R channel directly as grayscale
 // (inside = white, outside = black, AA via A channel). Used by TextGlass to

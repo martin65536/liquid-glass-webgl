@@ -414,6 +414,7 @@ export interface CatalogState {
   textGlassEdgeMatteBevelRange: number
   textGlassEdgeMatteTintRange: number
   textGlassEdgeMatteBaseRange: number
+  textGlassEdgeMatteBrightenRange: number
   // TextGlass — per-layer matte MINIMUM (0..1, default 0.0). Floor matte
   // amount applied even in the deep interior (where intensity → 0). 0 =
   // interior clear (no matte); 0.3 = interior always has at least 30% matte.
@@ -422,6 +423,7 @@ export interface CatalogState {
   textGlassEdgeMatteBevelMin: number
   textGlassEdgeMatteTintMin: number
   textGlassEdgeMatteBaseMin: number
+  textGlassEdgeMatteBrightenMin: number
   // TextGlass — per-layer matte STRENGTH (0..2, default 1.0). Scales the
   // desaturate (0.65) + darken (0.18) amounts for that layer. 0 = no matte
   // effect at all; 1 = original strength; 2 = doubled. Independent per layer
@@ -430,6 +432,7 @@ export interface CatalogState {
   textGlassEdgeMatteBevelStrength: number
   textGlassEdgeMatteTintStrength: number
   textGlassEdgeMatteBaseStrength: number
+  textGlassEdgeMatteBrightenStrength: number
   // TextGlass — backdrop blur radius in dp (0..20, default 2). Controls the
   // inline poisson-disc blur radius when sampling the wallpaper (or the
   // pre-blur amount hint for the 2-pass Gaussian path). Larger = more frosted
@@ -527,16 +530,19 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   textGlassGlassTintMix: 0,
   textGlassGlassTintStrength: 0.85,
   textGlassEdgeMatte: false,
-  textGlassEdgeMatteTargets: 7,
+  textGlassEdgeMatteTargets: 15,
   textGlassEdgeMatteBevelRange: 1,
   textGlassEdgeMatteTintRange: 1,
   textGlassEdgeMatteBaseRange: 1,
+  textGlassEdgeMatteBrightenRange: 1,
   textGlassEdgeMatteBevelMin: 0,
   textGlassEdgeMatteTintMin: 0,
   textGlassEdgeMatteBaseMin: 0,
+  textGlassEdgeMatteBrightenMin: 0,
   textGlassEdgeMatteBevelStrength: 1,
   textGlassEdgeMatteTintStrength: 1,
   textGlassEdgeMatteBaseStrength: 1,
+  textGlassEdgeMatteBrightenStrength: 1,
   textGlassBlurRadius: 2,
   textGlassRawSdf: false,
   textGlassAdvanced: false,

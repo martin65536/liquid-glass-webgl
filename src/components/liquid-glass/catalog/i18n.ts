@@ -209,6 +209,7 @@ const translations: Record<string, { zh: string; en: string }> = {
   text_glass_edge_matte:    { zh: '边缘哑光', en: 'Edge matte' },
   text_glass_edge_matte_targets: { zh: '哑光作用于', en: 'Matte targets' },
   text_glass_edge_matte_bevel:   { zh: '光影', en: 'Bevel' },
+  text_glass_edge_matte_brighten: { zh: '提亮', en: 'Brighten' },
   text_glass_edge_matte_tint:    { zh: '染色', en: 'Tint' },
   text_glass_edge_matte_base:    { zh: '底色', en: 'Base' },
   text_glass_edge_matte_range:   { zh: '范围', en: 'Range' },

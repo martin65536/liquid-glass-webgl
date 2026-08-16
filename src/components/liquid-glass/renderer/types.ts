@@ -488,6 +488,7 @@ export interface GlassElementConfig extends GlassButtonConfig {
     edgeMatteBevelParams?: [number, number]
     edgeMatteTintParams?: [number, number]
     edgeMatteBaseParams?: [number, number]
+    edgeMatteBrightenParams?: [number, number]
     /** Per-layer matte STRENGTH (0..2, default 1.0). Scales the desaturate
      *  (0.65) + darken (0.18) amounts for that layer. 0 = no matte effect;
      *  1 = original; 2 = doubled. Independent per layer so the user can crank
@@ -496,6 +497,7 @@ export interface GlassElementConfig extends GlassButtonConfig {
     edgeMatteBevelStrength?: number
     edgeMatteTintStrength?: number
     edgeMatteBaseStrength?: number
+    edgeMatteBrightenStrength?: number
     /** Raw SDF debug render — when true, the shader bypasses all glass
      *  effects (refraction, bevel, colorControls, surface tint) and outputs
      *  the SDF texture's R channel directly as grayscale (inside = white,
