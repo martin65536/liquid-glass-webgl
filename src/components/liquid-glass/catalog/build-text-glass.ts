@@ -97,7 +97,13 @@ export function buildTextGlass(
   // from moving/rescaling when the user expands/collapses the control sheet
   // ("展开收起面板字要移动缩放"). The text stays put; the sheet slides
   // up/down over the reserved space below it.
-  const sheetReservedH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 5 + TG_FONT_ROW_H + TG_TOGGLE_ROW_H * 3 + TG_INNER_PAD
+  // Sheet height reservation (mirrors the EXPANDED sheet's actual height
+  // below): input + 6 slider rows (size, weight, highlight, quality,
+  // saturation, brighten) + font row + 2 toggle rows (dim, raw-SDF) +
+  // padding. The highlight on/off toggle was removed — the highlight-scale
+  // slider alone now controls bevel highlight (0 = off), so its attribute is
+  // never disabled by a toggle. Saturation slider added as a color control.
+  const sheetReservedH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 6 + TG_FONT_ROW_H + TG_TOGGLE_ROW_H * 2 + TG_INNER_PAD
   const availableH = H - bottomBtnSpace - sheetReservedH
   const aspect = state.textGlassAspect > 0 ? state.textGlassAspect : 3
   // The glass element height = texH (texture height in CSS px = textH + 2*pad).
@@ -143,7 +149,10 @@ export function buildTextGlass(
       refractionHeight: 0,
       refractionAmount: 0,
       blurRadius: 2 * DP,
-      saturation: 1.5,
+      // Saturation gain — driven by the textGlassSaturation slider (0..3).
+      // 0 = grayscale, 1 = normal, >1 = boosted vibrancy. Independent of
+      // brightness/contrast so the user can tune color richness alone.
+      saturation: state.textGlassSaturation,
       // Brightness = base dim (−0.1 if dim toggle on, else 0) + brighten layer
       // (textGlassBrighten ∈ [0,1] → +0..+0.5). So the full range is:
       //   dim on,  brighten 0 → −0.1 (original baseline)
@@ -161,11 +170,14 @@ export function buildTextGlass(
   // pass reads these and sets uSdfHighlightScale / uSdfDebugMode / uSdfAaMin.
   // aaMin=0.0 widens the coverage→mask smoothstep to (0.0, 1.0) so the full
   // Canvas2D AA gradient is preserved → smooth text edges at all font sizes.
-  // highlightEnabled=false forces highlightScale to 0 (no bevel highlight).
+  // highlightScale is driven DIRECTLY by the slider (no on/off toggle) — 0 =
+  // no bevel highlight, so the slider is the sole, always-effective control.
+  // (Previously a toggle forced this to 0 when "disabled", which made the
+  // slider appear dead — "禁用高光不能禁用高光距离的属性".)
   tgGlass.isSdfTexture = {
     refractionHeight: 48 * DP,
     lightAngle: 45,
-    highlightScale: state.textGlassHighlightEnabled ? state.textGlassHighlightScale : 0,
+    highlightScale: state.textGlassHighlightScale,
     debugMode: state.textGlassRawSdf,
     aaMin: 0.0,
   }
@@ -193,10 +205,11 @@ export function buildTextGlass(
     const trackX = sheetX + TG_INNER_PAD
     const trackW = sheetW - 2 * TG_INNER_PAD
 
-    // Sheet height: input row + 5 slider rows (size, weight, highlight,
-    // quality, brighten) + font row + 3 toggle rows (highlight-enabled,
-    // dim-enabled, raw-SDF) + padding.
-    const sheetH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 5 + TG_FONT_ROW_H + TG_TOGGLE_ROW_H * 3 + TG_INNER_PAD
+    // Sheet height: input row + 6 slider rows (size, weight, highlight,
+    // quality, saturation, brighten) + font row + 2 toggle rows (dim-enabled,
+    // raw-SDF) + padding. (The highlight on/off toggle was removed — the
+    // highlight-scale slider alone controls bevel highlight now.)
+    const sheetH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 6 + TG_FONT_ROW_H + TG_TOGGLE_ROW_H * 2 + TG_INNER_PAD
     const sheetY = H - bottomBtnSpace - sheetH
 
     // Sheet glass card (independentBackdrop → samples wallpaper directly,
@@ -264,29 +277,7 @@ export function buildTextGlass(
     elements.push(tgInputGlass)
     rowY += TG_INPUT_ROW_H
 
-    // --- Row 2: Highlight on/off toggle ---
-    // Controls whether the SDF bevel highlight is rendered at all. When OFF,
-    // highlightScale is forced to 0 in the isSdfTexture config (no bevel
-    // highlight). Sits above the highlight-scale slider so the two controls
-    // are grouped together visually.
-    const highlightToggleRow = { x: trackX, y: rowY, w: trackW, h: TG_TOGGLE_ROW_H }
-    const highlightToggle = makeSettingsToggle(
-      'tg-highlight',
-      highlightToggleRow,
-      t('text_glass_highlight_enabled', locale),
-      state.textGlassHighlightEnabled,
-      () => setState((prev) => ({ textGlassHighlightEnabled: !prev.textGlassHighlightEnabled })),
-      palette,
-      rendererRef,
-      false, // scroll = false
-      0,     // labelPad = 0
-      true,  // onGlassCard = true
-    )
-    elements.push(...highlightToggle.elements)
-    Object.assign(interactions, highlightToggle.interactions)
-    rowY += TG_TOGGLE_ROW_H
-
-    // --- Rows 3-6: Size + Font weight + Highlight scale + Quality sliders ---
+    // --- Rows 2-6: Size + Font weight + Highlight scale + Quality + Saturation sliders ---
     // Left-right layout: label on the left (sliderLabelW wide), slider track
     // on the right (remaining width). Both vertically centered in the row —
     // matches the input row and font-family row pattern above.
@@ -306,14 +297,18 @@ export function buildTextGlass(
     //                          once the font's min/max real weight is hit.
     //                          That's a font-availability limit, not a bug.)
     //   highlightScale 0..5    (0 = no highlight; 5 = highlight fills most of
-    //                          the glyph interior)
+    //                          the glyph interior. 0 doubles as the bevel
+    //                          on/off — no separate toggle, so this attribute
+    //                          is NEVER disabled.)
     //   quality       0.5..2.0 (render-resolution multiplier, INDEPENDENT of
     //                          on-screen size. quality=1 = native device-pixel
     //                          res; 0.5 = half-res (faster, blurrier); 2 = 2×
     //                          supersampled (sharper, heavier). Decouples SIZE
     //                          from SHARPNESS so big text can be crisp and
     //                          small text can be fast.)
-    // Highlight scale + quality stay fractional; size/weight round to integers.
+    //   saturation    0..3    (colorControls saturation gain. 0 = grayscale;
+    //                          1 = normal; 3 = max vibrancy. Default 1.5.)
+    // Highlight scale + quality + saturation stay fractional; size/weight round to integers.
     //
     // fontSize max = availableH * 0.7 (= maxH), so the slider's TOP end
     // maps exactly to the largest text that fits on screen — the whole
@@ -326,6 +321,7 @@ export function buildTextGlass(
       { key: 'textGlassFontWeight' as const, label: t('text_glass_font_weight', locale), range: [1, 1000] as const, round: true },
       { key: 'textGlassHighlightScale' as const, label: t('text_glass_highlight_scale', locale), range: [0, 5] as const, round: false },
       { key: 'textGlassQuality' as const, label: t('text_glass_quality', locale), range: [0.5, 2] as const, round: false },
+      { key: 'textGlassSaturation' as const, label: t('text_glass_saturation', locale), range: [0, 3] as const, round: false },
     ]
     const sliderLabelW = 72
     const sliderGap = 12

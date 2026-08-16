@@ -318,12 +318,18 @@ export interface CatalogState {
   // `intensity = circleMap(1.0 - min(1.0, -sd * highlightScale))` where sd
   // is the normalized signed distance (-1 deep inside, 0 at edge, +1 far
   // outside). Higher scale = highlight reaches further into the interior.
-  // Default 1.5 (matches the original hardcoded constant). Range [0.5, 3.0].
+  // Default 1.5 (matches the original hardcoded constant). Range [0, 5].
+  // NOTE: 0 = no bevel highlight at all, so the slider alone acts as the
+  // on/off + distance control — there is no separate highlight toggle that
+  // could "disable" this attribute (the previous toggle forced the shader
+  // value to 0, which made the slider appear dead when highlight was off).
   textGlassHighlightScale: number
-  // TextGlass — highlight on/off toggle. When false, highlightScale is forced
-  // to 0 in the shader (no bevel highlight at all). When true, the highlight
-  // slider's value is used as-is.
-  textGlassHighlightEnabled: boolean
+  // TextGlass — saturation gain multiplier applied to the glass element's
+  // colorControls saturation uniform. 0 = fully desaturated (grayscale);
+  // 1 = normal (no change); >1 = boosted vibrancy. Default 1.5 (matches the
+  // original hardcoded constant). Range [0, 3]. Independent of brightness /
+  // contrast so the user can tune color richness without affecting lightness.
+  textGlassSaturation: number
   // TextGlass — dim (brightness -0.1) on/off toggle. The original hardcoded
   // brightness=-0.1 slightly darkens the glass content; this toggle lets the
   // user disable that dimming for a brighter baseline.
@@ -406,7 +412,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   textGlassFontIdx: 0,
   textGlassSheetExpanded: true,
   textGlassHighlightScale: 1.5,
-  textGlassHighlightEnabled: true,
+  textGlassSaturation: 1.5,
   textGlassDimEnabled: true,
   textGlassBrighten: 0,
   textGlassRawSdf: false,

@@ -199,7 +199,7 @@ const translations: Record<string, { zh: string; en: string }> = {
   text_glass_font_nunito:   { zh: 'Nunito', en: 'Nunito' },
   text_glass_input_label:   { zh: '文字', en: 'Text' },
   text_glass_highlight_scale: { zh: '高光距离', en: 'Highlight scale' },
-  text_glass_highlight_enabled: { zh: '高光', en: 'Highlight' },
+  text_glass_saturation:    { zh: '饱和度', en: 'Saturation' },
   text_glass_dim_enabled:    { zh: '压暗', en: 'Dim' },
   text_glass_brighten:      { zh: '提亮', en: 'Brighten' },
   text_glass_raw_sdf:       { zh: '直接渲染SDF', en: 'Raw SDF' },
