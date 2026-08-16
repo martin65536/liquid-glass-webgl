@@ -249,3 +249,31 @@ Stage Summary:
 - 修改文件：page.tsx（sliderRowH 68→48 同步常量）、use-text-glass.ts（delay 三档防抖：0/250/150ms）。
 - 效果：输入框 overlay 重新对齐 WebGL glass pill；滑块拖动时 SDF 重生成 150ms 防抖，松手后更新，拖动过程流畅无卡顿。
 - 待推送。
+
+---
+Task ID: 15
+Agent: main (Z.ai Code)
+Task: TextGlass 加高光开关 + 压暗开关 + 提亮层滑块
+
+Work Log:
+- 新增 3 个 CatalogState 字段：
+  - textGlassHighlightEnabled (boolean, default true) — 高光开关
+  - textGlassDimEnabled (boolean, default true) — 压暗开关
+  - textGlassBrighten (number 0..1, default 0) — 提亮层
+- types.ts：加字段定义 + DEFAULT_CATALOG_STATE 默认值。
+- i18n.ts：加 text_glass_highlight_enabled(高光/Highlight)、text_glass_dim_enabled(压暗/Dim)、text_glass_brighten(提亮/Brighten) 三组 zh/en。
+- build-text-glass.ts：
+  - glass 元素 brightness 公式：base dim (−0.1 if dimEnabled else 0) + brighten * 0.5。范围：dim on+brighten 0 → −0.1（原始基线）；dim off+brighten 0 → 0（中性）；dim off+brighten 1 → +0.5（最亮）。
+  - isSdfTexture.highlightScale：highlightEnabled ? state值 : 0（关闭时强制 0，无 bevel 高光）。
+  - sheet 行布局新增 3 行：highlight toggle（input row 后）+ dim toggle（quality slider 后）+ brighten slider（dim toggle 后）。sheetReservedH/sheetH 公式从 TG_ROW_H*4 + TG_TOGGLE_ROW_H 改为 TG_ROW_H*5 + TG_TOGGLE_ROW_H*3。
+  - brighten slider 用 makeLiquidSlider，range [0,1]，liveUpdate=true（只改 brightness uniform，无需 SDF 重生成，实时响应）。
+  - 两个 toggle 用 makeSettingsToggle，onGlassCard=true（与 raw-sdf toggle 一致）。
+- page.tsx：同步 input overlay 几何，sliderRowH*4→*5、toggleRowH*1→*3。
+- use-text-glass.ts：无需改动。新增的 3 个 state 只影响 build-text-glass.ts 的元素配置（brightness/highlightScale uniform），由 catalog rebuild 处理；不触发 SDF 纹理重生成，所以不加入 useTextGlass effect 依赖数组。
+- lint：0 error。dev.log：HMR 干净编译。
+- agent-browser + VLM 验证：三个新控件全部渲染——高光 toggle、压暗 toggle、提亮 slider。input row 对齐正确。0 browser errors。
+
+Stage Summary:
+- 修改文件：types.ts（+3 字段+默认值）、i18n.ts（+3 组文案）、build-text-glass.ts（brightness 公式+highlightScale 开关+3 个新 UI 行+sheetH 公式）、page.tsx（overlay 几何同步）。
+- 效果：高光可独立开关；压暗可独立开关；提亮层滑块 0..1，最左关闭，越往右越亮（+0..+0.5 brightness），与压暗开关叠加（dim off + brighten max = 最亮）。
+- 待推送。

@@ -320,6 +320,18 @@ export interface CatalogState {
   // outside). Higher scale = highlight reaches further into the interior.
   // Default 1.5 (matches the original hardcoded constant). Range [0.5, 3.0].
   textGlassHighlightScale: number
+  // TextGlass — highlight on/off toggle. When false, highlightScale is forced
+  // to 0 in the shader (no bevel highlight at all). When true, the highlight
+  // slider's value is used as-is.
+  textGlassHighlightEnabled: boolean
+  // TextGlass — dim (brightness -0.1) on/off toggle. The original hardcoded
+  // brightness=-0.1 slightly darkens the glass content; this toggle lets the
+  // user disable that dimming for a brighter baseline.
+  textGlassDimEnabled: boolean
+  // TextGlass — brighten layer amount [0..1]. 0 = off (no extra brightness);
+  // 1 = max brighten (+0.5 added to brightness uniform). Scales linearly so
+  // the further right the slider, the brighter the glass content.
+  textGlassBrighten: number
   // TextGlass — raw SDF debug render toggle. When true, the glass element
   // bypasses all glass effects (refraction, bevel, colorControls, surface
   // tint) and renders the SDF texture's R channel directly as a grayscale
@@ -394,6 +406,9 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   textGlassFontIdx: 0,
   textGlassSheetExpanded: true,
   textGlassHighlightScale: 1.5,
+  textGlassHighlightEnabled: true,
+  textGlassDimEnabled: true,
+  textGlassBrighten: 0,
   textGlassRawSdf: false,
 }
 

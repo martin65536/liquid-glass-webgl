@@ -97,7 +97,7 @@ export function buildTextGlass(
   // from moving/rescaling when the user expands/collapses the control sheet
   // ("展开收起面板字要移动缩放"). The text stays put; the sheet slides
   // up/down over the reserved space below it.
-  const sheetReservedH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 4 + TG_FONT_ROW_H + TG_TOGGLE_ROW_H + TG_INNER_PAD
+  const sheetReservedH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 5 + TG_FONT_ROW_H + TG_TOGGLE_ROW_H * 3 + TG_INNER_PAD
   const availableH = H - bottomBtnSpace - sheetReservedH
   const aspect = state.textGlassAspect > 0 ? state.textGlassAspect : 3
   // The glass element height = texH (texture height in CSS px = textH + 2*pad).
@@ -144,7 +144,12 @@ export function buildTextGlass(
       refractionAmount: 0,
       blurRadius: 2 * DP,
       saturation: 1.5,
-      brightness: -0.1,
+      // Brightness = base dim (−0.1 if dim toggle on, else 0) + brighten layer
+      // (textGlassBrighten ∈ [0,1] → +0..+0.5). So the full range is:
+      //   dim on,  brighten 0 → −0.1 (original baseline)
+      //   dim off, brighten 0 →  0.0 (neutral)
+      //   dim off, brighten 1 → +0.5 (max brighten)
+      brightness: (state.textGlassDimEnabled ? -0.1 : 0) + state.textGlassBrighten * 0.5,
       contrast: 0.75,
       surfaceColor: [1, 1, 1, 0.25],
       highlight: null,
@@ -156,10 +161,11 @@ export function buildTextGlass(
   // pass reads these and sets uSdfHighlightScale / uSdfDebugMode / uSdfAaMin.
   // aaMin=0.0 widens the coverage→mask smoothstep to (0.0, 1.0) so the full
   // Canvas2D AA gradient is preserved → smooth text edges at all font sizes.
+  // highlightEnabled=false forces highlightScale to 0 (no bevel highlight).
   tgGlass.isSdfTexture = {
     refractionHeight: 48 * DP,
     lightAngle: 45,
-    highlightScale: state.textGlassHighlightScale,
+    highlightScale: state.textGlassHighlightEnabled ? state.textGlassHighlightScale : 0,
     debugMode: state.textGlassRawSdf,
     aaMin: 0.0,
   }
@@ -187,9 +193,10 @@ export function buildTextGlass(
     const trackX = sheetX + TG_INNER_PAD
     const trackW = sheetW - 2 * TG_INNER_PAD
 
-    // Sheet height: input row + 4 slider rows (size, weight, highlight, quality)
-    // + font row + raw-SDF toggle row + padding.
-    const sheetH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 4 + TG_FONT_ROW_H + TG_TOGGLE_ROW_H + TG_INNER_PAD
+    // Sheet height: input row + 5 slider rows (size, weight, highlight,
+    // quality, brighten) + font row + 3 toggle rows (highlight-enabled,
+    // dim-enabled, raw-SDF) + padding.
+    const sheetH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 5 + TG_FONT_ROW_H + TG_TOGGLE_ROW_H * 3 + TG_INNER_PAD
     const sheetY = H - bottomBtnSpace - sheetH
 
     // Sheet glass card (independentBackdrop → samples wallpaper directly,
@@ -257,7 +264,29 @@ export function buildTextGlass(
     elements.push(tgInputGlass)
     rowY += TG_INPUT_ROW_H
 
-    // --- Rows 2-5: Size + Font weight + Highlight scale + Quality sliders ---
+    // --- Row 2: Highlight on/off toggle ---
+    // Controls whether the SDF bevel highlight is rendered at all. When OFF,
+    // highlightScale is forced to 0 in the isSdfTexture config (no bevel
+    // highlight). Sits above the highlight-scale slider so the two controls
+    // are grouped together visually.
+    const highlightToggleRow = { x: trackX, y: rowY, w: trackW, h: TG_TOGGLE_ROW_H }
+    const highlightToggle = makeSettingsToggle(
+      'tg-highlight',
+      highlightToggleRow,
+      t('text_glass_highlight_enabled', locale),
+      state.textGlassHighlightEnabled,
+      () => setState((prev) => ({ textGlassHighlightEnabled: !prev.textGlassHighlightEnabled })),
+      palette,
+      rendererRef,
+      false, // scroll = false
+      0,     // labelPad = 0
+      true,  // onGlassCard = true
+    )
+    elements.push(...highlightToggle.elements)
+    Object.assign(interactions, highlightToggle.interactions)
+    rowY += TG_TOGGLE_ROW_H
+
+    // --- Rows 3-6: Size + Font weight + Highlight scale + Quality sliders ---
     // Left-right layout: label on the left (sliderLabelW wide), slider track
     // on the right (remaining width). Both vertically centered in the row —
     // matches the input row and font-family row pattern above.
@@ -345,7 +374,74 @@ export function buildTextGlass(
       rowY += TG_ROW_H
     }
 
-    // --- Row 5: Font family picker (NON-GLASS dialog-style capsule buttons) ---
+    // --- Row 7: Dim on/off toggle ---
+    // Controls the base brightness dim (−0.1). When OFF, the baseline
+    // brightness is 0 (neutral) instead of −0.1 (slightly dimmed). The
+    // brighten slider below stacks on top of this baseline.
+    const dimToggleRow = { x: trackX, y: rowY, w: trackW, h: TG_TOGGLE_ROW_H }
+    const dimToggle = makeSettingsToggle(
+      'tg-dim',
+      dimToggleRow,
+      t('text_glass_dim_enabled', locale),
+      state.textGlassDimEnabled,
+      () => setState((prev) => ({ textGlassDimEnabled: !prev.textGlassDimEnabled })),
+      palette,
+      rendererRef,
+      false, // scroll = false
+      0,     // labelPad = 0
+      true,  // onGlassCard = true
+    )
+    elements.push(...dimToggle.elements)
+    Object.assign(interactions, dimToggle.interactions)
+    rowY += TG_TOGGLE_ROW_H
+
+    // --- Row 8: Brighten slider (0..1, 0 = off, 1 = max brighten +0.5) ---
+    // Adds a brighten layer on top of the base brightness. The further right,
+    // the brighter the glass content. At the leftmost (0) the brighten layer
+    // is off (no extra brightness). Uses the same left-right slider layout as
+    // the other slider rows. liveUpdate=true so the user sees the brightness
+    // change in real time while dragging (no SDF regen needed — only the
+    // brightness uniform changes, which is cheap).
+    {
+      const key = 'textGlassBrighten' as const
+      const val = state[key]
+      const range = [0, 1] as const
+      elements.push(
+        makeText(
+          `tg-label-${key}`,
+          { x: trackX, y: rowY + (TG_ROW_H - 16) / 2, w: sliderLabelW, h: 16 },
+          t('text_glass_brighten', locale),
+          { color: labelColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
+        )
+      )
+      const sliderTrackX = trackX + sliderLabelW + sliderGap
+      const sliderTrackW = trackW - sliderLabelW - sliderGap
+      const trackY = rowY + (TG_ROW_H - SLIDER_TRACK_H) / 2
+      const groupId = `tg-slider-${sliderIdx++}`
+      const initFrac = (val - range[0]) / (range[1] - range[0])
+      const brightenSlider = makeLiquidSlider(
+        `tg-${key}`,
+        sliderTrackX,
+        trackY,
+        sliderTrackW,
+        groupId,
+        palette.sliderTrackOff,
+        palette.sliderAccent,
+        rendererRef,
+        (f) => {
+          const v = range[0] + (range[1] - range[0]) * f
+          setState({ [key]: Math.round(v * 100) / 100 } as Partial<CatalogState>)
+        },
+        false, // scroll = false
+        true,  // liveUpdate = true
+        initFrac
+      )
+      elements.push(...brightenSlider.elements)
+      Object.assign(interactions, brightenSlider.interactions)
+      rowY += TG_ROW_H
+    }
+
+    // --- Row 9: Font family picker (NON-GLASS dialog-style capsule buttons) ---
     // Three capsule buttons (None / Google Sans / Nunito) styled EXACTLY like
     // the dialog's Cancel/Okay capsules: solid background (no refraction, no
     // blur, no glass highlight). Selected = filled accent (like dialog Okay);
