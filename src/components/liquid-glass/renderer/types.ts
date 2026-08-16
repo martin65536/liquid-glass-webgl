@@ -415,6 +415,16 @@ export interface GlassElementConfig extends GlassButtonConfig {
      *  also kill the refraction). The base dim (−0.1) is controlled separately
      *  via the element's brightness uniform on the JS side. */
     bevelEnabled?: boolean
+    /** Bevel tint dye hue (0..360 degrees, default 45). Dyes the bevel
+     *  highlight band with the selected hue instead of pure white —
+     *  implemented INSIDE the lighting-layer block, so it's removed when
+     *  bevelEnabled=false (the 光影 toggle turns it off with the layer). NOT
+     *  a global hue-rotation filter: only the edge light/shadow band (driven
+     *  by intensity * bevel dot products) is colored; the glass-body
+     *  refraction is unaffected. The shader mixes 65% toward the pure hue /
+     *  35% toward white so the highlight stays bright while being dyed.
+     *  Exposed as "染色" (Tint) in the TextGlass UI. */
+    bevelTintHue?: number
     /** Raw SDF debug render — when true, the shader bypasses all glass
      *  effects (refraction, bevel, colorControls, surface tint) and outputs
      *  the SDF texture's R channel directly as grayscale (inside = white,

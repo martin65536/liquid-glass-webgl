@@ -358,6 +358,15 @@ export interface CatalogState {
   // 1 = max brighten (+0.5 added to brightness uniform). Scales linearly so
   // the further right the slider, the brighter the glass content.
   textGlassBrighten: number
+  // TextGlass — "染色" (Tint) dye hue [0..360 degrees]. Dyes the bevel
+  // highlight band (the lighting layer's edge light/shadow) with the selected
+  // hue instead of pure white. Implemented INSIDE the shader's bevel block —
+  // NOT a global hue-rotation filter: only the edge band (intensity * bevel
+  // dot products) is colored; the glass-body refraction is untouched. The
+  // shader mixes 65% pure hue / 35% white so the highlight stays bright while
+  // dyed. Removed automatically when the 光影 toggle is off (the dye lives in
+  // the lighting layer). Default 45 (warm amber). Range [0, 360].
+  textGlassBevelTintHue: number
   // TextGlass — raw SDF debug render toggle. When true, the glass element
   // bypasses all glass effects (refraction, bevel, colorControls, surface
   // tint) and renders the SDF texture's R channel directly as a grayscale
@@ -435,6 +444,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   textGlassSaturation: 1.5,
   textGlassLightingEnabled: true,
   textGlassBrighten: 0,
+  textGlassBevelTintHue: 45,
   textGlassRawSdf: false,
 }
 

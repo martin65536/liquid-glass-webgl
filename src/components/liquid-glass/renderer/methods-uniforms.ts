@@ -35,7 +35,7 @@ export const uniformMethods = {
       'uTabContentRects[4]', 'uTabContentRects[5]', 'uTabContentRects[6]', 'uTabContentRects[7]',
       'uTabContentCount', 'uTabsGlassLayer',
       'uSdfTexSampler', 'uUseSdfTexture', 'uSdfTexSize', 'uSdfLightAngle', 'uEnterAlpha',
-      'uSdfHighlightScale', 'uSdfBevelEnabled', 'uSdfDebugMode', 'uSdfAaMin',
+      'uSdfHighlightScale', 'uSdfBevelEnabled', 'uSdfBevelTintHue', 'uSdfDebugMode', 'uSdfAaMin',
       'uUsePerElementFbo', 'uSceneRectOffset', 'uElFboSize', 'uBackdropRect',
       'uCornerStyle', 'uSkipColorControls',
       'uUseMagnifier', 'uMagnifierZoom', 'uMagnifierOffsetY',

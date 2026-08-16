@@ -277,3 +277,41 @@ Stage Summary:
 - 修改文件：types.ts（+3 字段+默认值）、i18n.ts（+3 组文案）、build-text-glass.ts（brightness 公式+highlightScale 开关+3 个新 UI 行+sheetH 公式）、page.tsx（overlay 几何同步）。
 - 效果：高光可独立开关；压暗可独立开关；提亮层滑块 0..1，最左关闭，越往右越亮（+0..+0.5 brightness），与压暗开关叠加（dim off + brighten max = 最亮）。
 - 待推送。
+
+---
+Task ID: 16
+Agent: main (Z.ai Code)
+Task: 在光影层里加一个染色滑块，选择染色的色相（不是普通的滤镜）
+
+Work Log:
+- 调研着色器结构：读取 element-utils.ts / element.ts / element-uniforms.ts，确认"光影层"= element.ts 中 `if (uSdfBevelEnabled > 0.5)` 块（bevel 高光：`color.rgb *= 1.0 + 0.5 * intensity * bevel`，基于 SDF 法线 + 光向的点积）。已有的 hsv2rgb/rgb2hsv 函数在 element-utils.ts 末尾可直接复用。
+- 设计"染色"机制：在 bevel 块内把纯白高光替换为 hue 着色的高光。`bevelTint = mix(vec3(1.0), hsv2rgb(vec3(hue/360, 1, 1)), 0.65)` → 65% 纯色相 + 35% 白底，保证每个通道都有亮度增益（高光保持明亮只是被染色）。`color.rgb *= 1.0 + 0.5 * intensity * bevel * bevelTint`。这是"在光影层里染色"而非全局滤镜——只着色 bevel 边缘带，玻璃本体的折射/颜色不受影响。染色随光影开关一起开关（在 bevel 块内）。
+- 着色器改动：
+  - element-uniforms.ts: 新增 `uniform float uSdfBevelTintHue;`（0..360°，默认 45 暖琥珀）。
+  - element.ts: bevel 块内计算 bevelTint 并乘进两条 bevel 贡献（bevel1 + bevel2 smoothstep）。
+- 渲染器改动：
+  - methods-uniforms.ts: elNames 列表加 `'uSdfBevelTintHue'`（uniform location 注册）。
+  - methods-render-glass-element-pass.ts: SDF 块内 set `uSdfBevelTintHue = el.isSdfTexture.bevelTintHue ?? 45`；else 分支 reset 为 45（避免上一个 SDF 元素的染色泄漏到非 SDF 元素）。
+  - renderer/types.ts: isSdfTexture 加 `bevelTintHue?: number` 字段。
+- Catalog 改动：
+  - catalog/types.ts: CatalogState 加 `textGlassBevelTintHue: number`（0..360，默认 45）+ DEFAULT_CATALOG_STATE 默认值。
+  - catalog/i18n.ts: 新增 `text_glass_bevel_tint: { zh: '染色', en: 'Tint' }`。
+  - catalog/build-text-glass.ts: isSdfTexture 传 `bevelTintHue: state.textGlassBevelTintHue`；brighten 滑块后新增"染色"滑块行（0..360°，integer degrees，liveUpdate=true，groupId tg-slider-6）；sheetH 从 `TG_ROW_H * 6` 改为 `* 7`；更新注释（7 sliders + 2 toggles）。
+- Hooks / page 改动：
+  - use-catalog-targets.ts: 新增 `targets['tg-slider-6'] = hue / 360`；deps 数组加 `state.textGlassBevelTintHue`；修正 tg-lighting 注释（之前错误地说"highlightScale forced to 0"，实际是 bevelEnabled 门控）。
+  - page.tsx: sheetH 从 `sliderRowH * 5 + toggleRowH * 3`（陈旧值，与 build 的 6+2 不匹配，差 4px）改为 `sliderRowH * 7 + toggleRowH * 2`——同时修了预存的 4px input overlay 错位 + 适配新增的染色行。
+- use-text-glass.ts: 无需改动——染色只改 uniform（不触发 SDF 纹理重生成），与 saturation/brighten 同理，不在 SDF regen effect 依赖数组里。
+- lint: 0 error。dev.log: HMR 干净编译。
+- agent-browser + VLM 验证（viewport 420×900，完整 sheet 可见）：
+  - 染色滑块（染色/Tint）渲染为第 7 个滑块行，label 在左 slider 在右。✓
+  - hue=45 → 边缘高光 warm/amber；hue=120 → greenish；hue=340 → pinkish/magenta。VLM 确认三种色相下边缘高光带颜色明显不同。✓
+  - 光影 toggle OFF → 高光带完全消失（边缘 flat），无任何染色残留——证明染色在光影层内部。toggle knob 移到左侧（OFF 位）。✓
+  - input overlay（文字 Glass）垂直居中在 glass pill 内——sheetH 同步修复正确（且修了预存 4px 错位）。✓
+  - 7 个 slider label 按序可见：大小/字重/玻璃厚度/质量/饱和度/提亮/染色。✓
+  - 0 browser errors / console errors。✓
+
+Stage Summary:
+- 修改文件（10）：shaders/{element-uniforms,element}.ts、renderer/{methods-uniforms,methods-render-glass-element-pass,types}.ts、catalog/{types,i18n,build-text-glass}.ts、app/hooks/use-catalog-targets.ts、app/page.tsx。
+- 效果：TextGlass 控制面板新增"染色"滑块（0..360°色相），在光影层（bevel 高光块）内把白色边缘高光染成选定色相（65% 纯色相 + 35% 白底，保持明亮只是染色）。不是全局滤镜——只着色 bevel 边缘带，玻璃本体折射/颜色不受影响。随光影开关一起开关。
+- 附带修复：page.tsx sheetH 与 build-text-glass.ts 的预存 4px 不同步（5 sliders+3 toggles vs 6+2），现已对齐为 7+2。
+- 默认色相 45（暖琥珀），strength 0.65（shader 常量，可调）。

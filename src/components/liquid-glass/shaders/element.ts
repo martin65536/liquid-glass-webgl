@@ -172,13 +172,25 @@ void main() {
         // the backdrop using the thickness slider's value — only the edge
         // brightness highlight is removed. The base dim is handled separately
         // via uBrightness on the JS side.
+        //
+        // Bevel tint dye (染色): the highlight band takes on the hue selected by
+        // uSdfBevelTintHue instead of pure white. hsv2rgb(hue,1,1) is the pure
+        // saturated hue; mix(white, hue, 0.65) keeps 35% white so every channel
+        // still gets a brightness boost (highlight stays bright, just dyed).
+        // This is NOT a global hue-rotation filter — only the bevel edge band
+        // (intensity * bevel dot products) is colored; the glass-body refraction
+        // and the rest of the color are untouched. The dye lives INSIDE the
+        // lighting-layer block, so the 光影 toggle turns it off with the layer.
         if (uSdfBevelEnabled > 0.5) {
             float angleRad = uSdfLightAngle * 3.1415926 / 180.0;
             vec2 lightDir = vec2(cos(angleRad), sin(angleRad));
+            vec3 bevelTint = mix(vec3(1.0),
+                                 hsv2rgb(vec3(uSdfBevelTintHue / 360.0, 1.0, 1.0)),
+                                 0.65);
             float bevel1 = clamp(dot(normal, lightDir), 0.0, 1.0);
-            color.rgb *= 1.0 + 0.5 * intensity * bevel1;
+            color.rgb *= 1.0 + 0.5 * intensity * bevel1 * bevelTint;
             float bevel2 = clamp(dot(normal, -lightDir), 0.0, 1.0);
-            color.rgb *= 1.0 + 0.5 * bevel2 * min(1.0, smoothstep(1.0, 0.0, abs(intensity - 0.25) * 6.0));
+            color.rgb *= 1.0 + 0.5 * bevel2 * min(1.0, smoothstep(1.0, 0.0, abs(intensity - 0.25) * 6.0)) * bevelTint;
         }
 
         // PREMULTIPLIED output: RGB = color * coverage, A = coverage.

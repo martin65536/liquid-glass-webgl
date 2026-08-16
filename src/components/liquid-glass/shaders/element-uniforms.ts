@@ -121,6 +121,15 @@ uniform float uSdfHighlightScale;   // default 1.5
 // value (so the slider is never dead). The base brightness dim (−0.1) is
 // controlled separately via uBrightness on the JS side.
 uniform float uSdfBevelEnabled;     // default 1 (on)
+// Bevel tint dye hue (0..360 degrees). The TextGlass 染色 slider picks a hue;
+// the bevel highlight band takes on that hue instead of pure white. This is
+// NOT a global hue-rotation filter — only the edge light/shadow band (driven
+// by intensity * bevel dot products) is colored; the glass-body refraction is
+// unaffected. hsv2rgb(hue/360, 1, 1) gives the pure saturated hue; the shader
+// mixes it 65% toward the hue / 35% toward white so every channel still gets
+// a brightness boost (the highlight stays bright, just dyed). Default 45
+// (warm amber); 0 = red, 120 = green, 240 = blue.
+uniform float uSdfBevelTintHue;     // default 45 (degrees, 0..360)
 // Raw SDF debug render — when > 0.5, the SDF-texture glass path bypasses all
 // glass effects and outputs the SDF's R channel directly as grayscale
 // (inside = white, outside = black, AA via A channel). Used by TextGlass to

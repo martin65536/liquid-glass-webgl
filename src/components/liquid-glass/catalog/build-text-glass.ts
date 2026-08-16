@@ -195,6 +195,10 @@ export function buildTextGlass(
     lightAngle: 45,
     highlightScale: state.textGlassHighlightScale,
     bevelEnabled: state.textGlassLightingEnabled,
+    // Bevel tint dye hue (0..360°) — dyes the lighting-layer highlight band
+    // with the selected hue. Lives inside the bevel block in the shader, so
+    // it's removed when bevelEnabled=false (光影 toggle off).
+    bevelTintHue: state.textGlassBevelTintHue,
     debugMode: state.textGlassRawSdf,
     aaMin: 0.0,
   }
@@ -222,11 +226,11 @@ export function buildTextGlass(
     const trackX = sheetX + TG_INNER_PAD
     const trackW = sheetW - 2 * TG_INNER_PAD
 
-    // Sheet height: input row + 6 slider rows (size, weight, highlight,
-    // quality, saturation, brighten) + font row + 2 toggle rows (lighting,
-    // raw-SDF) + padding. The lighting toggle replaces the old dim toggle —
-    // it now gates BOTH the bevel highlight and the base dim as one unit.
-    const sheetH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 6 + TG_FONT_ROW_H + TG_TOGGLE_ROW_H * 2 + TG_INNER_PAD
+    // Sheet height: input row + 7 slider rows (size, weight, highlight,
+    // quality, saturation, brighten, tint) + font row + 2 toggle rows
+    // (lighting, raw-SDF) + padding. The lighting toggle gates BOTH the bevel
+    // highlight, the bevel tint dye, and the base dim as one unit.
+    const sheetH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 7 + TG_FONT_ROW_H + TG_TOGGLE_ROW_H * 2 + TG_INNER_PAD
     const sheetY = H - bottomBtnSpace - sheetH
 
     // Sheet glass card (independentBackdrop → samples wallpaper directly,
@@ -303,7 +307,7 @@ export function buildTextGlass(
     // glassThickness so it sits right next to the slider it gates. The
     // sliderIdx counter is shared across both halves so groupId indices stay
     // stable: 0=fontSize, 1=fontWeight, 2=glassThickness, 3=quality,
-    // 4=saturation, 5=brighten — matching use-catalog-targets.ts exactly.
+    // 4=saturation, 5=brighten, 6=tint — matching use-catalog-targets.ts.
     //
     // Ranges:
     //   fontSize      0..fontSizeMax  (on-screen glass height in CSS px, 1:1.
@@ -478,6 +482,57 @@ export function buildTextGlass(
       )
       elements.push(...brightenSlider.elements)
       Object.assign(interactions, brightenSlider.interactions)
+      rowY += TG_ROW_H
+    }
+
+    // --- Row 8.5: Bevel tint dye hue slider (0..360°) ---
+    // "染色" (Tint): dyes the bevel highlight band with the selected hue
+    // instead of pure white. Implemented INSIDE the shader's lighting-layer
+    // block (uSdfBevelTintHue) — NOT a global hue-rotation filter. Only the
+    // edge light/shadow band is colored; the glass-body refraction is
+    // untouched. Removed automatically when the 光影 toggle is off (the dye
+    // lives in the lighting layer). The slider value is hue in degrees
+    // (0 = red, 120 = green, 240 = blue, 360 = red again). liveUpdate=true —
+    // only a uniform changes, no SDF texture regen, so it responds in real
+    // time while dragging.
+    {
+      const key = 'textGlassBevelTintHue' as const
+      const val = state[key]
+      const range = [0, 360] as const
+      elements.push(
+        makeText(
+          `tg-label-${key}`,
+          { x: trackX, y: rowY + (TG_ROW_H - 16) / 2, w: sliderLabelW, h: 16 },
+          t('text_glass_bevel_tint', locale),
+          { color: labelColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
+        )
+      )
+      const sliderTrackX = trackX + sliderLabelW + sliderGap
+      const sliderTrackW = trackW - sliderLabelW - sliderGap
+      const trackY = rowY + (TG_ROW_H - SLIDER_TRACK_H) / 2
+      const groupId = `tg-slider-${sliderIdx++}`
+      const initFrac = (val - range[0]) / (range[1] - range[0])
+      const tintSlider = makeLiquidSlider(
+        `tg-${key}`,
+        sliderTrackX,
+        trackY,
+        sliderTrackW,
+        groupId,
+        palette.sliderTrackOff,
+        palette.sliderAccent,
+        rendererRef,
+        (f) => {
+          const v = range[0] + (range[1] - range[0]) * f
+          // Hue in integer degrees — 360 discrete steps is plenty for a color
+          // picker, and integers keep the state value clean.
+          setState({ [key]: Math.round(v) } as Partial<CatalogState>)
+        },
+        false, // scroll = false
+        true,  // liveUpdate = true
+        initFrac
+      )
+      elements.push(...tintSlider.elements)
+      Object.assign(interactions, tintSlider.interactions)
       rowY += TG_ROW_H
     }
 

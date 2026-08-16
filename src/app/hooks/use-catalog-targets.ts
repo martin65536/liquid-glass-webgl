@@ -49,24 +49,29 @@ export function useCatalogTargets({ destination, state, W, H }: UseCatalogTarget
       // this, tapping the toggle changes the boolean state but the knob never
       // animates — "开关点击时有问题" (the knob stays put).
       //
-      // tg-lighting: the "光影" master toggle. Gates BOTH the bevel highlight
-      // and the base dim as one "SDF-brightness-changing layer". When OFF,
-      // the shader's highlightScale is forced to 0 AND the base brightness
-      // dim is disabled — see build-text-glass.ts.
+      // tg-lighting: the "光影" master toggle. Gates the bevel highlight
+      // (uSdfBevelEnabled) AND the bevel tint dye (which lives inside the
+      // bevel block) AND the base brightness dim, all as one
+      // "SDF-lighting layer". When OFF, the shader skips the bevel brightness
+      // term entirely but STILL computes `intensity` from highlightScale (so
+      // refraction continues) — highlightScale is NEVER zeroed. See
+      // build-text-glass.ts.
       // tg-rawsdf: the raw-SDF debug render toggle.
       targets['tg-rawsdf'] = state.textGlassRawSdf ? 1 : 0
       targets['tg-lighting'] = state.textGlassLightingEnabled ? 1 : 0
-      // Five sliders in the sliderDefs arrays (size, weight, highlight, quality,
-      // saturation) + the brighten slider. The builder assigns groupIds
-      // `tg-slider-0`..`tg-slider-5`. The lighting toggle is inserted BETWEEN
-      // fontWeight (idx 1) and glassThickness (idx 2) in the layout, but the
-      // sliderIdx counter is shared so the groupId numbering is UNCHANGED:
+      // Six sliders in the sliderDefs arrays (size, weight, highlight,
+      // quality, saturation) + the brighten slider + the tint hue slider.
+      // The builder assigns groupIds `tg-slider-0`..`tg-slider-6`. The
+      // lighting toggle is inserted BETWEEN fontWeight (idx 1) and
+      // glassThickness (idx 2) in the layout, but the sliderIdx counter is
+      // shared so the groupId numbering is UNCHANGED:
       //   0: fontSize      [0, fontSizeMax]
       //   1: fontWeight    [1, 1000]
       //   2: glassThickness [0, 5]
       //   3: quality       [0.5, 2.0]
       //   4: saturation    [0, 3]
       //   5: brighten      [0, 1]
+      //   6: tint (hue)    [0, 360]  — dyes the bevel highlight band
       const fontSizeMax = computeTextGlassFontSizeMax(W, H)
       // Clamp to [0,1] so a state value larger than fontSizeMax (e.g. the
       // default 200 on a very short viewport) doesn't push the knob past the
@@ -80,6 +85,8 @@ export function useCatalogTargets({ destination, state, W, H }: UseCatalogTarget
       targets['tg-slider-4'] = Math.max(0, Math.min(1, state.textGlassSaturation / 3))
       // Brighten slider: range [0, 1]. fraction = brighten (already 0..1).
       targets['tg-slider-5'] = Math.max(0, Math.min(1, state.textGlassBrighten / 1))
+      // Tint hue slider: range [0, 360]. fraction = hue / 360.
+      targets['tg-slider-6'] = Math.max(0, Math.min(1, state.textGlassBevelTintHue / 360))
     }
     if (destination === CatalogDestination.Settings) {
       const deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
@@ -110,7 +117,7 @@ export function useCatalogTargets({ destination, state, W, H }: UseCatalogTarget
       targets['settings-perf-monitor-toggle'] = state.showPerfMonitor ? 1 : 0
     }
     return targets
-  }, [destination, W, H, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration, state.textGlassRawSdf, state.textGlassLightingEnabled, state.textGlassFontSize, state.textGlassQuality, state.textGlassFontWeight, state.textGlassHighlightScale, state.textGlassSaturation, state.textGlassBrighten, state.customDpr, state.blurTapCap, state.blurDownsample, state.globalSeparableBlur, state.dynamicBlurDownsample, state.capsuleShape, state.noContinuousSdf, state.capsuleSdfQuality, state.hideOverlayButtons, state.pageTransition, state.showFps, state.highlightAa, state.usePerElementFbo, state.showPerfMonitor, state.directBackdropSample])
+  }, [destination, W, H, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration, state.textGlassRawSdf, state.textGlassLightingEnabled, state.textGlassFontSize, state.textGlassQuality, state.textGlassFontWeight, state.textGlassHighlightScale, state.textGlassSaturation, state.textGlassBrighten, state.textGlassBevelTintHue, state.customDpr, state.blurTapCap, state.blurDownsample, state.globalSeparableBlur, state.dynamicBlurDownsample, state.capsuleShape, state.noContinuousSdf, state.capsuleSdfQuality, state.hideOverlayButtons, state.pageTransition, state.showFps, state.highlightAa, state.usePerElementFbo, state.showPerfMonitor, state.directBackdropSample])
 
   const tabTargets = React.useMemo<Record<string, { tabIndex: number; tabsCount: number }>>(() => {
     const targets: Record<string, { tabIndex: number; tabsCount: number }> = {}
