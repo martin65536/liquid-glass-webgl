@@ -373,6 +373,16 @@ export interface CatalogState {
   // Independent of the 光影 (lighting) toggle — dyes the whole glass body
   // regardless of whether the bevel edge lighting is on. Default 0 (off).
   textGlassGlassTintHue: number
+  // TextGlass — 染色 master switch. Gates BOTH the color-mix filter
+  // (textGlassGlassTintMix) AND the hue-dye (textGlassGlassTintHue). When
+  // false, no tint of any kind is applied. Faithful to "染色加一个开关".
+  textGlassGlassTintEnabled: boolean
+  // TextGlass — color-mix filter strength (0..1). BEFORE the hue-dye, mixes
+  // the glass body toward the pure saturated hue color by this amount
+  // (SrcOver-style blend toward a solid color). 0 = no color-mix; 1 = full
+  // color overlay. Distinct from the hue-dye which preserves S/V. Faithful to
+  // "染色前加一个滤镜（颜色混合）混合强度要可以调".
+  textGlassGlassTintMix: number
   // TextGlass — "边缘哑光" (Edge matte) toggle. When true, the SDF edge band
   // (high `intensity`, near the text boundary) is desaturated toward luminance
   // AND slightly darkened — a frosted/matte rim. The effect fades smoothly
@@ -475,6 +485,8 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   textGlassLightingEnabled: true,
   textGlassBrighten: 0,
   textGlassGlassTintHue: 0,
+  textGlassGlassTintEnabled: false,
+  textGlassGlassTintMix: 0,
   textGlassEdgeMatte: false,
   textGlassEdgeMatteTargets: 7,
   textGlassRawSdf: false,

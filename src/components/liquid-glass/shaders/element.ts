@@ -226,29 +226,36 @@ void main() {
             color.rgb *= 1.0 + bevel2Amt;
         }
 
-        // Whole-glass tint dye (染色) — applies to the ENTIRE glass body, not
-        // just the bevel band. Uses BlendMode.Hue (faithful to Skia's
-        // non-separable Hue blend): the result takes the HUE from the tint
-        // source (pure saturated hsv2rgb(hue,1,1)) but keeps the glass's own
-        // SATURATION + VALUE. This is NOT a flat color overlay or CSS
-        // hue-rotate — it's a proper hue replacement, so a dyed glass still
-        // looks like glass (luminance/saturation preserved) just tinted.
-        // Gated by uSdfGlassTintHue > 0.5 so the slider's leftmost (0) = OFF.
-        // Independent of the 光影 (bevel) toggle — dyes the whole body regardless.
-        // 85% strength: strong tint but retains a hint of the original hue for
-        // naturalness.
+        // Whole-glass tint (染色) — gated by uSdfGlassTintEnabled master switch.
+        // Two stages, both using the same hue:
+        //   1. Color-mix filter (染色前滤镜): mixes the glass body toward the
+        //      pure saturated hue color by uSdfGlassTintMix amount (SrcOver-
+        //      style blend toward a solid color). This is a "color mix" filter
+        //      — distinct from the hue-dye. 0 = skip; 1 = full color overlay.
+        //   2. Hue-dye: applies BlendMode.Hue (Skia non-separable Hue blend) at
+        //      85% strength — takes hue from the tint source, keeps the glass's
+        //      own saturation + value. So a dyed glass still looks like glass
+        //      (luminance/sat preserved) just tinted.
+        // Both stages apply to the ENTIRE glass body (not just the bevel band).
+        // Independent of the 光影 (bevel) toggle.
         // Edge matte (bit 1): when matteTint is true, the tint's blend factor
         // is reduced at the edge — the rim keeps more of the desaturated base
         // color instead of the dyed hue, so the edge looks matte while the
         // interior stays fully dyed.
-        if (uSdfGlassTintHue > 0.5) {
+        if (uSdfGlassTintEnabled > 0.5 && uSdfGlassTintHue > 0.5) {
             vec3 tintSrc = hsv2rgb(vec3(uSdfGlassTintHue / 360.0, 1.0, 1.0));
+            // Stage 1: color-mix filter (before hue-dye).
+            if (uSdfGlassTintMix > 0.001) {
+                float mixAmt = uSdfGlassTintMix;
+                if (matteTint) {
+                    mixAmt *= 1.0 - matteEdge * matteStrength;
+                }
+                color.rgb = mix(color.rgb, tintSrc, mixAmt);
+            }
+            // Stage 2: hue-dye (BlendMode.Hue at 85%).
             vec3 hueBlended = blendHue(color, tintSrc);
             float tintMix = 0.85;
             if (matteTint) {
-                // Reduce the tint blend at the edge so the dyed color is
-                // partially replaced by the desaturated base → matte rim on
-                // the tint layer.
                 tintMix *= 1.0 - matteEdge * matteStrength;
             }
             color.rgb = mix(color.rgb, hueBlended, tintMix);

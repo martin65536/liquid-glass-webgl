@@ -156,6 +156,11 @@ export function buildTextGlass(
     // via BlendMode.Hue — independent of the bevel toggle. 0 = off (slider
     // leftmost); 1..360 = hue degrees.
     glassTintHue: state.textGlassGlassTintHue,
+    // Tint master switch — gates both color-mix and hue-dye.
+    glassTintEnabled: state.textGlassGlassTintEnabled,
+    // Color-mix filter strength (0..1). Mixes glass body toward pure hue color
+    // BEFORE the hue-dye.
+    glassTintMix: state.textGlassGlassTintMix,
     // Edge matte (0 or 1). Desaturates + darkens the SDF edge band.
     edgeMatteEnabled: state.textGlassEdgeMatte,
     // Edge matte target bitmask — which layers the matte desaturate+darken

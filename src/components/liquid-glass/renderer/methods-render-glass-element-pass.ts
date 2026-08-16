@@ -296,6 +296,17 @@ export const glassElementPassMethods = {
         this.uEl['uSdfGlassTintHue'],
         el.isSdfTexture.glassTintHue ?? 0
       )
+      // Glass tint master switch — gates both color-mix and hue-dye.
+      gl.uniform1f(
+        this.uEl['uSdfGlassTintEnabled'],
+        (el.isSdfTexture.glassTintEnabled ?? false) ? 1.0 : 0.0
+      )
+      // Color-mix filter strength (0..1). Mixes the glass body toward the
+      // pure hue color BEFORE the hue-dye is applied.
+      gl.uniform1f(
+        this.uEl['uSdfGlassTintMix'],
+        el.isSdfTexture.glassTintMix ?? 0
+      )
       // Edge matte (0 or 1). Desaturates + darkens the SDF edge band.
       gl.uniform1f(
         this.uEl['uSdfEdgeMatteEnabled'],
@@ -328,6 +339,8 @@ export const glassElementPassMethods = {
       gl.uniform1f(this.uEl['uSdfHighlightScale'], 1.5)
       gl.uniform1f(this.uEl['uSdfBevelEnabled'], 1.0)
       gl.uniform1f(this.uEl['uSdfGlassTintHue'], 0)
+      gl.uniform1f(this.uEl['uSdfGlassTintEnabled'], 0.0)
+      gl.uniform1f(this.uEl['uSdfGlassTintMix'], 0.0)
       gl.uniform1f(this.uEl['uSdfEdgeMatteEnabled'], 0.0)
       gl.uniform1f(this.uEl['uSdfEdgeMatteTargets'], 7.0)
       gl.uniform1f(this.uEl['uSdfDebugMode'], 0.0)

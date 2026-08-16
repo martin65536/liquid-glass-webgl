@@ -24,27 +24,21 @@ import type { SetCatalogState } from '@/app/hooks/use-catalog-state'
  * canvas sheet (between the size slider and the advanced button).
  *
  * NOT a modal. NOT a floating box above the sheet. It sits INSIDE the
- * sheet's glass card area — the canvas sheet reserves exactly 300px
- * here, and this DOM overlay is positioned to cover that 300px region
+ * sheet's glass card area — the canvas sheet reserves exactly 150px
+ * here, and this DOM overlay is positioned to cover that 150px region
  * precisely. The overlay is COMPLETELY TRANSPARENT (no background,
  * no blur, no border) so the sheet's glass card shows through — the
  * controls appear to live directly on the glass card itself.
  *
- * The 300px box has overflow:auto, so the DOM handles scrolling when
- * the content (6 sliders + 3 toggles + font picker + hint) is taller
- * than 300px. Custom scrollbar styling keeps it subtle.
- *
- * All text/track colors adapt to the theme — the labels are the same
- * color as the canvas-rendered labels (palette.homeTextHalo-aware),
- * so they read correctly on the glass card regardless of theme.
- *
- * Geometry sync: the overlay's position/size MUST match the 300px
- * reserved area in build-text-glass.ts. The sheet layout is:
- *   sheetY (from top) = H - bottomBtnSpace - sheetH
- *   row 1 (input)     = sheetY + TG_INNER_PAD
- *   row 2 (size)      = + TG_INPUT_ROW_H
- *   row 3 (THIS)      = + TG_ROW_H   ← 300px area starts here
- *   row 4 (adv btn)   = + 300        ← advanced button below
+ * Dark mode adaptation: shadcn/ui components (Slider/Switch/Button) read
+ * CSS variables (--background, --muted, --input, --primary, --border,
+ * --card, --foreground, --accent). These are normally scoped via a .dark
+ * class on <html>, but this app drives theme via React state (isLightTheme)
+ * WITHOUT touching the .dark class. So we inject the correct theme values
+ * as inline CSS variables on the panel wrapper — the shadcn components
+ * resolve the cascade and render with dark-mode-appropriate colors. This
+ * overrides the :root values for this subtree only, regardless of the
+ * global .dark state.
  * ------------------------------------------------------------------ */
 
 // MUST match the const in build-text-glass.ts.
@@ -79,20 +73,41 @@ export function TextGlassAdvancedPanel({
   const bottomBtnSpace = 20 + TG_TOGGLE_BTN_SIZE + 12 // 88
   const sheetH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H + TG_ADVANCED_PANEL_H + TG_ADVANCED_BTN_H + TG_INNER_PAD
   const sheetY = H - bottomBtnSpace - sheetH
-  // Panel area starts after input row + size row, offset by inner pad.
   const panelYFromTop = sheetY + TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H
   const panelLeft = TG_SHEET_X + TG_INNER_PAD
   const panelWidth = W - 2 * (TG_SHEET_X + TG_INNER_PAD)
   const panelHeight = TG_ADVANCED_PANEL_H
 
-  // Theme-aware text colors. These match the canvas-rendered labels
-  // (labelColor in build-text-glass.ts = palette.backIconColor), which is
-  // dark on light theme, light on dark theme — so the DOM labels read
-  // correctly on the glass card in both themes.
+  // Theme-aware text colors.
   const textColor = isLightTheme ? '#1c1c1e' : '#f5f5f7'
   const subTextColor = isLightTheme ? '#3c3c43' : '#d1d1d6'
   const dividerColor = isLightTheme ? 'rgba(0,0,0,0.10)' : 'rgba(255,255,255,0.14)'
   const scrollbarColor = isLightTheme ? 'rgba(60,60,67,0.35)' : 'rgba(235,235,245,0.35)'
+
+  // --- CSS variables injected on the wrapper so shadcn components render
+  // with the correct theme. These override :root for this subtree only.
+  // Values mirror globals.css :root (light) and .dark (dark) blocks.
+  const themeVars: React.CSSProperties = {
+    // --primary is set separately below (accent color).
+    ['--background' as string]: isLightTheme ? '#ffffff' : '#0a0a0c',
+    ['--foreground' as string]: isLightTheme ? '#1c1c1e' : '#f5f5f7',
+    ['--card' as string]: isLightTheme ? '#ffffff' : '#1c1c1e',
+    ['--card-foreground' as string]: isLightTheme ? '#1c1c1e' : '#f5f5f7',
+    ['--muted' as string]: isLightTheme ? '#f2f2f7' : '#2c2c2e',
+    ['--muted-foreground' as string]: isLightTheme ? '#3c3c43' : '#d1d1d6',
+    ['--input' as string]: isLightTheme ? '#e5e5ea' : 'rgba(255,255,255,0.16)',
+    ['--border' as string]: isLightTheme ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.18)',
+    ['--accent' as string]: isLightTheme ? '#f2f2f7' : '#2c2c2e',
+    ['--accent-foreground' as string]: isLightTheme ? '#1c1c1e' : '#f5f5f7',
+    ['--secondary' as string]: isLightTheme ? '#f2f2f7' : '#2c2c2e',
+    ['--secondary-foreground' as string]: isLightTheme ? '#1c1c1e' : '#f5f5f7',
+    ['--primary' as string]: accentColor,
+    ['--primary-foreground' as string]: '#ffffff',
+    ['--ring' as string]: accentColor,
+    ['--popover' as string]: isLightTheme ? '#ffffff' : '#1c1c1e',
+    ['--popover-foreground' as string]: isLightTheme ? '#1c1c1e' : '#f5f5f7',
+    ['--destructive' as string]: isLightTheme ? '#ff3b30' : '#ff453a',
+  }
 
   // Helper: render a labeled slider row.
   const renderSlider = (
@@ -117,9 +132,6 @@ export function TextGlassAdvancedPanel({
         max={max}
         step={step}
         onValueChange={(arr) => onChange(arr[0])}
-        style={{
-          ['--primary' as string]: accentColor,
-        }}
       />
     </div>
   )
@@ -132,16 +144,21 @@ export function TextGlassAdvancedPanel({
   ) => (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: `1px solid ${dividerColor}` }}>
       <span style={{ fontSize: 14, fontWeight: 500, color: textColor }}>{label}</span>
-      <Switch checked={checked} onCheckedChange={onChange} style={{ ['--primary' as string]: accentColor }} />
+      <Switch checked={checked} onCheckedChange={onChange} />
     </div>
   )
 
+  // Tint is active when the master switch is ON (hue slider value is
+  // informational — the switch fully gates both color-mix and hue-dye).
+  const tintActive = state.textGlassGlassTintEnabled
+
   return (
     <div
-      // Inline panel — completely transparent. Sits on top of the sheet's
-      // glass card (which shows through). The 300px box scrolls internally.
+      // Wrapper injects theme CSS variables so all shadcn children render
+      // with the correct theme — overrides :root for this subtree only.
       className="tg-advanced-scroll"
       style={{
+        ...themeVars,
         position: 'absolute',
         left: panelLeft,
         top: panelYFromTop,
@@ -149,8 +166,6 @@ export function TextGlassAdvancedPanel({
         height: panelHeight,
         overflowY: 'auto',
         overflowX: 'hidden',
-        // Transparent — no background, no blur, no border. The sheet's glass
-        // card is the background; this overlay only paints the controls.
         background: 'transparent',
         backdropFilter: 'none',
         WebkitBackdropFilter: 'none',
@@ -160,8 +175,6 @@ export function TextGlassAdvancedPanel({
         zIndex: 30,
         padding: '4px 4px 8px 0',
         color: textColor,
-        // Prevent touch scrolling from propagating to the canvas while the
-        // user scrolls inside the panel.
         touchAction: 'pan-y',
         animation: 'tg-advanced-fade-in 0.2s ease-out',
       }}
@@ -207,15 +220,6 @@ export function TextGlassAdvancedPanel({
         0.02,
         (v) => setState({ textGlassBrighten: Math.round(v * 100) / 100 }),
       )}
-      {renderSlider(
-        t('text_glass_bevel_tint', locale),
-        state.textGlassGlassTintHue,
-        0,
-        360,
-        1,
-        (v) => setState({ textGlassGlassTintHue: Math.round(v) }),
-        state.textGlassGlassTintHue === 0 ? (locale === 'zh' ? '关闭' : 'OFF') : undefined,
-      )}
 
       {/* Divider */}
       <div style={{ height: 1, background: dividerColor, margin: '6px 0' }} />
@@ -226,15 +230,42 @@ export function TextGlassAdvancedPanel({
         state.textGlassLightingEnabled,
         (v) => setState({ textGlassLightingEnabled: v }),
       )}
+      {/* Tint master switch + hue slider + mix slider.
+          When the switch is OFF, both the hue-dye and color-mix are disabled
+          (shader gates on uSdfGlassTintEnabled). When ON, the hue slider picks
+          the color and the mix slider controls the pre-dye color-mix strength. */}
+      {renderToggle(
+        t('text_glass_glass_tint_enabled', locale),
+        state.textGlassGlassTintEnabled,
+        (v) => setState({ textGlassGlassTintEnabled: v }),
+      )}
+      {tintActive && (
+        <div style={{ padding: '4px 0 6px 16px', borderBottom: `1px solid ${dividerColor}` }}>
+          {renderSlider(
+            t('text_glass_bevel_tint', locale),
+            state.textGlassGlassTintHue,
+            0,
+            360,
+            1,
+            (v) => setState({ textGlassGlassTintHue: Math.round(v) }),
+            state.textGlassGlassTintHue === 0 ? (locale === 'zh' ? '关闭' : 'OFF') : undefined,
+          )}
+          {renderSlider(
+            t('text_glass_glass_tint_mix', locale),
+            state.textGlassGlassTintMix,
+            0,
+            1,
+            0.02,
+            (v) => setState({ textGlassGlassTintMix: Math.round(v * 100) / 100 }),
+          )}
+        </div>
+      )}
       {renderToggle(
         t('text_glass_edge_matte', locale),
         state.textGlassEdgeMatte,
         (v) => setState({ textGlassEdgeMatte: v }),
       )}
-      {/* Edge matte layer targets — only shown when edge matte is ON.
-          Three compact toggles controlling which layers the matte applies to:
-          光影 (bevel), 染色 (tint), 底色 (base). Each toggles a bit in the
-          bitmask (1/2/4). Default all on (7). */}
+      {/* Edge matte layer targets — only shown when edge matte is ON. */}
       {state.textGlassEdgeMatte && (
         <div style={{ padding: '4px 0 6px 16px', borderBottom: `1px solid ${dividerColor}` }}>
           <div style={{ fontSize: 12, fontWeight: 500, color: subTextColor, marginBottom: 6 }}>
@@ -264,9 +295,6 @@ export function TextGlassAdvancedPanel({
                     fontSize: 12,
                     height: 30,
                     padding: 0,
-                    ...(on
-                      ? { background: accentColor, color: '#fff', borderColor: accentColor }
-                      : { color: textColor, borderColor: isLightTheme ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.22)' }),
                   }}
                 >
                   {t(key, locale)}
@@ -304,9 +332,6 @@ export function TextGlassAdvancedPanel({
                   fontSize: 12,
                   height: 32,
                   padding: 0,
-                  ...(selected
-                    ? { background: accentColor, color: '#fff', borderColor: accentColor }
-                    : { color: textColor, borderColor: isLightTheme ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.22)' }),
                 }}
               >
                 {t(font.labelKey, locale)}
@@ -319,8 +344,8 @@ export function TextGlassAdvancedPanel({
       {/* Hint text */}
       <p style={{ margin: '8px 0 0', fontSize: 11, lineHeight: 1.5, color: subTextColor }}>
         {locale === 'zh'
-          ? `字号范围 0..${Math.round(fontSizeMax)} · 染色 0 = 关闭 · 改动实时生效`
-          : `Size range 0..${Math.round(fontSizeMax)} · Tint 0 = OFF · Changes apply live`}
+          ? `字号范围 0..${Math.round(fontSizeMax)} · 改动实时生效`
+          : `Size range 0..${Math.round(fontSizeMax)} · Changes apply live`}
       </p>
 
       {/* Close button — at the very bottom of the scrollable area so it's
@@ -334,7 +359,6 @@ export function TextGlassAdvancedPanel({
           width: '100%',
           marginTop: 10,
           fontSize: 14,
-          color: accentColor,
           height: 34,
         }}
       >

@@ -435,6 +435,16 @@ export interface GlassElementConfig extends GlassButtonConfig {
      *  光影 (bevel) toggle — dyes the whole glass body regardless of whether
      *  the edge lighting layer is on. Exposed as "染色" (Tint) in TextGlass. */
     glassTintHue?: number
+    /** Glass tint master switch (default false). Gates BOTH the color-mix
+     *  filter (glassTintMix) AND the hue-dye (glassTintHue). When false, no
+     *  tint of any kind is applied. Exposed as the 染色 toggle in TextGlass. */
+    glassTintEnabled?: boolean
+    /** Color-mix filter strength (default 0). BEFORE the hue-dye, mixes the
+     *  glass body toward the pure saturated hue color by this amount (SrcOver-
+     *  style blend toward a solid color). 0 = no color-mix; 1 = full overlay.
+     *  Distinct from the hue-dye which preserves S/V. Exposed as the 混合
+     *  (Mix) slider in TextGlass. */
+    glassTintMix?: number
     /** Edge matte (default false). When true, the SDF edge band (high
      *  `intensity`, near the text boundary) is desaturated toward luminance
      *  and slightly darkened — a frosted/matte rim. The effect fades smoothly

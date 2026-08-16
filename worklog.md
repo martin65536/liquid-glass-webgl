@@ -497,3 +497,56 @@ Stage Summary:
   ③ 着色器重构：移除全局 matte，改为每层独立 matte（base 去饱和+压暗 / bevel 削弱高光 / tint 减少染色混合）
   ④ 用户可以只哑光光影层、只哑光染色层、或任意组合
 - 未浏览器验证（用户要求不要自己测试）。
+
+---
+Task ID: 20
+Agent: main (Z.ai Code)
+Task: 染色加开关 + 染色前加颜色混合滤镜（强度可调）+ 修复 DOM 控件深色模式适配
+
+Work Log:
+- 用户反馈三件事：①染色加开关 ②染色前加颜色混合滤镜，混合强度可调 ③DOM 控件深色模式没适配（背景一堆白/灰）
+- 问题定位（DOM 深色模式）：
+  - shadcn 组件（Slider/Switch/Button）用 Tailwind 类 bg-muted/bg-background/bg-input/bg-primary 等
+  - 这些类读取 CSS 变量 --background/--muted/--input/--primary/--border/--card
+  - 变量本应由 <html>.dark 类切换，但本项目主题用 React state (isLightTheme) 驱动，不动 .dark 类
+  - 所以 shadcn 组件始终用 :root（浅色）值 → 深色模式下 Slider track 灰、thumb 白、Switch 未选灰、Button outline 白
+- 修复方案：在面板 wrapper 注入全套主题 CSS 变量（覆盖 :root，仅本子树生效）
+  - text-glass-advanced-panel.tsx: 新增 themeVars 对象，包含 --background/--foreground/--card/--muted/--input/--border/--accent/--secondary/--primary/--ring/--popover/--destructive 等全套变量
+  - 浅色/深色分别给值（参考 globals.css :root / .dark）
+  - 注入到 wrapper div 的 style，shadcn 子组件通过 CSS cascade 读取到正确主题色
+  - 移除 Slider/Switch 上的 inline --primary 覆盖（现在由 wrapper 统一提供）
+  - Button 的 inline background/color 覆盖也移除（让 shadcn variant=default/outline/ghost 自然走主题色）
+- 染色开关 (master switch):
+  - catalog/types.ts: 新增 textGlassGlassTintEnabled: boolean（默认 false）+ DEFAULT 默认值
+  - renderer/types.ts: isSdfTexture 加 glassTintEnabled?: boolean
+  - shaders/element-uniforms.ts: 新增 uniform float uSdfGlassTintEnabled
+  - methods-uniforms.ts: elNames 加 'uSdfGlassTintEnabled'
+  - methods-render-glass-element-pass.ts: set uSdfGlassTintEnabled = glassTintEnabled ?? false；else reset 0
+  - build-text-glass.ts: isSdfTexture 传 glassTintEnabled: state.textGlassGlassTintEnabled
+  - element.ts: tint 块改为 if (uSdfGlassTintEnabled > 0.5 && uSdfGlassTintHue > 0.5)
+- 颜色混合滤镜（染色前）:
+  - catalog/types.ts: 新增 textGlassGlassTintMix: number（0..1，默认 0）+ DEFAULT 默认值
+  - renderer/types.ts: isSdfTexture 加 glassTintMix?: number
+  - shaders/element-uniforms.ts: 新增 uniform float uSdfGlassTintMix
+  - methods-uniforms.ts: elNames 加 'uSdfGlassTintMix'
+  - methods-render-glass-element-pass.ts: set uSdfGlassTintMix = glassTintMix ?? 0；else reset 0
+  - build-text-glass.ts: isSdfTexture 传 glassTintMix: state.textGlassGlassTintMix
+  - element.ts: tint 块内分两阶段
+    1. Color-mix filter: color = mix(color, tintSrc, uSdfGlassTintMix) — 染色前先把玻璃体混向纯色相
+    2. Hue-dye: color = mix(color, blendHue(color, tintSrc), 0.85) — 原有 BlendMode.Hue 染色
+  - 两阶段都受 matteTint（边缘哑光 bit 1）门控
+- i18n: 新增 text_glass_glass_tint_enabled(染色开关/Tint on) + text_glass_glass_tint_mix(混合/Mix)
+- 高级面板 UI:
+  - 染色 toggle 行（renderToggle）+ 当 toggle ON 时展开子区域（缩进 16px）
+  - 子区域内：染色 hue 滑块（0..360）+ 混合强度滑块（0..1）
+  - hue=0 显示"关闭"note
+- lint: 0 error。dev.log: HMR 干净编译。
+
+Stage Summary:
+- 修改文件（8）：shaders/{element,element-uniforms}.ts、renderer/{methods-uniforms,methods-render-glass-element-pass,types}.ts、catalog/{types,i18n,build-text-glass}.ts、text-glass-advanced-panel.tsx。
+- 效果：
+  ① DOM 控件深色模式适配：shadcn Slider/Switch/Button 通过 wrapper 注入的 CSS 变量读取正确主题色（track/thumb/switch/button 背景随主题切换）
+  ② 染色加开关：master switch 控制整个染色功能（color-mix + hue-dye），关闭时无任何染色
+  ③ 染色前颜色混合滤镜：新滑块控制混合强度（0..1），在 hue-dye 前把玻璃体混向纯色相
+  ④ 两阶段染色都受边缘哑光 bit 1 门控
+- 未浏览器验证（用户要求不要自己测试）。

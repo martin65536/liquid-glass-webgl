@@ -133,6 +133,17 @@ uniform float uSdfBevelEnabled;     // default 1 (on)
 // entirely. Independent of the 光影 (bevel) toggle — dyes the whole glass body
 // regardless of whether the edge lighting layer is on.
 uniform float uSdfGlassTintHue;     // default 0 (off); 1..360 = hue
+// Glass tint master switch (0 or 1). Gates BOTH the color-mix filter (below)
+// AND the hue-dye (above). When OFF, no tint of any kind is applied regardless
+// of uSdfGlassTintHue / uSdfGlassTintMix. Faithful to "染色加一个开关".
+uniform float uSdfGlassTintEnabled; // default 0 (off)
+// Color-mix filter strength (0..1). BEFORE the hue-dye, the glass body is
+// mixed toward a flat color (the pure saturated hue color) by this amount.
+// This is a "color mix" filter (SrcOver-style blend toward a solid color) —
+// distinct from the hue-dye which replaces hue but preserves S/V. 0 = no
+// color-mix (only the hue-dye applies); 1 = full color overlay. Faithful to
+// "染色前加一个滤镜（颜色混合）混合强度要可以调".
+uniform float uSdfGlassTintMix;     // default 0 (off); 0..1 = mix strength
 // Edge matte (0 or 1). When 1, the SDF edge band (where intensity is high,
 // i.e. near the text boundary) is desaturated toward luminance AND slightly
 // darkened — a frosted/matte rim. The edge band factor is intensity itself
