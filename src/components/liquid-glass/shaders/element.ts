@@ -179,14 +179,22 @@ void main() {
         // Multiply by sdfMask (v.a) — faithful to content * v.a.
         vec3 color = contentColor * sdfMask;
 
-        // Edge matte helpers — computed once, used by each layer that the
-        // matte targets (bitmask uSdfEdgeMatteTargets). The edge factor is
-        // intensity (1 at the text boundary, →0 in the interior) so each
-        // matte application fades smoothly into the clear glass center.
+        // Edge matte helpers — computed PER LAYER so each can be tuned
+        // independently via uSdfEdgeMatte{Bevel,Tint,Base}Params. The base
+        // edge factor is intensity (1 at the text boundary, →0 interior).
+        // Per-layer params (vec2 = range, min) shape that into the final
+        // matte weight:
+        //   edge = clamp(intensity / max(range, 0.001), 0, 1) * (1 - min) + min
+        //   range (0..1): how far the matte extends inward. 1 = full fade
+        //     across the whole intensity field (original behavior); 0.5 =
+        //     full strength by intensity=0.5 then flat (narrower rim); small
+        //     = very thin matte line.
+        //   min (0..1): floor matte amount in the deep interior. 0 = interior
+        //     clear; 0.3 = interior always ≥30% matte.
         // bit 0 = bevel (光影), bit 1 = tint (染色), bit 2 = base (折射/底色).
         // When the overall uSdfEdgeMatteEnabled is OFF, no matte is applied
-        // regardless of the bitmask. Faithful to "哑光层可以调是否作用于某些层".
-        float matteEdge = clamp(intensity, 0.0, 1.0);
+        // regardless of the bitmask. Faithful to "哑光层可以调是否作用于某些层"
+        // + "给哑光每层加上作用参数调节，比如范围，最小值".
         float matteStrength = 0.65;   // desaturate toward luminance
         float matteDarken = 0.18;     // darken
         bool matteOn = uSdfEdgeMatteEnabled > 0.5;
@@ -206,13 +214,17 @@ void main() {
         // bit 2 (base): floor(targets/4) mod 2
         float t4 = floor(uSdfEdgeMatteTargets / 4.0);
         bool matteBase = matteOn && (t4 - 2.0 * floor(t4 / 2.0)) >= 1.0;
+        // Per-layer matte edge factor — shaped by (range, min) params.
+        float matteEdgeBase = clamp(intensity / max(uSdfEdgeMatteBaseParams.x, 0.001), 0.0, 1.0)
+            * (1.0 - uSdfEdgeMatteBaseParams.y) + uSdfEdgeMatteBaseParams.y;
+        // Bevel / tint edge factors computed where they're used (below).
 
         // --- Base layer matte (bit 2) ---
         // Desaturate + darken the base refraction/body color at the edge.
         if (matteBase) {
             float lum = dot(color.rgb, vec3(0.213, 0.715, 0.072));
-            color.rgb = mix(color.rgb, vec3(lum), matteEdge * matteStrength);
-            color.rgb *= 1.0 - matteEdge * matteDarken;
+            color.rgb = mix(color.rgb, vec3(lum), matteEdgeBase * matteStrength);
+            color.rgb *= 1.0 - matteEdgeBase * matteDarken;
         }
 
         // Bevel lighting — gated by uSdfBevelEnabled so the TextGlass "光影"
@@ -228,7 +240,10 @@ void main() {
         // Edge matte (bit 0): when matteBevel is true, the bevel's edge
         // brightening is reduced by the matte strength — the highlight gets
         // desaturated + darkened toward the matte rim instead of adding pure
-        // white brightness at the edge.
+        // white brightness at the edge. The edge factor here is shaped by the
+        // BEVEL layer's (range, min) params, not the global one.
+        float matteEdgeBevel = clamp(intensity / max(uSdfEdgeMatteBevelParams.x, 0.001), 0.0, 1.0)
+            * (1.0 - uSdfEdgeMatteBevelParams.y) + uSdfEdgeMatteBevelParams.y;
         if (uSdfBevelEnabled > 0.5) {
             float angleRad = uSdfLightAngle * 3.1415926 / 180.0;
             vec2 lightDir = vec2(cos(angleRad), sin(angleRad));
@@ -238,13 +253,13 @@ void main() {
                 // Reduce the bevel brightening at the edge by the matte strength:
                 // the highlight is dimmed + desaturated (mixed toward 1.0 neutral
                 // rather than boosting above 1.0).
-                bevel1Amt *= 1.0 - matteEdge * (matteStrength + matteDarken);
+                bevel1Amt *= 1.0 - matteEdgeBevel * (matteStrength + matteDarken);
             }
             color.rgb *= 1.0 + bevel1Amt;
             float bevel2 = clamp(dot(normal, -lightDir), 0.0, 1.0);
             float bevel2Amt = 0.5 * bevel2 * min(1.0, smoothstep(1.0, 0.0, abs(intensity - 0.25) * 6.0));
             if (matteBevel) {
-                bevel2Amt *= 1.0 - matteEdge * (matteStrength + matteDarken);
+                bevel2Amt *= 1.0 - matteEdgeBevel * (matteStrength + matteDarken);
             }
             color.rgb *= 1.0 + bevel2Amt;
         }
@@ -266,14 +281,17 @@ void main() {
         // Edge matte (bit 1): when matteTint is true, the tint's blend factor
         // is reduced at the edge — the rim keeps more of the desaturated base
         // color instead of the dyed hue, so the edge looks matte while the
-        // interior stays fully dyed.
+        // interior stays fully dyed. The edge factor is shaped by the TINT
+        // layer's (range, min) params.
+        float matteEdgeTint = clamp(intensity / max(uSdfEdgeMatteTintParams.x, 0.001), 0.0, 1.0)
+            * (1.0 - uSdfEdgeMatteTintParams.y) + uSdfEdgeMatteTintParams.y;
         if (uSdfGlassTintEnabled > 0.5 && uSdfGlassTintHue > 0.5) {
             vec3 tintSrc = hsv2rgb(vec3(uSdfGlassTintHue / 360.0, 1.0, 1.0));
             // Stage 1: color-mix filter (before hue-dye).
             if (uSdfGlassTintMix > 0.001) {
                 float mixAmt = uSdfGlassTintMix;
                 if (matteTint) {
-                    mixAmt *= 1.0 - matteEdge * matteStrength;
+                    mixAmt *= 1.0 - matteEdgeTint * matteStrength;
                 }
                 color.rgb = mix(color.rgb, tintSrc, mixAmt);
             }
@@ -284,7 +302,7 @@ void main() {
             vec3 hueBlended = blendHue(color, tintSrc);
             float tintMix = uSdfGlassTintStrength;
             if (matteTint) {
-                tintMix *= 1.0 - matteEdge * matteStrength;
+                tintMix *= 1.0 - matteEdgeTint * matteStrength;
             }
             color.rgb = mix(color.rgb, hueBlended, tintMix);
         }

@@ -167,6 +167,25 @@ uniform float uSdfEdgeMatteEnabled; // default 0 (off)
 // edge, or only the tint edge, etc. Faithful to "哑光层可以调是否作用于某
 // 些层" (the matte layer can be tuned to apply to certain layers).
 uniform float uSdfEdgeMatteTargets; // default 7 (all three layers)
+// Per-layer matte tuning parameters. Each vec2 = (range, min):
+//   range (0..1, default 1.0) — how far the matte effect extends from the
+//     text boundary inward. 1.0 = the matte fades across the FULL intensity
+//     field (edge = full strength, interior = zero, original behavior);
+//     0.5 = the matte reaches full strength at intensity=0.5 and stays full
+//     for intensity > 0.5 (a sharper/narrower matte band right at the rim);
+//     small values = very thin matte rim. The edge factor is computed as
+//     clamp(intensity / max(range, 0.001), 0.0, 1.0).
+//   min (0..1, default 0.0) — minimum matte amount applied even in the deep
+//     interior (where intensity → 0). 0 = interior is clear (no matte);
+//     0.3 = interior always has at least 30% matte. The final edge factor is
+//     edgeClamped * (1.0 - min) + min. Faithful to "给哑光每层加上作用参数
+//     调节，比如范围，最小值".
+// One vec2 per layer: bevel (bit 0), tint (bit 1), base (bit 2). When the
+// overall uSdfEdgeMatteEnabled is OFF, these are ignored. When a layer's bit
+// in uSdfEdgeMatteTargets is unset, that layer's params are also ignored.
+uniform vec2  uSdfEdgeMatteBevelParams; // (range, min) for bevel layer
+uniform vec2  uSdfEdgeMatteTintParams;  // (range, min) for tint layer
+uniform vec2  uSdfEdgeMatteBaseParams;  // (range, min) for base layer
 // Raw SDF debug render — when > 0.5, the SDF-texture glass path bypasses all
 // glass effects and outputs the SDF's R channel directly as grayscale
 // (inside = white, outside = black, AA via A channel). Used by TextGlass to

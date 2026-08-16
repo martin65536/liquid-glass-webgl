@@ -404,6 +404,29 @@ export interface CatalogState {
   // matte is applied. Faithful to the user request: "哑光层可以调是否作用
   // 于某些层" (the matte layer can be tuned to apply to certain layers).
   textGlassEdgeMatteTargets: number
+  // TextGlass — per-layer matte RANGE (0..1, default 1.0). Controls how far
+  // the matte effect extends inward from the text boundary. 1.0 = full fade
+  // across the whole intensity field (original behavior); 0.5 = reaches full
+  // strength by intensity=0.5 then flat (narrower rim); small = very thin
+  // matte line. The edge factor is `clamp(intensity/range, 0, 1)`. One per
+  // layer (bevel/tint/base). Faithful to "给哑光每层加上作用参数调节，比如
+  // 范围".
+  textGlassEdgeMatteBevelRange: number
+  textGlassEdgeMatteTintRange: number
+  textGlassEdgeMatteBaseRange: number
+  // TextGlass — per-layer matte MINIMUM (0..1, default 0.0). Floor matte
+  // amount applied even in the deep interior (where intensity → 0). 0 =
+  // interior clear (no matte); 0.3 = interior always has at least 30% matte.
+  // The final edge factor is `edgeClamped * (1 - min) + min`. One per layer.
+  // Faithful to "给哑光每层加上作用参数调节，比如范围，最小值".
+  textGlassEdgeMatteBevelMin: number
+  textGlassEdgeMatteTintMin: number
+  textGlassEdgeMatteBaseMin: number
+  // TextGlass — backdrop blur radius in dp (0..20, default 2). Controls the
+  // inline poisson-disc blur radius when sampling the wallpaper (or the
+  // pre-blur amount hint for the 2-pass Gaussian path). Larger = more frosted
+  // backdrop behind the text glass. Faithful to "调blur大小的".
+  textGlassBlurRadius: number
   // TextGlass — raw SDF debug render toggle. When true, the glass element
   // bypasses all glass effects (refraction, bevel, colorControls, surface
   // tint) and renders the SDF texture's R channel directly as a grayscale
@@ -497,6 +520,13 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   textGlassGlassTintStrength: 0.85,
   textGlassEdgeMatte: false,
   textGlassEdgeMatteTargets: 7,
+  textGlassEdgeMatteBevelRange: 1,
+  textGlassEdgeMatteTintRange: 1,
+  textGlassEdgeMatteBaseRange: 1,
+  textGlassEdgeMatteBevelMin: 0,
+  textGlassEdgeMatteTintMin: 0,
+  textGlassEdgeMatteBaseMin: 0,
+  textGlassBlurRadius: 2,
   textGlassRawSdf: false,
   textGlassAdvanced: false,
 }

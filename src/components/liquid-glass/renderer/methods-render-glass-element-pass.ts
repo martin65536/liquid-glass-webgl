@@ -324,6 +324,14 @@ export const glassElementPassMethods = {
         this.uEl['uSdfEdgeMatteTargets'],
         el.isSdfTexture.edgeMatteTargets ?? 7
       )
+      // Per-layer matte (range, min) params — shape each layer's edge factor.
+      // Default [1.0, 0.0] = original behavior (full range, no floor).
+      const bevelP = el.isSdfTexture.edgeMatteBevelParams ?? [1.0, 0.0]
+      gl.uniform2f(this.uEl['uSdfEdgeMatteBevelParams'], bevelP[0], bevelP[1])
+      const tintP = el.isSdfTexture.edgeMatteTintParams ?? [1.0, 0.0]
+      gl.uniform2f(this.uEl['uSdfEdgeMatteTintParams'], tintP[0], tintP[1])
+      const baseP = el.isSdfTexture.edgeMatteBaseParams ?? [1.0, 0.0]
+      gl.uniform2f(this.uEl['uSdfEdgeMatteBaseParams'], baseP[0], baseP[1])
       gl.uniform1f(
         this.uEl['uSdfDebugMode'],
         el.isSdfTexture.debugMode ? 1.0 : 0.0
@@ -350,6 +358,9 @@ export const glassElementPassMethods = {
       gl.uniform1f(this.uEl['uSdfGlassTintStrength'], 0.85)
       gl.uniform1f(this.uEl['uSdfEdgeMatteEnabled'], 0.0)
       gl.uniform1f(this.uEl['uSdfEdgeMatteTargets'], 7.0)
+      gl.uniform2f(this.uEl['uSdfEdgeMatteBevelParams'], 1.0, 0.0)
+      gl.uniform2f(this.uEl['uSdfEdgeMatteTintParams'], 1.0, 0.0)
+      gl.uniform2f(this.uEl['uSdfEdgeMatteBaseParams'], 1.0, 0.0)
       gl.uniform1f(this.uEl['uSdfDebugMode'], 0.0)
       gl.uniform1f(this.uEl['uSdfAaMin'], 0.5)
       // Bind the dummy 1×1 texture to TEXTURE2 so the uSdfTexSampler /

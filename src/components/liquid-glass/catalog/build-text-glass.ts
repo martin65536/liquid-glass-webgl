@@ -127,7 +127,7 @@ export function buildTextGlass(
       cornerRadius: 0,
       refractionHeight: 0,
       refractionAmount: 0,
-      blurRadius: 2 * DP,
+      blurRadius: state.textGlassBlurRadius * DP,
       // Saturation gain — driven by the textGlassSaturation slider (0..3).
       // 0 = grayscale, 1 = normal, >1 = boosted vibrancy. Independent of
       // brightness/contrast so the user can tune color richness alone.
@@ -177,6 +177,13 @@ export function buildTextGlass(
     // contribution is preserved (not matted). The overall edgeMatteEnabled
     // toggle still gates whether ANY matte is applied.
     edgeMatteTargets: state.textGlassEdgeMatteTargets,
+    // Per-layer matte (range, min) params. range (0..1) = how far the matte
+    // extends inward from the text boundary; min (0..1) = floor matte amount
+    // in the deep interior. Default [1, 0] = original behavior. Faithful to
+    // "给哑光每层加上作用参数调节，比如范围，最小值".
+    edgeMatteBevelParams: [state.textGlassEdgeMatteBevelRange, state.textGlassEdgeMatteBevelMin],
+    edgeMatteTintParams: [state.textGlassEdgeMatteTintRange, state.textGlassEdgeMatteTintMin],
+    edgeMatteBaseParams: [state.textGlassEdgeMatteBaseRange, state.textGlassEdgeMatteBaseMin],
     debugMode: state.textGlassRawSdf,
     aaMin: 0.0,
   }

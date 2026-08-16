@@ -607,3 +607,54 @@ Stage Summary:
   ③ 修复哑光 bit 0 bug：bevel matte 之前因 mod 8 提取错误而永远开启，现在正确用 mod 2 提取，用户关闭"光影"bit 时 bevel matte 真正关闭
   ④ DOM 面板随 sheet 收起而隐藏：渲染条件加 textGlassSheetExpanded，sheet 收起时 DOM 面板同步消失
 - 未浏览器验证（用户要求不要自己测试）。
+
+---
+Task ID: 22
+Agent: main (Z.ai Code)
+Task: 给哑光每层加上作用参数调节（范围、最小值）+ 加 blur 大小滑块 + 推 GitHub
+
+Work Log:
+- 用户反馈两件事：①给哑光每层加上作用参数调节，比如范围，最小值 ②还有调blur大小的，做完推github
+
+- Task 1: 每层 matte 参数（range + min）
+  - 设计：每层独立 (range, min) 参数对，用 vec2 uniform 紧凑传递
+    - range (0..1, default 1.0): matte 从边缘向内延伸的范围。1=全强度渐变（原行为）；0.5=intensity 0.5 处即满强度然后持平（更窄的哑光带）；小=极细哑光线
+    - min (0..1, default 0.0): 深处内部的最低 matte 量。0=内部透明；0.3=内部始终至少 30% matte
+    - edge factor 公式: clamp(intensity/range, 0, 1) * (1-min) + min
+  - shaders/element-uniforms.ts: 新增 3 个 vec2 uniform
+    - uSdfEdgeMatteBevelParams, uSdfEdgeMatteTintParams, uSdfEdgeMatteBaseParams
+  - shaders/element.ts: 重构 matte 逻辑
+    - 移除全局 matteEdge = clamp(intensity, 0, 1)
+    - 每层独立计算 matteEdgeBevel/matteEdgeTint/matteEdgeBase，各用自己层的 (range, min) 参数
+    - base 层: mix 去饱和 + 压暗 用 matteEdgeBase
+    - bevel 层: bevel1Amt/bevel2Amt 削弱用 matteEdgeBevel
+    - tint 层: mixAmt/tintMix 削弱用 matteEdgeTint
+  - renderer/types.ts: isSdfTexture config 新增 edgeMatteBevelParams/TintParams/BaseParams (各 [number, number])
+  - renderer/methods-uniforms.ts: elNames 加 3 个 uniform location
+  - renderer/methods-render-glass-element-pass.ts: set 3 个 uniform2f + else reset [1.0, 0.0]
+  - catalog/types.ts: CatalogState 新增 6 个 number 字段 (BevelRange/BevelMin/TintRange/TintMin/BaseRange/BaseMin) + DEFAULT 默认值 (Range=1, Min=0)
+  - catalog/build-text-glass.ts: isSdfTexture 传 3 个 [range, min] 数组
+
+- Task 2: blur 大小滑块
+  - catalog/types.ts: 新增 textGlassBlurRadius: number (0..20, default 2) + DEFAULT
+  - catalog/build-text-glass.ts: tgGlass blurRadius 从硬编码 2*DP 改为 state.textGlassBlurRadius * DP
+  - catalog/i18n.ts: 新增 text_glass_blur_radius (模糊/Blur)
+  - text-glass-advanced-panel.tsx: 主 sliders 区新增 blur 滑块 (0..20, step 0.5)
+
+- Task 3: 高级面板 UI
+  - text-glass-advanced-panel.tsx: edge matte targets 按钮下方新增每层 (range, min) 滑块组
+    - 三层各一个 section（层名 + range 滑块 + min 滑块）
+    - 用类型安全的显式属性映射（避免 computed key 类型断言）
+  - i18n: 新增 text_glass_edge_matte_range (范围/Range) + text_glass_edge_matte_min (最小值/Min)
+
+- 反引号 bug 修复: GLSL 注释里用了反引号终止了 JS template literal → 移除反引号修复（element-uniforms.ts + element.ts）
+
+- lint: 0 error。dev.log: HMR 干净编译，GET /?dest=TextGlass 200。
+
+Stage Summary:
+- 修改文件（8）：shaders/{element,element-uniforms}.ts、renderer/{types,methods-uniforms,methods-render-glass-element-pass}.ts、catalog/{types,i18n,build-text-glass}.ts、text-glass-advanced-panel.tsx。
+- 效果：
+  ① 每层哑光可调范围+最小值：光影/染色/底色三层各自独立的 range（向内延伸范围）+ min（内部最低 matte 量）滑块
+  ② blur 大小滑块：0..20dp 可调，控制玻璃背后背景模糊度
+  ③ 着色器重构为 per-layer edge factor，每层用自己参数计算 matte 权重
+- 未浏览器验证（用户要求不要自己测试）。

@@ -220,6 +220,14 @@ export function TextGlassAdvancedPanel({
         0.02,
         (v) => setState({ textGlassBrighten: Math.round(v * 100) / 100 }),
       )}
+      {renderSlider(
+        t('text_glass_blur_radius', locale),
+        state.textGlassBlurRadius,
+        0,
+        20,
+        0.5,
+        (v) => setState({ textGlassBlurRadius: Math.round(v * 10) / 10 }),
+      )}
 
       {/* Divider */}
       <div style={{ height: 1, background: dividerColor, margin: '6px 0' }} />
@@ -310,6 +318,58 @@ export function TextGlassAdvancedPanel({
               )
             })}
           </div>
+          {/* Per-layer (range, min) params. range = how far the matte extends
+              inward; min = floor matte amount in the deep interior. Each
+              layer independently tunable. Faithful to "给哑光每层加上作用
+              参数调节，比如范围，最小值". */}
+          {([
+            {
+              key: 'text_glass_edge_matte_bevel' as const,
+              label: t('text_glass_edge_matte_bevel', locale),
+              range: state.textGlassEdgeMatteBevelRange,
+              min: state.textGlassEdgeMatteBevelMin,
+              setRange: (v: number) => setState({ textGlassEdgeMatteBevelRange: v }),
+              setMin: (v: number) => setState({ textGlassEdgeMatteBevelMin: v }),
+            },
+            {
+              key: 'text_glass_edge_matte_tint' as const,
+              label: t('text_glass_edge_matte_tint', locale),
+              range: state.textGlassEdgeMatteTintRange,
+              min: state.textGlassEdgeMatteTintMin,
+              setRange: (v: number) => setState({ textGlassEdgeMatteTintRange: v }),
+              setMin: (v: number) => setState({ textGlassEdgeMatteTintMin: v }),
+            },
+            {
+              key: 'text_glass_edge_matte_base' as const,
+              label: t('text_glass_edge_matte_base', locale),
+              range: state.textGlassEdgeMatteBaseRange,
+              min: state.textGlassEdgeMatteBaseMin,
+              setRange: (v: number) => setState({ textGlassEdgeMatteBaseRange: v }),
+              setMin: (v: number) => setState({ textGlassEdgeMatteBaseMin: v }),
+            },
+          ]).map(({ key, label, range, min, setRange, setMin }) => (
+            <div key={key} style={{ marginTop: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 500, color: subTextColor, marginBottom: 2 }}>
+                {label}
+              </div>
+              {renderSlider(
+                t('text_glass_edge_matte_range', locale),
+                range,
+                0,
+                1,
+                0.02,
+                (v) => setRange(Math.round(v * 100) / 100),
+              )}
+              {renderSlider(
+                t('text_glass_edge_matte_min', locale),
+                min,
+                0,
+                1,
+                0.02,
+                (v) => setMin(Math.round(v * 100) / 100),
+              )}
+            </div>
+          ))}
         </div>
       )}
       {renderToggle(

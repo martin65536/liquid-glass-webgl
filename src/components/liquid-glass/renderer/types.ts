@@ -475,6 +475,19 @@ export interface GlassElementConfig extends GlassButtonConfig {
      *  The overall edgeMatteEnabled toggle still gates whether ANY matte is
      *  applied. */
     edgeMatteTargets?: number
+    /** Per-layer matte tuning params as [range, min] pairs (each 0..1).
+     *  range: how far the matte extends inward from the text boundary.
+     *    1.0 = full fade across the whole intensity field (default, original
+     *    behavior); 0.5 = full strength by intensity=0.5 then flat (narrower
+     *    rim); small = very thin matte line.
+     *  min: floor matte amount in the deep interior. 0 = interior clear
+     *    (default); 0.3 = interior always ≥30% matte.
+     *  The edge factor is `clamp(intensity/range,0,1)*(1-min)+min`.
+     *  One pair per layer; defaults [1.0, 0.0] each = original behavior.
+     *  Faithful to "给哑光每层加上作用参数调节，比如范围，最小值". */
+    edgeMatteBevelParams?: [number, number]
+    edgeMatteTintParams?: [number, number]
+    edgeMatteBaseParams?: [number, number]
     /** Raw SDF debug render — when true, the shader bypasses all glass
      *  effects (refraction, bevel, colorControls, surface tint) and outputs
      *  the SDF texture's R channel directly as grayscale (inside = white,
