@@ -258,6 +258,10 @@ export function buildTextGlass(
     rowY += TG_INPUT_ROW_H
 
     // --- Rows 2-5: Size + Font weight + Highlight scale + Quality sliders ---
+    // Left-right layout: label on the left (sliderLabelW wide), slider track
+    // on the right (remaining width). Both vertically centered in the row —
+    // matches the input row and font-family row pattern above.
+    //
     // Ranges widened so the user can explore extremes:
     //   fontSize      0..fontSizeMax  (on-screen glass height in CSS px, 1:1.
     //                                 0 = empty/hidden texture; max = largest
@@ -294,29 +298,34 @@ export function buildTextGlass(
       { key: 'textGlassHighlightScale' as const, label: t('text_glass_highlight_scale', locale), range: [0, 5] as const, round: false },
       { key: 'textGlassQuality' as const, label: t('text_glass_quality', locale), range: [0.5, 2] as const, round: false },
     ]
+    const sliderLabelW = 72
+    const sliderGap = 12
     let sliderIdx = 0
     for (const s of sliderDefs) {
       const val = state[s.key] as number
       const range = s.range
       const key = s.key
 
+      // Label on the left, vertically centered in the row.
       elements.push(
         makeText(
           `tg-label-${key}`,
-          { x: trackX, y: rowY, w: trackW, h: 16 },
+          { x: trackX, y: rowY + (TG_ROW_H - 16) / 2, w: sliderLabelW, h: 16 },
           s.label,
           { color: labelColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: 0, halo: palette.homeTextHalo }
         )
       )
-      const sliderRowY = rowY + 16 + 12
-      const trackY = sliderRowY + (24 - SLIDER_TRACK_H) / 2
+      // Slider track on the right, taking the remaining row width.
+      const sliderTrackX = trackX + sliderLabelW + sliderGap
+      const sliderTrackW = trackW - sliderLabelW - sliderGap
+      const trackY = rowY + (TG_ROW_H - SLIDER_TRACK_H) / 2
       const groupId = `tg-slider-${sliderIdx++}`
       const initFrac = (val - range[0]) / (range[1] - range[0])
       const slider = makeLiquidSlider(
         `tg-${key}`,
-        trackX,
+        sliderTrackX,
         trackY,
-        trackW,
+        sliderTrackW,
         groupId,
         palette.sliderTrackOff,
         palette.sliderAccent,

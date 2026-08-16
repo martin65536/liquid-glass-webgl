@@ -211,3 +211,21 @@ Stage Summary:
 - 视觉行为回到优化前：Home/Settings/About 的主题/退出按钮、slider knob 恢复走 sampleBackdrop 采样场景纹理 + fboA ping-pong 往返架构。
 - 修改文件（19）：catalog/{helpers-buttons,helpers-slider,index,build-settings-blur-card,build-settings-rendering-card}.ts、renderer/{index,methods-render,methods-render-glass-backdrop,methods-render-glass-element-pass-context,methods-render-glass-pef,methods-render-glass-pef-cache-flags,methods-render-glass-pingpong,methods-render-glass-state,methods-render-nonglass,methods-render-nonglass-plain-rect,methods-render-nonglass-progressive-blur,methods-render-nonglass-text,types}.ts、shaders/element-utils.ts。
 - 待推送。
+
+---
+Task ID: 13
+Agent: main (Z.ai Code)
+Task: 修复 git 分叉（本地 mode 噪音 commit）+ 恢复 submodule + TextGlass 滑块改左右排布
+
+Work Log:
+- 发现本地/远程 main 分叉：本地有 b29df03（mode 644→755 噪音），远程有 25e9f8f（干净）。两者内容相同（都是 submodule 恢复），仅文件 mode 不同。git reset --hard origin/main 对齐，消除分叉。submodule 工作区不受影响（AndroidLiquidGlass 186 files, Kyant-shapes 51 files 保留）。
+- TextGlass 滑块布局改造：4 个滑块行（大小/字重/高光距离/质量）从上下排布改为左右排布。
+  - constants.ts: TG_ROW_H 从 68 (16+12+24+16) 改为 48，与 input/font 行一致。sheetReservedH 和 sheetH 自动缩短 80px，sheet 更紧凑。
+  - build-text-glass.ts: 重写滑块循环。label 左侧 72px 宽 + gap 12px + slider 右侧占剩余宽度。label 和 slider 均通过 (TG_ROW_H - elementH) / 2 垂直居中，与 input 行/font 行的模式一致。
+- lint：0 error。dev.log：HMR 干净编译。
+- agent-browser + VLM 验证：4 个滑块行全部左右排布，label 在左 slider 在右，垂直居中对齐，sheet 紧凑无破损。0 browser errors。
+
+Stage Summary:
+- 修改文件：constants.ts（TG_ROW_H 68→48）、build-text-glass.ts（滑块循环重写为左右排布）。
+- 效果：TextGlass 控制面板的 4 个滑块从「label 在上 + slider 在下」改为「label 在左 + slider 在右」，与 input 行/font 行布局统一。sheet 高度缩短 80px，玻璃文字区域相应增大。
+- 待推送。
