@@ -71,6 +71,19 @@ export function useGestureHandlers(
       let hit: GlassElementConfig | null = null
       for (let i = els.length - 1; i >= 0; i--) {
         const el = els[i]
+        // Clip-rect gate: if the element is clipped (scrollable sheet content),
+        // skip it when the pointer is OUTSIDE the clip rect. This disables
+        // interaction for content scrolled out of the sheet's visible area —
+        // e.g. a slider knob that has scrolled above/below the sheet must NOT
+        // be draggable. The clipRect is in viewport coords (top-left origin),
+        // so test against the raw pointer position (x, y), NOT the un-rotated
+        // testX/testY (which are for the element's own shape test below).
+        if (el.clipRect) {
+          const cr = el.clipRect
+          if (x < cr.x || x > cr.x + cr.w || y < cr.y || y > cr.y + cr.h) {
+            continue
+          }
+        }
         // Use hitRect (expanded touch target) if set, else fall back to rect.
         // This lets slider tracks (visually 6dp tall) have a ~48dp touch target.
         const hr = el.hitRect ?? el.rect

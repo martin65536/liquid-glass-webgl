@@ -316,56 +316,52 @@ export function buildTextGlass(
     if (state.capsuleShape) tgSheet.useContinuousSdf = true
     elements.push(tgSheet)
 
-    // --- Grab handle (drag-to-scroll affordance) ---
-    // A small rounded bar at the top of the sheet (in the top padding area),
-    // like iOS modal sheets. The user drags this bar to scroll the content.
-    // It's a plain-rect (non-glass) element with isInteractive=true so the
-    // renderer's hit-test routes drag events to it. Positioned at a FIXED Y
-    // (does NOT scroll with content) — always visible at the sheet's top.
-    // Only shown when the content overflows (maxScroll > 0).
-    if (maxScroll > 0) {
-      const grabW = 36 * DP
-      const grabH = 4 * DP
-      const grabX = sheetX + (sheetW - grabW) / 2
-      const grabY = sheetY + (TG_INNER_PAD - grabH) / 2
-      const grabHandle: GlassElementConfig = {
-        id: 'tg-grab',
-        kind: 'plain-rect',
-        rect: { x: grabX, y: grabY, w: grabW, h: grabH },
-        cornerRadius: grabH / 2,
-        plainRect: { color: [0.5, 0.5, 0.5, 0.45] },
-        isInteractive: true,
-        scroll: false,
-      }
-      elements.push(grabHandle)
-      // Record the current maxScroll so the inertial RAF loop can clamp
-      // (closures inside the interactions capture the value at gesture time,
-      // but the RAF loop re-reads tgInertiaMaxScroll each frame).
-      tgInertiaMaxScroll.y = maxScroll
-      interactions['tg-grab'] = {
-        onDragStart: () => {
-          tgInertiaCancel() // stop any in-flight inertia when a new drag starts
-          textGlassScrollStart.y = state.textGlassSheetScroll
-        },
-        onDrag: (_pos, delta) => {
-          // Drag DOWN (delta.y > 0) = scroll toward top (decrease offset).
-          // Drag UP (delta.y < 0) = scroll toward bottom (increase offset).
-          const next = textGlassScrollStart.y - delta.y
-          setState({ textGlassSheetScroll: Math.max(0, Math.min(maxScroll, next)) })
-        },
-        onDragEnd: (_pos, velocity) => {
-          // Launch inertial scrolling using the pointer's release velocity
-          // (px/s, positive y = downward). dragging UP → negative y-velocity →
-          // tgInertiaTick does scroll -= deltaPerFrame → scroll increases →
-          // content moves toward bottom. Correct.
-          tgInertiaMaxScroll.y = maxScroll
-          tgInertiaVelocity = velocity.y
-          if (Math.abs(tgInertiaVelocity) > 30 && !tgInertiaRaf) {
-            tgInertiaRaf = requestAnimationFrame(tgInertiaTick)
-          }
-        },
-      }
+    // --- Full-area scroll via the sheet card itself ---
+    // The sheet card is the scroll surface: dragging anywhere on the sheet
+    // background (empty padding, slider labels, gaps between controls) scrolls
+    // the content. Interactive content elements (sliders, toggle tracks/knobs,
+    // font buttons, input pill) sit ABOVE the sheet card in z-order, so the
+    // hit-test reaches them first — a drag on a slider moves the slider, a
+    // drag on empty space falls through to the sheet card and scrolls. This
+    // replaces the old tiny "grab handle" bar (which was hard to hit) with
+    // true full-area scrolling.
+    //
+    // The interaction is attached unconditionally (even when maxScroll === 0,
+    // i.e. content fits without scrolling) so a drag on the sheet is always
+    // captured by the sheet — it never falls through to scroll the underlying
+    // page. When maxScroll === 0 the drag clamps to [0,0] → no movement, but
+    // the gesture is owned (no page scroll takeover).
+    tgInertiaMaxScroll.y = maxScroll
+    // Shared scroll-drag handlers — reused on the sheet card AND on toggle
+    // labels (see below) so dragging on a toggle's label scrolls the sheet
+    // instead of triggering the page-scroll-takeover (which is a no-op on the
+    // non-scrollable TextGlass page). Tap-to-toggle is preserved separately.
+    const sheetScrollHandlers: Pick<ElementInteraction, 'onDragStart' | 'onDrag' | 'onDragEnd'> = {
+      onDragStart: () => {
+        tgInertiaCancel() // stop any in-flight inertia when a new drag starts
+        textGlassScrollStart.y = state.textGlassSheetScroll
+      },
+      onDrag: (_pos, delta) => {
+        // Drag DOWN (delta.y > 0) = scroll toward top (decrease offset).
+        // Drag UP (delta.y < 0) = scroll toward bottom (increase offset).
+        const next = textGlassScrollStart.y - delta.y
+        setState({ textGlassSheetScroll: Math.max(0, Math.min(maxScroll, next)) })
+      },
+      onDragEnd: (_pos, velocity) => {
+        // Launch inertial scrolling using the pointer's release velocity
+        // (px/s, positive y = downward). dragging UP → negative y-velocity →
+        // tgInertiaTick does scroll -= deltaPerFrame → scroll increases →
+        // content moves toward bottom. Correct. Skip when there's nothing to
+        // scroll (maxScroll === 0) — inertia would just spin harmlessly.
+        if (maxScroll <= 0) return
+        tgInertiaMaxScroll.y = maxScroll
+        tgInertiaVelocity = velocity.y
+        if (Math.abs(tgInertiaVelocity) > 30 && !tgInertiaRaf) {
+          tgInertiaRaf = requestAnimationFrame(tgInertiaTick)
+        }
+      },
     }
+    interactions['tg-sheet'] = sheetScrollHandlers
 
     // Track the element index range for content elements so we can set
     // clipRect on all of them at once after building (cleaner than setting
@@ -552,6 +548,13 @@ export function buildTextGlass(
     )
     elements.push(...lightingToggle.elements)
     Object.assign(interactions, lightingToggle.interactions)
+    // Merge sheet-scroll onDrag onto the toggle label so a vertical drag on
+    // the label scrolls the sheet (instead of the no-op page-scroll-takeover).
+    // The label's onTap (toggle flip) is preserved.
+    interactions['tg-lighting-label'] = {
+      ...interactions['tg-lighting-label'],
+      ...sheetScrollHandlers,
+    }
     rowY += TG_TOGGLE_ROW_H
 
     // Part 2: highlight range + quality + saturation (groupId 2, 3, 4)
@@ -747,6 +750,11 @@ export function buildTextGlass(
     )
     elements.push(...rawToggle.elements)
     Object.assign(interactions, rawToggle.interactions)
+    // Merge sheet-scroll onDrag onto the raw-SDF toggle label (see tg-lighting).
+    interactions['tg-rawsdf-label'] = {
+      ...interactions['tg-rawsdf-label'],
+      ...sheetScrollHandlers,
+    }
     rowY += TG_TOGGLE_ROW_H
 
     // --- Row: Edge matte toggle (边缘哑光) ---
@@ -770,6 +778,11 @@ export function buildTextGlass(
     )
     elements.push(...edgeMatteToggle.elements)
     Object.assign(interactions, edgeMatteToggle.interactions)
+    // Merge sheet-scroll onDrag onto the edge-matte toggle label (see tg-lighting).
+    interactions['tg-edgematte-label'] = {
+      ...interactions['tg-edgematte-label'],
+      ...sheetScrollHandlers,
+    }
 
     // --- Set clipRect on all content elements built above ---
     // Content elements (input, sliders, toggles, labels, font buttons) get a

@@ -111,14 +111,18 @@ export function renderGlassElementPerFbo(
   // Patch elFboW/H into the state (needed by the element pass for uElFboSize).
   state = { ...state, elFboW: cache.elFboW, elFboH: cache.elFboH }
 
-  // --- Step 1: Shadow pass → curFbo (scissor to ROTATED bbox) ---
+  // --- Step 1: Shadow pass → curFbo (scissor to ROTATED bbox ∩ clipRect) ---
   // Shadow is NEVER cached — cheap (1 drawArrays, no texture fetches) and
   // re-rendering keeps it correct when the element beneath in z-order changes.
   // Scissor to the ROTATED AABB (not the un-rotated bbox) so the shadow isn't
   // clipped at the corners when the element is rotated.
+  // Intersect with el.clipRect (scrollable sheet content clipping) so the
+  // outer shadow of a slider knob / toggle knob near the sheet's edge does
+  // NOT bleed outside the sheet's visible rect.
+  const shadowClip = this.intersectClipScissor(el, rotScX, rotScY, rotScW, rotScH)
   this.bindFBO(curFbo)
   gl.enable(gl.SCISSOR_TEST)
-  gl.scissor(rotScX, rotScY, rotScW, rotScH)
+  gl.scissor(shadowClip.x, shadowClip.y, shadowClip.w, shadowClip.h)
   gl.enable(gl.BLEND)
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
   this.renderGlassShadowPass(state)

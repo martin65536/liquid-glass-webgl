@@ -449,11 +449,11 @@ export default function Page() {
             // Match build-text-glass.ts geometry (CSS px; DP≈1 on these screens).
             // Keep this IN SYNC with the sheet height formula in build-text-glass.ts
             // (TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 7 + TG_FONT_ROW_H +
-            //  TG_TOGGLE_ROW_H * 2 + TG_INNER_PAD). Any row count change there
+            //  TG_TOGGLE_ROW_H * 3 + TG_INNER_PAD). Any row count change there
             // must be mirrored here or the <input> overlay drifts off the glass pill.
             // 7 slider rows: size, weight, glass-thickness, quality, saturation,
             // brighten, tint.
-            // 2 toggle rows: lighting, raw-SDF.
+            // 3 toggle rows: lighting, raw-SDF, edge-matte.
             const sheetX = 16
             const innerPad = 24
             const labelW = 48
@@ -465,14 +465,33 @@ export default function Page() {
             const sliderRowH = 48
             const fontRowH = 48
             const toggleRowH = 44
-            const sheetH = innerPad + inputRowH + sliderRowH * 7 + fontRowH + toggleRowH * 2 + innerPad
-            // pillY from top = sheetY + innerPad + (inputRowH - pillH)/2
-            // sheetY from top = H - toggleBtnSpace - sheetH
-            // → pill bottom from screen bottom =
-            //   toggleBtnSpace + (sheetH - innerPad - (inputRowH - pillH)/2 - pillH)
-            const pillBottom = toggleBtnSpace + (sheetH - innerPad - (inputRowH - pillH) / 2 - pillH)
+            // Full (uncapped) content height — matches build-text-glass.ts
+            // fullSheetContentH. Used to compute maxScroll + the cap.
+            const fullContentH = innerPad + inputRowH + sliderRowH * 7 + fontRowH + toggleRowH * 3 + innerPad
+            // Sheet height is CAPPED at half-screen (mirrors build-text-glass.ts
+            // sheetH = Math.min(fullSheetContentH, maxSheetH=H*0.5)). When content
+            // overflows, the sheet becomes scrollable — the input pill (row 1)
+            // moves up with the scroll offset and must be hidden once it scrolls
+            // out of the sheet's visible rect. Previously the overlay used the
+            // UNCAPPED sheetH, which made it sit ~100px too high when content
+            // overflowed (the "输入框错位" bug).
+            const cappedSheetH = Math.min(fullContentH, H * 0.5)
+            const sheetY = H - toggleBtnSpace - cappedSheetH
+            const scroll = state.textGlassSheetScroll
+            // pillY (from screen top) = sheetY + innerPad - scroll + (inputRowH-pillH)/2
+            //   — the "- scroll" makes the overlay track the pill as it scrolls.
+            const pillYFromTop = sheetY + innerPad - scroll + (inputRowH - pillH) / 2
+            // pill bottom from screen bottom = H - pillYFromTop - pillH
+            const pillBottom = H - pillYFromTop - pillH
             const pillLeft = sheetX + innerPad + labelW + gap
             const pillW = (W - 2 * (sheetX + innerPad)) - labelW - gap
+            // Hide the overlay once the pill has scrolled fully out of the
+            // sheet's visible rect (above the sheet top). The pill can only
+            // scroll UP (it's row 1), so we only check the top edge. When
+            // hidden, pointer events pass through to the canvas so the sheet
+            // card's scroll drag keeps working over the input row's area too.
+            const pillBottomY = pillYFromTop + pillH
+            const scrolledOutOfView = pillBottomY <= sheetY
             return (
               <div
                 style={{
@@ -481,6 +500,11 @@ export default function Page() {
                   bottom: pillBottom,
                   width: pillW,
                   zIndex: 30,
+                  // When the pill is scrolled out of view, hide + disable pointer
+                  // capture so the overlay doesn't block sheet scrolling over the
+                  // input row's area.
+                  display: scrolledOutOfView ? 'none' : 'block',
+                  pointerEvents: scrolledOutOfView ? 'none' : 'auto',
                 }}
               >
                 <input
