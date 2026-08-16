@@ -56,18 +56,23 @@ export function buildLockScreen(W: number, H: number, onBack: () => void, state:
     }
   )
   lsGlass.isSdfTexture = { refractionHeight: 48 * DP, lightAngle: 45 }
-  // Sample the WALLPAPER directly (bypass the ls-scrim dark overlay).
-  // Without this, uSampleWallpaper defaults to 0 → the SDF shader takes the
-  // `else` branch (sampleBackdrop) and reads the scene FBO, which by now has
-  // the 30% black scrim composited on top of the wallpaper → the clock glass
-  // shows a darkened wallpaper instead of the clean wallpaper.
-  // sampleWallpaper=true forces uSampleWallpaper=1 so the shader calls
-  // sampleWallpaperBlurred() → samples uWallpaperSampler (clean wallpaper) with
-  // the inline 2dp poisson blur, faithful to SdfShader.kt's
-  // content.eval(refractedCoord) which receives LayerBackdrop(wallpaper).
-  // The element still composites onto the scene FBO normally (ping-pong kept).
-  lsGlass.sampleWallpaper = true
-  lsGlass.independentBackdrop = false
+  // The SDF clock glass must sample the WALLPAPER directly (LayerBackdrop),
+  // NOT the scene FBO. The scene FBO at this point has the ls-scrim (30%
+  // black) composited on top of the wallpaper — sampling it would show a
+  // darkened wallpaper through the clock instead of the clean wallpaper.
+  //
+  // independentBackdrop=true makes computeElementTransform set state.independent
+  // = true (when the page has a wallpaper), which sets uSampleWallpaper=1 in
+  // the element pass. The SDF shader path then calls sampleWallpaperBlurred()
+  // → samples uWallpaperSampler (clean wallpaper) with the inline 2dp poisson
+  // blur, faithful to SdfShader.kt's content.eval(refractedCoord) which
+  // receives LayerBackdrop(wallpaper).
+  //
+  // This matches the TextGlass page's approach (independentBackdrop=true).
+  // The element still composites onto the scene FBO normally (the glass body
+  // replaces the scrimmed pixels with clean refracted wallpaper inside the
+  // clock text shape; outside the shape the scrim shows through).
+  lsGlass.independentBackdrop = true
   elements.push(lsGlass)
   // Drag — faithful to draggable2D { offset += delta }. The web drag delta
   // is cumulative (from press start), so offset = dragStartOffset + delta.
