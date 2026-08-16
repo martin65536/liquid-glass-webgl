@@ -403,3 +403,47 @@ Stage Summary:
 - 新建文件（1）：src/components/liquid-glass/text-glass-advanced-panel.tsx（DOM 高级设置面板）。
 - 效果：canvas sheet 不可滚动、只显示 3 行（文字+大小+高级设置按钮）。点击"高级设置"展开 DOM 底部 sheet（iOS 风格 grab handle + 暗色 backdrop + slide-up 动画），包含字重/玻璃厚度/质量/饱和度/提亮/染色 6 个 slider + 光影/边缘哑光/直接渲染SDF 3 个 toggle + 字体 3 按钮。所有控件改动实时影响 glass 渲染。关闭方式：关闭按钮 / backdrop 点击。
 - 解决了用户反馈的所有滚动相关问题（拖柄、阴影溢出、交互未禁用、输入框错位）—— 因为不再有滚动。
+
+---
+Task ID: 18
+Agent: main (Z.ai Code)
+Task: 修复 TextGlass 文本框深色模式文字颜色 + 高级面板改为 sheet 内嵌透明面板（300px，DOM 滚动）
+
+Work Log:
+- 用户反馈两个问题：①文本框文字不随深浅色切换 ②不要模态框，要背景透明、与卡片浑然一体的内嵌面板
+- 修复文本框文字颜色 (page.tsx):
+  - input overlay 之前硬编码 color: '#fff' / caretColor: '#fff'
+  - 改为 isLightTheme ? '#1c1c1e' : '#f5f5f7'（深色主题显示浅色文字，浅色主题显示深色文字）
+  - 移除 !state.textGlassAdvanced 条件（面板内嵌后 input overlay 始终可见）
+- 重新设计高级面板为 sheet 内嵌透明面板:
+  - build-text-glass.ts:
+    - 新增常量 TG_ADVANCED_PANEL_H = 300
+    - sheetH 公式加入 advancedPanelH（state.textGlassAdvanced ? 300 : 0）
+    - 在 size slider 和 advanced button 之间预留 300px 空白行（rowY += advancedPanelH）
+    - 面板关闭时 advancedPanelH=0，advanced button 直接在 size slider 下方
+    - 面板打开时 sheet 增高 300px，sheetY 上移，input row 跟随上移
+  - text-glass-advanced-panel.tsx 重写:
+    - 移除全屏 backdrop、移除 frosted glass 背景、移除浮层定位
+    - position: absolute，精确覆盖 sheet 内 300px 空白区域
+    - background: transparent / backdropFilter: none / border: none / boxShadow: none
+    - 完全透明，sheet 的玻璃卡片直接透出
+    - height: 300px + overflowY: auto（DOM 处理滚动）
+    - 自定义滚动条样式（4px 宽，半透明）
+    - 文字颜色适配深色模式：textColor = isLightTheme ? '#1c1c1e' : '#f5f5f7'
+    - 关闭按钮放在滚动区底部（滚动后可触达）
+    - touchAction: 'pan-y' 防止滚动事件冒泡到 canvas
+    - 淡入动画（opacity 0→1，0.2s）
+  - page.tsx input overlay 几何同步:
+    - sheetH 公式加入 advancedPanelH（state.textGlassAdvanced ? 300 : 0）
+    - input row 始终在 sheet 顶部，面板打开时随 sheet 上移 300px
+- lint: 0 error。dev.log: HMR 干净编译。
+
+Stage Summary:
+- 修改文件（3）：catalog/build-text-glass.ts（+TG_ADVANCED_PANEL_H 常量 + sheetH 公式 + 300px 空白行）、text-glass-advanced-panel.tsx（重写为透明内嵌面板）、app/page.tsx（input overlay 颜色主题化 + 几何同步 advancedPanelH）。
+- 效果：
+  ① 文本框文字随主题切换颜色（浅色主题=深色文字，深色主题=浅色文字）
+  ② 高级面板不再是模态框/浮层，而是 sheet 内嵌的 300px 透明区域，DOM 滚动
+  ③ 面板完全透明，与 sheet 玻璃卡片浑然一体
+  ④ 面板内文字/滑块/开关颜色适配深色模式
+  ⑤ 面板关闭时 sheet 缩回 3 行（input+size+button），打开时增高 300px
+- 未浏览器验证（用户要求不要自己测试）。

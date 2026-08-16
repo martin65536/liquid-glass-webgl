@@ -20,43 +20,36 @@ import { t, type Locale } from '@/components/liquid-glass/catalog/i18n'
 import type { SetCatalogState } from '@/app/hooks/use-catalog-state'
 
 /* ------------------------------------------------------------------ *
- * TextGlassAdvancedPanel — DOM floating box with all the "advanced"
- * controls for the TextGlass page. Rendered in page.tsx (NOT in the
- * WebGL canvas) so it can use native HTML inputs for crisper typography
- * + accessibility.
+ * TextGlassAdvancedPanel — DOM overlay rendered INLINE inside the
+ * canvas sheet (between the size slider and the advanced button).
  *
- * NOT a modal. There is NO full-screen backdrop. The panel floats ABOVE
- * the canvas sheet (which stays visible + interactive) with a visible
- * gap between them. The panel's own background is a semi-transparent
- * frosted glass (you can see the wallpaper/glass text through it).
+ * NOT a modal. NOT a floating box above the sheet. It sits INSIDE the
+ * sheet's glass card area — the canvas sheet reserves exactly 300px
+ * here, and this DOM overlay is positioned to cover that 300px region
+ * precisely. The overlay is COMPLETELY TRANSPARENT (no background,
+ * no blur, no border) so the sheet's glass card shows through — the
+ * controls appear to live directly on the glass card itself.
  *
- * Layout:
- *   canvas sheet (bottom): text input + size slider + advanced button
- *   ↑ gap (12px)
- *   floating panel: weight / thickness / quality / saturation / brighten /
- *                   tint sliders + lighting / edge-matte / raw-SDF toggles +
- *                   font family picker
+ * The 300px box has overflow:auto, so the DOM handles scrolling when
+ * the content (6 sliders + 3 toggles + font picker + hint) is taller
+ * than 300px. Custom scrollbar styling keeps it subtle.
  *
- * Close: tap the close button inside the panel, OR tap the "Advanced"
- * capsule button in the canvas sheet again (it toggles textGlassAdvanced).
- * There is no click-outside-to-close (no backdrop to click).
+ * All text/track colors adapt to the theme — the labels are the same
+ * color as the canvas-rendered labels (palette.homeTextHalo-aware),
+ * so they read correctly on the glass card regardless of theme.
  *
- * Geometry sync: the panel's `bottom` offset must match the canvas sheet's
- * top-from-bottom + gap. The sheet height = TG_INNER_PAD + TG_INPUT_ROW_H +
- * TG_ROW_H + TG_ADVANCED_BTN_H + TG_INNER_PAD (see build-text-glass.ts).
- * bottomBtnSpace = 20 + TG_TOGGLE_BTN_SIZE + 12 (collapse toggle button).
+ * Geometry sync: the overlay's position/size MUST match the 300px
+ * reserved area in build-text-glass.ts. The sheet layout is:
+ *   sheetY (from top) = H - bottomBtnSpace - sheetH
+ *   row 1 (input)     = sheetY + TG_INNER_PAD
+ *   row 2 (size)      = + TG_INPUT_ROW_H
+ *   row 3 (THIS)      = + TG_ROW_H   ← 300px area starts here
+ *   row 4 (adv btn)   = + 300        ← advanced button below
  * ------------------------------------------------------------------ */
 
-// Height of the "Advanced" capsule button row in the canvas sheet.
-// MUST match the local const in build-text-glass.ts.
+// MUST match the const in build-text-glass.ts.
 const TG_ADVANCED_BTN_H = 44
-
-// Gap between the top of the canvas sheet and the bottom of this panel.
-const PANEL_GAP = 12
-
-// Top safety margin — the panel never goes above this from the top of the
-// viewport (keeps it clear of the back button / theme toggle row).
-const PANEL_TOP_MARGIN = 16
+const TG_ADVANCED_PANEL_H = 300
 
 interface TextGlassAdvancedPanelProps {
   state: CatalogState
@@ -82,22 +75,24 @@ export function TextGlassAdvancedPanel({
 
   const fontSizeMax = computeTextGlassFontSizeMax(W, H)
 
-  // --- Compute the canvas sheet's top edge (from screen bottom) ---
-  // This MUST stay in sync with build-text-glass.ts + page.tsx.
-  // bottomBtnSpace = bottom collapse/expand toggle button row.
+  // --- Compute the inline panel's geometry (matches build-text-glass.ts) ---
   const bottomBtnSpace = 20 + TG_TOGGLE_BTN_SIZE + 12 // 88
-  // Sheet content height = padding + input row + slider row + advanced btn + padding.
-  const sheetH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H + TG_ADVANCED_BTN_H + TG_INNER_PAD // 188
-  const sheetTopFromBottom = bottomBtnSpace + sheetH // 276
-  // Panel sits above the sheet with a gap.
-  const panelBottom = sheetTopFromBottom + PANEL_GAP // 288
-  // Panel max height = viewport - panelBottom - top safety margin.
-  const panelMaxH = Math.max(200, H - panelBottom - PANEL_TOP_MARGIN)
+  const sheetH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H + TG_ADVANCED_PANEL_H + TG_ADVANCED_BTN_H + TG_INNER_PAD
+  const sheetY = H - bottomBtnSpace - sheetH
+  // Panel area starts after input row + size row, offset by inner pad.
+  const panelYFromTop = sheetY + TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H
+  const panelLeft = TG_SHEET_X + TG_INNER_PAD
+  const panelWidth = W - 2 * (TG_SHEET_X + TG_INNER_PAD)
+  const panelHeight = TG_ADVANCED_PANEL_H
 
-  // Theme-aware text colors.
+  // Theme-aware text colors. These match the canvas-rendered labels
+  // (labelColor in build-text-glass.ts = palette.backIconColor), which is
+  // dark on light theme, light on dark theme — so the DOM labels read
+  // correctly on the glass card in both themes.
   const textColor = isLightTheme ? '#1c1c1e' : '#f5f5f7'
-  const subTextColor = isLightTheme ? '#8a8a8e' : '#aeaeb2'
-  const dividerColor = isLightTheme ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)'
+  const subTextColor = isLightTheme ? '#3c3c43' : '#d1d1d6'
+  const dividerColor = isLightTheme ? 'rgba(0,0,0,0.10)' : 'rgba(255,255,255,0.14)'
+  const scrollbarColor = isLightTheme ? 'rgba(60,60,67,0.35)' : 'rgba(235,235,245,0.35)'
 
   // Helper: render a labeled slider row.
   const renderSlider = (
@@ -109,7 +104,7 @@ export function TextGlassAdvancedPanel({
     onChange: (v: number) => void,
     note?: string,
   ) => (
-    <div style={{ marginBottom: 14 }}>
+    <div style={{ marginBottom: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
         <span style={{ fontSize: 13, fontWeight: 500, color: textColor }}>{label}</span>
         <span style={{ fontSize: 12, color: subTextColor, fontVariantNumeric: 'tabular-nums' }}>
@@ -135,7 +130,7 @@ export function TextGlassAdvancedPanel({
     checked: boolean,
     onChange: (v: boolean) => void,
   ) => (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${dividerColor}` }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: `1px solid ${dividerColor}` }}>
       <span style={{ fontSize: 14, fontWeight: 500, color: textColor }}>{label}</span>
       <Switch checked={checked} onCheckedChange={onChange} style={{ ['--primary' as string]: accentColor }} />
     </div>
@@ -143,50 +138,34 @@ export function TextGlassAdvancedPanel({
 
   return (
     <div
-      // Floating box — NO full-screen backdrop (not a modal). Positioned
-      // above the canvas sheet with a gap. The sheet below stays visible
-      // and interactive (text input + size slider + advanced button).
+      // Inline panel — completely transparent. Sits on top of the sheet's
+      // glass card (which shows through). The 300px box scrolls internally.
       className="tg-advanced-scroll"
       style={{
         position: 'absolute',
-        left: TG_SHEET_X,
-        right: TG_SHEET_X,
-        bottom: panelBottom,
-        margin: '0 auto',
-        maxWidth: W - 2 * TG_SHEET_X,
-        maxHeight: panelMaxH,
+        left: panelLeft,
+        top: panelYFromTop,
+        width: panelWidth,
+        height: panelHeight,
         overflowY: 'auto',
-        // Semi-transparent frosted glass — you can see the wallpaper + glass
-        // text through it, but the blur ensures control readability.
-        background: isLightTheme ? 'rgba(255,255,255,0.55)' : 'rgba(28,28,30,0.55)',
-        backdropFilter: 'blur(24px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(24px) saturate(180%)',
-        borderRadius: 20,
-        border: `1px solid ${isLightTheme ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.1)'}`,
-        boxShadow: '0 8px 32px rgba(0,0,0,0.15)',
-        zIndex: 60,
-        padding: 16,
-        paddingTop: 12,
-        paddingBottom: 16,
+        overflowX: 'hidden',
+        // Transparent — no background, no blur, no border. The sheet's glass
+        // card is the background; this overlay only paints the controls.
+        background: 'transparent',
+        backdropFilter: 'none',
+        WebkitBackdropFilter: 'none',
+        border: 'none',
+        boxShadow: 'none',
+        borderRadius: 0,
+        zIndex: 30,
+        padding: '4px 4px 8px 0',
         color: textColor,
-        animation: 'tg-advanced-fade-in 0.22s ease-out',
+        // Prevent touch scrolling from propagating to the canvas while the
+        // user scrolls inside the panel.
+        touchAction: 'pan-y',
+        animation: 'tg-advanced-fade-in 0.2s ease-out',
       }}
     >
-      {/* Title + close button */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: textColor }}>
-          {t('text_glass_advanced', locale)}
-        </h3>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onClose}
-          style={{ fontSize: 14, color: accentColor, height: 30, padding: '0 10px' }}
-        >
-          {t('text_glass_advanced_close', locale)}
-        </Button>
-      </div>
-
       {/* Sliders section */}
       {renderSlider(
         t('text_glass_font_weight', locale),
@@ -239,7 +218,7 @@ export function TextGlassAdvancedPanel({
       )}
 
       {/* Divider */}
-      <div style={{ height: 1, background: dividerColor, margin: '8px 0' }} />
+      <div style={{ height: 1, background: dividerColor, margin: '6px 0' }} />
 
       {/* Toggles section */}
       {renderToggle(
@@ -259,7 +238,7 @@ export function TextGlassAdvancedPanel({
       )}
 
       {/* Divider */}
-      <div style={{ height: 1, background: dividerColor, margin: '8px 0' }} />
+      <div style={{ height: 1, background: dividerColor, margin: '6px 0' }} />
 
       {/* Font family picker */}
       <div style={{ marginBottom: 6 }}>
@@ -282,7 +261,7 @@ export function TextGlassAdvancedPanel({
                   padding: 0,
                   ...(selected
                     ? { background: accentColor, color: '#fff', borderColor: accentColor }
-                    : { color: textColor, borderColor: isLightTheme ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.2)' }),
+                    : { color: textColor, borderColor: isLightTheme ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.22)' }),
                 }}
               >
                 {t(font.labelKey, locale)}
@@ -293,25 +272,43 @@ export function TextGlassAdvancedPanel({
       </div>
 
       {/* Hint text */}
-      <p style={{ margin: '10px 0 0', fontSize: 11, lineHeight: 1.5, color: subTextColor }}>
+      <p style={{ margin: '8px 0 0', fontSize: 11, lineHeight: 1.5, color: subTextColor }}>
         {locale === 'zh'
           ? `字号范围 0..${Math.round(fontSizeMax)} · 染色 0 = 关闭 · 改动实时生效`
           : `Size range 0..${Math.round(fontSizeMax)} · Tint 0 = OFF · Changes apply live`}
       </p>
 
-      {/* Keyframes for the fade-in animation + scrollbar styling. */}
+      {/* Close button — at the very bottom of the scrollable area so it's
+          always reachable after scrolling. Also callable via the canvas
+          "Advanced" button (which toggles textGlassAdvanced). */}
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={onClose}
+        style={{
+          width: '100%',
+          marginTop: 10,
+          fontSize: 14,
+          color: accentColor,
+          height: 34,
+        }}
+      >
+        {t('text_glass_advanced_close', locale)}
+      </Button>
+
+      {/* Keyframes + scrollbar styling. */}
       <style>{`
         @keyframes tg-advanced-fade-in {
-          from { transform: translateY(16px); opacity: 0; }
-          to { transform: translateY(0); opacity: 1; }
+          from { opacity: 0; }
+          to { opacity: 1; }
         }
         .tg-advanced-scroll::-webkit-scrollbar { width: 4px; }
         .tg-advanced-scroll::-webkit-scrollbar-track { background: transparent; }
         .tg-advanced-scroll::-webkit-scrollbar-thumb {
-          background: ${isLightTheme ? 'rgba(60,60,67,0.3)' : 'rgba(235,235,245,0.3)'};
+          background: ${scrollbarColor};
           border-radius: 2px;
         }
-        .tg-advanced-scroll { scrollbar-width: thin; scrollbar-color: ${isLightTheme ? 'rgba(60,60,67,0.3)' : 'rgba(235,235,245,0.3)'} transparent; }
+        .tg-advanced-scroll { scrollbar-width: thin; scrollbar-color: ${scrollbarColor} transparent; }
       `}</style>
     </div>
   )

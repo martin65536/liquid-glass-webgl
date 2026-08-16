@@ -450,30 +450,32 @@ export default function Page() {
             + advanced button), so no scroll-offset tracking is needed — the
             pill is always at a fixed position.
 
-            The input overlay stays visible even when the advanced floating
-            panel is open — the panel floats ABOVE the sheet with a gap, so
-            both the sheet (with text input + size slider) and the panel are
-            usable at the same time. */}
+            The input overlay stays visible even when the advanced panel is
+            open — the panel sits INLINE inside the sheet (between the size
+            slider and the advanced button), so the input row stays at the
+            top of the sheet in both states. */}
         {destination === CatalogDestination.TextGlass && rendererReady && state.textGlassSheetExpanded && (
           (() => {
             // Match build-text-glass.ts geometry (CSS px; DP≈1 on these screens).
             // Keep this IN SYNC with the sheet height formula in build-text-glass.ts
-            // (TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H + TG_ADVANCED_BTN_H +
-            //  TG_INNER_PAD). The sheet is NOT scrollable, NOT capped — it's a
-            // compact 3-row panel. The pill is always at the top row.
+            // (TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H + advancedPanelH +
+            //  TG_ADVANCED_BTN_H + TG_INNER_PAD). advancedPanelH is 300 when the
+            // advanced panel is open, else 0 — so the sheet grows by 300px when
+            // the panel opens, and the input row (at the top of the sheet) moves
+            // up by 300px accordingly.
             const sheetX = 16
             const innerPad = 24
             const labelW = 48
             const gap = 12
             const pillH = 40
             const inputRowH = 48
+            const sliderRowH = 48
+            const advancedBtnH = 44
+            const advancedPanelH = state.textGlassAdvanced ? 300 : 0
             const toggleBtnSpace = 20 + 56 + 12 // bottom button row height
-            // Sheet content height = innerPad + inputRowH + sliderRowH(48) +
-            // advancedBtnH(44) + innerPad. NOT capped (3 rows always fit).
-            const sheetH = innerPad + inputRowH + 48 + 44 + innerPad
+            const sheetH = innerPad + inputRowH + sliderRowH + advancedPanelH + advancedBtnH + innerPad
             const sheetY = H - toggleBtnSpace - sheetH
             // pillY (from screen top) = sheetY + innerPad + (inputRowH-pillH)/2.
-            // No scroll offset — the sheet is static.
             const pillYFromTop = sheetY + innerPad + (inputRowH - pillH) / 2
             // pill bottom from screen bottom = H - pillYFromTop - pillH
             const pillBottom = H - pillYFromTop - pillH
@@ -523,16 +525,15 @@ export default function Page() {
             )
           })()
         )}
-        {/* TextGlass — DOM "Advanced Settings" floating panel. Mounted when
+        {/* TextGlass — DOM "Advanced Settings" inline panel. Mounted when
             the user taps the "Advanced" capsule button in the canvas sheet
-            (state.textGlassAdvanced = true). This is NOT a modal — there is
-            no full-screen backdrop. The panel floats ABOVE the canvas sheet
-            (which stays visible + interactive) with a visible gap, and has a
-            semi-transparent frosted-glass background so the wallpaper + glass
-            text show through. Contains: font weight, glass thickness, quality,
-            saturation, brighten, tint sliders + lighting / edge-matte / raw-SDF
-            toggles + font family picker. Closes via the panel's Close button
-            or by tapping the "Advanced" button again (it toggles). */}
+            (state.textGlassAdvanced = true). This is NOT a modal and NOT a
+            floating box — it sits INLINE inside the sheet, occupying a 300px
+            area that the canvas sheet reserves between the size slider and the
+            advanced button. The overlay is COMPLETELY TRANSPARENT (no
+            background/blur/border) so the sheet's glass card shows through; the
+            DOM controls appear to live directly on the glass card. The 300px
+            box scrolls internally (overflow:auto) to fit all controls. */}
         {destination === CatalogDestination.TextGlass && rendererReady && state.textGlassAdvanced && (
           <TextGlassAdvancedPanel
             state={state}

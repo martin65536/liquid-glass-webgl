@@ -38,6 +38,13 @@ const EXPAND_LESS_ICON_PATH =
 // font-family picker's button height for visual consistency.
 const TG_ADVANCED_BTN_H = 44
 
+// Height of the inline advanced settings area. When textGlassAdvanced is ON,
+// the canvas sheet reserves this much space between the size slider and the
+// advanced button. A DOM overlay (TextGlassAdvancedPanel) is rendered on top
+// of this area — completely transparent so the sheet's glass card shows
+// through, with the DOM controls scrolling inside the fixed-height box.
+const TG_ADVANCED_PANEL_H = 300
+
 /* ------------------------------------------------------------------ *
  * TEXT GLASS — custom text rendered as an SDF-texture glass shape, with
  * a Glass-Playground-style bottom control sheet.
@@ -91,9 +98,11 @@ export function buildTextGlass(
   // height, even when the sheet is collapsed. This prevents the glass text
   // from moving/rescaling when the user expands/collapses the control sheet.
   // Sheet height reservation: input + 1 slider row (size) + 1 advanced
-  // button row + padding. The sheet is NOT scrollable — it's a compact
-  // summary panel; advanced controls live in the DOM overlay.
-  const fullSheetContentH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H + TG_ADVANCED_BTN_H + TG_INNER_PAD
+  // button row + padding. When the advanced panel is OPEN, an extra
+  // TG_ADVANCED_PANEL_H is reserved between the size slider and the advanced
+  // button so the inline DOM panel (transparent, scrolls internally) fits.
+  const advancedPanelH = state.textGlassAdvanced ? TG_ADVANCED_PANEL_H : 0
+  const fullSheetContentH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H + advancedPanelH + TG_ADVANCED_BTN_H + TG_INNER_PAD
   const sheetReservedH = fullSheetContentH
   const availableH = H - bottomBtnSpace - sheetReservedH
   const aspect = state.textGlassAspect > 0 ? state.textGlassAspect : 3
@@ -176,8 +185,9 @@ export function buildTextGlass(
     const trackX = sheetX + TG_INNER_PAD
     const trackW = sheetW - 2 * TG_INNER_PAD
 
-    // Sheet height: full content height (NOT capped — the sheet is compact
-    // and never overflows the screen because we only show 3 rows now).
+    // Sheet height: full content height. When the advanced panel is OPEN,
+    // this includes the 300px inline panel area. The DOM overlay handles its
+    // own scrolling internally, so the canvas sheet never scrolls.
     const sheetH = fullSheetContentH
     const sheetY = H - bottomBtnSpace - sheetH
 
@@ -288,10 +298,21 @@ export function buildTextGlass(
     }
     rowY += TG_ROW_H
 
-    // --- Row 3: "Advanced" capsule button (opens DOM panel) ---
+    // --- Row 3 (conditional): Inline advanced panel area (300px) ---
+    // When textGlassAdvanced is ON, the canvas sheet reserves 300px here.
+    // This area is intentionally LEFT EMPTY on the canvas side — the sheet's
+    // glass card simply extends through it. The DOM overlay
+    // (TextGlassAdvancedPanel in page.tsx) is rendered on top of this area,
+    // completely transparent so the glass card shows through, with the DOM
+    // controls scrolling inside the fixed 300px box.
+    // When textGlassAdvanced is OFF, this row is skipped (0 height) and the
+    // advanced button sits directly under the size slider.
+    rowY += advancedPanelH
+
+    // --- Row 4: "Advanced" capsule button (toggles DOM panel) ---
     // A NON-GLASS capsule button (same style as the font-family picker
     // buttons). Tapping it flips state.textGlassAdvanced, which mounts the
-    // DOM overlay panel in page.tsx with all the other controls.
+    // DOM overlay panel inline above this button.
     {
       const btnX = trackX
       const btnY = rowY + (TG_ADVANCED_BTN_H - TG_ADVANCED_BTN_H) / 2
