@@ -106,6 +106,8 @@ export const disposeMethods = {
     this.highlightBlurPrograms.clear()
     if (this.sdfTexture) gl.deleteTexture(this.sdfTexture)
     this.sdfTexture = null
+    if (this.textSdfTexture) gl.deleteTexture(this.textSdfTexture)
+    this.textSdfTexture = null
     for (const { tex } of this.continuousSdfPool.values()) gl.deleteTexture(tex)
     this.continuousSdfPool.clear()
     this.continuousSdfTexture = null

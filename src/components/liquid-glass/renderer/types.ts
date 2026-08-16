@@ -406,6 +406,13 @@ export interface GlassElementConfig extends GlassButtonConfig {
    * LockScreenContent.kt's rememberSdfShader(clock_sdf) + SdfShader.kt.
    */
   isSdfTexture?: {
+    /** Which SDF texture slot to bind. 'clock' (default) = the shared
+     *  sdfTexture loaded via loadSdfTexture (clock_sdf.webp for LockScreen).
+     *  'text' = the separate textSdfTexture uploaded via
+     *  loadTextSdfTextureFromData (TextGlass page's generated text SDF).
+     *  Separating the slots ensures generating a text SDF never clobbers
+     *  the lock screen's clock_sdf texture. "把这个和锁屏sdf彻底分开". */
+    textureSource?: 'clock' | 'text'
     refractionHeight: number
     lightAngle: number
     /** Edge-band width multiplier (default 1.5). Controls the WIDTH of the

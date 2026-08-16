@@ -677,6 +677,17 @@ export class LiquidGlassRenderer {
   sdfTextureReady = false
   sdfTextureSize: [number, number] = [1, 1]
 
+  // SEPARATE SDF texture slot for TextGlass (user-typed text SDF).
+  // This is intentionally NOT the same slot as sdfTexture (clock_sdf) so
+  // that generating a text SDF on the TextGlass page NEVER overwrites the
+  // lock screen's clock_sdf texture. Previously both shared one slot,
+  // which required a fragile reload-clock_sdf-on-LockScreen-entry hack
+  // and could still flash the wrong texture during page transitions.
+  // "把这个和锁屏sdf彻底分开" — completely separated.
+  textSdfTexture: WebGLTexture | null = null
+  textSdfTextureReady = false
+  textSdfTextureSize: [number, number] = [1, 1]
+
   // Continuous-curvature mask texture pool: each unique (w,h,radius,dpr) gets
   // its own texture. The currently-bound one is in continuousSdfTexture.
   continuousSdfPool = new Map<string, { tex: WebGLTexture; texSize: number }>()

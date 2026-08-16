@@ -7,9 +7,13 @@ import type { CatalogState } from '@/components/liquid-glass/catalog/types'
 
 /* ------------------------------------------------------------------ *
  * useTextGlass — regenerates the SDF texture whenever the user-typed
- * text OR the font params (size / weight / family / quality) change,
- * and reloads clock_sdf when navigating to the LockScreen (since the
- * TextGlass page overwrites renderer.sdfTexture with the text SDF).
+ * text OR the font params (size / weight / family / quality) change.
+ *
+ * The text SDF is uploaded to a SEPARATE texture slot (textSdfTexture)
+ * via renderer.loadTextSdfTextureFromData — it does NOT touch the
+ * LockScreen's clock_sdf texture (sdfTexture slot). The two are
+ * completely independent, so navigating between TextGlass and
+ * LockScreen requires NO texture reload hack. "把这个和锁屏sdf彻底分开".
  *
  * The SDF generation (Canvas2D text render + Felzenszwalb 1D distance
  * transform + GPU upload) is CPU-bound and ~5-15ms for typical text.
@@ -36,8 +40,8 @@ export function useTextGlass(opts: {
   // Track the previous destination so we can regenerate the SDF immediately
   // on page entry (no debounce) while still debouncing rapid typing. Without
   // the immediate regen on entry, the tg-glass element renders its FIRST frame
-  // against a stale this.sdfTexture (e.g. clock_sdf left over from LockScreen)
-  // and shows the wrong shape for the 250ms debounce window.
+  // against an empty textSdfTexture slot and shows nothing for the 250ms
+  // debounce window.
   const prevDestRef = React.useRef<CatalogDestination>(destination)
   // Track the previous text value to decide debounce vs immediate: if ONLY
   // text changed (typing), debounce 250ms; if a slider/font param changed,
@@ -46,8 +50,9 @@ export function useTextGlass(opts: {
   const prevTextRef = React.useRef<string>(state.textGlassText)
 
   // Regenerate text SDF when textGlassText / fontSize / fontWeight / fontIdx
-  // / quality change. Only runs on the TextGlass page so we don't clobber
-  // clock_sdf elsewhere.
+  // / quality change. Runs on ALL destinations (the upload goes to the
+  // separate textSdfTexture slot, never touching clock_sdf), but only
+  // produces a visible glass element on the TextGlass page.
   React.useEffect(() => {
     if (!rendererReady) return
     if (destination !== CatalogDestination.TextGlass) {
@@ -69,7 +74,7 @@ export function useTextGlass(opts: {
     if (state.textGlassFontSize <= 0) {
       const renderer = rendererRef.current
       if (renderer) {
-        renderer.loadSdfTextureFromData(new Uint8ClampedArray(4), 1, 1)
+        renderer.loadTextSdfTextureFromData(new Uint8ClampedArray(4), 1, 1)
       }
       setState((prev) => {
         if (Math.abs(prev.textGlassTexH - 1) < 1 && Math.abs(prev.textGlassAspect - 1) < 0.01) return {}
@@ -144,7 +149,7 @@ export function useTextGlass(opts: {
             padding: Math.round(basePadding * resScale),
             targetHeight: state.textGlassFontSize * resScale,
           })
-          renderer.loadSdfTextureFromData(data, width, height)
+          renderer.loadTextSdfTextureFromData(data, width, height)
           // Push the CSS-pixel aspect ratio + texture height into state so the
           // builder sizes the glass element to match the text. generateTextSdf
           // now uses fontBoundingBoxAscent/Descent (the font's FIXED metrics)
@@ -187,19 +192,8 @@ export function useTextGlass(opts: {
     setState,
   ])
 
-  // Reload clock_sdf when entering LockScreen — the TextGlass page may have
-  // overwritten renderer.sdfTexture with a text SDF. This restores the
-  // original clock texture so the lock screen renders correctly.
-  React.useEffect(() => {
-    if (!rendererReady) return
-    if (destination !== CatalogDestination.LockScreen) return
-    const renderer = rendererRef.current
-    if (!renderer) return
-    // Small delay so the page transition settles before the texture swap
-    // (avoids a 1-frame flash of the old text SDF on the lock screen).
-    const handle = window.setTimeout(() => {
-      renderer.loadSdfTexture('/clock_sdf.webp').catch((e) => console.error(e))
-    }, 50)
-    return () => window.clearTimeout(handle)
-  }, [destination, rendererReady, rendererRef])
+  // NO clock_sdf reload hack needed — the text SDF is now uploaded to a
+  // SEPARATE texture slot (textSdfTexture) that never touches sdfTexture
+  // (clock_sdf). The LockScreen's clock_sdf.webp, loaded once in context.tsx,
+  // persists untouched across TextGlass page visits. "把这个和锁屏sdf彻底分开".
 }

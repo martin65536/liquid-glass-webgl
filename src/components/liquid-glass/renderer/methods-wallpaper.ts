@@ -10,6 +10,11 @@ declare module './index' {
      *  TextGlass catalog page to render arbitrary user-typed text as a glass
      *  shape via the isSdfTexture shader path (same as clock_sdf). */
     loadSdfTextureFromData(data: Uint8ClampedArray | Uint8Array, w: number, h: number): void
+    /** Upload text-glass SDF pixels to the SEPARATE textSdfTexture slot
+     *  (does NOT touch sdfTexture / clock_sdf). Used exclusively by the
+     *  TextGlass page so that generating a text SDF never clobbers the
+     *  lock screen's clock_sdf texture. "把这个和锁屏sdf彻底分开". */
+    loadTextSdfTextureFromData(data: Uint8ClampedArray | Uint8Array, w: number, h: number): void
     /** Generate + upload a continuous-curvature SDF texture for the dialog
      *  card's capsule shape. The texture is cached by (w, h, radius) — calling
      *  again with the same key is a no-op. Texture is RGBA, 256×256, LINEAR
@@ -92,12 +97,21 @@ export const wallpaperMethods = {
   },
 
   /** Upload precomputed RGBA SDF-texture pixels directly (no Image load).
-   *  Used by the TextGlass page to render arbitrary user-typed text as glass.
-   *  Same texture slot + shader path as loadSdfTexture (clock_sdf). */
+   *  DEPRECATED — kept as a thin wrapper around loadTextSdfTextureFromData
+   *  for backward compatibility. New code should call loadTextSdfTextureFromData
+   *  directly. This now writes to the SEPARATE textSdfTexture slot, NOT the
+   *  shared sdfTexture (clock_sdf) slot. */
   loadSdfTextureFromData(this: LiquidGlassRenderer, data: Uint8ClampedArray | Uint8Array, w: number, h: number) {
+    this.loadTextSdfTextureFromData(data, w, h)
+  },
+
+  /** Upload text-glass SDF pixels to the SEPARATE textSdfTexture slot.
+   *  Does NOT touch sdfTexture (clock_sdf) — the lock screen's texture is
+   *  preserved across TextGlass page visits. "把这个和锁屏sdf彻底分开". */
+  loadTextSdfTextureFromData(this: LiquidGlassRenderer, data: Uint8ClampedArray | Uint8Array, w: number, h: number) {
     if (w < 1 || h < 1) return
     const gl = this.gl
-    if (this.sdfTexture) gl.deleteTexture(this.sdfTexture)
+    if (this.textSdfTexture) gl.deleteTexture(this.textSdfTexture)
     const tex = gl.createTexture()!
     gl.bindTexture(gl.TEXTURE_2D, tex)
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false)
@@ -107,13 +121,12 @@ export const wallpaperMethods = {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-    this.sdfTexture = tex
-    this.sdfTextureSize = [w, h]
-    this.sdfTextureReady = true
+    this.textSdfTexture = tex
+    this.textSdfTextureSize = [w, h]
+    this.textSdfTextureReady = true
     // Invalidate every cached elFbo so isSdfTexture elements re-rasterize
-    // with the new text texture. Same rationale as loadSdfTexture above —
-    // without this the TextGlass element keeps showing its stale cached
-    // body until a drag forces a re-render.
+    // with the new text texture. Without this the TextGlass element keeps
+    // showing its stale cached body until a drag forces a re-render.
     this.markAllDirty()
     this.requestRender()
   },

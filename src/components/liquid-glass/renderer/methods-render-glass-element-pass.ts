@@ -261,13 +261,20 @@ export const glassElementPassMethods = {
       gl.uniform1f(this.uEl['uHighlightBlur'], 0)
     }
 
-    // --- SDF texture glass: bind sdfTexture + set SDF uniforms ---
-    if (el.isSdfTexture && this.sdfTexture) {
+    // --- SDF texture glass: bind the correct SDF texture + set SDF uniforms ---
+    // textureSource='text' → bind the SEPARATE textSdfTexture (TextGlass page).
+    // textureSource='clock' (default) → bind sdfTexture (clock_sdf for LockScreen).
+    // The two slots are fully independent — generating a text SDF never
+    // overwrites clock_sdf. "把这个和锁屏sdf彻底分开".
+    const sdfSource = el.isSdfTexture?.textureSource ?? 'clock'
+    const sdfTex = sdfSource === 'text' ? this.textSdfTexture : this.sdfTexture
+    const sdfTexSize = sdfSource === 'text' ? this.textSdfTextureSize : this.sdfTextureSize
+    if (el.isSdfTexture && sdfTex) {
       gl.activeTexture(gl.TEXTURE2)
-      gl.bindTexture(gl.TEXTURE_2D, this.sdfTexture)
+      gl.bindTexture(gl.TEXTURE_2D, sdfTex)
       gl.uniform1i(this.uEl['uSdfTexSampler'], 2)
       gl.uniform1f(this.uEl['uUseSdfTexture'], 1.0)
-      gl.uniform2f(this.uEl['uSdfTexSize'], this.sdfTextureSize[0], this.sdfTextureSize[1])
+      gl.uniform2f(this.uEl['uSdfTexSize'], sdfTexSize[0], sdfTexSize[1])
       gl.uniform1f(this.uEl['uSdfLightAngle'], el.isSdfTexture.lightAngle)
       gl.uniform1f(
         this.uEl['uRefractionHeight'],
@@ -436,11 +443,11 @@ export const glassElementPassMethods = {
       // CRITICAL: skip the dummy bind when el.isSdfTexture already bound a
       // real texture to TEXTURE2 in the block above. The dummy is a 1×1
       // [0,0,0,0] texture (alpha=0); binding it here would clobber the
-      // clock_sdf texture, so sampleSdfTexture() reads v.a=0 → mask=0 →
-      // discard → the entire SDF-texture glass (LockScreen clock) vanishes.
+      // SDF texture (clock_sdf or text SDF), so sampleSdfTexture() reads
+      // v.a=0 → mask=0 → discard → the entire SDF-texture glass vanishes.
       // uUseContinuousSdf=0.0 means the uContinuousSdf sampler is never
-      // sampled, so leaving the sdfTexture bound is safe and keeps the unit
-      // complete for both samplers.
+      // sampled, so leaving the bound SDF texture is safe and keeps the
+      // unit complete for both samplers.
       if (this.dummyTex && !el.isSdfTexture) {
         gl.activeTexture(gl.TEXTURE2)
         gl.bindTexture(gl.TEXTURE_2D, this.dummyTex)

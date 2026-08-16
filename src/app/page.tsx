@@ -328,9 +328,10 @@ export default function Page() {
   // fractions) and tab targets (selectedTab indices).
   const { toggleTargets, tabTargets } = useCatalogTargets({ destination, state, W, H })
 
-  // TextGlass — regenerates the SDF texture when the user types, and reloads
-  // clock_sdf when navigating back to the LockScreen (TextGlass overwrites
-  // renderer.sdfTexture with a text SDF).
+  // TextGlass — regenerates the text SDF texture when the user types or
+  // adjusts font params. The text SDF is uploaded to a SEPARATE texture
+  // slot (textSdfTexture), completely independent from the LockScreen's
+  // clock_sdf (sdfTexture slot). No reload hack needed on page transitions.
   useTextGlass({ destination, state, setState, rendererRef, rendererReady })
 
   // AdaptiveLuminanceGlass wallpaper sampling — paints the wallpaper into a

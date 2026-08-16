@@ -148,6 +148,10 @@ export function buildTextGlass(
   // + AA range + whole-glass tint hue + edge matte through to the shader via
   // the isSdfTexture config.
   tgGlass.isSdfTexture = {
+    // Bind the SEPARATE textSdfTexture slot (not the clock_sdf slot).
+    // This ensures the TextGlass page's generated text SDF and the
+    // LockScreen's clock_sdf.webp are completely independent textures.
+    textureSource: 'text',
     refractionHeight: 48 * DP,
     lightAngle: 45,
     highlightScale: state.textGlassHighlightScale,
