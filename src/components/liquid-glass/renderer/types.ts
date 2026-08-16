@@ -397,11 +397,24 @@ export interface GlassElementConfig extends GlassButtonConfig {
   isSdfTexture?: {
     refractionHeight: number
     lightAngle: number
-    /** Highlight generation distance multiplier (default 1.5). Controls how
-     *  far from the text edge the bevel highlight extends into the interior.
+    /** Edge-band width multiplier (default 1.5). Controls the WIDTH of the
+     *  glass edge band where refraction + bevel intensity transition from
+     *  full (at the edge) to zero (interior):
+     *    higher = narrower/sharper edge band (thinner glass edge feel)
+     *    lower  = wider/gentler edge band (thicker glass edge feel)
      *  Shader: `intensity = circleMap(1.0 - min(1.0, -sd * highlightScale))`.
-     *  Higher = highlight reaches further inward; lower = tighter edge. */
+     *  The intensity drives BOTH refraction offset AND bevel brightness, so
+     *  this value is always fed to the shader (never zeroed by the lighting
+     *  toggle — use bevelEnabled for that). Exposed as "玻璃厚度" in TextGlass. */
     highlightScale?: number
+    /** Bevel lighting on/off (default true). When false, the shader still
+     *  computes `intensity` from highlightScale (so refraction — the glass
+     *  backdrop distortion — stays fully adjustable), but the BEVEL brightness
+     *  contribution is skipped. This lets the TextGlass "光影" toggle turn
+     *  the light/shadow layer off WITHOUT zeroing highlightScale (which would
+     *  also kill the refraction). The base dim (−0.1) is controlled separately
+     *  via the element's brightness uniform on the JS side. */
+    bevelEnabled?: boolean
     /** Raw SDF debug render — when true, the shader bypasses all glass
      *  effects (refraction, bevel, colorControls, surface tint) and outputs
      *  the SDF texture's R channel directly as grayscale (inside = white,

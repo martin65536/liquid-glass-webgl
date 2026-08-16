@@ -165,13 +165,21 @@ void main() {
         // Multiply by sdfMask (v.a) — faithful to content * v.a.
         vec3 color = contentColor * sdfMask;
 
-        // Bevel lighting
-        float angleRad = uSdfLightAngle * 3.1415926 / 180.0;
-        vec2 lightDir = vec2(cos(angleRad), sin(angleRad));
-        float bevel1 = clamp(dot(normal, lightDir), 0.0, 1.0);
-        color.rgb *= 1.0 + 0.5 * intensity * bevel1;
-        float bevel2 = clamp(dot(normal, -lightDir), 0.0, 1.0);
-        color.rgb *= 1.0 + 0.5 * bevel2 * min(1.0, smoothstep(1.0, 0.0, abs(intensity - 0.25) * 6.0));
+        // Bevel lighting — gated by uSdfBevelEnabled so the TextGlass "光影"
+        // toggle can turn the light/shadow layer off WITHOUT zeroing
+        // uSdfHighlightScale (which would also kill the refraction, since
+        // intensity drives both). When bevel is off, the glass still refracts
+        // the backdrop using the thickness slider's value — only the edge
+        // brightness highlight is removed. The base dim is handled separately
+        // via uBrightness on the JS side.
+        if (uSdfBevelEnabled > 0.5) {
+            float angleRad = uSdfLightAngle * 3.1415926 / 180.0;
+            vec2 lightDir = vec2(cos(angleRad), sin(angleRad));
+            float bevel1 = clamp(dot(normal, lightDir), 0.0, 1.0);
+            color.rgb *= 1.0 + 0.5 * intensity * bevel1;
+            float bevel2 = clamp(dot(normal, -lightDir), 0.0, 1.0);
+            color.rgb *= 1.0 + 0.5 * bevel2 * min(1.0, smoothstep(1.0, 0.0, abs(intensity - 0.25) * 6.0));
+        }
 
         // PREMULTIPLIED output: RGB = color * coverage, A = coverage.
         // 'color' already includes '* sdfMask' (line above), so we only need

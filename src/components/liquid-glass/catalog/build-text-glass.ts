@@ -167,22 +167,34 @@ export function buildTextGlass(
       outerShadow: null,
     }
   )
-  // Pass the highlight-range multiplier + raw-SDF debug toggle + AA range
-  // through to the shader via the isSdfTexture config. The renderer's element
-  // pass reads these and sets uSdfHighlightScale / uSdfDebugMode / uSdfAaMin.
+  // Pass the glass-thickness multiplier + bevel on/off + raw-SDF debug toggle
+  // + AA range through to the shader via the isSdfTexture config. The
+  // renderer's element pass reads these and sets uSdfHighlightScale /
+  // uSdfBevelEnabled / uSdfDebugMode / uSdfAaMin.
   // aaMin=0.0 widens the coverage→mask smoothstep to (0.0, 1.0) so the full
   // Canvas2D AA gradient is preserved → smooth text edges at all font sizes.
   //
-  // highlightScale is GATED by the lighting toggle (textGlassLightingEnabled):
-  //   lighting ON  → shader uses the slider's value (bevel highlight active)
-  //   lighting OFF → shader gets 0 (no bevel), AND the base dim is disabled
-  // The slider's STATE value is preserved either way, so toggling lighting
-  // back ON restores the highlight range immediately. The lighting toggle
-  // bundles the bevel highlight + base dim as one "SDF-brightness layer".
+  // highlightScale (玻璃厚度) is ALWAYS fed from the slider — it is NEVER
+  // zeroed by the lighting toggle. It controls the edge-band width for BOTH
+  // the refraction (backdrop distortion) and the bevel intensity falloff, so
+  // the slider stays fully alive even when the lighting layer is off (the
+  // glass still refracts; only the edge brightness highlight is removed).
+  //
+  // The 光影 toggle gates the bevel BRIGHTNESS via bevelEnabled (a dedicated
+  // shader uniform) — NOT by zeroing highlightScale. This is the user's
+  // explicit requirement: "我要的开关是有没有光影这一层，不是把高光范围
+  // 设为0". When bevelEnabled=false, the shader skips the
+  // `color *= 1 + 0.5 * intensity * bevel` term but still computes `intensity`
+  // from highlightScale for the refraction offset.
+  //
+  // The base dim (−0.1 brightness) is the OTHER half of the lighting layer —
+  // it's handled via the element's brightness uniform below (dim when lighting
+  // on, neutral when off). So the toggle controls: bevel highlight + base dim.
   tgGlass.isSdfTexture = {
     refractionHeight: 48 * DP,
     lightAngle: 45,
-    highlightScale: state.textGlassLightingEnabled ? state.textGlassHighlightScale : 0,
+    highlightScale: state.textGlassHighlightScale,
+    bevelEnabled: state.textGlassLightingEnabled,
     debugMode: state.textGlassRawSdf,
     aaMin: 0.0,
   }
@@ -288,9 +300,9 @@ export function buildTextGlass(
     // matches the input row and font-family row pattern above.
     //
     // The 光影 (Lighting) toggle is inserted BETWEEN fontWeight and
-    // highlightRange so it sits right next to the slider it gates. The
+    // glassThickness so it sits right next to the slider it gates. The
     // sliderIdx counter is shared across both halves so groupId indices stay
-    // stable: 0=fontSize, 1=fontWeight, 2=highlightRange, 3=quality,
+    // stable: 0=fontSize, 1=fontWeight, 2=glassThickness, 3=quality,
     // 4=saturation, 5=brighten — matching use-catalog-targets.ts exactly.
     //
     // Ranges:
@@ -307,12 +319,15 @@ export function buildTextGlass(
     //                          moves but the rendered weight stops changing
     //                          once the font's min/max real weight is hit.
     //                          That's a font-availability limit, not a bug.)
-    //   highlightRange 0..5   (bevel-highlight RANGE — how far the highlight
-    //                          extends from the text edge INTO the glyph
-    //                          interior. 0 = no highlight; 5 = fills most of
-    //                          the interior. GATED by the lighting toggle:
-    //                          when OFF, the shader gets 0 regardless of this
-    //                          slider's value — but the state is preserved.)
+    //   glassThickness 0..5   (SDF edge-band width — the glass "thickness".
+    //                          Higher = narrower/sharper edge band (thinner
+    //                          glass edge feel); lower = wider/gentler band
+    //                          (thicker glass edge feel). ALWAYS fed to the
+    //                          shader's uSdfHighlightScale — NEVER zeroed by
+    //                          the lighting toggle. The toggle instead uses
+    //                          bevelEnabled to gate the edge BRIGHTNESS, so
+    //                          this slider stays fully alive (refraction
+    //                          continues to use it) even when lighting is off.)
     //   quality       0.5..2.0 (render-resolution multiplier, INDEPENDENT of
     //                          on-screen size. quality=1 = native device-pixel
     //                          res; 0.5 = half-res (faster, blurrier); 2 = 2×
@@ -321,7 +336,7 @@ export function buildTextGlass(
     //                          small text can be fast.)
     //   saturation    0..3    (colorControls saturation gain. 0 = grayscale;
     //                          1 = normal; 3 = max vibrancy. Default 1.5.)
-    // Highlight range + quality + saturation stay fractional; size/weight round to integers.
+    // Glass thickness + quality + saturation stay fractional; size/weight round to integers.
     //
     // fontSize max = availableH * 0.7 (= maxH), so the slider's TOP end
     // maps exactly to the largest text that fits on screen — the whole
@@ -374,7 +389,7 @@ export function buildTextGlass(
         rendererRef,
         (f) => {
           const v = range[0] + (range[1] - range[0]) * f
-          // Highlight range stays fractional; size/weight round to integers.
+          // Glass thickness stays fractional; size/weight round to integers.
           const out = s.round ? Math.round(v) : Math.round(v * 100) / 100
           setState({ [key]: out } as Partial<CatalogState>)
         },
@@ -390,14 +405,16 @@ export function buildTextGlass(
     for (const s of sliderDefsPart1) renderSliderRow(s)
 
     // --- 光影 (Lighting) master toggle ---
-    // Gates the ENTIRE SDF-based brightness-changing layer as one unit:
-    //   ON  → bevel highlight uses the highlight-range slider's value; base
-    //         brightness gets the −0.1 dim (original hardcoded baseline).
-    //   OFF → bevel highlight forced to 0 (no edge light); base brightness
-    //         dim disabled (0 = neutral).
-    // Placed right before the highlight-range slider so the toggle + slider
-    // are visually grouped. The brighten slider below is NOT part of this
-    // layer — it's a separate brightness boost that always stacks on top.
+    // Gates the ENTIRE SDF-based light/shadow layer via TWO mechanisms:
+    //   1. bevelEnabled (isSdfTexture.bevelEnabled → uSdfBevelEnabled uniform):
+    //      ON  = bevel brightness highlight active (edge light + shadow).
+    //      OFF = shader skips the bevel brightness term, but STILL computes
+    //            `intensity` from the glass-thickness slider (so refraction /
+    //            backdrop distortion continues to use it). Only the edge
+    //            BRIGHTNESS is removed — the slider is never dead.
+    //   2. Base brightness dim: ON = −0.1 (original baseline); OFF = 0.
+    // Placed right before the 玻璃厚度 slider so the toggle + slider are
+    // visually grouped. The brighten slider below is NOT part of this layer.
     const lightingToggleRow = { x: trackX, y: rowY, w: trackW, h: TG_TOGGLE_ROW_H }
     const lightingToggle = makeSettingsToggle(
       'tg-lighting',

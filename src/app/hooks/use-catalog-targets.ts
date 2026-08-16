@@ -59,11 +59,11 @@ export function useCatalogTargets({ destination, state, W, H }: UseCatalogTarget
       // Five sliders in the sliderDefs arrays (size, weight, highlight, quality,
       // saturation) + the brighten slider. The builder assigns groupIds
       // `tg-slider-0`..`tg-slider-5`. The lighting toggle is inserted BETWEEN
-      // fontWeight (idx 1) and highlightRange (idx 2) in the layout, but the
+      // fontWeight (idx 1) and glassThickness (idx 2) in the layout, but the
       // sliderIdx counter is shared so the groupId numbering is UNCHANGED:
       //   0: fontSize      [0, fontSizeMax]
       //   1: fontWeight    [1, 1000]
-      //   2: highlightRange [0, 5]
+      //   2: glassThickness [0, 5]
       //   3: quality       [0.5, 2.0]
       //   4: saturation    [0, 3]
       //   5: brighten      [0, 1]

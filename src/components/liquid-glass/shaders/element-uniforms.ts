@@ -104,9 +104,23 @@ uniform float uEnterAlpha;          // global element alpha (enterProgress, 0..1
 // Highlight generation distance multiplier. The SDF-texture shader computes
 // intensity = circleMap(1.0 - min(1.0, -sd * uSdfHighlightScale)) where sd is
 // the normalized signed distance (-1 deep inside, 0 at edge, +1 far outside).
-// Higher value = highlight extends further into the interior. Default 1.5
+// The intensity field drives BOTH the refraction offset AND the bevel-lighting
+// contribution. Physically it controls the WIDTH of the edge band where the
+// glass effect transitions from full (at the edge) to zero (interior):
+//   higher scale = narrower/sharper edge band (thinner glass edge feel)
+//   lower scale  = wider/gentler edge band (thicker glass edge feel)
+// Exposed as "玻璃厚度" (glass thickness) in the TextGlass UI. Default 1.5
 // matches the original hardcoded constant in SdfShader.kt.
 uniform float uSdfHighlightScale;   // default 1.5
+// Bevel lighting on/off (0 or 1). When 0, the shader still computes
+// intensity (so refraction — the glass distortion of the backdrop — still
+// uses uSdfHighlightScale and stays fully adjustable), but the BEVEL
+// brightness contribution (color *= 1 + 0.5 * intensity * bevel) is
+// skipped entirely. This lets the TextGlass 光影 toggle turn the
+// light/shadow layer on/off WITHOUT zeroing the thickness slider's shader
+// value (so the slider is never dead). The base brightness dim (−0.1) is
+// controlled separately via uBrightness on the JS side.
+uniform float uSdfBevelEnabled;     // default 1 (on)
 // Raw SDF debug render — when > 0.5, the SDF-texture glass path bypasses all
 // glass effects and outputs the SDF's R channel directly as grayscale
 // (inside = white, outside = black, AA via A channel). Used by TextGlass to

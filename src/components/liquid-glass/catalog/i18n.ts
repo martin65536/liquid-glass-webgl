@@ -198,7 +198,7 @@ const translations: Record<string, { zh: string; en: string }> = {
   text_glass_font_google:   { zh: 'Google Sans', en: 'Google Sans' },
   text_glass_font_nunito:   { zh: 'Nunito', en: 'Nunito' },
   text_glass_input_label:   { zh: '文字', en: 'Text' },
-  text_glass_highlight_scale: { zh: '高光范围', en: 'Highlight range' },
+  text_glass_highlight_scale: { zh: '玻璃厚度', en: 'Glass thickness' },
   text_glass_saturation:    { zh: '饱和度', en: 'Saturation' },
   text_glass_lighting:      { zh: '光影', en: 'Lighting' },
   text_glass_brighten:      { zh: '提亮', en: 'Brighten' },

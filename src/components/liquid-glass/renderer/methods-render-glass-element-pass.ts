@@ -273,12 +273,21 @@ export const glassElementPassMethods = {
         this.uEl['uRefractionHeight'],
         (this.quickToggles.refraction ? el.isSdfTexture.refractionHeight : 0) * this.dpr
       )
-      // Highlight scale (default 1.5) + raw-SDF debug toggle. Both fall back
-      // to safe defaults when the element doesn't specify them (e.g. the
-      // LockScreen clock_sdf uses defaults).
+      // Highlight scale (default 1.5) + bevel on/off + raw-SDF debug toggle.
+      // All fall back to safe defaults when the element doesn't specify them
+      // (e.g. the LockScreen clock_sdf uses defaults).
+      // NOTE: highlightScale is ALWAYS fed from the element config — it is
+      // never zeroed by the lighting toggle. The toggle instead uses
+      // bevelEnabled to gate the bevel BRIGHTNESS in the shader, so the
+      // refraction (which also uses highlightScale via `intensity`) stays
+      // fully adjustable even when the lighting layer is off.
       gl.uniform1f(
         this.uEl['uSdfHighlightScale'],
         el.isSdfTexture.highlightScale ?? 1.5
+      )
+      gl.uniform1f(
+        this.uEl['uSdfBevelEnabled'],
+        (el.isSdfTexture.bevelEnabled ?? true) ? 1.0 : 0.0
       )
       gl.uniform1f(
         this.uEl['uSdfDebugMode'],
@@ -299,6 +308,7 @@ export const glassElementPassMethods = {
       // branch skips the SDF path entirely, but keeping the uniforms sane
       // avoids confusion when debugging).
       gl.uniform1f(this.uEl['uSdfHighlightScale'], 1.5)
+      gl.uniform1f(this.uEl['uSdfBevelEnabled'], 1.0)
       gl.uniform1f(this.uEl['uSdfDebugMode'], 0.0)
       gl.uniform1f(this.uEl['uSdfAaMin'], 0.5)
       // Bind the dummy 1×1 texture to TEXTURE2 so the uSdfTexSampler /

@@ -313,18 +313,23 @@ export interface CatalogState {
   textGlassFontIdx: number
   // TextGlass — whether the bottom control sheet is expanded (GP-style).
   textGlassSheetExpanded: boolean
-  // TextGlass — bevel-highlight RANGE multiplier (controls how far the
-  // highlight extends from the text edge INTO the glyph interior). The shader
-  // formula is `intensity = circleMap(1.0 - min(1.0, -sd * highlightScale))`
-  // where sd is the normalized signed distance (-1 deep inside, 0 at edge,
-  // +1 far outside). Higher scale = highlight reaches further into the
-  // interior (wider coverage). Default 1.5 (matches the original hardcoded
-  // constant). Range [0, 5].
+  // TextGlass — "玻璃厚度" (glass thickness) — the SDF edge-band width
+  // multiplier. Controls how wide the band is where the glass effect
+  // (refraction + bevel intensity) transitions from full at the text edge to
+  // zero in the interior. The shader formula is
+  //   `intensity = circleMap(1.0 - min(1.0, -sd * highlightScale))`
+  // where sd is the normalized signed distance (-1 deep inside, 0 at edge).
+  //   higher scale = narrower/sharper edge band (thinner glass edge feel)
+  //   lower scale  = wider/gentler edge band (thicker glass edge feel)
+  // Default 1.5 (matches the original hardcoded constant). Range [0, 5].
   //
-  // GATED by textGlassLightingEnabled: when the lighting toggle is OFF, the
-  // shader's highlightScale is forced to 0 (no bevel) AND the base dim is
-  // disabled — see textGlassLightingEnabled. The slider's STATE value is
-  // preserved regardless, so toggling lighting back ON restores the range.
+  // This value is ALWAYS fed to the shader's uSdfHighlightScale — it is NEVER
+  // zeroed by the lighting toggle. The intensity it produces drives BOTH the
+  // refraction offset (backdrop distortion) AND the bevel brightness falloff,
+  // so the slider stays fully adjustable even when the 光影 toggle is off
+  // (the glass still refracts; only the edge brightness highlight is removed
+  // via the separate bevelEnabled uniform). Per user requirement: "我要的开关
+  // 是有没有光影这一层，不是把高光范围设为0".
   textGlassHighlightScale: number
   // TextGlass — saturation gain multiplier applied to the glass element's
   // colorControls saturation uniform. 0 = fully desaturated (grayscale);
@@ -333,15 +338,21 @@ export interface CatalogState {
   // contrast so the user can tune color richness without affecting lightness.
   textGlassSaturation: number
   // TextGlass — "光影" (Lighting) master toggle. Controls the ENTIRE
-  // SDF-based brightness-changing layer as a single unit:
-  //   ON  → bevel highlight uses textGlassHighlightScale; base brightness
-  //         gets the −0.1 dim (original hardcoded baseline).
-  //   OFF → bevel highlight forced to 0 (no edge light); base brightness
-  //         dim disabled (0 = neutral).
+  // SDF-based light/shadow layer as a single unit via TWO mechanisms:
+  //   1. bevelEnabled (isSdfTexture.bevelEnabled) → uSdfBevelEnabled uniform:
+  //      ON  = bevel brightness highlight active (edge light + shadow).
+  //      OFF = shader skips the `color *= 1 + 0.5 * intensity * bevel` term
+  //            entirely. The `intensity` value is STILL computed from
+  //            highlightScale (so refraction / glass distortion continues to
+  //            use the 玻璃厚度 slider's value) — only the edge BRIGHTNESS is
+  //            removed. This is the user's explicit requirement: "我要的开关
+  //            是有没有光影这一层，不是把高光范围设为0" (the toggle is for
+  //            whether the lighting layer exists, NOT for zeroing the
+  //            highlight-range / thickness slider).
+  //   2. Base brightness dim: ON = −0.1 (original baseline dim); OFF = 0.
   // The brighten slider (textGlassBrighten) is NOT part of this layer — it's
   // a separate user-added brightness boost that stacks on top of whatever
-  // baseline the lighting toggle leaves. Per user request: "压暗层和高光一起
-  // 设置，整个根据sdf改变亮度的层一起开关".
+  // baseline the lighting toggle leaves.
   textGlassLightingEnabled: boolean
   // TextGlass — brighten layer amount [0..1]. 0 = off (no extra brightness);
   // 1 = max brighten (+0.5 added to brightness uniform). Scales linearly so
