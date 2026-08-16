@@ -47,23 +47,26 @@ export function useCatalogTargets({ destination, state, W, H }: UseCatalogTarget
       // by the renderer's spring-animated toggle-fraction, which needs a
       // TARGET pushed here (via setToggleTarget in the effect below). Without
       // this, tapping the toggle changes the boolean state but the knob never
-      // animates — "开关点击时有问题" (the knob stays put). The raw-SDF,
-      // dim, and (previously) highlight toggles all need this sync. The
-      // highlight on/off toggle was removed (the highlight-scale slider alone
-      // controls bevel highlight now), so only dim + raw-SDF remain.
+      // animates — "开关点击时有问题" (the knob stays put).
+      //
+      // tg-lighting: the "光影" master toggle. Gates BOTH the bevel highlight
+      // and the base dim as one "SDF-brightness-changing layer". When OFF,
+      // the shader's highlightScale is forced to 0 AND the base brightness
+      // dim is disabled — see build-text-glass.ts.
+      // tg-rawsdf: the raw-SDF debug render toggle.
       targets['tg-rawsdf'] = state.textGlassRawSdf ? 1 : 0
-      targets['tg-dim'] = state.textGlassDimEnabled ? 1 : 0
-      // Five sliders in the sliderDefs array (size, weight, highlight, quality,
+      targets['tg-lighting'] = state.textGlassLightingEnabled ? 1 : 0
+      // Five sliders in the sliderDefs arrays (size, weight, highlight, quality,
       // saturation) + the brighten slider. The builder assigns groupIds
-      // `tg-slider-0`..`tg-slider-5` in the SAME ORDER as the builder's
-      // sliderDefs array + the brighten block. Ranges must match
-      // build-text-glass.ts exactly.
+      // `tg-slider-0`..`tg-slider-5`. The lighting toggle is inserted BETWEEN
+      // fontWeight (idx 1) and highlightRange (idx 2) in the layout, but the
+      // sliderIdx counter is shared so the groupId numbering is UNCHANGED:
       //   0: fontSize      [0, fontSizeMax]
       //   1: fontWeight    [1, 1000]
-      //   2: highlightScale [0, 5]
+      //   2: highlightRange [0, 5]
       //   3: quality       [0.5, 2.0]
-      //   4: saturation    [0, 3]      ← NEW
-      //   5: brighten      [0, 1]      ← NEW (was unsynced before)
+      //   4: saturation    [0, 3]
+      //   5: brighten      [0, 1]
       const fontSizeMax = computeTextGlassFontSizeMax(W, H)
       // Clamp to [0,1] so a state value larger than fontSizeMax (e.g. the
       // default 200 on a very short viewport) doesn't push the knob past the
@@ -107,7 +110,7 @@ export function useCatalogTargets({ destination, state, W, H }: UseCatalogTarget
       targets['settings-perf-monitor-toggle'] = state.showPerfMonitor ? 1 : 0
     }
     return targets
-  }, [destination, W, H, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration, state.textGlassRawSdf, state.textGlassDimEnabled, state.textGlassFontSize, state.textGlassQuality, state.textGlassFontWeight, state.textGlassHighlightScale, state.textGlassSaturation, state.textGlassBrighten, state.customDpr, state.blurTapCap, state.blurDownsample, state.globalSeparableBlur, state.dynamicBlurDownsample, state.capsuleShape, state.noContinuousSdf, state.capsuleSdfQuality, state.hideOverlayButtons, state.pageTransition, state.showFps, state.highlightAa, state.usePerElementFbo, state.showPerfMonitor, state.directBackdropSample])
+  }, [destination, W, H, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration, state.textGlassRawSdf, state.textGlassLightingEnabled, state.textGlassFontSize, state.textGlassQuality, state.textGlassFontWeight, state.textGlassHighlightScale, state.textGlassSaturation, state.textGlassBrighten, state.customDpr, state.blurTapCap, state.blurDownsample, state.globalSeparableBlur, state.dynamicBlurDownsample, state.capsuleShape, state.noContinuousSdf, state.capsuleSdfQuality, state.hideOverlayButtons, state.pageTransition, state.showFps, state.highlightAa, state.usePerElementFbo, state.showPerfMonitor, state.directBackdropSample])
 
   const tabTargets = React.useMemo<Record<string, { tabIndex: number; tabsCount: number }>>(() => {
     const targets: Record<string, { tabIndex: number; tabsCount: number }> = {}

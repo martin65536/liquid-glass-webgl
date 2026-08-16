@@ -99,10 +99,9 @@ export function buildTextGlass(
   // up/down over the reserved space below it.
   // Sheet height reservation (mirrors the EXPANDED sheet's actual height
   // below): input + 6 slider rows (size, weight, highlight, quality,
-  // saturation, brighten) + font row + 2 toggle rows (dim, raw-SDF) +
-  // padding. The highlight on/off toggle was removed — the highlight-scale
-  // slider alone now controls bevel highlight (0 = off), so its attribute is
-  // never disabled by a toggle. Saturation slider added as a color control.
+  // saturation, brighten) + font row + 2 toggle rows (lighting, raw-SDF) +
+  // padding. The lighting toggle gates BOTH the bevel highlight and the base
+  // dim as one "SDF-brightness-changing layer" (per user request).
   const sheetReservedH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 6 + TG_FONT_ROW_H + TG_TOGGLE_ROW_H * 2 + TG_INNER_PAD
   const availableH = H - bottomBtnSpace - sheetReservedH
   const aspect = state.textGlassAspect > 0 ? state.textGlassAspect : 3
@@ -153,31 +152,37 @@ export function buildTextGlass(
       // 0 = grayscale, 1 = normal, >1 = boosted vibrancy. Independent of
       // brightness/contrast so the user can tune color richness alone.
       saturation: state.textGlassSaturation,
-      // Brightness = base dim (−0.1 if dim toggle on, else 0) + brighten layer
-      // (textGlassBrighten ∈ [0,1] → +0..+0.5). So the full range is:
-      //   dim on,  brighten 0 → −0.1 (original baseline)
-      //   dim off, brighten 0 →  0.0 (neutral)
-      //   dim off, brighten 1 → +0.5 (max brighten)
-      brightness: (state.textGlassDimEnabled ? -0.1 : 0) + state.textGlassBrighten * 0.5,
+      // Brightness = lighting layer (dim −0.1 when lighting toggle ON, else 0)
+      // + brighten layer (textGlassBrighten ∈ [0,1] → +0..+0.5). The lighting
+      // toggle gates the bevel highlight AND the base dim together as one
+      // "SDF-brightness-changing layer". The brighten slider is separate and
+      // always available. So the full range is:
+      //   lighting ON,  brighten 0 → −0.1 (original baseline + bevel)
+      //   lighting OFF, brighten 0 →  0.0 (neutral, no bevel, no dim)
+      //   lighting OFF, brighten 1 → +0.5 (max brighten, no bevel/dim)
+      brightness: (state.textGlassLightingEnabled ? -0.1 : 0) + state.textGlassBrighten * 0.5,
       contrast: 0.75,
       surfaceColor: [1, 1, 1, 0.25],
       highlight: null,
       outerShadow: null,
     }
   )
-  // Pass the highlight-scale multiplier + raw-SDF debug toggle + AA range
+  // Pass the highlight-range multiplier + raw-SDF debug toggle + AA range
   // through to the shader via the isSdfTexture config. The renderer's element
   // pass reads these and sets uSdfHighlightScale / uSdfDebugMode / uSdfAaMin.
   // aaMin=0.0 widens the coverage→mask smoothstep to (0.0, 1.0) so the full
   // Canvas2D AA gradient is preserved → smooth text edges at all font sizes.
-  // highlightScale is driven DIRECTLY by the slider (no on/off toggle) — 0 =
-  // no bevel highlight, so the slider is the sole, always-effective control.
-  // (Previously a toggle forced this to 0 when "disabled", which made the
-  // slider appear dead — "禁用高光不能禁用高光距离的属性".)
+  //
+  // highlightScale is GATED by the lighting toggle (textGlassLightingEnabled):
+  //   lighting ON  → shader uses the slider's value (bevel highlight active)
+  //   lighting OFF → shader gets 0 (no bevel), AND the base dim is disabled
+  // The slider's STATE value is preserved either way, so toggling lighting
+  // back ON restores the highlight range immediately. The lighting toggle
+  // bundles the bevel highlight + base dim as one "SDF-brightness layer".
   tgGlass.isSdfTexture = {
     refractionHeight: 48 * DP,
     lightAngle: 45,
-    highlightScale: state.textGlassHighlightScale,
+    highlightScale: state.textGlassLightingEnabled ? state.textGlassHighlightScale : 0,
     debugMode: state.textGlassRawSdf,
     aaMin: 0.0,
   }
@@ -206,9 +211,9 @@ export function buildTextGlass(
     const trackW = sheetW - 2 * TG_INNER_PAD
 
     // Sheet height: input row + 6 slider rows (size, weight, highlight,
-    // quality, saturation, brighten) + font row + 2 toggle rows (dim-enabled,
-    // raw-SDF) + padding. (The highlight on/off toggle was removed — the
-    // highlight-scale slider alone controls bevel highlight now.)
+    // quality, saturation, brighten) + font row + 2 toggle rows (lighting,
+    // raw-SDF) + padding. The lighting toggle replaces the old dim toggle —
+    // it now gates BOTH the bevel highlight and the base dim as one unit.
     const sheetH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 6 + TG_FONT_ROW_H + TG_TOGGLE_ROW_H * 2 + TG_INNER_PAD
     const sheetY = H - bottomBtnSpace - sheetH
 
@@ -277,12 +282,18 @@ export function buildTextGlass(
     elements.push(tgInputGlass)
     rowY += TG_INPUT_ROW_H
 
-    // --- Rows 2-6: Size + Font weight + Highlight scale + Quality + Saturation sliders ---
+    // --- Sliders (size, weight) + 光影 toggle + sliders (highlight, quality, saturation) ---
     // Left-right layout: label on the left (sliderLabelW wide), slider track
     // on the right (remaining width). Both vertically centered in the row —
     // matches the input row and font-family row pattern above.
     //
-    // Ranges widened so the user can explore extremes:
+    // The 光影 (Lighting) toggle is inserted BETWEEN fontWeight and
+    // highlightRange so it sits right next to the slider it gates. The
+    // sliderIdx counter is shared across both halves so groupId indices stay
+    // stable: 0=fontSize, 1=fontWeight, 2=highlightRange, 3=quality,
+    // 4=saturation, 5=brighten — matching use-catalog-targets.ts exactly.
+    //
+    // Ranges:
     //   fontSize      0..fontSizeMax  (on-screen glass height in CSS px, 1:1.
     //                                 0 = empty/hidden texture; max = largest
     //                                 text that fits on screen. The slider
@@ -296,10 +307,12 @@ export function buildTextGlass(
     //                          moves but the rendered weight stops changing
     //                          once the font's min/max real weight is hit.
     //                          That's a font-availability limit, not a bug.)
-    //   highlightScale 0..5    (0 = no highlight; 5 = highlight fills most of
-    //                          the glyph interior. 0 doubles as the bevel
-    //                          on/off — no separate toggle, so this attribute
-    //                          is NEVER disabled.)
+    //   highlightRange 0..5   (bevel-highlight RANGE — how far the highlight
+    //                          extends from the text edge INTO the glyph
+    //                          interior. 0 = no highlight; 5 = fills most of
+    //                          the interior. GATED by the lighting toggle:
+    //                          when OFF, the shader gets 0 regardless of this
+    //                          slider's value — but the state is preserved.)
     //   quality       0.5..2.0 (render-resolution multiplier, INDEPENDENT of
     //                          on-screen size. quality=1 = native device-pixel
     //                          res; 0.5 = half-res (faster, blurrier); 2 = 2×
@@ -308,7 +321,7 @@ export function buildTextGlass(
     //                          small text can be fast.)
     //   saturation    0..3    (colorControls saturation gain. 0 = grayscale;
     //                          1 = normal; 3 = max vibrancy. Default 1.5.)
-    // Highlight scale + quality + saturation stay fractional; size/weight round to integers.
+    // Highlight range + quality + saturation stay fractional; size/weight round to integers.
     //
     // fontSize max = availableH * 0.7 (= maxH), so the slider's TOP end
     // maps exactly to the largest text that fits on screen — the whole
@@ -316,9 +329,11 @@ export function buildTextGlass(
     // the text is clamped and stops growing ("到右边几乎不变了"). The slider
     // value IS the on-screen glass height (CSS px), 1:1.
     const fontSizeMax = computeTextGlassFontSizeMax(W, H)
-    const sliderDefs = [
+    const sliderDefsPart1 = [
       { key: 'textGlassFontSize' as const, label: t('text_glass_size', locale), range: [0, fontSizeMax] as const, round: true },
       { key: 'textGlassFontWeight' as const, label: t('text_glass_font_weight', locale), range: [1, 1000] as const, round: true },
+    ]
+    const sliderDefsPart2 = [
       { key: 'textGlassHighlightScale' as const, label: t('text_glass_highlight_scale', locale), range: [0, 5] as const, round: false },
       { key: 'textGlassQuality' as const, label: t('text_glass_quality', locale), range: [0.5, 2] as const, round: false },
       { key: 'textGlassSaturation' as const, label: t('text_glass_saturation', locale), range: [0, 3] as const, round: false },
@@ -326,7 +341,9 @@ export function buildTextGlass(
     const sliderLabelW = 72
     const sliderGap = 12
     let sliderIdx = 0
-    for (const s of sliderDefs) {
+    // Helper: render one slider row (label + track + knob) and advance rowY.
+    // Accepts entries from BOTH part1 and part2 (union of their key literals).
+    const renderSliderRow = (s: (typeof sliderDefsPart1)[number] | (typeof sliderDefsPart2)[number]) => {
       const val = state[s.key] as number
       const range = s.range
       const key = s.key
@@ -357,7 +374,7 @@ export function buildTextGlass(
         rendererRef,
         (f) => {
           const v = range[0] + (range[1] - range[0]) * f
-          // Highlight scale stays fractional; size/weight round to integers.
+          // Highlight range stays fractional; size/weight round to integers.
           const out = s.round ? Math.round(v) : Math.round(v * 100) / 100
           setState({ [key]: out } as Partial<CatalogState>)
         },
@@ -369,27 +386,37 @@ export function buildTextGlass(
       Object.assign(interactions, slider.interactions)
       rowY += TG_ROW_H
     }
+    // Part 1: size + weight (groupId 0, 1)
+    for (const s of sliderDefsPart1) renderSliderRow(s)
 
-    // --- Row 7: Dim on/off toggle ---
-    // Controls the base brightness dim (−0.1). When OFF, the baseline
-    // brightness is 0 (neutral) instead of −0.1 (slightly dimmed). The
-    // brighten slider below stacks on top of this baseline.
-    const dimToggleRow = { x: trackX, y: rowY, w: trackW, h: TG_TOGGLE_ROW_H }
-    const dimToggle = makeSettingsToggle(
-      'tg-dim',
-      dimToggleRow,
-      t('text_glass_dim_enabled', locale),
-      state.textGlassDimEnabled,
-      () => setState((prev) => ({ textGlassDimEnabled: !prev.textGlassDimEnabled })),
+    // --- 光影 (Lighting) master toggle ---
+    // Gates the ENTIRE SDF-based brightness-changing layer as one unit:
+    //   ON  → bevel highlight uses the highlight-range slider's value; base
+    //         brightness gets the −0.1 dim (original hardcoded baseline).
+    //   OFF → bevel highlight forced to 0 (no edge light); base brightness
+    //         dim disabled (0 = neutral).
+    // Placed right before the highlight-range slider so the toggle + slider
+    // are visually grouped. The brighten slider below is NOT part of this
+    // layer — it's a separate brightness boost that always stacks on top.
+    const lightingToggleRow = { x: trackX, y: rowY, w: trackW, h: TG_TOGGLE_ROW_H }
+    const lightingToggle = makeSettingsToggle(
+      'tg-lighting',
+      lightingToggleRow,
+      t('text_glass_lighting', locale),
+      state.textGlassLightingEnabled,
+      () => setState((prev) => ({ textGlassLightingEnabled: !prev.textGlassLightingEnabled })),
       palette,
       rendererRef,
       false, // scroll = false
       0,     // labelPad = 0
       true,  // onGlassCard = true
     )
-    elements.push(...dimToggle.elements)
-    Object.assign(interactions, dimToggle.interactions)
+    elements.push(...lightingToggle.elements)
+    Object.assign(interactions, lightingToggle.interactions)
     rowY += TG_TOGGLE_ROW_H
+
+    // Part 2: highlight range + quality + saturation (groupId 2, 3, 4)
+    for (const s of sliderDefsPart2) renderSliderRow(s)
 
     // --- Row 8: Brighten slider (0..1, 0 = off, 1 = max brighten +0.5) ---
     // Adds a brighten layer on top of the base brightness. The further right,

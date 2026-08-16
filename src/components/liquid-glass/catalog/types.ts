@@ -313,16 +313,18 @@ export interface CatalogState {
   textGlassFontIdx: number
   // TextGlass — whether the bottom control sheet is expanded (GP-style).
   textGlassSheetExpanded: boolean
-  // TextGlass — highlight generation distance multiplier (controls how far
-  // from the text edge the bevel highlight extends). The shader formula is
-  // `intensity = circleMap(1.0 - min(1.0, -sd * highlightScale))` where sd
-  // is the normalized signed distance (-1 deep inside, 0 at edge, +1 far
-  // outside). Higher scale = highlight reaches further into the interior.
-  // Default 1.5 (matches the original hardcoded constant). Range [0, 5].
-  // NOTE: 0 = no bevel highlight at all, so the slider alone acts as the
-  // on/off + distance control — there is no separate highlight toggle that
-  // could "disable" this attribute (the previous toggle forced the shader
-  // value to 0, which made the slider appear dead when highlight was off).
+  // TextGlass — bevel-highlight RANGE multiplier (controls how far the
+  // highlight extends from the text edge INTO the glyph interior). The shader
+  // formula is `intensity = circleMap(1.0 - min(1.0, -sd * highlightScale))`
+  // where sd is the normalized signed distance (-1 deep inside, 0 at edge,
+  // +1 far outside). Higher scale = highlight reaches further into the
+  // interior (wider coverage). Default 1.5 (matches the original hardcoded
+  // constant). Range [0, 5].
+  //
+  // GATED by textGlassLightingEnabled: when the lighting toggle is OFF, the
+  // shader's highlightScale is forced to 0 (no bevel) AND the base dim is
+  // disabled — see textGlassLightingEnabled. The slider's STATE value is
+  // preserved regardless, so toggling lighting back ON restores the range.
   textGlassHighlightScale: number
   // TextGlass — saturation gain multiplier applied to the glass element's
   // colorControls saturation uniform. 0 = fully desaturated (grayscale);
@@ -330,10 +332,17 @@ export interface CatalogState {
   // original hardcoded constant). Range [0, 3]. Independent of brightness /
   // contrast so the user can tune color richness without affecting lightness.
   textGlassSaturation: number
-  // TextGlass — dim (brightness -0.1) on/off toggle. The original hardcoded
-  // brightness=-0.1 slightly darkens the glass content; this toggle lets the
-  // user disable that dimming for a brighter baseline.
-  textGlassDimEnabled: boolean
+  // TextGlass — "光影" (Lighting) master toggle. Controls the ENTIRE
+  // SDF-based brightness-changing layer as a single unit:
+  //   ON  → bevel highlight uses textGlassHighlightScale; base brightness
+  //         gets the −0.1 dim (original hardcoded baseline).
+  //   OFF → bevel highlight forced to 0 (no edge light); base brightness
+  //         dim disabled (0 = neutral).
+  // The brighten slider (textGlassBrighten) is NOT part of this layer — it's
+  // a separate user-added brightness boost that stacks on top of whatever
+  // baseline the lighting toggle leaves. Per user request: "压暗层和高光一起
+  // 设置，整个根据sdf改变亮度的层一起开关".
+  textGlassLightingEnabled: boolean
   // TextGlass — brighten layer amount [0..1]. 0 = off (no extra brightness);
   // 1 = max brighten (+0.5 added to brightness uniform). Scales linearly so
   // the further right the slider, the brighter the glass content.
@@ -413,7 +422,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   textGlassSheetExpanded: true,
   textGlassHighlightScale: 1.5,
   textGlassSaturation: 1.5,
-  textGlassDimEnabled: true,
+  textGlassLightingEnabled: true,
   textGlassBrighten: 0,
   textGlassRawSdf: false,
 }
