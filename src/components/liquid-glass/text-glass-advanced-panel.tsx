@@ -6,6 +6,7 @@ import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
 import {
   TEXT_GLASS_FONTS,
+  DEFAULT_CATALOG_STATE,
   computeTextGlassFontSizeMax,
   type CatalogState,
 } from '@/components/liquid-glass/catalog/types'
@@ -151,6 +152,148 @@ export function TextGlassAdvancedPanel({
   // Tint is active when the master switch is ON (hue slider value is
   // informational — the switch fully gates both color-mix and hue-dye).
   const tintActive = state.textGlassGlassTintEnabled
+
+  // --- Import / Export / Reset ---------------------------------------
+  // Hidden file input ref for import.
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null)
+  const [presetStatus, setPresetStatus] = React.useState<{ kind: 'ok' | 'err'; msg: string } | null>(null)
+  const statusTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const showStatus = React.useCallback((kind: 'ok' | 'err', msg: string) => {
+    setPresetStatus({ kind, msg })
+    if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
+    statusTimerRef.current = setTimeout(() => setPresetStatus(null), 2600)
+  }, [])
+
+  React.useEffect(() => {
+    return () => {
+      if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
+    }
+  }, [])
+
+  // Transient UI / derived fields that should NOT be part of a preset.
+  // These are scroll position, drag offset, panel-open state, and SDF
+  // texture metadata (regenerated from the text + font size at runtime).
+  const PRESET_EXCLUDE = React.useMemo(
+    () => new Set<string>([
+      'textGlassSheetExpanded',
+      'textGlassSheetScroll',
+      'textGlassAdvanced',
+      'textGlassOffsetX',
+      'textGlassOffsetY',
+      'textGlassAspect',
+      'textGlassTexH',
+    ]),
+    [],
+  )
+
+  // Extract all textGlass* parameter fields from a state object.
+  const extractPreset = React.useCallback(
+    (src: CatalogState): Record<string, unknown> => {
+      const out: Record<string, unknown> = {}
+      for (const k of Object.keys(src)) {
+        if (!k.startsWith('textGlass')) continue
+        if (PRESET_EXCLUDE.has(k)) continue
+        // @ts-expect-error — indexed access on a typed object
+        out[k] = src[k]
+      }
+      return out
+    },
+    [PRESET_EXCLUDE],
+  )
+
+  // Export: serialize current textGlass params to JSON and download.
+  const handleExport = React.useCallback(() => {
+    try {
+      const preset = {
+        __type: 'liquid-glass-text-preset',
+        __version: 1,
+        params: extractPreset(state),
+      }
+      const json = JSON.stringify(preset, null, 2)
+      const blob = new Blob([json], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+      a.href = url
+      a.download = `text-glass-preset-${stamp}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      showStatus('ok', locale === 'zh' ? '已导出' : 'Exported')
+    } catch (e) {
+      showStatus('err', locale === 'zh' ? '导出失败' : 'Export failed')
+    }
+  }, [state, extractPreset, showStatus, locale])
+
+  // Import: read JSON file, validate, merge into state.
+  const handleImportFile = React.useCallback(
+    (file: File) => {
+      const reader = new FileReader()
+      reader.onload = () => {
+        try {
+          const text = String(reader.result ?? '')
+          const parsed = JSON.parse(text) as unknown
+          // Accept either { params: {...} } (full preset envelope) or a bare
+          // { textGlass...: ... } object for convenience.
+          let params: Record<string, unknown> | null = null
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            const obj = parsed as Record<string, unknown>
+            if (obj.params && typeof obj.params === 'object' && !Array.isArray(obj.params)) {
+              params = obj.params as Record<string, unknown>
+            } else {
+              params = obj
+            }
+          }
+          if (!params) throw new Error('no params')
+
+          // Only accept keys that are textGlass* fields present in the
+          // default state. Silently drop anything else.
+          const defaults = extractPreset(DEFAULT_CATALOG_STATE)
+          const patch: Partial<CatalogState> = {}
+          let applied = 0
+          for (const k of Object.keys(params)) {
+            if (!(k in defaults)) continue
+            if (!k.startsWith('textGlass')) continue
+            const v = params[k]
+            // Basic type guard: must match the typeof of the default.
+            const dv = defaults[k]
+            if (typeof v !== typeof dv) continue
+            // @ts-expect-error — indexed assignment
+            patch[k] = v
+            applied++
+          }
+          if (applied === 0) throw new Error('no valid fields')
+          setState(patch)
+          showStatus('ok', locale === 'zh' ? `已导入 ${applied} 项` : `Imported ${applied} fields`)
+        } catch {
+          showStatus('err', locale === 'zh' ? '导入失败：无效 JSON' : 'Import failed: invalid JSON')
+        }
+      }
+      reader.onerror = () => showStatus('err', locale === 'zh' ? '读取失败' : 'Read failed')
+      reader.readAsText(file)
+    },
+    [extractPreset, setState, showStatus, locale],
+  )
+
+  const handleImportClick = React.useCallback(() => {
+    fileInputRef.current?.click()
+  }, [])
+
+  // Reset: restore all textGlass params to DEFAULT_CATALOG_STATE values.
+  const handleReset = React.useCallback(() => {
+    const defaults = extractPreset(DEFAULT_CATALOG_STATE)
+    setState(defaults as Partial<CatalogState>)
+    showStatus('ok', locale === 'zh' ? '已重置为默认' : 'Reset to defaults')
+  }, [extractPreset, setState, showStatus, locale])
+
+  const presetBtnStyle: React.CSSProperties = {
+    flex: 1,
+    fontSize: 12,
+    height: 32,
+    padding: 0,
+  }
 
   return (
     <div
@@ -425,6 +568,73 @@ export function TextGlassAdvancedPanel({
           ? `字号范围 0..${Math.round(fontSizeMax)} · 改动实时生效`
           : `Size range 0..${Math.round(fontSizeMax)} · Changes apply live`}
       </p>
+
+      {/* Divider */}
+      <div style={{ height: 1, background: dividerColor, margin: '10px 0 8px' }} />
+
+      {/* Preset: Import / Export / Reset -------------------------------- *
+       * Exports the current textGlass* parameter set to a JSON file,
+       * imports from a previously-exported JSON, or resets to defaults.
+       * Transient UI state (scroll, drag offset, panel-open) is excluded. */}
+      <div style={{ marginBottom: 4 }}>
+        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6, color: textColor }}>
+          {locale === 'zh' ? '预设' : 'Preset'}
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExport}
+            style={presetBtnStyle}
+          >
+            {locale === 'zh' ? '导出' : 'Export'}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleImportClick}
+            style={presetBtnStyle}
+          >
+            {locale === 'zh' ? '导入' : 'Import'}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleReset}
+            style={presetBtnStyle}
+          >
+            {locale === 'zh' ? '重置' : 'Reset'}
+          </Button>
+        </div>
+        {/* Hidden file input for import. accept=.json only. */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/json,.json"
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            if (f) handleImportFile(f)
+            // reset so the same file can be re-imported
+            e.target.value = ''
+          }}
+        />
+        {/* Status feedback (auto-dismiss after ~2.6s). */}
+        {presetStatus && (
+          <div
+            style={{
+              marginTop: 6,
+              fontSize: 11,
+              fontWeight: 500,
+              color: presetStatus.kind === 'ok'
+                ? (isLightTheme ? '#1a7f37' : '#30d158')
+                : (isLightTheme ? '#d12a2a' : '#ff6b6b'),
+            }}
+          >
+            {presetStatus.msg}
+          </div>
+        )}
+      </div>
 
       {/* Close button — at the very bottom of the scrollable area so it's
           always reachable after scrolling. Also callable via the canvas
