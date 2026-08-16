@@ -862,3 +862,30 @@ Stage Summary:
   ④ 默认 targets 从 7→15，开哑光时四层默认全开
 - 用户现在可以：开边缘哑光 → 哑光作用于"提亮" → 调"提亮"的 range/strength 滑块，看到提亮滑块（0.32）的亮度增量在边缘被抑制的效果
 - 未浏览器验证（用户要求不要自己测试）。
+
+---
+Task ID: 28
+Agent: main (Z.ai Code)
+Task: 修复提亮层哑光滑块无作用（用户反馈"滑动没有任何变化"）
+
+Work Log:
+- 用户反馈：提亮层哑光的 strength 滑块滑动没变化。
+- 根因诊断：applyColorControls(rawContent, brightness, contrast, saturation) 是一个矩阵，同时应用 brightness + contrast + saturation 三个效果。我上一轮的代码是 mix(color, rawContent*sdfMask, ...)，等于把 color 拉回 rawContent —— 撤销了全部三个效果。但 saturation=1.5 的影响远大于 brightness=0.16，所以：
+  - 调 strength 时，边缘主要发生"去饱和"（saturation 1.5→1.0），不是"去提亮"
+  - 用户看到的视觉变化是饱和度变化，不是亮度变化 → 以为"滑块对提亮没作用"
+- 修复 (shaders/element.ts): 改为 re-apply colorControls with brightness=0（保留 contrast + saturation），得到 noBrighten 版本，再 mix 向 noBrighten：
+    vec3 noBrighten = applyColorControls(rawContent, 0.0, uContrast, uSaturation) * sdfMask;
+    color.rgb = mix(color.rgb, noBrighten, matteEdgeBrighten * s);
+  - strength=0: 边缘 = color（有提亮 +0.16 + 饱和度 1.5 + 对比度 1.0）
+  - strength=1: 边缘 = noBrighten（无提亮，但饱和度 1.5 + 对比度 1.0 保留）
+  - strength=2: 边缘外推（比 noBrighten 更暗，反向提亮）
+  - 现在调 strength 时边缘变化纯粹来自 brightness 0.16 的撤销，是真正的"提亮哑光"
+
+- 关于"提亮和光影差这么多怎么能混淆"：承认错误。提亮 = uBrightness 整体亮度增量；光影 = bevel 边缘法线方向性高光。两者完全不同，之前一直把"光影"层的哑光当成"提亮"层在做，导致用户看不到提亮的哑光控制。上一轮 Task 27 已新增独立的"提亮"作用层。
+
+- lint: 0 error。dev.log: HMR 干净编译（✓ Compiled in 242ms）。
+
+Stage Summary:
+- 修改文件（1）：shaders/element.ts
+- 效果：提亮层哑光滑块现在有可见效果——调 strength 0→1→2 时边缘亮度从 +0.16 → 0 → -0.16（反向），纯粹针对提亮滑块的效果，不影响饱和度/对比度。
+- 未浏览器验证（用户要求不要自己测试）。

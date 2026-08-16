@@ -231,18 +231,21 @@ void main() {
 
         // --- Brighten layer matte (bit 3) ---
         // The 提亮 (brighten) slider drives uBrightness, applied via
-        // applyColorControls on rawContent. When matteBrighten is true, the
-        // edge is pulled back toward the PRE-brightness rawContent — i.e. the
-        // edge gets LESS brightening than the interior, producing a visible
-        // matte rim on the brightness layer. This is the "哑光作用于提亮层"
-        // effect: the user can now make the brighten slider's effect be
-        // suppressed at the text edge, so the edge stays dim/raw while the
-        // interior stays brightened. Strength scales how far the edge is
-        // pulled back (0 = no pull-back, 1 = edge fully reverted to raw).
+        // applyColorControls(rawContent, brightness, contrast, saturation).
+        // IMPORTANT: applyColorControls applies ALL THREE (brightness +
+        // contrast + saturation) in one matrix. Naively pulling color back
+        // toward rawContent would remove ALL three effects (mainly the
+        // saturation 1.5 boost, which dominates visually) — so the strength
+        // slider appeared to do nothing brightness-specific. Fixed: re-apply
+        // colorControls with brightness=0 (keeping contrast + saturation) to
+        // get the "no-brighten" version, then mix toward THAT. Now the matte
+        // specifically targets the 提亮 slider's effect — contrast + sat stay
+        // intact at the edge, only the brightness increment is suppressed.
+        // Faithful to "我要给它（提亮）加哑光".
         if (matteBrighten) {
-            vec3 rawMasked = rawContent * sdfMask;
+            vec3 noBrighten = applyColorControls(rawContent, 0.0, uContrast, uSaturation) * sdfMask;
             float s = uSdfEdgeMatteBrightenStrength;
-            color.rgb = mix(color.rgb, rawMasked, matteEdgeBrighten * s);
+            color.rgb = mix(color.rgb, noBrighten, matteEdgeBrighten * s);
         }
 
         // --- Base layer matte (bit 2) ---
