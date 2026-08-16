@@ -207,6 +207,8 @@ const translations: Record<string, { zh: string; en: string }> = {
   text_glass_raw_sdf:       { zh: '直接渲染SDF', en: 'Raw SDF' },
   text_glass_raw_on:        { zh: '开启', en: 'ON' },
   text_glass_raw_off:       { zh: '关闭', en: 'OFF' },
+  text_glass_advanced:      { zh: '高级设置', en: 'Advanced' },
+  text_glass_advanced_close: { zh: '关闭', en: 'Close' },
   perf_detecting:           { zh: '正在检测...', en: 'Detecting...' },
   perf_stop:                { zh: '停止', en: 'Stop' },
   perf_round_info:          { zh: '第{n}/{max}轮 · DPR {dpr}', en: 'Round {n}/{max} · DPR {dpr}' },

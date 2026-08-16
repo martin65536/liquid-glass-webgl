@@ -352,3 +352,54 @@ Stage Summary:
 - 着色器三新功能: 全玻璃染色(blendHue, 0=off) / 边缘哑光(SDF intensity 去饱和+压暗) / (bevel 恢复纯白)
 - 控制面板: 半屏上限 + clipRect 裁剪(五条渲染路径) + grab handle + 速度惯性(0.92衰减)
 - 所有改动 lint 通过, 浏览器渲染正常无报错
+
+---
+Task ID: 17
+Agent: main (Z.ai Code)
+Task: 把 TextGlass 设置卡片改回不可滚动，只留大小滑块，其他控件改为"高级设置"按钮点击展开 DOM 面板
+
+Work Log:
+- 用户反馈：之前的滚动方案有诸多问题（拖柄、阴影溢出、交互未禁用、输入框错位），要求回退。
+- 新设计：canvas 底部 sheet 只显示 3 行（文字输入 + 大小滑块 + "高级设置"按钮）；其他所有控件移到 DOM 浮层（点击"高级设置"展开）。
+- types.ts: CatalogState 加 textGlassAdvanced: boolean（默认 false）+ DEFAULT_CATALOG_STATE 默认值。
+- i18n.ts: 加 text_glass_advanced (高级设置/Advanced) + text_glass_advanced_close (关闭/Close)。
+- build-text-glass.ts 重写（830→312 行）：
+  - 移除全部滚动基础设施：tgInertiaTick RAF 循环、textGlassScrollStart、sheetScrollHandlers、sheetClipRect、clipRect 应用、maxScroll 计算、grab handle。
+  - sheet 只构建 3 行：input row + fontSize slider (groupId tg-slider-0) + advanced capsule button。
+  - 新增 TG_ADVANCED_BTN_H=44 常量；sheetH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H + TG_ADVANCED_BTN_H + TG_INNER_PAD（无 cap，3 行总能装下）。
+  - "高级设置"按钮用 makeButton（NON-GLASS capsule，与 font-family 按钮一致样式），点击 → setState({textGlassAdvanced: !prev})。
+  - 移除 fontWeight/highlight/quality/saturation/brighten/tint 6 个滑块 + lighting/edgematte/rawsdf 3 个 toggle + font-family 按钮组（全部移到 DOM）。
+  - isSdfTexture 配置不变（glassTintHue/edgeMatteEnabled/bevelEnabled/highlightScale/debugMode 仍从 state 读），所以 DOM 控件改动实时影响 glass 渲染。
+- use-catalog-targets.ts: 移除 tg-slider-1..6 + tg-lighting/tg-rawsdf/tg-edgematte targets，只保留 tg-slider-0 (fontSize)。deps 数组对应精简。
+- 新建 src/components/liquid-glass/text-glass-advanced-panel.tsx（DOM 组件）：
+  - shadcn/ui Slider + Switch + Button 组件 + inline style 主题切换。
+  - 底部 anchored sheet（iOS 风格 grab handle + 顶部圆角 + slide-up 动画）。
+  - 6 个滑块：字重(1..1000)、玻璃厚度(0..5)、质量(0.5..2)、饱和度(0..3)、提亮(0..1)、染色(0..360, 0=关闭显示"关闭")。
+  - 3 个 toggle：光影、边缘哑光、直接渲染SDF。
+  - 3 个 font 按钮：不设置/Google Sans/Nunito（selected = accent fill）。
+  - 关闭方式：点击"关闭"按钮 OR 点击 backdrop（onClick stopPropagation 防止误触）。
+  - 主题：isLightTheme ? 白底黑字 : 深灰底白字（rgba(28,28,30,0.96)）。
+  - slider accent color 覆盖：用 CSS 变量 --primary 注入蓝色（匹配 canvas slider 的 sliderAccent）。
+- page.tsx:
+  - import TextGlassAdvancedPanel。
+  - 简化 input overlay 几何：sheetH = innerPad + inputRowH + 48 + 44 + innerPad（3 行）；移除全部 scroll tracking；pillYFromTop = sheetY + innerPad + (inputRowH-pillH)/2（无 - scroll）。
+  - input overlay 条件加 !state.textGlassAdvanced（高级面板打开时隐藏 input overlay，避免重叠）。
+  - 新增 TextGlassAdvancedPanel 渲染块：destination===TextGlass && rendererReady && state.textGlassAdvanced。
+- lint: 0 error。dev.log: HMR 干净编译。
+- agent-browser + VLM 验证（8 个截图）：
+  1. 初始：3 行 sheet（文字/Glass input + 大小 slider + 高级设置 button）✓
+  2. 点击"高级设置"→ DOM 面板从底部滑出 ✓
+  3. 面板内容：标题"高级设置" + 关闭按钮 + 6 sliders + 3 toggles + 3 font 按钮 + footer hint ✓
+  4. 点击"关闭"→ 面板消失，回到 3 行 sheet ✓
+  5. 拖动染色 slider 到 hue ~171 → glass body 染成青色 ✓
+  6. 切换"边缘哑光"ON → glass 边缘变哑光（去饱和+压暗）✓
+  7. 点击 backdrop → 面板关闭 ✓
+  8. 拖动 canvas 大小 slider → glass 文字缩小 ✓
+  9. 切换 dark theme → 面板变深灰底白字 ✓
+- 0 browser errors / console errors。
+
+Stage Summary:
+- 修改文件（5）：catalog/types.ts（+textGlassAdvanced 字段）、catalog/i18n.ts（+2 文案）、catalog/build-text-glass.ts（830→312 行，移除全部滚动 + 只留 3 行）、app/hooks/use-catalog-targets.ts（精简 targets）、app/page.tsx（简化 input overlay + 渲染 DOM 面板）。
+- 新建文件（1）：src/components/liquid-glass/text-glass-advanced-panel.tsx（DOM 高级设置面板）。
+- 效果：canvas sheet 不可滚动、只显示 3 行（文字+大小+高级设置按钮）。点击"高级设置"展开 DOM 底部 sheet（iOS 风格 grab handle + 暗色 backdrop + slide-up 动画），包含字重/玻璃厚度/质量/饱和度/提亮/染色 6 个 slider + 光影/边缘哑光/直接渲染SDF 3 个 toggle + 字体 3 按钮。所有控件改动实时影响 glass 渲染。关闭方式：关闭按钮 / backdrop 点击。
+- 解决了用户反馈的所有滚动相关问题（拖柄、阴影溢出、交互未禁用、输入框错位）—— 因为不再有滚动。

@@ -18,6 +18,7 @@ import { usePageTransition } from './hooks/use-page-transition'
 import { useAdaptiveLuminance } from './hooks/use-adaptive-luminance'
 import { useCatalogTargets } from './hooks/use-catalog-targets'
 import { useTextGlass } from './hooks/use-text-glass'
+import { TextGlassAdvancedPanel } from '@/components/liquid-glass/text-glass-advanced-panel'
 
 /* ------------------------------------------------------------------ *
  * Faithful WebGL reproduction of Kyant's AndroidLiquidGlass catalog.
@@ -443,17 +444,18 @@ export default function Page() {
             are drawn by this element.
             Position is computed to match the sheet's input pill geometry
             (16dp sheet margin + 24dp inner pad + 48px label + 12px gap).
-            When the sheet is collapsed, the overlay is not rendered. */}
-        {destination === CatalogDestination.TextGlass && rendererReady && state.textGlassSheetExpanded && (
+            When the sheet is collapsed, the overlay is not rendered.
+
+            The sheet is NON-SCROLLABLE now (only 3 rows: input + size slider
+            + advanced button), so no scroll-offset tracking is needed — the
+            pill is always at a fixed position. */}
+        {destination === CatalogDestination.TextGlass && rendererReady && state.textGlassSheetExpanded && !state.textGlassAdvanced && (
           (() => {
             // Match build-text-glass.ts geometry (CSS px; DP≈1 on these screens).
             // Keep this IN SYNC with the sheet height formula in build-text-glass.ts
-            // (TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 7 + TG_FONT_ROW_H +
-            //  TG_TOGGLE_ROW_H * 3 + TG_INNER_PAD). Any row count change there
-            // must be mirrored here or the <input> overlay drifts off the glass pill.
-            // 7 slider rows: size, weight, glass-thickness, quality, saturation,
-            // brighten, tint.
-            // 3 toggle rows: lighting, raw-SDF, edge-matte.
+            // (TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H + TG_ADVANCED_BTN_H +
+            //  TG_INNER_PAD). The sheet is NOT scrollable, NOT capped — it's a
+            // compact 3-row panel. The pill is always at the top row.
             const sheetX = 16
             const innerPad = 24
             const labelW = 48
@@ -461,37 +463,17 @@ export default function Page() {
             const pillH = 40
             const inputRowH = 48
             const toggleBtnSpace = 20 + 56 + 12 // bottom button row height
-            // TG_ROW_H = 48 (left-right slider layout, matches TG_INPUT_ROW_H).
-            const sliderRowH = 48
-            const fontRowH = 48
-            const toggleRowH = 44
-            // Full (uncapped) content height — matches build-text-glass.ts
-            // fullSheetContentH. Used to compute maxScroll + the cap.
-            const fullContentH = innerPad + inputRowH + sliderRowH * 7 + fontRowH + toggleRowH * 3 + innerPad
-            // Sheet height is CAPPED at half-screen (mirrors build-text-glass.ts
-            // sheetH = Math.min(fullSheetContentH, maxSheetH=H*0.5)). When content
-            // overflows, the sheet becomes scrollable — the input pill (row 1)
-            // moves up with the scroll offset and must be hidden once it scrolls
-            // out of the sheet's visible rect. Previously the overlay used the
-            // UNCAPPED sheetH, which made it sit ~100px too high when content
-            // overflowed (the "输入框错位" bug).
-            const cappedSheetH = Math.min(fullContentH, H * 0.5)
-            const sheetY = H - toggleBtnSpace - cappedSheetH
-            const scroll = state.textGlassSheetScroll
-            // pillY (from screen top) = sheetY + innerPad - scroll + (inputRowH-pillH)/2
-            //   — the "- scroll" makes the overlay track the pill as it scrolls.
-            const pillYFromTop = sheetY + innerPad - scroll + (inputRowH - pillH) / 2
+            // Sheet content height = innerPad + inputRowH + sliderRowH(48) +
+            // advancedBtnH(44) + innerPad. NOT capped (3 rows always fit).
+            const sheetH = innerPad + inputRowH + 48 + 44 + innerPad
+            const sheetY = H - toggleBtnSpace - sheetH
+            // pillY (from screen top) = sheetY + innerPad + (inputRowH-pillH)/2.
+            // No scroll offset — the sheet is static.
+            const pillYFromTop = sheetY + innerPad + (inputRowH - pillH) / 2
             // pill bottom from screen bottom = H - pillYFromTop - pillH
             const pillBottom = H - pillYFromTop - pillH
             const pillLeft = sheetX + innerPad + labelW + gap
             const pillW = (W - 2 * (sheetX + innerPad)) - labelW - gap
-            // Hide the overlay once the pill has scrolled fully out of the
-            // sheet's visible rect (above the sheet top). The pill can only
-            // scroll UP (it's row 1), so we only check the top edge. When
-            // hidden, pointer events pass through to the canvas so the sheet
-            // card's scroll drag keeps working over the input row's area too.
-            const pillBottomY = pillYFromTop + pillH
-            const scrolledOutOfView = pillBottomY <= sheetY
             return (
               <div
                 style={{
@@ -500,11 +482,6 @@ export default function Page() {
                   bottom: pillBottom,
                   width: pillW,
                   zIndex: 30,
-                  // When the pill is scrolled out of view, hide + disable pointer
-                  // capture so the overlay doesn't block sheet scrolling over the
-                  // input row's area.
-                  display: scrolledOutOfView ? 'none' : 'block',
-                  pointerEvents: scrolledOutOfView ? 'none' : 'auto',
                 }}
               >
                 <input
@@ -536,6 +513,26 @@ export default function Page() {
               </div>
             )
           })()
+        )}
+        {/* TextGlass — DOM "Advanced Settings" panel overlay. Mounted when
+            the user taps the "Advanced" capsule button in the canvas sheet
+            (state.textGlassAdvanced = true). Renders a bottom-anchored sheet
+            with all the controls that used to live in the canvas sheet:
+            font weight, glass thickness, quality, saturation, brighten, tint,
+            lighting toggle, edge matte toggle, raw-SDF toggle, font family.
+            Uses native HTML inputs (shadcn/ui Slider/Switch/Button) for
+            crisper typography + accessibility. Closes on backdrop click or
+            the Close button. */}
+        {destination === CatalogDestination.TextGlass && rendererReady && state.textGlassAdvanced && (
+          <TextGlassAdvancedPanel
+            state={state}
+            setState={setState}
+            isLightTheme={isLightTheme}
+            W={W}
+            H={H}
+            locale={state.locale}
+            onClose={() => setState({ textGlassAdvanced: false })}
+          />
         )}
         {/* FPS overlay — always shown on PerfBenchmark during test, or when
             showFps is enabled. Suppressed when the full performance monitor

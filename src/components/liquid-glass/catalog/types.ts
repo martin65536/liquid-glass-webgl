@@ -385,6 +385,15 @@ export interface CatalogState {
   // image (inside = white, outside = black, edge AA preserved). Useful for
   // inspecting the SDF texture quality / padding / aliasing.
   textGlassRawSdf: boolean
+  // TextGlass — whether the DOM-based "Advanced Settings" panel is open.
+  // The canvas sheet only shows the most-used controls (text input + size
+  // slider + an "Advanced" capsule button). Tapping that button flips this
+  // flag, which mounts a full-screen DOM overlay with the rest of the
+  // controls (weight, thickness, quality, saturation, brighten, tint,
+  // lighting, edge matte, raw-SDF, font family). The DOM panel is rendered
+  // in page.tsx (NOT in the WebGL canvas) so it can use native HTML inputs
+  // for crisper typography + accessibility.
+  textGlassAdvanced: boolean
 }
 
 export const DEFAULT_CATALOG_STATE: CatalogState = {
@@ -460,6 +469,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   textGlassGlassTintHue: 0,
   textGlassEdgeMatte: false,
   textGlassRawSdf: false,
+  textGlassAdvanced: false,
 }
 
 /* ------------------------------------------------------------------ *
