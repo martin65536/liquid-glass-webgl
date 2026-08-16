@@ -318,42 +318,37 @@ export function TextGlassAdvancedPanel({
               )
             })}
           </div>
-          {/* Per-layer (range, min) params. range = how far the matte extends
-              inward; min = floor matte amount in the deep interior. Each
-              layer independently tunable. Faithful to "给哑光每层加上作用
-              参数调节，比如范围，最小值". */}
+          {/* Per-layer (range, strength) params. range = how far the matte
+              extends inward; strength = how much the layer is weakened at the
+              edge. Each layer independently tunable. The "min" param was
+              removed per user request ("把最小值改成强度") — each layer now
+              only has range + strength. */}
           {([
             {
               key: 'text_glass_edge_matte_bevel' as const,
               label: t('text_glass_edge_matte_bevel', locale),
               range: state.textGlassEdgeMatteBevelRange,
-              min: state.textGlassEdgeMatteBevelMin,
               strength: state.textGlassEdgeMatteBevelStrength,
               setRange: (v: number) => setState({ textGlassEdgeMatteBevelRange: v }),
-              setMin: (v: number) => setState({ textGlassEdgeMatteBevelMin: v }),
               setStrength: (v: number) => setState({ textGlassEdgeMatteBevelStrength: v }),
             },
             {
               key: 'text_glass_edge_matte_tint' as const,
               label: t('text_glass_edge_matte_tint', locale),
               range: state.textGlassEdgeMatteTintRange,
-              min: state.textGlassEdgeMatteTintMin,
               strength: state.textGlassEdgeMatteTintStrength,
               setRange: (v: number) => setState({ textGlassEdgeMatteTintRange: v }),
-              setMin: (v: number) => setState({ textGlassEdgeMatteTintMin: v }),
               setStrength: (v: number) => setState({ textGlassEdgeMatteTintStrength: v }),
             },
             {
               key: 'text_glass_edge_matte_base' as const,
               label: t('text_glass_edge_matte_base', locale),
               range: state.textGlassEdgeMatteBaseRange,
-              min: state.textGlassEdgeMatteBaseMin,
               strength: state.textGlassEdgeMatteBaseStrength,
               setRange: (v: number) => setState({ textGlassEdgeMatteBaseRange: v }),
-              setMin: (v: number) => setState({ textGlassEdgeMatteBaseMin: v }),
               setStrength: (v: number) => setState({ textGlassEdgeMatteBaseStrength: v }),
             },
-          ]).map(({ key, label, range, min, strength, setRange, setMin, setStrength }) => (
+          ]).map(({ key, label, range, strength, setRange, setStrength }) => (
             <div key={key} style={{ marginTop: 8 }}>
               <div style={{ fontSize: 11, fontWeight: 500, color: subTextColor, marginBottom: 2 }}>
                 {label}
@@ -365,14 +360,6 @@ export function TextGlassAdvancedPanel({
                 1,
                 0.02,
                 (v) => setRange(Math.round(v * 100) / 100),
-              )}
-              {renderSlider(
-                t('text_glass_edge_matte_min', locale),
-                min,
-                0,
-                1,
-                0.02,
-                (v) => setMin(Math.round(v * 100) / 100),
               )}
               {renderSlider(
                 t('text_glass_edge_matte_strength', locale),

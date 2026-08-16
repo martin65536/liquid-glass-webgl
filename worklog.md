@@ -736,3 +736,38 @@ Stage Summary:
 - 效果：提亮层哑光现在产生可见的磨砂边带（desaturate + darken），不再只是削弱高光。strength 滑块从 0→2 时：0=无哑光，1=边缘去饱和65%+压暗18%，2=边缘去饱和130%+压暗36%（强磨砂）。range/min 滑块控制磨砂带向内延伸范围与内部最低量。
 - lint: 0 error。dev.log: HMR 干净编译（✓ Compiled in 178ms）。
 - 未浏览器验证（用户要求不要自己测试）。
+
+---
+Task ID: 25
+Agent: main (Z.ai Code)
+Task: 回退提亮层 (2) 应用磨砂边带（只保留削弱）+ 每层去掉"最小值"滑块
+
+Work Log:
+- 用户反馈两件事：
+  ① "就是削弱" — 提亮层哑光就只要削弱提亮增量，不需要额外 desaturate+darken 应用
+  ② "我只看到了 光影 染色 底色，另外把最小值改成强度吧" — 每层去掉"最小值"滑块，只保留范围+强度
+
+- Task 1: 回退提亮层 (2) 应用磨砂边带
+  - shaders/element.ts: 删除上一轮加的 if (matteBevel) { desaturate+darken } 块（在 bevel2Amt 应用之后）
+  - 现在提亮层哑光只做 (1) 削弱提亮增量：bevel1Amt/bevel2Amt *= 1 - matteEdgeBevel*(0.65+0.18)*bevelMatteS
+  - 注释更新：明确"purely a reduction of the bevel increment (削弱), NOT a separate desaturate+darken pass"
+
+- Task 2: 每层去掉"最小值"滑块
+  - text-glass-advanced-panel.tsx: 每层 section 移除 min 滑块渲染
+    - 数组对象移除 min/setMin 字段
+    - map 回调参数移除 min, setMin
+    - 删除 renderSlider(min) 调用
+    - 现在每层只有：范围(range 0..1) + 强度(strength 0..2) 两个滑块
+  - state/shader 里 min 参数保留（固定默认值 0，通过 build 传给 vec2.y），不影响现有逻辑
+    - matteEdge = clamp(intensity/range, 0, 1) * (1-0) + 0 = clamp(intensity/range, 0, 1)
+    - 即 min=0 时 edge factor 退化为纯 range 控制
+  - 注释更新：说明 min 已移除，每层只剩 range+strength
+
+- lint: 0 error。dev.log: HMR 干净编译（✓ Compiled in 163ms）。
+
+Stage Summary:
+- 修改文件（2）：shaders/element.ts、text-glass-advanced-panel.tsx
+- 效果：
+  ① 提亮层哑光只削弱提亮增量（不再额外 desaturate+darken），符合用户"就是削弱"的明确要求
+  ② 每层哑光参数从 3 个（范围/最小值/强度）简化为 2 个（范围/强度），UI 更简洁
+- 未浏览器验证（用户要求不要自己测试）。
