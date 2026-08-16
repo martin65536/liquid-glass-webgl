@@ -230,18 +230,19 @@ void main() {
         // Bevel / tint edge factors computed where they're used (below).
 
         // --- Brighten layer matte (bit 3) ---
-        // The 提亮 (brighten) slider drives uBrightness. The "matte on
-        // brighten" applies the SAME visible matte effect as the base layer
-        // (desaturate 0.65 + darken 0.18) at the edge, NOT just removing the
-        // brightness offset. Removing only +0.16 brightness was too subtle to
-        // see on the glass body. Using desaturate+darken makes the strength
-        // slider visually responsive, consistent with how the base/tint/bevel
-        // matte layers behave. Faithful to "我要给它（提亮）加哑光".
+        // 提亮哑光: the brighten (uBrightness) amount is ATTENUATED at the
+        // edge by edgeFactor × strength. So the edge gets LESS brightening
+        // than the interior — a PURE brightness cut at the rim, NOT
+        // desaturation. We re-apply colorControls with an attenuated
+        // brightness (full interior → 0 at edge when s=1); contrast +
+        // saturation stay fully applied everywhere (NO saturation cut).
+        // Faithful to "为什么会同时削减饱和度层" — fixed: only brightness is
+        // cut, saturation + contrast untouched.
         if (matteBrighten) {
             float s = uSdfEdgeMatteBrightenStrength;
-            float lum = dot(color.rgb, vec3(0.213, 0.715, 0.072));
-            color.rgb = mix(color.rgb, vec3(lum), matteEdgeBrighten * matteStrength * s);
-            color.rgb *= 1.0 - matteEdgeBrighten * matteDarken * s;
+            float attBrightness = uBrightness * (1.0 - matteEdgeBrighten * s);
+            vec3 attenuated = applyColorControls(rawContent, attBrightness, uContrast, uSaturation);
+            color.rgb = attenuated * sdfMask;
         }
 
         // --- Base layer matte (bit 2) ---

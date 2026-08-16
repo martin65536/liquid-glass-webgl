@@ -916,3 +916,31 @@ Stage Summary:
 - 修改文件（1）：shaders/element.ts
 - 效果：提亮层哑光滑块现在有明显的可见效果——调 strength 时边缘去饱和+压暗，与 base/tint 层哑光视觉一致。
 - 未浏览器验证（用户要求不要自己测试）。
+
+---
+Task ID: 30
+Agent: main (Z.ai Code)
+Task: 修复提亮层哑光同时削减饱和度的问题（用户："为什么会同时削减饱和度层"）
+
+Work Log:
+- 用户反馈：提亮层哑光不只削减提亮，还同时削减了饱和度。
+- 根因：上一轮我用 desaturate(0.65)+darken(0.18) 公式实现提亮层哑光（为了"可见"），但这等于在边缘做去饱和——和底色层哑光效果一样，不是"只削减提亮"。用户明确要的是"只削减提亮层"。
+- 修复思路：把提亮（uBrightness）在边缘按 edgeFactor × strength 衰减后再应用 colorControls，而不是先全应用再撤销。这样边缘的提亮量被直接缩小，contrast + saturation 完全不受影响。
+- shaders/element.ts: 在 matteBrighten 声明后新增提亮衰减块：
+    if (matteBrighten) {
+        float s = uSdfEdgeMatteBrightenStrength;
+        float attBrightness = uBrightness * (1.0 - matteEdgeBrighten * s);
+        vec3 attenuated = applyColorControls(rawContent, attBrightness, uContrast, uSaturation);
+        color.rgb = attenuated * sdfMask;
+    }
+  - attBrightness = uBrightness * (1 - edge*s): 边缘 strength=1 时 brightness→0（无提亮），内部 brightness 不变（全提亮）
+  - contrast + saturation 保持原值不变 → 不会削减饱和度
+  - 删除原来在 base matte 之前的 desaturate+darken 块
+- 关于"看不出效果":提亮值 0.32 → brightness=0.16，边缘衰减到 0 确实变化不大，但这是"纯提亮削减"的正确行为。如果用户想要更明显的视觉效果，可以调大提亮滑块或 strength>1（attenuated brightness 会变负，反向提亮）。
+
+- lint: 0 error。dev.log: HMR 干净编译（✓ Compiled in 181ms）。
+
+Stage Summary:
+- 修改文件（1）：shaders/element.ts
+- 效果：提亮层哑光现在 ONLY 削减提亮（brightness），不触碰饱和度/对比度。边缘 brightness 按 edgeFactor × strength 衰减，内部全提亮。
+- 未浏览器验证（用户要求不要自己测试）。
