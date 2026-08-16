@@ -229,3 +229,23 @@ Stage Summary:
 - 修改文件：constants.ts（TG_ROW_H 68→48）、build-text-glass.ts（滑块循环重写为左右排布）。
 - 效果：TextGlass 控制面板的 4 个滑块从「label 在上 + slider 在下」改为「label 在左 + slider 在右」，与 input 行/font 行布局统一。sheet 高度缩短 80px，玻璃文字区域相应增大。
 - 待推送。
+
+---
+Task ID: 14
+Agent: main (Z.ai Code)
+Task: 修复 TextGlass 输入框错位 + 滑块加防抖
+
+Work Log:
+- 定位输入框错位根因：page.tsx L464 硬编码 sliderRowH = 16+12+24+16 = 68（旧 TG_ROW_H），但 Task 13 已把 TG_ROW_H 改为 48。HTML <input> overlay 用旧值算 sheetH（比实际大 80px）→ pillBottom 算错 → 输入框整体下移错位。注释里明确写了"Keep this IN SYNC with build-text-glass.ts"但上次改常量漏了同步。
+- 修复 page.tsx：sliderRowH 从 68 改为 48，与 constants.ts 的 TG_ROW_H 一致。sheetH 现在正确反映 WebGL sheet 实际高度。
+- 滑块加防抖：use-text-glass.ts delay 逻辑从「justEntered || !textChanged ? 0 : 250」（滑块立即）改为三档：
+  - justEntered（page entry）→ 0ms 立即（首帧显示正确文字）
+  - textChanged（打字）→ 250ms（合并快速按键）
+  - 其他（滑块/字体参数变化）→ 150ms（合并快速拖动 tick，避免每个 tick 都 ~10ms SDF 重生成导致卡顿）
+- lint：0 error。dev.log：HMR 干净编译。
+- agent-browser + VLM 验证：输入框 label「文字」在左 + pill 在右，同一水平线垂直居中，输入文字「Glass」居中可见，无错位/重叠。4 个滑块行左右排布正常。0 browser errors，console 干净。
+
+Stage Summary:
+- 修改文件：page.tsx（sliderRowH 68→48 同步常量）、use-text-glass.ts（delay 三档防抖：0/250/150ms）。
+- 效果：输入框 overlay 重新对齐 WebGL glass pill；滑块拖动时 SDF 重生成 150ms 防抖，松手后更新，拖动过程流畅无卡顿。
+- 待推送。

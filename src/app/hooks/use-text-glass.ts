@@ -16,10 +16,11 @@ import type { CatalogState } from '@/components/liquid-glass/catalog/types'
  * Debounce strategy:
  *   - Text TYPING → 250ms debounce (coalesces rapid keystrokes so fast
  *     typing doesn't re-raster on every char).
- *   - Slider drags (size / weight / quality) + font picker → IMMEDIATE
- *     (0ms). Slider dragging needs real-time feedback; the 250ms debounce
- *     made the size slider feel laggy ("调大小有防抖"). SDF gen is fast
- *     enough (~10ms) to run per slider tick without dropping frames.
+ *   - Slider drags (size / weight / quality) + font picker → 150ms debounce.
+ *     Slider dragging fires many state updates per second; regenerating the
+ *     SDF texture on every tick (~10ms each) causes stutter on rapid drags.
+ *     150ms coalesces the burst so the SDF only regenerates once after the
+ *     user pauses, keeping the UI responsive during continuous dragging.
  *   - Page entry → IMMEDIATE so the glass shows the correct text on the
  *     first frame instead of a stale texture for 250ms.
  * ------------------------------------------------------------------ */
@@ -82,12 +83,13 @@ export function useTextGlass(opts: {
     // correct text on the next frame instead of a stale texture. Already on
     // the page and TEXT changed (typing) → debounce 250ms to coalesce fast
     // keystrokes. Already on the page and a SLIDER/FONT param changed →
-    // regenerate immediately (0ms) for real-time feedback.
+    // debounce 150ms to coalesce rapid slider ticks without per-tick SDF
+    // regeneration stutter.
     const justEntered = prevDestRef.current !== CatalogDestination.TextGlass
     prevDestRef.current = destination
     const textChanged = prevTextRef.current !== text
     prevTextRef.current = text
-    const delay = justEntered || !textChanged ? 0 : 250
+    const delay = justEntered ? 0 : (textChanged ? 250 : 150)
     const handle = window.setTimeout(() => {
       const renderer = rendererRef.current
       if (!renderer) return

@@ -461,7 +461,8 @@ export default function Page() {
             const toggleBtnSpace = 20 + 56 + 12 // bottom button row height
             // Sheet height = innerPad + inputRow + 4 sliderRows (size, weight,
             // highlight scale, quality) + fontRow + rawSdf toggle row + innerPad.
-            const sliderRowH = 16 + 12 + 24 + 16
+            // TG_ROW_H = 48 (left-right slider layout, matches TG_INPUT_ROW_H).
+            const sliderRowH = 48
             const fontRowH = 48
             const toggleRowH = 44
             const sheetH = innerPad + inputRowH + sliderRowH * 4 + fontRowH + toggleRowH + innerPad
