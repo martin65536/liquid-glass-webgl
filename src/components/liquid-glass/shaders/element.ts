@@ -230,22 +230,18 @@ void main() {
         // Bevel / tint edge factors computed where they're used (below).
 
         // --- Brighten layer matte (bit 3) ---
-        // The 提亮 (brighten) slider drives uBrightness, applied via
-        // applyColorControls(rawContent, brightness, contrast, saturation).
-        // IMPORTANT: applyColorControls applies ALL THREE (brightness +
-        // contrast + saturation) in one matrix. Naively pulling color back
-        // toward rawContent would remove ALL three effects (mainly the
-        // saturation 1.5 boost, which dominates visually) — so the strength
-        // slider appeared to do nothing brightness-specific. Fixed: re-apply
-        // colorControls with brightness=0 (keeping contrast + saturation) to
-        // get the "no-brighten" version, then mix toward THAT. Now the matte
-        // specifically targets the 提亮 slider's effect — contrast + sat stay
-        // intact at the edge, only the brightness increment is suppressed.
-        // Faithful to "我要给它（提亮）加哑光".
+        // The 提亮 (brighten) slider drives uBrightness. The "matte on
+        // brighten" applies the SAME visible matte effect as the base layer
+        // (desaturate 0.65 + darken 0.18) at the edge, NOT just removing the
+        // brightness offset. Removing only +0.16 brightness was too subtle to
+        // see on the glass body. Using desaturate+darken makes the strength
+        // slider visually responsive, consistent with how the base/tint/bevel
+        // matte layers behave. Faithful to "我要给它（提亮）加哑光".
         if (matteBrighten) {
-            vec3 noBrighten = applyColorControls(rawContent, 0.0, uContrast, uSaturation) * sdfMask;
             float s = uSdfEdgeMatteBrightenStrength;
-            color.rgb = mix(color.rgb, noBrighten, matteEdgeBrighten * s);
+            float lum = dot(color.rgb, vec3(0.213, 0.715, 0.072));
+            color.rgb = mix(color.rgb, vec3(lum), matteEdgeBrighten * matteStrength * s);
+            color.rgb *= 1.0 - matteEdgeBrighten * matteDarken * s;
         }
 
         // --- Base layer matte (bit 2) ---

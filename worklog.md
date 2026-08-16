@@ -889,3 +889,30 @@ Stage Summary:
 - 修改文件（1）：shaders/element.ts
 - 效果：提亮层哑光滑块现在有可见效果——调 strength 0→1→2 时边缘亮度从 +0.16 → 0 → -0.16（反向），纯粹针对提亮滑块的效果，不影响饱和度/对比度。
 - 未浏览器验证（用户要求不要自己测试）。
+
+---
+Task ID: 29
+Agent: main (Z.ai Code)
+Task: 提亮层哑光滑块仍无可见效果（用户反馈"还是看不到任何提亮的边缘强度削减"）
+
+Work Log:
+- 用户反馈：上一轮修复（mix toward noBrighten）后仍然看不到效果。
+- 根因：brightness=0.16 的撤销在玻璃体上视觉差异太小。base 层哑光之所以明显，是因为它做 desaturate(0.65)+darken(0.18)——去饱和65%是剧烈的颜色变化。而我上一轮只去掉 0.16 亮度增量，几乎不可见。
+- 修复 (shaders/element.ts): 提亮层哑光改为和 base 层完全相同的 desaturate+darken 公式：
+    if (matteBrighten) {
+        float s = uSdfEdgeMatteBrightenStrength;
+        float lum = dot(color.rgb, vec3(0.213, 0.715, 0.072));
+        color.rgb = mix(color.rgb, vec3(lum), matteEdgeBrighten * matteStrength * s);
+        color.rgb *= 1.0 - matteEdgeBrighten * matteDarken * s;
+    }
+  - strength=0: 无哑光
+  - strength=1: 边缘去饱和 65% + 压暗 18%（与 base 层一致，视觉明显）
+  - strength=2: 边缘强磨砂
+  - 现在调 strength 时边缘明显变灰变暗，和其他层哑光视觉效果一致
+
+- lint: 0 error。dev.log: HMR 干净编译（✓ Compiled in 173ms）。
+
+Stage Summary:
+- 修改文件（1）：shaders/element.ts
+- 效果：提亮层哑光滑块现在有明显的可见效果——调 strength 时边缘去饱和+压暗，与 base/tint 层哑光视觉一致。
+- 未浏览器验证（用户要求不要自己测试）。
