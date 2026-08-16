@@ -161,6 +161,14 @@ export function buildTextGlass(
     // Color-mix filter strength (0..1). Mixes glass body toward pure hue color
     // BEFORE the hue-dye.
     glassTintMix: state.textGlassGlassTintMix,
+    // Hue-dye strength (0..1, default 0.85). Controls how strongly the
+    // BlendMode.Hue dye is applied. Exposed as the 染色强度 slider.
+    glassTintStrength: state.textGlassGlassTintStrength,
+    // Adapt to global 2-pass blur: when the global separable blur setting is
+    // ON, the SDF glass uses the 2-pass Gaussian pipeline (cover-fitted
+    // wallpaper → blur → uBackdrop) instead of inline poisson-disc blur.
+    // The shader branches on uSampleWallpaper to pick the right sampler.
+    useSeparableBlur: state.globalSeparableBlur,
     // Edge matte (0 or 1). Desaturates + darkens the SDF edge band.
     edgeMatteEnabled: state.textGlassEdgeMatte,
     // Edge matte target bitmask — which layers the matte desaturate+darken
@@ -172,7 +180,11 @@ export function buildTextGlass(
     debugMode: state.textGlassRawSdf,
     aaMin: 0.0,
   }
-  tgGlass.independentBackdrop = false
+  // independentBackdrop = true so resolveBackdropTex takes the wallpaper
+  // pre-blur path (cover-fitted wallpaper → 2-pass Gaussian → uBackdrop) when
+  // global separable blur is ON. When OFF, it falls back to curTex placeholder
+  // and the shader samples uWallpaperSampler with inline poisson blur.
+  tgGlass.independentBackdrop = true
   tgGlass.scroll = false
   elements.push(tgGlass)
   interactions['tg-glass'] = {

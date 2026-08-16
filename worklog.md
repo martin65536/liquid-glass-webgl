@@ -550,3 +550,60 @@ Stage Summary:
   ③ 染色前颜色混合滤镜：新滑块控制混合强度（0..1），在 hue-dye 前把玻璃体混向纯色相
   ④ 两阶段染色都受边缘哑光 bit 1 门控
 - 未浏览器验证（用户要求不要自己测试）。
+
+---
+Task ID: 21
+Agent: main (Z.ai Code)
+Task: 适配全局2passblur + 加染色强度滑块 + 修复哑光bit0提取bug + 修复DOM面板不随sheet收起隐藏
+
+Work Log:
+- 用户反馈四件事：①适配全局2passblur ②加一个调染色强度的 ③哑光作用于提亮层 ④DOM不随面版展开关闭来隐藏
+
+- Task 1: 适配全局2passblur (SDF-texture glass → global 2-pass blur pipeline)
+  - 问题定位：shouldUseSeparableBlur() 硬排除 isSdfTexture 元素（line 52: `if (el.isSdfTexture) return false`），SDF shader 用 sampleWallpaperBlurred 做 inline poisson blur，永远不走 2-pass Gaussian pipeline
+  - renderer/types.ts: isSdfTexture config 新增 `useSeparableBlur?: boolean` 字段
+  - renderer/methods-render-glass-backdrop.ts: shouldUseSeparableBlur 改为条件排除 — `if (el.isSdfTexture && !el.isSdfTexture.useSeparableBlur) return false`（仅当未显式 opt-in 时排除）
+  - catalog/build-text-glass.ts: 
+    - `tgGlass.independentBackdrop = true`（原 false）→ resolveBackdropTex 走 independent+blur 路径
+    - `tgGlass.isSdfTexture.useSeparableBlur = state.globalSeparableBlur`（随全局开关）
+  - shaders/element.ts: SDF path 新增 backdrop 分支
+    - `uSampleWallpaper > 0.5` → sampleWallpaperBlurred (inline poisson, 原行为)
+    - `uSampleWallpaper < 0.5` → sampleBackdrop(refractedScreen, 0.0) (pre-blurred uBackdrop via sceneUv, 无 inline blur)
+    - 当 globalSeparableBlur ON: resolveBackdropTex 渲染 cover-fitted wallpaper → 2-pass Gaussian → uBackdrop, passState.independent=false → uSampleWallpaper=0 → shader 走 pre-blurred 路径
+    - 当 globalSeparableBlur OFF: resolveBackdropTex 走 independent 无 blur 分支 → uSampleWallpaper=1 → shader 走 inline poisson 路径
+  - LockScreen clock 不受影响（isSdfTexture.useSeparableBlur 未设置 → falsy → shouldUseSeparableBlur 返回 false）
+
+- Task 2: 加染色强度滑块 (uSdfGlassTintStrength)
+  - 问题定位：hue-dye 的 mix 强度硬编码 `float tintMix = 0.85`，无法调
+  - catalog/types.ts: 新增 `textGlassGlassTintStrength: number`（0..1，默认 0.85）+ DEFAULT 默认值
+  - renderer/types.ts: isSdfTexture config 新增 `glassTintStrength?: number`
+  - shaders/element-uniforms.ts: 新增 `uniform float uSdfGlassTintStrength`
+  - renderer/methods-uniforms.ts: elNames 加 'uSdfGlassTintStrength'
+  - renderer/methods-render-glass-element-pass.ts: set uSdfGlassTintStrength = glassTintStrength ?? 0.85；else 分支 reset 0.85
+  - catalog/build-text-glass.ts: isSdfTexture 传 glassTintStrength: state.textGlassGlassTintStrength
+  - shaders/element.ts: `float tintMix = uSdfGlassTintStrength`（替代硬编码 0.85）
+  - catalog/i18n.ts: 新增 text_glass_glass_tint_strength (染色强度/Dye strength)
+  - text-glass-advanced-panel.tsx: 染色 toggle ON 时，子区域内新增染色强度滑块（0..1, step 0.02）
+
+- Task 3: 修复哑光 bit 0 (bevel/提亮层) 提取 bug
+  - 问题定位：bit 0 (bevel) 提取用了 `uSdfEdgeMatteTargets - 8.0 * floor(uSdfEdgeMatteTargets / 8.0)` = targets mod 8，对任意非零 targets (1..7) 都返回 >= 1，导致 bevel matte 永远开启（即使 bit 0 未设置）
+  - bit 1 (tint) 和 bit 2 (base) 的提取是正确的（floor(targets/2) mod 2, floor(targets/4) mod 2）
+  - shaders/element.ts: 修复为 `float t1 = floor(targets / 1.0); bool matteBevel = matteOn && (t1 - 2.0 * floor(t1 / 2.0)) >= 1.0`（= targets mod 2，正确提取 bit 0）
+  - 效果：用户关闭"哑光作用于→光影"按钮时，bevel matte 真正关闭（之前 bug 导致永远开）
+
+- Task 4: 修复 DOM 高级面板不随 sheet 收起而隐藏
+  - 问题定位：page.tsx 中 TextGlassAdvancedPanel 的渲染条件只检查 `state.textGlassAdvanced`，未检查 `state.textGlassSheetExpanded`。当用户点击底部 toggle 按钮收起 sheet 时，canvas sheet 元素消失（build-text-glass.ts 的 if (state.textGlassSheetExpanded) 块跳过），但 DOM 面板仍浮在空中
+  - app/page.tsx: 渲染条件加 `&& state.textGlassSheetExpanded`，sheet 收起时 DOM 面板同步隐藏，展开时恢复（如果 textGlassAdvanced 仍为 true）
+  - input overlay 已有相同条件（line 457），无需改
+
+- lint: 0 error。dev.log: HMR 干净编译（✓ Compiled in 210ms，GET /?dest=TextGlass 200）。
+  - 中途一次 backtick 错误：GLSL 注释里用了反引号 (targets - 8.0 * floor(targets / 8.0)) 终止了 JS template literal → 改为普通括号注释修复
+
+Stage Summary:
+- 修改文件（8）：shaders/{element,element-uniforms}.ts、renderer/{types,methods-uniforms,methods-render-glass-element-pass,methods-render-glass-backdrop}.ts、catalog/{types,i18n,build-text-glass}.ts、text-glass-advanced-panel.tsx、app/page.tsx。
+- 效果：
+  ① 适配全局2passblur：TextGlass SDF glass 现在尊重 globalSeparableBlur 开关 — ON 时走 2-pass Gaussian pipeline（cover-fitted wallpaper → blur → uBackdrop），OFF 时走 inline poisson（uWallpaperSampler）。shader 通过 uSampleWallpaper 自动分支。LockScreen clock 不受影响。
+  ② 染色强度滑块：新滑块控制 hue-dye 的 mix 强度（0..1，默认 0.85），独立于 color-mix 滤镜强度
+  ③ 修复哑光 bit 0 bug：bevel matte 之前因 mod 8 提取错误而永远开启，现在正确用 mod 2 提取，用户关闭"光影"bit 时 bevel matte 真正关闭
+  ④ DOM 面板随 sheet 收起而隐藏：渲染条件加 textGlassSheetExpanded，sheet 收起时 DOM 面板同步消失
+- 未浏览器验证（用户要求不要自己测试）。

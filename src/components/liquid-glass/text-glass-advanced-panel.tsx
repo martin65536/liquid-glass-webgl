@@ -258,6 +258,14 @@ export function TextGlassAdvancedPanel({
             0.02,
             (v) => setState({ textGlassGlassTintMix: Math.round(v * 100) / 100 }),
           )}
+          {renderSlider(
+            t('text_glass_glass_tint_strength', locale),
+            state.textGlassGlassTintStrength,
+            0,
+            1,
+            0.02,
+            (v) => setState({ textGlassGlassTintStrength: Math.round(v * 100) / 100 }),
+          )}
         </div>
       )}
       {renderToggle(

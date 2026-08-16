@@ -445,6 +445,23 @@ export interface GlassElementConfig extends GlassButtonConfig {
      *  Distinct from the hue-dye which preserves S/V. Exposed as the 混合
      *  (Mix) slider in TextGlass. */
     glassTintMix?: number
+    /** Hue-dye strength (default 0.85). Controls how strongly the
+     *  BlendMode.Hue dye is applied to the glass body. 0 = no hue-dye (only
+     *  the color-mix filter applies); 1 = full hue replacement. Faithful to
+     *  the original's hardcoded 0.85 constant, now exposed as a slider so the
+     *  user can tune the dye intensity independently of the color-mix. */
+    glassTintStrength?: number
+    /** Separable 2-pass blur on the backdrop (default false). When true, the
+     *  SDF-texture glass element uses the global 2-pass Gaussian blur pipeline
+     *  (resolveBackdropTex renders the cover-fitted wallpaper into gpElementFbo,
+     *  2-pass blurs it, passes it as uBackdrop) instead of inline poisson-disc
+     *  blur on uWallpaperSampler. The shader branches on uSampleWallpaper:
+     *  when < 0.5 (pre-blurred backdrop available), it samples uBackdrop via
+     *  sceneUv with no inline blur; when > 0.5, it falls back to
+     *  sampleWallpaperBlurred. Adapted to the global separable blur setting
+     *  so the TextGlass respects blurDownsample / blurTapCap just like other
+     *  glass elements. */
+    useSeparableBlur?: boolean
     /** Edge matte (default false). When true, the SDF edge band (high
      *  `intensity`, near the text boundary) is desaturated toward luminance
      *  and slightly darkened — a frosted/matte rim. The effect fades smoothly

@@ -133,13 +133,7 @@ void main() {
             return;
         }
 
-        // Sample the WALLPAPER directly (not the scene FBO) — faithful to
-        // LockScreenContent.kt's drawPlainBackdrop which uses the LayerBackdrop
-        // (raw wallpaper, before the dark scrim is drawn).
-        // The original applies blur(2dp) BEFORE the SDF shader (in the effects
-        // block), so 'content' (the SDF shader's input) is already blurred.
-        // We replicate by sampling the wallpaper with a 9-tap poisson blur at
-        // the refracted coordinate.
+        // Compute the refracted sampling coordinate (SDF displacement).
         vec2 refractedOffsetOrig = intensity * uRefractionHeight * normal;
         vec2 refractedOffsetScreen = refractedOffsetOrig * layerScale;
         vec2 refractedScreen = screenCoord - refractedOffsetScreen;
@@ -154,7 +148,27 @@ void main() {
         // We replicate: mix white into raw wallpaper FIRST, then apply
         // colorControls — so colorControls darkens the white too (matching
         // the original where contrast=0.75, brightness=-0.1 dims the white).
-        vec4 content = sampleWallpaperBlurred(refractedScreen, uBlurRadius);
+        //
+        // TWO BACKDROP PATHS (adapted to global 2-pass blur):
+        //   1. uSampleWallpaper > 0.5 (default / global-blur-OFF):
+        //      Sample the WALLPAPER directly (uWallpaperSampler via coverUv)
+        //      with inline poisson-disc blur (uBlurRadius). Faithful to the
+        //      original's LayerBackdrop + blur(2dp).
+        //   2. uSampleWallpaper < 0.5 (global-blur-ON, resolveBackdropTex has
+        //      pre-blurred the cover-fitted wallpaper into uBackdrop):
+        //      Sample uBackdrop via sceneUv with NO inline blur (it's already
+        //      blurred by the 2-pass Gaussian pipeline). This adapts the SDF
+        //      glass to the global separable blur setting, so the TextGlass
+        //      respects blurDownsample / blurTapCap / dynamicBlurDownsample
+        //      just like every other glass element. The cover-fitted wallpaper
+        //      was rendered into gpElementFbo (canvas-sized) then 2-pass
+        //      blurred, so sceneUv(refractedScreen) maps correctly.
+        vec4 content;
+        if (uSampleWallpaper > 0.5) {
+            content = sampleWallpaperBlurred(refractedScreen, uBlurRadius);
+        } else {
+            content = sampleBackdrop(refractedScreen, 0.0);
+        }
         vec3 rawContent = content.rgb;
         // Mix in white overlay (White 0.25 SrcOver) on RAW wallpaper first.
         if (uSurfaceColor.a > 0.001) {
@@ -176,7 +190,16 @@ void main() {
         float matteStrength = 0.65;   // desaturate toward luminance
         float matteDarken = 0.18;     // darken
         bool matteOn = uSdfEdgeMatteEnabled > 0.5;
-        bool matteBevel = matteOn && (uSdfEdgeMatteTargets - 8.0 * floor(uSdfEdgeMatteTargets / 8.0)) >= 1.0; // bit 0
+        // bit 0 (bevel/提亮): targets mod 2. The previous code used
+        // (targets - 8.0 * floor(targets / 8.0)) which is targets mod 8 —
+        // that returns a non-zero value for ANY non-zero targets (1..7), so
+        // the bevel matte was ALWAYS on whenever matteOn was true, regardless
+        // of whether bit 0 was actually set. This made the bevel matte toggle
+        // ineffective — turning off bit 0 (bevel) still left the bevel matte
+        // active. Fixed to use targets mod 2 which correctly extracts ONLY
+        // bit 0.
+        float t1 = floor(uSdfEdgeMatteTargets / 1.0);  // = targets
+        bool matteBevel = matteOn && (t1 - 2.0 * floor(t1 / 2.0)) >= 1.0;
         // bit 1 (tint): floor(targets/2) mod 2
         float t2 = floor(uSdfEdgeMatteTargets / 2.0);
         bool matteTint = matteOn && (t2 - 2.0 * floor(t2 / 2.0)) >= 1.0;
@@ -233,9 +256,11 @@ void main() {
         //      style blend toward a solid color). This is a "color mix" filter
         //      — distinct from the hue-dye. 0 = skip; 1 = full color overlay.
         //   2. Hue-dye: applies BlendMode.Hue (Skia non-separable Hue blend) at
-        //      85% strength — takes hue from the tint source, keeps the glass's
-        //      own saturation + value. So a dyed glass still looks like glass
-        //      (luminance/sat preserved) just tinted.
+        //      uSdfGlassTintStrength (default 0.85, adjustable) — takes hue from
+        //      the tint source, keeps the glass's own saturation + value. So a
+        //      dyed glass still looks like glass (luminance/sat preserved) just
+        //      tinted. The strength slider lets the user tune how strong the
+        //      dye is (0 = no dye, 1 = full hue replacement).
         // Both stages apply to the ENTIRE glass body (not just the bevel band).
         // Independent of the 光影 (bevel) toggle.
         // Edge matte (bit 1): when matteTint is true, the tint's blend factor
@@ -252,9 +277,12 @@ void main() {
                 }
                 color.rgb = mix(color.rgb, tintSrc, mixAmt);
             }
-            // Stage 2: hue-dye (BlendMode.Hue at 85%).
+            // Stage 2: hue-dye (BlendMode.Hue at uSdfGlassTintStrength).
+            // The dye strength is now adjustable (default 0.85, matching the
+            // original's hardcoded constant). 0 = no hue-dye; 1 = full hue
+            // replacement. Faithful to "加一个调染色强度的".
             vec3 hueBlended = blendHue(color, tintSrc);
-            float tintMix = 0.85;
+            float tintMix = uSdfGlassTintStrength;
             if (matteTint) {
                 tintMix *= 1.0 - matteEdge * matteStrength;
             }

@@ -144,6 +144,13 @@ uniform float uSdfGlassTintEnabled; // default 0 (off)
 // color-mix (only the hue-dye applies); 1 = full color overlay. Faithful to
 // "染色前加一个滤镜（颜色混合）混合强度要可以调".
 uniform float uSdfGlassTintMix;     // default 0 (off); 0..1 = mix strength
+// Hue-dye strength (0..1, default 0.85). Controls how strongly the
+// BlendMode.Hue dye is applied to the glass body. 0 = no hue-dye (only the
+// color-mix filter applies if any); 1 = full hue replacement. Originally
+// hardcoded at 0.85 (matching the original's constant), now exposed as a
+// slider so the user can tune the dye intensity independently of the
+// color-mix filter. Faithful to "加一个调染色强度的".
+uniform float uSdfGlassTintStrength; // default 0.85; 0..1 = dye strength
 // Edge matte (0 or 1). When 1, the SDF edge band (where intensity is high,
 // i.e. near the text boundary) is desaturated toward luminance AND slightly
 // darkened — a frosted/matte rim. The edge band factor is intensity itself

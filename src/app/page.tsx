@@ -527,14 +527,18 @@ export default function Page() {
         )}
         {/* TextGlass — DOM "Advanced Settings" inline panel. Mounted when
             the user taps the "Advanced" capsule button in the canvas sheet
-            (state.textGlassAdvanced = true). This is NOT a modal and NOT a
-            floating box — it sits INLINE inside the sheet, occupying a 300px
-            area that the canvas sheet reserves between the size slider and the
-            advanced button. The overlay is COMPLETELY TRANSPARENT (no
-            background/blur/border) so the sheet's glass card shows through; the
-            DOM controls appear to live directly on the glass card. The 300px
-            box scrolls internally (overflow:auto) to fit all controls. */}
-        {destination === CatalogDestination.TextGlass && rendererReady && state.textGlassAdvanced && (
+            (state.textGlassAdvanced = true) AND the sheet is expanded
+            (state.textGlassSheetExpanded = true). When the sheet is collapsed
+            via the bottom-left toggle button, the canvas sheet elements
+            disappear — the DOM panel must also hide, otherwise it floats in
+            space with no glass card behind it. The panel sits INLINE inside
+            the sheet, occupying a 150px area that the canvas sheet reserves
+            between the size slider and the advanced button. The overlay is
+            COMPLETELY TRANSPARENT (no background/blur/border) so the sheet's
+            glass card shows through; the DOM controls appear to live directly
+            on the glass card. The 150px box scrolls internally (overflow:auto)
+            to fit all controls. */}
+        {destination === CatalogDestination.TextGlass && rendererReady && state.textGlassAdvanced && state.textGlassSheetExpanded && (
           <TextGlassAdvancedPanel
             state={state}
             setState={setState}

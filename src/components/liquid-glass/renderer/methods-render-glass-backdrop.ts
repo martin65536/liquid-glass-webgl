@@ -22,7 +22,9 @@ import { easeIn } from './gl-utils'
  *                           over a scrim, back button on dimmed scenes).
  *    - isToggleKnob       — CombinedBackdrop(wallpaper + scaled track color).
  *    - isBottomTabIndicator — CombinedBackdrop(wallpaper + container color).
- *    - isSdfTexture       — sampleWallpaperBlurred (LockScreen glass).
+ *    - isSdfTexture       — sampleWallpaperBlurred (LockScreen clock). EXCEPT
+ *                           when isSdfTexture.useSeparableBlur is set
+ *                           (TextGlass adapts to the global 2-pass blur).
  *
  *  Magnifier samples the scene at an offset (sampleBackdrop(cursorCoord)),
  *  so it COULD use separable blur — but its catalog blurRadius is 0, so the
@@ -49,7 +51,14 @@ export function shouldUseSeparableBlur(
   // sampleWallpaper elements (dialog card, back button on dimmed scenes)
   // use their own backdropFbo path (renderDialogBackdrop + 2-pass blur).
   if (el.sampleWallpaper) return false
-  if (el.isSdfTexture) return false
+  // SDF-texture glass (LockScreen clock, TextGlass): sampleWallpaperBlurred
+  // by default (inline poisson on uWallpaperSampler). EXCEPT when the element
+  // explicitly opts into the global 2-pass blur pipeline via
+  // isSdfTexture.useSeparableBlur — then it goes through resolveBackdropTex's
+  // independent+blur path (cover-fitted wallpaper → 2-pass Gaussian → uBackdrop),
+  // and the shader branches on uSampleWallpaper to sample the pre-blurred
+  // backdrop. This adapts the TextGlass to the global separable blur setting.
+  if (el.isSdfTexture && !el.isSdfTexture.useSeparableBlur) return false
   // independent elements (LayerBackdrop = wallpaper) now go through the
   // wallpaper pre-blur path in resolveBackdropTex — separable blur IS
   // applied to them, just on the wallpaper texture instead of curTex.

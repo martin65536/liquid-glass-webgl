@@ -383,6 +383,13 @@ export interface CatalogState {
   // color overlay. Distinct from the hue-dye which preserves S/V. Faithful to
   // "染色前加一个滤镜（颜色混合）混合强度要可以调".
   textGlassGlassTintMix: number
+  // TextGlass — hue-dye strength (0..1, default 0.85). Controls how strongly
+  // the BlendMode.Hue dye is applied to the glass body. 0 = no hue-dye (only
+  // the color-mix filter applies if any); 1 = full hue replacement.
+  // Originally hardcoded at 0.85 (matching the original's constant), now
+  // exposed as a slider so the user can tune the dye intensity independently
+  // of the color-mix filter. Faithful to "加一个调染色强度的".
+  textGlassGlassTintStrength: number
   // TextGlass — "边缘哑光" (Edge matte) toggle. When true, the SDF edge band
   // (high `intensity`, near the text boundary) is desaturated toward luminance
   // AND slightly darkened — a frosted/matte rim. The effect fades smoothly
@@ -487,6 +494,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   textGlassGlassTintHue: 0,
   textGlassGlassTintEnabled: false,
   textGlassGlassTintMix: 0,
+  textGlassGlassTintStrength: 0.85,
   textGlassEdgeMatte: false,
   textGlassEdgeMatteTargets: 7,
   textGlassRawSdf: false,
