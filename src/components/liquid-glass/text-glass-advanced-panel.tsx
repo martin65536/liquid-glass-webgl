@@ -153,9 +153,12 @@ export function TextGlassAdvancedPanel({
   // informational — the switch fully gates both color-mix and hue-dye).
   const tintActive = state.textGlassGlassTintEnabled
 
-  // --- Import / Export / Reset ---------------------------------------
-  // Hidden file input ref for import.
-  const fileInputRef = React.useRef<HTMLInputElement | null>(null)
+  // --- Import / Export / Reset (via textarea) ------------------------
+  // The preset is a JSON blob shown in an editable textarea. The user can
+  // "导出" (fill the textarea with the current params), copy it manually,
+  // paste someone else's JSON into the textarea, then "导入" to apply.
+  // No file download / upload — everything stays in the text box.
+  const [presetText, setPresetText] = React.useState('')
   const [presetStatus, setPresetStatus] = React.useState<{ kind: 'ok' | 'err'; msg: string } | null>(null)
   const statusTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -202,7 +205,8 @@ export function TextGlassAdvancedPanel({
     [PRESET_EXCLUDE],
   )
 
-  // Export: serialize current textGlass params to JSON and download.
+  // Export: serialize current textGlass params into the textarea (compact
+  // single-line JSON so it's easy to copy / share). Does NOT download a file.
   const handleExport = React.useCallback(() => {
     try {
       const preset = {
@@ -210,88 +214,87 @@ export function TextGlassAdvancedPanel({
         __version: 1,
         params: extractPreset(state),
       }
-      const json = JSON.stringify(preset, null, 2)
-      const blob = new Blob([json], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-      a.href = url
-      a.download = `text-glass-preset-${stamp}.json`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-      showStatus('ok', locale === 'zh' ? '已导出' : 'Exported')
-    } catch (e) {
+      setPresetText(JSON.stringify(preset))
+      showStatus('ok', locale === 'zh' ? '已写入文本框' : 'Written to box')
+    } catch {
       showStatus('err', locale === 'zh' ? '导出失败' : 'Export failed')
     }
   }, [state, extractPreset, showStatus, locale])
 
-  // Import: read JSON file, validate, merge into state.
-  const handleImportFile = React.useCallback(
-    (file: File) => {
-      const reader = new FileReader()
-      reader.onload = () => {
-        try {
-          const text = String(reader.result ?? '')
-          const parsed = JSON.parse(text) as unknown
-          // Accept either { params: {...} } (full preset envelope) or a bare
-          // { textGlass...: ... } object for convenience.
-          let params: Record<string, unknown> | null = null
-          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            const obj = parsed as Record<string, unknown>
-            if (obj.params && typeof obj.params === 'object' && !Array.isArray(obj.params)) {
-              params = obj.params as Record<string, unknown>
-            } else {
-              params = obj
-            }
-          }
-          if (!params) throw new Error('no params')
-
-          // Only accept keys that are textGlass* fields present in the
-          // default state. Silently drop anything else.
-          const defaults = extractPreset(DEFAULT_CATALOG_STATE)
-          const patch: Partial<CatalogState> = {}
-          let applied = 0
-          for (const k of Object.keys(params)) {
-            if (!(k in defaults)) continue
-            if (!k.startsWith('textGlass')) continue
-            const v = params[k]
-            // Basic type guard: must match the typeof of the default.
-            const dv = defaults[k]
-            if (typeof v !== typeof dv) continue
-            // @ts-expect-error — indexed assignment
-            patch[k] = v
-            applied++
-          }
-          if (applied === 0) throw new Error('no valid fields')
-          setState(patch)
-          showStatus('ok', locale === 'zh' ? `已导入 ${applied} 项` : `Imported ${applied} fields`)
-        } catch {
-          showStatus('err', locale === 'zh' ? '导入失败：无效 JSON' : 'Import failed: invalid JSON')
+  // Import: parse the textarea JSON and merge into state. Accepts either
+  // the full { __type, __version, params } envelope or a bare params object.
+  const handleImport = React.useCallback(() => {
+    try {
+      const text = presetText.trim()
+      if (!text) throw new Error('empty')
+      const parsed = JSON.parse(text) as unknown
+      let params: Record<string, unknown> | null = null
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const obj = parsed as Record<string, unknown>
+        if (obj.params && typeof obj.params === 'object' && !Array.isArray(obj.params)) {
+          params = obj.params as Record<string, unknown>
+        } else {
+          params = obj
         }
       }
-      reader.onerror = () => showStatus('err', locale === 'zh' ? '读取失败' : 'Read failed')
-      reader.readAsText(file)
-    },
-    [extractPreset, setState, showStatus, locale],
-  )
+      if (!params) throw new Error('no params')
 
-  const handleImportClick = React.useCallback(() => {
-    fileInputRef.current?.click()
-  }, [])
+      // Only accept keys that are textGlass* fields present in the
+      // default state. Silently drop anything else.
+      const defaults = extractPreset(DEFAULT_CATALOG_STATE)
+      const patch: Partial<CatalogState> = {}
+      let applied = 0
+      for (const k of Object.keys(params)) {
+        if (!(k in defaults)) continue
+        if (!k.startsWith('textGlass')) continue
+        const v = params[k]
+        // Basic type guard: must match the typeof of the default.
+        const dv = defaults[k]
+        if (typeof v !== typeof dv) continue
+        // @ts-expect-error — indexed assignment
+        patch[k] = v
+        applied++
+      }
+      if (applied === 0) throw new Error('no valid fields')
+      setState(patch)
+      showStatus('ok', locale === 'zh' ? `已导入 ${applied} 项` : `Imported ${applied} fields`)
+    } catch {
+      showStatus('err', locale === 'zh' ? '导入失败：无效 JSON' : 'Import failed: invalid JSON')
+    }
+  }, [presetText, extractPreset, setState, showStatus, locale])
 
-  // Reset: restore all textGlass params to DEFAULT_CATALOG_STATE values.
+  // Copy the textarea content to the clipboard.
+  const handleCopy = React.useCallback(async () => {
+    if (!presetText) {
+      showStatus('err', locale === 'zh' ? '文本框为空' : 'Box is empty')
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(presetText)
+      showStatus('ok', locale === 'zh' ? '已复制' : 'Copied')
+    } catch {
+      // Fallback for browsers without clipboard API.
+      showStatus('err', locale === 'zh' ? '复制失败' : 'Copy failed')
+    }
+  }, [presetText, showStatus, locale])
+
+  // Reset: restore all textGlass params to DEFAULT_CATALOG_STATE values,
+  // and also refresh the textarea so it reflects the reset state.
   const handleReset = React.useCallback(() => {
     const defaults = extractPreset(DEFAULT_CATALOG_STATE)
     setState(defaults as Partial<CatalogState>)
+    setPresetText(JSON.stringify({
+      __type: 'liquid-glass-text-preset',
+      __version: 1,
+      params: defaults,
+    }))
     showStatus('ok', locale === 'zh' ? '已重置为默认' : 'Reset to defaults')
   }, [extractPreset, setState, showStatus, locale])
 
   const presetBtnStyle: React.CSSProperties = {
     flex: 1,
     fontSize: 12,
-    height: 32,
+    height: 30,
     padding: 0,
   }
 
@@ -572,15 +575,15 @@ export function TextGlassAdvancedPanel({
       {/* Divider */}
       <div style={{ height: 1, background: dividerColor, margin: '10px 0 8px' }} />
 
-      {/* Preset: Import / Export / Reset -------------------------------- *
-       * Exports the current textGlass* parameter set to a JSON file,
-       * imports from a previously-exported JSON, or resets to defaults.
-       * Transient UI state (scroll, drag offset, panel-open) is excluded. */}
+      {/* Preset: textarea-based import / export / reset -------------- *
+       * "导出" writes the current params as JSON into the textarea below.
+       * The user can then copy it, paste someone else's JSON in, edit it
+       * freely, and press "导入" to apply. No file download / upload. */}
       <div style={{ marginBottom: 4 }}>
         <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6, color: textColor }}>
           {locale === 'zh' ? '预设' : 'Preset'}
         </div>
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
           <Button
             variant="outline"
             size="sm"
@@ -592,10 +595,18 @@ export function TextGlassAdvancedPanel({
           <Button
             variant="outline"
             size="sm"
-            onClick={handleImportClick}
+            onClick={handleImport}
             style={presetBtnStyle}
           >
             {locale === 'zh' ? '导入' : 'Import'}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleCopy}
+            style={presetBtnStyle}
+          >
+            {locale === 'zh' ? '复制' : 'Copy'}
           </Button>
           <Button
             variant="outline"
@@ -606,17 +617,32 @@ export function TextGlassAdvancedPanel({
             {locale === 'zh' ? '重置' : 'Reset'}
           </Button>
         </div>
-        {/* Hidden file input for import. accept=.json only. */}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="application/json,.json"
-          style={{ display: 'none' }}
-          onChange={(e) => {
-            const f = e.target.files?.[0]
-            if (f) handleImportFile(f)
-            // reset so the same file can be re-imported
-            e.target.value = ''
+        {/* Editable JSON textarea. mono font, small, with custom scrollbar.
+            Rows=5 keeps it compact; user can scroll inside for long JSON. */}
+        <textarea
+          value={presetText}
+          onChange={(e) => setPresetText(e.target.value)}
+          placeholder={locale === 'zh'
+            ? '点「导出」写入当前参数，或粘贴他人 JSON 后点「导入」'
+            : 'Click Export to fill, or paste JSON here then click Import'}
+          spellCheck={false}
+          style={{
+            width: '100%',
+            minHeight: 90,
+            maxHeight: 180,
+            resize: 'vertical',
+            padding: '6px 8px',
+            fontSize: 10.5,
+            lineHeight: 1.45,
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+            color: textColor,
+            background: isLightTheme ? 'rgba(0,0,0,0.03)' : 'rgba(255,255,255,0.05)',
+            border: `1px solid ${dividerColor}`,
+            borderRadius: 6,
+            outline: 'none',
+            overflowY: 'auto',
+            touchAction: 'pan-y',
+            WebkitAppearance: 'none',
           }}
         />
         {/* Status feedback (auto-dismiss after ~2.6s). */}
@@ -666,6 +692,13 @@ export function TextGlassAdvancedPanel({
           border-radius: 2px;
         }
         .tg-advanced-scroll { scrollbar-width: thin; scrollbar-color: ${scrollbarColor} transparent; }
+        .tg-advanced-scroll textarea::-webkit-scrollbar { width: 4px; }
+        .tg-advanced-scroll textarea::-webkit-scrollbar-track { background: transparent; }
+        .tg-advanced-scroll textarea::-webkit-scrollbar-thumb {
+          background: ${scrollbarColor};
+          border-radius: 2px;
+        }
+        .tg-advanced-scroll textarea { scrollbar-width: thin; scrollbar-color: ${scrollbarColor} transparent; }
       `}</style>
     </div>
   )
