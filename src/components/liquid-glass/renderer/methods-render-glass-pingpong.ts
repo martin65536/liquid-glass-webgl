@@ -89,8 +89,10 @@ export function renderGlassElement(
   const scissorY = Math.max(0, Math.round((this.cssHeight - (sy + sh + MARGIN_CSS)) * this.dpr))
   const scissorW = Math.min(this.fboW - scissorX, Math.round((sw + 2 * MARGIN_CSS) * this.dpr))
   const scissorH = Math.min(this.fboH - scissorY, Math.round((sh + 2 * MARGIN_CSS) * this.dpr))
+  // Intersect with el.clipRect (scrollable sheet content clipping).
+  const clip = this.intersectClipScissor(el, scissorX, scissorY, scissorW, scissorH)
   gl.enable(gl.SCISSOR_TEST)
-  gl.scissor(scissorX, scissorY, scissorW, scissorH)
+  gl.scissor(clip.x, clip.y, clip.w, clip.h)
 
   if (this.showPefBbox) {
     const pxX = scissorX / this.dpr

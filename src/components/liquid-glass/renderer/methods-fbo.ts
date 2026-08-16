@@ -39,6 +39,15 @@ declare module './index' {
       elementW: number, elementH: number,
       rotation: number
     ): void
+    /** Intersect a scissor rect (device px, BOTTOM-LEFT origin) with the
+     *  element's clipRect (CSS px, TOP-LEFT origin, viewport coords). Returns
+     *  the intersection as { x, y, w, h } in device px / BL origin, or the
+     *  original scissor if the element has no clipRect. Used by the TextGlass
+     *  scrollable sheet to clip content elements to the sheet card's bounds. */
+    intersectClipScissor(
+      el: { clipRect?: { x: number; y: number; w: number; h: number } },
+      scX: number, scY: number, scW: number, scH: number
+    ): { x: number; y: number; w: number; h: number }
   }
 }
 
@@ -428,5 +437,33 @@ export const fboMethods = {
     // fully opaque everywhere a glass element is drawn.
     gl.blendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
     gl.drawArrays(gl.TRIANGLES, 0, 6)
+  },
+
+  /** Intersect a scissor rect (device px, BL origin) with el.clipRect (CSS px,
+   *  top-left origin). No-op when clipRect is absent. Used by the TextGlass
+   *  scrollable sheet to clip content to the sheet card's visible bounds. */
+  intersectClipScissor(
+    this: LiquidGlassRenderer,
+    el: { clipRect?: { x: number; y: number; w: number; h: number } },
+    scX: number, scY: number, scW: number, scH: number
+  ): { x: number; y: number; w: number; h: number } {
+    const clip = el.clipRect
+    if (!clip) return { x: scX, y: scY, w: scW, h: scH }
+    // Convert clipRect (CSS px, top-left origin) → device px, BL origin.
+    const clipX = Math.round(clip.x * this.dpr)
+    const clipY = Math.round((this.cssHeight - (clip.y + clip.h)) * this.dpr)
+    const clipW = Math.round(clip.w * this.dpr)
+    const clipH = Math.round(clip.h * this.dpr)
+    // Intersect [scX, scX+scW] × [scY, scY+scH] with [clipX, clipX+clipW] × [clipY, clipY+clipH].
+    const ix0 = Math.max(scX, clipX)
+    const iy0 = Math.max(scY, clipY)
+    const ix1 = Math.min(scX + scW, clipX + clipW)
+    const iy1 = Math.min(scY + scH, clipY + clipH)
+    return {
+      x: ix0,
+      y: iy0,
+      w: Math.max(0, ix1 - ix0),
+      h: Math.max(0, iy1 - iy0),
+    }
   },
 }

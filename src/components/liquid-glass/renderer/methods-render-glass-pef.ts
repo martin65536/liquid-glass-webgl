@@ -184,9 +184,11 @@ export function renderGlassElementPerFbo(
   const compScY = Math.max(0, Math.min(this.fboH, Math.round((this.cssHeight - (elemCy + compAabbH / 2)) * this.dpr)))
   const compScW = Math.max(0, Math.min(this.fboW - compScX, Math.round(compAabbW * this.dpr)))
   const compScH = Math.max(0, Math.min(this.fboH - compScY, Math.round(compAabbH * this.dpr)))
+  // Intersect composite scissor with el.clipRect (scrollable sheet clipping).
+  const compClip = this.intersectClipScissor(el, compScX, compScY, compScW, compScH)
   this.bindFBO(curFbo)
   gl.enable(gl.SCISSOR_TEST)
-  gl.scissor(compScX, compScY, compScW, compScH)
+  gl.scissor(compClip.x, compClip.y, compClip.w, compClip.h)
   this.drawElFboComposite(
     cache.renderTex, cache.elFboW, cache.elFboH,
     elemCx * this.dpr, elemCy * this.dpr,  // element center (device px, top-left origin)
@@ -200,7 +202,9 @@ export function renderGlassElementPerFbo(
   // require a larger cached FBO (shadow bbox) + coordinate remapping.
   // Use the wide rotated AABB scissor (with shadow margin) so the rim-highlight
   // / inner-shadow / glow aren't clipped at the corners when rotated.
-  gl.scissor(rotScX, rotScY, rotScW, rotScH)
+  // Intersect with el.clipRect (scrollable sheet clipping).
+  const postClip = this.intersectClipScissor(el, rotScX, rotScY, rotScW, rotScH)
+  gl.scissor(postClip.x, postClip.y, postClip.w, postClip.h)
   this.renderGlassPostPasses(state)
 
   gl.disable(gl.SCISSOR_TEST)

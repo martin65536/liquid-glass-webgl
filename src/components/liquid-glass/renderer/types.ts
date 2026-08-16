@@ -214,6 +214,17 @@ export interface GlassElementConfig extends GlassButtonConfig {
    */
   elementRotation?: number
   /**
+   * Clip rect (CSS px, top-left origin, VIEWPORT coords — NOT scroll-relative).
+   * When set, the renderer intersects the element's draw scissor with this
+   * rect, so the element is only visible inside the clip region. Used by the
+   * TextGlass scrollable control sheet: content elements (sliders, toggles,
+   * labels) get a clipRect = the sheet card's visible rect, so content that
+   * scrolls outside the sheet bounds is clipped away. The sheet card itself
+   * does NOT have a clipRect (it's always fully visible). Elements without a
+   * clipRect are unclipped (default behavior, unchanged).
+   */
+  clipRect?: { x: number; y: number; w: number; h: number }
+  /**
    * Arbitrary per-frame scale transform (multiplied into the final scaleX/Y
    * alongside press, toggle, tab, and control-center transforms). Used by
    * the perf benchmark's outer 12 glasses for scale-only animation while
@@ -415,16 +426,21 @@ export interface GlassElementConfig extends GlassButtonConfig {
      *  also kill the refraction). The base dim (−0.1) is controlled separately
      *  via the element's brightness uniform on the JS side. */
     bevelEnabled?: boolean
-    /** Bevel tint dye hue (0..360 degrees, default 45). Dyes the bevel
-     *  highlight band with the selected hue instead of pure white —
-     *  implemented INSIDE the lighting-layer block, so it's removed when
-     *  bevelEnabled=false (the 光影 toggle turns it off with the layer). NOT
-     *  a global hue-rotation filter: only the edge light/shadow band (driven
-     *  by intensity * bevel dot products) is colored; the glass-body
-     *  refraction is unaffected. The shader mixes 65% toward the pure hue /
-     *  35% toward white so the highlight stays bright while being dyed.
-     *  Exposed as "染色" (Tint) in the TextGlass UI. */
-    bevelTintHue?: number
+    /** Whole-glass tint dye hue (0..360 degrees, default 0 = OFF). Dyes the
+     *  ENTIRE glass body with the selected hue via BlendMode.Hue (Skia's
+     *  non-separable Hue blend: takes hue from the tint source, keeps the
+     *  glass's own saturation + value). NOT a flat color overlay or CSS
+     *  hue-rotate — a proper hue replacement that preserves luminance/sat.
+     *  0 = OFF (slider leftmost); 1..360 = hue degrees. Independent of the
+     *  光影 (bevel) toggle — dyes the whole glass body regardless of whether
+     *  the edge lighting layer is on. Exposed as "染色" (Tint) in TextGlass. */
+    glassTintHue?: number
+    /** Edge matte (default false). When true, the SDF edge band (high
+     *  `intensity`, near the text boundary) is desaturated toward luminance
+     *  and slightly darkened — a frosted/matte rim. The effect fades smoothly
+     *  into the clear glass interior. Faithful to the user request: "用sdf
+     *  渲染边缘，然后给边缘降低提亮与饱和度". Independent of the bevel toggle. */
+    edgeMatteEnabled?: boolean
     /** Raw SDF debug render — when true, the shader bypasses all glass
      *  effects (refraction, bevel, colorControls, surface tint) and outputs
      *  the SDF texture's R channel directly as grayscale (inside = white,

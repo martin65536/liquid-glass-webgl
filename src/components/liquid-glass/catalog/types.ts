@@ -313,6 +313,11 @@ export interface CatalogState {
   textGlassFontIdx: number
   // TextGlass — whether the bottom control sheet is expanded (GP-style).
   textGlassSheetExpanded: boolean
+  // TextGlass — scroll offset (CSS px) of the control sheet's content. The
+  // sheet is capped at half-screen height; when the content exceeds the
+  // visible area, the user drags on the sheet to scroll. 0 = top. Clamped
+  // to [0, maxScroll] in the builder. Default 0.
+  textGlassSheetScroll: number
   // TextGlass — "玻璃厚度" (glass thickness) — the SDF edge-band width
   // multiplier. Controls how wide the band is where the glass effect
   // (refraction + bevel intensity) transitions from full at the text edge to
@@ -358,15 +363,22 @@ export interface CatalogState {
   // 1 = max brighten (+0.5 added to brightness uniform). Scales linearly so
   // the further right the slider, the brighter the glass content.
   textGlassBrighten: number
-  // TextGlass — "染色" (Tint) dye hue [0..360 degrees]. Dyes the bevel
-  // highlight band (the lighting layer's edge light/shadow) with the selected
-  // hue instead of pure white. Implemented INSIDE the shader's bevel block —
-  // NOT a global hue-rotation filter: only the edge band (intensity * bevel
-  // dot products) is colored; the glass-body refraction is untouched. The
-  // shader mixes 65% pure hue / 35% white so the highlight stays bright while
-  // dyed. Removed automatically when the 光影 toggle is off (the dye lives in
-  // the lighting layer). Default 45 (warm amber). Range [0, 360].
-  textGlassBevelTintHue: number
+  // TextGlass — "染色" (Tint) whole-glass dye hue [0..360 degrees]. Dyes
+  // the ENTIRE glass body with the selected hue via BlendMode.Hue (takes hue
+  // from the tint source, keeps the glass's own saturation + value). NOT a
+  // flat color overlay or CSS hue-rotate — a proper hue replacement that
+  // preserves luminance/saturation, so a dyed glass still looks like glass.
+  // 0 = OFF (the slider's leftmost position disables the tint entirely).
+  // 1..360 = hue degrees (1 ≈ red, 120 = green, 240 = blue, 360 = red again).
+  // Independent of the 光影 (lighting) toggle — dyes the whole glass body
+  // regardless of whether the bevel edge lighting is on. Default 0 (off).
+  textGlassGlassTintHue: number
+  // TextGlass — "边缘哑光" (Edge matte) toggle. When true, the SDF edge band
+  // (high `intensity`, near the text boundary) is desaturated toward luminance
+  // AND slightly darkened — a frosted/matte rim. The effect fades smoothly
+  // into the clear glass interior. Faithful to the user request: "用sdf渲染
+  // 边缘，然后给边缘降低提亮与饱和度". Default false (off).
+  textGlassEdgeMatte: boolean
   // TextGlass — raw SDF debug render toggle. When true, the glass element
   // bypasses all glass effects (refraction, bevel, colorControls, surface
   // tint) and renders the SDF texture's R channel directly as a grayscale
@@ -440,11 +452,13 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   textGlassFontWeight: 700,
   textGlassFontIdx: 0,
   textGlassSheetExpanded: true,
+  textGlassSheetScroll: 0,
   textGlassHighlightScale: 1.5,
   textGlassSaturation: 1.5,
   textGlassLightingEnabled: true,
   textGlassBrighten: 0,
-  textGlassBevelTintHue: 45,
+  textGlassGlassTintHue: 0,
+  textGlassEdgeMatte: false,
   textGlassRawSdf: false,
 }
 

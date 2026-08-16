@@ -31,6 +31,10 @@ import { t, type Locale } from './i18n'
 // Drag-start offset for TextGlass — module-level so it survives re-renders
 // during the drag gesture (closure vars get reset each render).
 const textGlassDragStart: { x: number; y: number } = { x: 0, y: 0 }
+// Scroll-start offset for the TextGlass control sheet — same pattern as
+// textGlassDragStart. Cached at drag start so the scroll delta is computed
+// from the gesture's origin, not the (rapidly changing) live state.
+const textGlassScrollStart: { y: number } = { y: 0 }
 
 // Material Design expand_more / expand_less icons (24×24 viewport) for the
 // TextGlass sheet-toggle button — mirrors the Glass Playground's toggle.
@@ -98,11 +102,15 @@ export function buildTextGlass(
   // ("展开收起面板字要移动缩放"). The text stays put; the sheet slides
   // up/down over the reserved space below it.
   // Sheet height reservation (mirrors the EXPANDED sheet's actual height
-  // below): input + 6 slider rows (size, weight, highlight, quality,
-  // saturation, brighten) + font row + 2 toggle rows (lighting, raw-SDF) +
-  // padding. The lighting toggle gates BOTH the bevel highlight and the base
-  // dim as one "SDF-brightness-changing layer" (per user request).
-  const sheetReservedH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 6 + TG_FONT_ROW_H + TG_TOGGLE_ROW_H * 2 + TG_INNER_PAD
+  // below): input + 7 slider rows (size, weight, highlight, quality,
+  // saturation, brighten, tint) + font row + 3 toggle rows (lighting, edge
+  // matte, raw-SDF) + padding. The sheet is CAPPED at half-screen height —
+  // when content exceeds the cap, the sheet becomes scrollable (content
+  // elements get a clipRect = the sheet's visible rect, and a drag-to-scroll
+  // interaction on the sheet card shifts content Y by the scroll offset).
+  const fullSheetContentH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 7 + TG_FONT_ROW_H + TG_TOGGLE_ROW_H * 3 + TG_INNER_PAD
+  const maxSheetH = H * 0.5
+  const sheetReservedH = Math.min(fullSheetContentH, maxSheetH)
   const availableH = H - bottomBtnSpace - sheetReservedH
   const aspect = state.textGlassAspect > 0 ? state.textGlassAspect : 3
   // The glass element height = texH (texture height in CSS px = textH + 2*pad).
@@ -195,10 +203,12 @@ export function buildTextGlass(
     lightAngle: 45,
     highlightScale: state.textGlassHighlightScale,
     bevelEnabled: state.textGlassLightingEnabled,
-    // Bevel tint dye hue (0..360°) — dyes the lighting-layer highlight band
-    // with the selected hue. Lives inside the bevel block in the shader, so
-    // it's removed when bevelEnabled=false (光影 toggle off).
-    bevelTintHue: state.textGlassBevelTintHue,
+    // Whole-glass tint dye hue (0..360°, 0 = OFF). Dyes the ENTIRE glass body
+    // via BlendMode.Hue — independent of the bevel toggle. 0 = off (slider
+    // leftmost); 1..360 = hue degrees.
+    glassTintHue: state.textGlassGlassTintHue,
+    // Edge matte (0 or 1). Desaturates + darkens the SDF edge band.
+    edgeMatteEnabled: state.textGlassEdgeMatte,
     debugMode: state.textGlassRawSdf,
     aaMin: 0.0,
   }
@@ -226,15 +236,26 @@ export function buildTextGlass(
     const trackX = sheetX + TG_INNER_PAD
     const trackW = sheetW - 2 * TG_INNER_PAD
 
-    // Sheet height: input row + 7 slider rows (size, weight, highlight,
-    // quality, saturation, brighten, tint) + font row + 2 toggle rows
-    // (lighting, raw-SDF) + padding. The lighting toggle gates BOTH the bevel
-    // highlight, the bevel tint dye, and the base dim as one unit.
-    const sheetH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H * 7 + TG_FONT_ROW_H + TG_TOGGLE_ROW_H * 2 + TG_INNER_PAD
+    // Sheet height: CAPPED at half-screen. The full content height is
+    // input + 7 slider rows + font row + 3 toggle rows (lighting, edge
+    // matte, raw-SDF) + padding. When content exceeds the cap, the sheet
+    // becomes scrollable — content elements get a clipRect = the sheet's
+    // visible rect, and a drag-to-scroll interaction on the sheet card
+    // shifts content Y by the scroll offset.
+    const sheetH = Math.min(fullSheetContentH, maxSheetH)
     const sheetY = H - bottomBtnSpace - sheetH
+    // Scroll: clamped to [0, maxScroll]. maxScroll = content that overflows
+    // the visible sheet. 0 when content fits (no scroll needed).
+    const maxScroll = Math.max(0, fullSheetContentH - sheetH)
+    const sheetScroll = Math.max(0, Math.min(state.textGlassSheetScroll, maxScroll))
+    // The sheet's visible rect (for clipRect on content elements). Stays in
+    // viewport coords (top-left origin) — content Y moves, clipRect doesn't.
+    const sheetClipRect = { x: sheetX, y: sheetY, w: sheetW, h: sheetH }
 
     // Sheet glass card (independentBackdrop → samples wallpaper directly,
-    // matching the GP sheet's standalone glass card behavior).
+    // matching the GP sheet's standalone glass card behavior). The sheet card
+    // itself is NOT clipped and NOT scrolled — it's always fully visible at
+    // a fixed position. Only the content elements inside it scroll + clip.
     const tgSheet = makeGlassShape(
       'tg-sheet',
       { x: sheetX, y: sheetY, w: sheetW, h: sheetH },
@@ -254,7 +275,48 @@ export function buildTextGlass(
     if (state.capsuleShape) tgSheet.useContinuousSdf = true
     elements.push(tgSheet)
 
-    let rowY = sheetY + TG_INNER_PAD
+    // --- Grab handle (drag-to-scroll affordance) ---
+    // A small rounded bar at the top of the sheet (in the top padding area),
+    // like iOS modal sheets. The user drags this bar to scroll the content.
+    // It's a plain-rect (non-glass) element with isInteractive=true so the
+    // renderer's hit-test routes drag events to it. Positioned at a FIXED Y
+    // (does NOT scroll with content) — always visible at the sheet's top.
+    // Only shown when the content overflows (maxScroll > 0).
+    if (maxScroll > 0) {
+      const grabW = 36 * DP
+      const grabH = 4 * DP
+      const grabX = sheetX + (sheetW - grabW) / 2
+      const grabY = sheetY + (TG_INNER_PAD - grabH) / 2
+      const grabHandle: GlassElementConfig = {
+        id: 'tg-grab',
+        kind: 'plain-rect',
+        rect: { x: grabX, y: grabY, w: grabW, h: grabH },
+        cornerRadius: grabH / 2,
+        plainRect: { color: [0.5, 0.5, 0.5, 0.45] },
+        isInteractive: true,
+        scroll: false,
+      }
+      elements.push(grabHandle)
+      interactions['tg-grab'] = {
+        onDragStart: () => {
+          textGlassScrollStart.y = state.textGlassSheetScroll
+        },
+        onDrag: (_pos, delta) => {
+          // Drag DOWN (delta.y > 0) = scroll toward top (decrease offset).
+          // Drag UP (delta.y < 0) = scroll toward bottom (increase offset).
+          const next = textGlassScrollStart.y - delta.y
+          setState({ textGlassSheetScroll: Math.max(0, Math.min(maxScroll, next)) })
+        },
+        onDragEnd: () => {},
+      }
+    }
+
+    // Track the element index range for content elements so we can set
+    // clipRect on all of them at once after building (cleaner than setting
+    // it on every individual push).
+    const contentStartIdx = elements.length
+    // Content Y is offset by -sheetScroll so dragging scrolls the content.
+    let rowY = sheetY + TG_INNER_PAD - sheetScroll
 
     // --- Row 1: Text input ---
     // Label on the left, glass input pill on the right (takes most of the row).
@@ -485,18 +547,16 @@ export function buildTextGlass(
       rowY += TG_ROW_H
     }
 
-    // --- Row 8.5: Bevel tint dye hue slider (0..360°) ---
-    // "染色" (Tint): dyes the bevel highlight band with the selected hue
-    // instead of pure white. Implemented INSIDE the shader's lighting-layer
-    // block (uSdfBevelTintHue) — NOT a global hue-rotation filter. Only the
-    // edge light/shadow band is colored; the glass-body refraction is
-    // untouched. Removed automatically when the 光影 toggle is off (the dye
-    // lives in the lighting layer). The slider value is hue in degrees
-    // (0 = red, 120 = green, 240 = blue, 360 = red again). liveUpdate=true —
-    // only a uniform changes, no SDF texture regen, so it responds in real
-    // time while dragging.
+    // --- Row 8.5: Whole-glass tint dye hue slider (0..360°, 0 = OFF) ---
+    // "染色" (Tint): dyes the ENTIRE glass body with the selected hue via
+    // BlendMode.Hue (takes hue from the tint source, keeps the glass's own
+    // saturation + value). NOT a flat color overlay or CSS hue-rotate — a
+    // proper hue replacement that preserves luminance/saturation. Independent
+    // of the 光影 (lighting) toggle. The slider's LEFTMOST (0) = OFF (no tint);
+    // 1..360 = hue degrees (1 ≈ red, 120 = green, 240 = blue, 360 = red).
+    // liveUpdate=true — only a uniform changes, no SDF texture regen.
     {
-      const key = 'textGlassBevelTintHue' as const
+      const key = 'textGlassGlassTintHue' as const
       const val = state[key]
       const range = [0, 360] as const
       elements.push(
@@ -524,7 +584,7 @@ export function buildTextGlass(
         (f) => {
           const v = range[0] + (range[1] - range[0]) * f
           // Hue in integer degrees — 360 discrete steps is plenty for a color
-          // picker, and integers keep the state value clean.
+          // picker, and integers keep the state value clean. 0 = OFF.
           setState({ [key]: Math.round(v) } as Partial<CatalogState>)
         },
         false, // scroll = false
@@ -631,6 +691,38 @@ export function buildTextGlass(
     )
     elements.push(...rawToggle.elements)
     Object.assign(interactions, rawToggle.interactions)
+    rowY += TG_TOGGLE_ROW_H
+
+    // --- Row: Edge matte toggle (边缘哑光) ---
+    // When ON, the SDF edge band (high `intensity`, near the text boundary)
+    // is desaturated toward luminance AND slightly darkened — a frosted/matte
+    // rim. Faithful to the user request: "用sdf渲染边缘，然后给边缘降低提亮
+    // 与饱和度". Uses the same settings-style toggle as the lighting/raw-SDF
+    // toggles. onGlassCard=true so the knob samples the real glass backdrop.
+    const edgeMatteToggleRow = { x: trackX, y: rowY, w: trackW, h: TG_TOGGLE_ROW_H }
+    const edgeMatteToggle = makeSettingsToggle(
+      'tg-edgematte',
+      edgeMatteToggleRow,
+      t('text_glass_edge_matte', locale),
+      state.textGlassEdgeMatte,
+      () => setState((prev) => ({ textGlassEdgeMatte: !prev.textGlassEdgeMatte })),
+      palette,
+      rendererRef,
+      false, // scroll = false
+      0,    // labelPad = 0
+      true, // onGlassCard = true
+    )
+    elements.push(...edgeMatteToggle.elements)
+    Object.assign(interactions, edgeMatteToggle.interactions)
+
+    // --- Set clipRect on all content elements built above ---
+    // Content elements (input, sliders, toggles, labels, font buttons) get a
+    // clipRect = the sheet's visible rect so content scrolled outside the
+    // sheet bounds is clipped away by the renderer's scissor. The sheet card
+    // (tg-sheet, pushed before contentStartIdx) is NOT clipped.
+    for (let i = contentStartIdx; i < elements.length; i++) {
+      elements[i].clipRect = sheetClipRect
+    }
   } // end if (state.textGlassSheetExpanded)
 
   // ---- Collapse/expand toggle button (bottom-left, GP-style) ----

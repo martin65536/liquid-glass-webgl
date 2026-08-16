@@ -289,12 +289,17 @@ export const glassElementPassMethods = {
         this.uEl['uSdfBevelEnabled'],
         (el.isSdfTexture.bevelEnabled ?? true) ? 1.0 : 0.0
       )
-      // Bevel tint dye hue (0..360°). Only colors the bevel edge band (inside
-      // the uSdfBevelEnabled block), so it has no effect when lighting is off.
-      // Default 45 (warm amber) matches the TextGlass 染色 slider default.
+      // Whole-glass tint dye hue (0..360°, 0 = OFF). Dyes the ENTIRE glass
+      // body via BlendMode.Hue — independent of the bevel toggle. Default 0
+      // (off) matches the TextGlass 染色 slider's leftmost position.
       gl.uniform1f(
-        this.uEl['uSdfBevelTintHue'],
-        el.isSdfTexture.bevelTintHue ?? 45
+        this.uEl['uSdfGlassTintHue'],
+        el.isSdfTexture.glassTintHue ?? 0
+      )
+      // Edge matte (0 or 1). Desaturates + darkens the SDF edge band.
+      gl.uniform1f(
+        this.uEl['uSdfEdgeMatteEnabled'],
+        (el.isSdfTexture.edgeMatteEnabled ?? false) ? 1.0 : 0.0
       )
       gl.uniform1f(
         this.uEl['uSdfDebugMode'],
@@ -316,7 +321,8 @@ export const glassElementPassMethods = {
       // avoids confusion when debugging).
       gl.uniform1f(this.uEl['uSdfHighlightScale'], 1.5)
       gl.uniform1f(this.uEl['uSdfBevelEnabled'], 1.0)
-      gl.uniform1f(this.uEl['uSdfBevelTintHue'], 45)
+      gl.uniform1f(this.uEl['uSdfGlassTintHue'], 0)
+      gl.uniform1f(this.uEl['uSdfEdgeMatteEnabled'], 0.0)
       gl.uniform1f(this.uEl['uSdfDebugMode'], 0.0)
       gl.uniform1f(this.uEl['uSdfAaMin'], 0.5)
       // Bind the dummy 1×1 texture to TEXTURE2 so the uSdfTexSampler /

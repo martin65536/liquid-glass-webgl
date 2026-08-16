@@ -203,6 +203,7 @@ const translations: Record<string, { zh: string; en: string }> = {
   text_glass_lighting:      { zh: '光影', en: 'Lighting' },
   text_glass_brighten:      { zh: '提亮', en: 'Brighten' },
   text_glass_bevel_tint:    { zh: '染色', en: 'Tint' },
+  text_glass_edge_matte:    { zh: '边缘哑光', en: 'Edge matte' },
   text_glass_raw_sdf:       { zh: '直接渲染SDF', en: 'Raw SDF' },
   text_glass_raw_on:        { zh: '开启', en: 'ON' },
   text_glass_raw_off:       { zh: '关闭', en: 'OFF' },

@@ -72,6 +72,20 @@ export const nonGlassTextMethods = {
     // (black in light theme, white in dark). When unset, fall back to the
     // legacy white Plus-blend overlay for backward compat.
     const pText = st?.pressProgress ?? 0
+    // Clip text to el.clipRect (scrollable sheet content clipping). Text
+    // elements draw directly to curFbo with no inherent scissor, so without
+    // this, labels scrolled outside the sheet bounds would float in space.
+    let clipEnabled = false
+    if (el.clipRect) {
+      const cx0 = Math.max(0, Math.round(drawRect.x * this.dpr))
+      const cy0 = Math.max(0, Math.round((this.cssHeight - (drawRect.y + drawRect.h)) * this.dpr))
+      const cw = Math.min(this.fboW - cx0, Math.round(drawRect.w * this.dpr))
+      const ch = Math.min(this.fboH - cy0, Math.round(drawRect.h * this.dpr))
+      const clip = this.intersectClipScissor(el, cx0, cy0, cw, ch)
+      gl.enable(gl.SCISSOR_TEST)
+      gl.scissor(clip.x, clip.y, clip.w, clip.h)
+      clipEnabled = true
+    }
     if (el.isInteractive && pText > 0.001) {
       const pressTint = el.pressTintColor
       gl.useProgram(this.tintProgram)
@@ -149,6 +163,7 @@ export const nonGlassTextMethods = {
     }
     this.perfMonitor.incNonGlass()
     this.perfMonitor.incDrawCall()
+    if (clipEnabled) gl.disable(gl.SCISSOR_TEST)
     return true
   },
 }

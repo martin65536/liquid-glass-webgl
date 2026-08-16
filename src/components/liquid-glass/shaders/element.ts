@@ -172,25 +172,48 @@ void main() {
         // the backdrop using the thickness slider's value — only the edge
         // brightness highlight is removed. The base dim is handled separately
         // via uBrightness on the JS side.
-        //
-        // Bevel tint dye (染色): the highlight band takes on the hue selected by
-        // uSdfBevelTintHue instead of pure white. hsv2rgb(hue,1,1) is the pure
-        // saturated hue; mix(white, hue, 0.65) keeps 35% white so every channel
-        // still gets a brightness boost (highlight stays bright, just dyed).
-        // This is NOT a global hue-rotation filter — only the bevel edge band
-        // (intensity * bevel dot products) is colored; the glass-body refraction
-        // and the rest of the color are untouched. The dye lives INSIDE the
-        // lighting-layer block, so the 光影 toggle turns it off with the layer.
+        // The bevel highlight is always pure white (no dye) — the whole-glass
+        // tint (uSdfGlassTintHue) is applied separately below and affects the
+        // ENTIRE glass body, not just the bevel band.
         if (uSdfBevelEnabled > 0.5) {
             float angleRad = uSdfLightAngle * 3.1415926 / 180.0;
             vec2 lightDir = vec2(cos(angleRad), sin(angleRad));
-            vec3 bevelTint = mix(vec3(1.0),
-                                 hsv2rgb(vec3(uSdfBevelTintHue / 360.0, 1.0, 1.0)),
-                                 0.65);
             float bevel1 = clamp(dot(normal, lightDir), 0.0, 1.0);
-            color.rgb *= 1.0 + 0.5 * intensity * bevel1 * bevelTint;
+            color.rgb *= 1.0 + 0.5 * intensity * bevel1;
             float bevel2 = clamp(dot(normal, -lightDir), 0.0, 1.0);
-            color.rgb *= 1.0 + 0.5 * bevel2 * min(1.0, smoothstep(1.0, 0.0, abs(intensity - 0.25) * 6.0)) * bevelTint;
+            color.rgb *= 1.0 + 0.5 * bevel2 * min(1.0, smoothstep(1.0, 0.0, abs(intensity - 0.25) * 6.0));
+        }
+
+        // Whole-glass tint dye (染色) — applies to the ENTIRE glass body, not
+        // just the bevel band. Uses BlendMode.Hue (faithful to Skia's
+        // non-separable Hue blend): the result takes the HUE from the tint
+        // source (pure saturated hsv2rgb(hue,1,1)) but keeps the glass's own
+        // SATURATION + VALUE. This is NOT a flat color overlay or CSS
+        // hue-rotate — it's a proper hue replacement, so a dyed glass still
+        // looks like glass (luminance/saturation preserved) just tinted.
+        // Gated by uSdfGlassTintHue > 0.5 so the slider's leftmost (0) = OFF.
+        // Independent of the 光影 (bevel) toggle — dyes the whole body regardless.
+        // 85% strength: strong tint but retains a hint of the original hue for
+        // naturalness.
+        if (uSdfGlassTintHue > 0.5) {
+            vec3 tintSrc = hsv2rgb(vec3(uSdfGlassTintHue / 360.0, 1.0, 1.0));
+            vec3 hueBlended = blendHue(color, tintSrc);
+            color.rgb = mix(color.rgb, hueBlended, 0.85);
+        }
+
+        // Edge matte (哑光边缘) — when enabled, the SDF edge band (high
+        // intensity, near the text boundary) is desaturated toward luminance
+        // AND slightly darkened, giving a frosted/matte rim. The edge factor is
+        // intensity itself (1 at the very edge, →0 in the interior) so the
+        // matte effect fades smoothly into the clear glass center. Faithful to
+        // the user request: "用sdf渲染边缘，然后给边缘降低提亮与饱和度"
+        // (render the edge with SDF, then reduce the edge's brightness + sat).
+        // Applied AFTER tint so the matte rim also desaturates the dyed color.
+        if (uSdfEdgeMatteEnabled > 0.5) {
+            float edge = clamp(intensity, 0.0, 1.0);
+            float lum = dot(color.rgb, vec3(0.213, 0.715, 0.072));
+            color.rgb = mix(color.rgb, vec3(lum), edge * 0.65);
+            color.rgb *= 1.0 - edge * 0.18;
         }
 
         // PREMULTIPLIED output: RGB = color * coverage, A = coverage.

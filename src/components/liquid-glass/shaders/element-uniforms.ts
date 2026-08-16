@@ -121,15 +121,26 @@ uniform float uSdfHighlightScale;   // default 1.5
 // value (so the slider is never dead). The base brightness dim (−0.1) is
 // controlled separately via uBrightness on the JS side.
 uniform float uSdfBevelEnabled;     // default 1 (on)
-// Bevel tint dye hue (0..360 degrees). The TextGlass 染色 slider picks a hue;
-// the bevel highlight band takes on that hue instead of pure white. This is
-// NOT a global hue-rotation filter — only the edge light/shadow band (driven
-// by intensity * bevel dot products) is colored; the glass-body refraction is
-// unaffected. hsv2rgb(hue/360, 1, 1) gives the pure saturated hue; the shader
-// mixes it 65% toward the hue / 35% toward white so every channel still gets
-// a brightness boost (the highlight stays bright, just dyed). Default 45
-// (warm amber); 0 = red, 120 = green, 240 = blue.
-uniform float uSdfBevelTintHue;     // default 45 (degrees, 0..360)
+// Whole-glass tint dye hue (0..360 degrees). The TextGlass 染色 slider picks
+// a hue; the ENTIRE glass body takes on that hue via BlendMode.Hue (faithful
+// to Skia's non-separable Hue blend: result takes hue from the tint src, keeps
+// the glass's own saturation + value). This is NOT a flat color overlay or CSS
+// hue-rotate filter — it's a proper hue replacement that preserves the glass's
+// luminance and saturation, so a dyed glass still looks like glass, just tinted.
+// 0 = OFF (no tint — the slider's leftmost position). 1..360 = hue degrees
+// (1 = red-ish, 120 = green, 240 = blue, 360 = red). The off-state is checked
+// via uSdfGlassTintHue > 0.5 so the slider's leftmost (0) disables the tint
+// entirely. Independent of the 光影 (bevel) toggle — dyes the whole glass body
+// regardless of whether the edge lighting layer is on.
+uniform float uSdfGlassTintHue;     // default 0 (off); 1..360 = hue
+// Edge matte (0 or 1). When 1, the SDF edge band (where intensity is high,
+// i.e. near the text boundary) is desaturated toward luminance AND slightly
+// darkened — a frosted/matte rim. The edge band factor is intensity itself
+// (1 at the very edge, 0 in the interior), so the matte effect fades smoothly
+// into the clear glass interior. Faithful to the user request: "用sdf渲染边缘，
+// 然后给边缘降低提亮与饱和度" (render the edge with SDF, then reduce the
+// edge's brightness and saturation). Independent of the bevel toggle.
+uniform float uSdfEdgeMatteEnabled; // default 0 (off)
 // Raw SDF debug render — when > 0.5, the SDF-texture glass path bypasses all
 // glass effects and outputs the SDF's R channel directly as grayscale
 // (inside = white, outside = black, AA via A channel). Used by TextGlass to
