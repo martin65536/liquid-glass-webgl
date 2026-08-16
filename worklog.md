@@ -315,3 +315,40 @@ Stage Summary:
 - 效果：TextGlass 控制面板新增"染色"滑块（0..360°色相），在光影层（bevel 高光块）内把白色边缘高光染成选定色相（65% 纯色相 + 35% 白底，保持明亮只是染色）。不是全局滤镜——只着色 bevel 边缘带，玻璃本体折射/颜色不受影响。随光影开关一起开关。
 - 附带修复：page.tsx sheetH 与 build-text-glass.ts 的预存 4px 不同步（5 sliders+3 toggles vs 6+2），现已对齐为 7+2。
 - 默认色相 45（暖琥珀），strength 0.65（shader 常量，可调）。
+
+---
+Task ID: textglass-scroll-tint-edgematte
+Agent: main (Z.ai Code)
+Task: TextGlass 控制面板三件事 — ①设置卡片可滚动(不超过半屏) ②整个玻璃染色(滑块最左=关闭) ③边缘哑光开关(用SDF渲染边缘并降低提亮与饱和度)
+
+Work Log:
+- 读取 element-utils.ts / element.ts / element-uniforms.ts，确认 bevel tint (uSdfBevelTintHue) 原只在 bevel 块内染色
+- 着色器改造 (element.ts + element-uniforms.ts):
+  - 移除 bevel 块内的 bevelTint 染色，bevel 恢复纯白高光
+  - 新增 uSdfGlassTintHue (0..360, 0=OFF): 用 blendHue (Skia BlendMode.Hue) 对整个玻璃 body 染色，85% 强度，保留玻璃自身饱和度/亮度
+  - 新增 uSdfEdgeMatteEnabled (0/1): 用 intensity 作为边缘因子，向亮度去饱和 65% + 压暗 18%，形成哑光边
+- Renderer (types.ts, methods-uniforms.ts, methods-render-glass-element-pass.ts):
+  - bevelTintHue → glassTintHue (默认 0=off)，新增 edgeMatteEnabled
+  - 更新 uniform 名单与默认值
+- Catalog state/types (types.ts): textGlassBevelTintHue → textGlassGlassTintHue (默认 0)，新增 textGlassEdgeMatte (默认 false)，新增 textGlassSheetScroll
+- i18n: 新增 text_glass_edge_matte (边缘哑光/Edge matte)
+- build-text-glass.ts:
+  - isSdfTexture 配置改用 glassTintHue + edgeMatteEnabled
+  - 染色滑块改用 textGlassGlassTintHue (0=关闭)
+  - 新增边缘哑光开关 (makeSettingsToggle, onGlassCard)
+  - 面板高度上限 = H*0.5，内容超出时 maxScroll>0
+  - 新增 grab handle (plain-rect 小横条, iOS 风格) 作为拖拽滚动把手
+  - 内容元素统一加 clipRect = 面板可见矩形
+- Renderer 裁剪支持 (methods-fbo.ts + 三个绘制路径):
+  - 新增 intersectClipScissor() 把元素 scissor 与 clipRect 求交
+  - ping-pong / PEF composite / PEF post-pass / text / plain-rect 五条路径全部接入
+- 惯性滚动 (build-text-glass.ts 顶部模块级):
+  - tgInertiaTick RAF 循环: 速度(px/s)÷60=px/frame, 0.92/帧衰减, |v|<30 停止
+  - onDragStart 取消在飞惯性, onDragEnd 用 velocity.y 启动惯性
+- use-catalog-targets.ts: 更新 tg-slider-6 (glassTintHue), 新增 tg-edgematte target
+- lint 通过, 浏览器验证: 面板半屏裁剪正确(顶/底均无溢出), 染色生效(粉/品红), 边缘哑光与直接渲染SDF开关可见, 惯性滑动可从顶滑到底
+
+Stage Summary:
+- 着色器三新功能: 全玻璃染色(blendHue, 0=off) / 边缘哑光(SDF intensity 去饱和+压暗) / (bevel 恢复纯白)
+- 控制面板: 半屏上限 + clipRect 裁剪(五条渲染路径) + grab handle + 速度惯性(0.92衰减)
+- 所有改动 lint 通过, 浏览器渲染正常无报错

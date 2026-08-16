@@ -36,6 +36,43 @@ const textGlassDragStart: { x: number; y: number } = { x: 0, y: 0 }
 // from the gesture's origin, not the (rapidly changing) live state.
 const textGlassScrollStart: { y: number } = { y: 0 }
 
+// Inertial scroll momentum: after the drag ends, the sheet keeps scrolling
+// with decaying velocity (like iOS scroll). Implemented via a RAF loop that
+// decays the velocity each frame and writes the new scroll offset to state.
+// The loop stops when |velocity| < threshold or a new drag starts.
+// - `velocity` is in px/s (from the context's VelocityTracker); converted to
+//   px/frame inside the tick (÷60 assuming 60fps). Decays by 0.92 each frame
+//   (~8% loss per frame → settles in ~0.4s at 60fps, matching iOS feel).
+// - `maxScrollRef` holds the current maxScroll so the inertial loop can clamp
+//   even though the builder re-runs each frame (closures capture a stale value
+//   otherwise). Updated every build call.
+let tgInertiaRaf = 0
+let tgInertiaVelocity = 0 // px/s
+let tgInertiaSetState: ((patch: Partial<CatalogState>) => void) | null = null
+const tgInertiaMaxScroll = { y: 0 }
+function tgInertiaTick() {
+  if (Math.abs(tgInertiaVelocity) < 30 || !tgInertiaSetState) {
+    tgInertiaRaf = 0
+    tgInertiaVelocity = 0
+    return
+  }
+  // Convert px/s → px/frame (assume 60fps). dragging UP → negative y-velocity
+  // → scroll -= velocity → scroll increases (content moves toward bottom).
+  const deltaPerFrame = tgInertiaVelocity / 60
+  tgInertiaSetState((prev) => ({
+    textGlassSheetScroll: Math.max(0, Math.min(tgInertiaMaxScroll.y, prev.textGlassSheetScroll - deltaPerFrame)),
+  }))
+  tgInertiaVelocity *= 0.92 // decay (exponential) → natural settling
+  tgInertiaRaf = requestAnimationFrame(tgInertiaTick)
+}
+function tgInertiaCancel() {
+  if (tgInertiaRaf) {
+    cancelAnimationFrame(tgInertiaRaf)
+    tgInertiaRaf = 0
+  }
+  tgInertiaVelocity = 0
+}
+
 // Material Design expand_more / expand_less icons (24×24 viewport) for the
 // TextGlass sheet-toggle button — mirrors the Glass Playground's toggle.
 const EXPAND_MORE_ICON_PATH =
@@ -73,6 +110,10 @@ export function buildTextGlass(
 ): CatalogResult {
   const elements: GlassElementConfig[] = []
   const interactions: Record<string, ElementInteraction> = {}
+
+  // Register setState + capture maxScroll for the inertial-scroll RAF loop.
+  // Updated every build call so the closure always has fresh values.
+  tgInertiaSetState = (patch) => setState(patch as Partial<CatalogState>)
 
   const back = makeBackButton(onBack, palette)
   elements.push(back.element)
@@ -297,8 +338,13 @@ export function buildTextGlass(
         scroll: false,
       }
       elements.push(grabHandle)
+      // Record the current maxScroll so the inertial RAF loop can clamp
+      // (closures inside the interactions capture the value at gesture time,
+      // but the RAF loop re-reads tgInertiaMaxScroll each frame).
+      tgInertiaMaxScroll.y = maxScroll
       interactions['tg-grab'] = {
         onDragStart: () => {
+          tgInertiaCancel() // stop any in-flight inertia when a new drag starts
           textGlassScrollStart.y = state.textGlassSheetScroll
         },
         onDrag: (_pos, delta) => {
@@ -307,7 +353,17 @@ export function buildTextGlass(
           const next = textGlassScrollStart.y - delta.y
           setState({ textGlassSheetScroll: Math.max(0, Math.min(maxScroll, next)) })
         },
-        onDragEnd: () => {},
+        onDragEnd: (_pos, velocity) => {
+          // Launch inertial scrolling using the pointer's release velocity
+          // (px/s, positive y = downward). dragging UP → negative y-velocity →
+          // tgInertiaTick does scroll -= deltaPerFrame → scroll increases →
+          // content moves toward bottom. Correct.
+          tgInertiaMaxScroll.y = maxScroll
+          tgInertiaVelocity = velocity.y
+          if (Math.abs(tgInertiaVelocity) > 30 && !tgInertiaRaf) {
+            tgInertiaRaf = requestAnimationFrame(tgInertiaTick)
+          }
+        },
       }
     }
 

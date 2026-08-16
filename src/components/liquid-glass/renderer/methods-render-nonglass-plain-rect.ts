@@ -71,6 +71,25 @@ export const nonGlassPlainRectMethods = {
       return true
     }
     this.bindFBO(curFbo)
+    // Clip to el.clipRect (scrollable sheet content clipping). plain-rects
+    // (toggle tracks, slider fills, card backgrounds) draw with no inherent
+    // scissor, so without this, elements scrolled outside the sheet bounds
+    // would render in space. The clip uses the drawn rect (fillRect, computed
+    // below for slider fills) — apply BEFORE drawArrays using the current
+    // fillRect. Since fillRect is derived from r2 (and is always a subset of
+    // r2's bbox), using r2 here is a safe superset; the scissor will be
+    // re-applied below after fillRect is finalized for the debug record only.
+    let clipEnabled = false
+    if (el.clipRect) {
+      const cx0 = Math.max(0, Math.round(r2.x * this.dpr))
+      const cy0 = Math.max(0, Math.round((this.cssHeight - (r2.y + r2.h)) * this.dpr))
+      const cw = Math.min(this.fboW - cx0, Math.round(r2.w * this.dpr))
+      const ch = Math.min(this.fboH - cy0, Math.round(r2.h * this.dpr))
+      const clip = this.intersectClipScissor(el, cx0, cy0, cw, ch)
+      gl.enable(gl.SCISSOR_TEST)
+      gl.scissor(clip.x, clip.y, clip.w, clip.h)
+      clipEnabled = true
+    }
     // Toggle tracks: lerp between offColor and onColor based on the
     // group's animated fraction. Faithful to LiquidToggle.kt's
     // `drawRect(lerp(trackColor, accentColor, fraction))`.
@@ -158,6 +177,7 @@ export const nonGlassPlainRectMethods = {
       gl.uniform1f(this.uPr['uUseContinuousSdf'], 0.0)
     }
     gl.drawArrays(gl.TRIANGLES, 0, 6)
+    if (clipEnabled) gl.disable(gl.SCISSOR_TEST)
     this.perfMonitor.incNonGlass()
     this.perfMonitor.incDrawCall()
     // DRAWN path — record debug entry after drawArrays.
