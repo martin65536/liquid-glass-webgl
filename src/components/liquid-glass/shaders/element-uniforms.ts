@@ -141,6 +141,14 @@ uniform float uSdfGlassTintHue;     // default 0 (off); 1..360 = hue
 // 然后给边缘降低提亮与饱和度" (render the edge with SDF, then reduce the
 // edge's brightness and saturation). Independent of the bevel toggle.
 uniform float uSdfEdgeMatteEnabled; // default 0 (off)
+// Edge matte target bitmask (default 7 = all). Controls WHICH layers the
+// matte desaturate+darken applies to. bit 0 (1) = bevel (光影 highlight),
+// bit 1 (2) = tint (染色), bit 2 (4) = base (refraction/body). When a bit is
+// unset, that layer's edge contribution is preserved (not matted). The
+// shader checks each bit independently so the user can matte only the bevel
+// edge, or only the tint edge, etc. Faithful to "哑光层可以调是否作用于某
+// 些层" (the matte layer can be tuned to apply to certain layers).
+uniform float uSdfEdgeMatteTargets; // default 7 (all three layers)
 // Raw SDF debug render — when > 0.5, the SDF-texture glass path bypasses all
 // glass effects and outputs the SDF's R channel directly as grayscale
 // (inside = white, outside = black, AA via A channel). Used by TextGlass to

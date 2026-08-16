@@ -471,7 +471,7 @@ export default function Page() {
             const inputRowH = 48
             const sliderRowH = 48
             const advancedBtnH = 44
-            const advancedPanelH = state.textGlassAdvanced ? 300 : 0
+            const advancedPanelH = state.textGlassAdvanced ? 150 : 0
             const toggleBtnSpace = 20 + 56 + 12 // bottom button row height
             const sheetH = innerPad + inputRowH + sliderRowH + advancedPanelH + advancedBtnH + innerPad
             const sheetY = H - toggleBtnSpace - sheetH

@@ -441,6 +441,13 @@ export interface GlassElementConfig extends GlassButtonConfig {
      *  into the clear glass interior. Faithful to the user request: "用sdf
      *  渲染边缘，然后给边缘降低提亮与饱和度". Independent of the bevel toggle. */
     edgeMatteEnabled?: boolean
+    /** Edge matte target bitmask (default 7 = all). Controls which layers
+     *  the matte desaturate+darken applies to. bit 0 (1) = bevel (光影),
+     *  bit 1 (2) = tint (染色), bit 2 (4) = base (refraction/body). When a
+     *  bit is unset, that layer's edge contribution is preserved (not matted).
+     *  The overall edgeMatteEnabled toggle still gates whether ANY matte is
+     *  applied. */
+    edgeMatteTargets?: number
     /** Raw SDF debug render — when true, the shader bypasses all glass
      *  effects (refraction, bevel, colorControls, surface tint) and outputs
      *  the SDF texture's R channel directly as grayscale (inside = white,

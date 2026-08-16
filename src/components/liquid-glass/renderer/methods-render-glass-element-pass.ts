@@ -301,6 +301,12 @@ export const glassElementPassMethods = {
         this.uEl['uSdfEdgeMatteEnabled'],
         (el.isSdfTexture.edgeMatteEnabled ?? false) ? 1.0 : 0.0
       )
+      // Edge matte target bitmask — which layers the matte applies to.
+      // bit 0 = bevel, bit 1 = tint, bit 2 = base. Default 7 = all.
+      gl.uniform1f(
+        this.uEl['uSdfEdgeMatteTargets'],
+        el.isSdfTexture.edgeMatteTargets ?? 7
+      )
       gl.uniform1f(
         this.uEl['uSdfDebugMode'],
         el.isSdfTexture.debugMode ? 1.0 : 0.0
@@ -323,6 +329,7 @@ export const glassElementPassMethods = {
       gl.uniform1f(this.uEl['uSdfBevelEnabled'], 1.0)
       gl.uniform1f(this.uEl['uSdfGlassTintHue'], 0)
       gl.uniform1f(this.uEl['uSdfEdgeMatteEnabled'], 0.0)
+      gl.uniform1f(this.uEl['uSdfEdgeMatteTargets'], 7.0)
       gl.uniform1f(this.uEl['uSdfDebugMode'], 0.0)
       gl.uniform1f(this.uEl['uSdfAaMin'], 0.5)
       // Bind the dummy 1×1 texture to TEXTURE2 so the uSdfTexSampler /

@@ -165,6 +165,33 @@ void main() {
         // Multiply by sdfMask (v.a) — faithful to content * v.a.
         vec3 color = contentColor * sdfMask;
 
+        // Edge matte helpers — computed once, used by each layer that the
+        // matte targets (bitmask uSdfEdgeMatteTargets). The edge factor is
+        // intensity (1 at the text boundary, →0 in the interior) so each
+        // matte application fades smoothly into the clear glass center.
+        // bit 0 = bevel (光影), bit 1 = tint (染色), bit 2 = base (折射/底色).
+        // When the overall uSdfEdgeMatteEnabled is OFF, no matte is applied
+        // regardless of the bitmask. Faithful to "哑光层可以调是否作用于某些层".
+        float matteEdge = clamp(intensity, 0.0, 1.0);
+        float matteStrength = 0.65;   // desaturate toward luminance
+        float matteDarken = 0.18;     // darken
+        bool matteOn = uSdfEdgeMatteEnabled > 0.5;
+        bool matteBevel = matteOn && (uSdfEdgeMatteTargets - 8.0 * floor(uSdfEdgeMatteTargets / 8.0)) >= 1.0; // bit 0
+        // bit 1 (tint): floor(targets/2) mod 2
+        float t2 = floor(uSdfEdgeMatteTargets / 2.0);
+        bool matteTint = matteOn && (t2 - 2.0 * floor(t2 / 2.0)) >= 1.0;
+        // bit 2 (base): floor(targets/4) mod 2
+        float t4 = floor(uSdfEdgeMatteTargets / 4.0);
+        bool matteBase = matteOn && (t4 - 2.0 * floor(t4 / 2.0)) >= 1.0;
+
+        // --- Base layer matte (bit 2) ---
+        // Desaturate + darken the base refraction/body color at the edge.
+        if (matteBase) {
+            float lum = dot(color.rgb, vec3(0.213, 0.715, 0.072));
+            color.rgb = mix(color.rgb, vec3(lum), matteEdge * matteStrength);
+            color.rgb *= 1.0 - matteEdge * matteDarken;
+        }
+
         // Bevel lighting — gated by uSdfBevelEnabled so the TextGlass "光影"
         // toggle can turn the light/shadow layer off WITHOUT zeroing
         // uSdfHighlightScale (which would also kill the refraction, since
@@ -175,13 +202,28 @@ void main() {
         // The bevel highlight is always pure white (no dye) — the whole-glass
         // tint (uSdfGlassTintHue) is applied separately below and affects the
         // ENTIRE glass body, not just the bevel band.
+        // Edge matte (bit 0): when matteBevel is true, the bevel's edge
+        // brightening is reduced by the matte strength — the highlight gets
+        // desaturated + darkened toward the matte rim instead of adding pure
+        // white brightness at the edge.
         if (uSdfBevelEnabled > 0.5) {
             float angleRad = uSdfLightAngle * 3.1415926 / 180.0;
             vec2 lightDir = vec2(cos(angleRad), sin(angleRad));
             float bevel1 = clamp(dot(normal, lightDir), 0.0, 1.0);
-            color.rgb *= 1.0 + 0.5 * intensity * bevel1;
+            float bevel1Amt = 0.5 * intensity * bevel1;
+            if (matteBevel) {
+                // Reduce the bevel brightening at the edge by the matte strength:
+                // the highlight is dimmed + desaturated (mixed toward 1.0 neutral
+                // rather than boosting above 1.0).
+                bevel1Amt *= 1.0 - matteEdge * (matteStrength + matteDarken);
+            }
+            color.rgb *= 1.0 + bevel1Amt;
             float bevel2 = clamp(dot(normal, -lightDir), 0.0, 1.0);
-            color.rgb *= 1.0 + 0.5 * bevel2 * min(1.0, smoothstep(1.0, 0.0, abs(intensity - 0.25) * 6.0));
+            float bevel2Amt = 0.5 * bevel2 * min(1.0, smoothstep(1.0, 0.0, abs(intensity - 0.25) * 6.0));
+            if (matteBevel) {
+                bevel2Amt *= 1.0 - matteEdge * (matteStrength + matteDarken);
+            }
+            color.rgb *= 1.0 + bevel2Amt;
         }
 
         // Whole-glass tint dye (染色) — applies to the ENTIRE glass body, not
@@ -195,26 +237,27 @@ void main() {
         // Independent of the 光影 (bevel) toggle — dyes the whole body regardless.
         // 85% strength: strong tint but retains a hint of the original hue for
         // naturalness.
+        // Edge matte (bit 1): when matteTint is true, the tint's blend factor
+        // is reduced at the edge — the rim keeps more of the desaturated base
+        // color instead of the dyed hue, so the edge looks matte while the
+        // interior stays fully dyed.
         if (uSdfGlassTintHue > 0.5) {
             vec3 tintSrc = hsv2rgb(vec3(uSdfGlassTintHue / 360.0, 1.0, 1.0));
             vec3 hueBlended = blendHue(color, tintSrc);
-            color.rgb = mix(color.rgb, hueBlended, 0.85);
+            float tintMix = 0.85;
+            if (matteTint) {
+                // Reduce the tint blend at the edge so the dyed color is
+                // partially replaced by the desaturated base → matte rim on
+                // the tint layer.
+                tintMix *= 1.0 - matteEdge * matteStrength;
+            }
+            color.rgb = mix(color.rgb, hueBlended, tintMix);
         }
 
-        // Edge matte (哑光边缘) — when enabled, the SDF edge band (high
-        // intensity, near the text boundary) is desaturated toward luminance
-        // AND slightly darkened, giving a frosted/matte rim. The edge factor is
-        // intensity itself (1 at the very edge, →0 in the interior) so the
-        // matte effect fades smoothly into the clear glass center. Faithful to
-        // the user request: "用sdf渲染边缘，然后给边缘降低提亮与饱和度"
-        // (render the edge with SDF, then reduce the edge's brightness + sat).
-        // Applied AFTER tint so the matte rim also desaturates the dyed color.
-        if (uSdfEdgeMatteEnabled > 0.5) {
-            float edge = clamp(intensity, 0.0, 1.0);
-            float lum = dot(color.rgb, vec3(0.213, 0.715, 0.072));
-            color.rgb = mix(color.rgb, vec3(lum), edge * 0.65);
-            color.rgb *= 1.0 - edge * 0.18;
-        }
+        // NOTE: the old unconditional edge-matte block (which applied a single
+        // global desaturate+darken to the composited color) has been replaced
+        // by the per-layer matte applications above (base / bevel / tint),
+        // each gated by its bit in uSdfEdgeMatteTargets.
 
         // PREMULTIPLIED output: RGB = color * coverage, A = coverage.
         // 'color' already includes '* sdfMask' (line above), so we only need

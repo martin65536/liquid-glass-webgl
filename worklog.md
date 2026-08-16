@@ -447,3 +447,53 @@ Stage Summary:
   ④ 面板内文字/滑块/开关颜色适配深色模式
   ⑤ 面板关闭时 sheet 缩回 3 行（input+size+button），打开时增高 300px
 - 未浏览器验证（用户要求不要自己测试）。
+
+---
+Task ID: 19
+Agent: main (Z.ai Code)
+Task: 高级面板高度改 150px + 边缘哑光可调作用于哪些层（光影/染色/底色）
+
+Work Log:
+- 用户反馈两件事：①高级面板太高，改 150px ②哑光层可以调是否作用于某些层
+- 高度调整（300→150）:
+  - build-text-glass.ts: TG_ADVANCED_PANEL_H 300→150
+  - page.tsx: advancedPanelH 三元 300→150
+  - text-glass-advanced-panel.tsx: TG_ADVANCED_PANEL_H 300→150
+- 边缘哑光分层作用设计:
+  - 分析着色器结构（element.ts SDF 路径）：边缘相关的层有三类
+    1. bevel (光影) — color *= 1 + 0.5*intensity*bevel，边缘提亮
+    2. tint (染色) — mix(color, blendHue, 0.85)，整体染色含边缘
+    3. base (底色/折射) — contentColor*sdfMask，基础玻璃体
+  - 之前 edge matte 是在所有层合成后整体去饱和+压暗（无法分层）
+  - 新方案：用 bitmask (uSdfEdgeMatteTargets) 控制每层是否被哑光
+    - bit 0 (1) = bevel，bit 1 (2) = tint，bit 2 (4) = base，默认 7=全部
+- 着色器改造 (element.ts):
+  - 移除末尾的无条件 edge matte 块
+  - 在 base color 计算后加 base matte（bit 2）：去饱和+压暗底色边缘
+  - bevel 块内加 bevel matte（bit 0）：bevel 提亮量 *= (1 - edge*(strength+darken))，削弱边缘高光
+  - tint 块内加 tint matte（bit 1）：tintMix *= (1 - edge*strength)，边缘保留更多去饱和底色
+  - 用 floor/mod 提取 bitmask 各位（GLSL ES 1.0 无位运算）
+- Uniform + renderer:
+  - element-uniforms.ts: 新增 uSdfEdgeMatteTargets (float, default 7)
+  - methods-uniforms.ts: elNames 列表加 'uSdfEdgeMatteTargets'
+  - methods-render-glass-element-pass.ts: SDF 块 set uSdfEdgeMatteTargets = edgeMatteTargets ?? 7；else 分支 reset 为 7
+  - renderer/types.ts: isSdfTexture 加 edgeMatteTargets?: number
+- Catalog state:
+  - types.ts: CatalogState 加 textGlassEdgeMatteTargets: number（默认 7）+ DEFAULT_CATALOG_STATE 默认值
+  - build-text-glass.ts: isSdfTexture 传 edgeMatteTargets: state.textGlassEdgeMatteTargets
+- i18n: 新增 text_glass_edge_matte_targets(哑光作用于/Matte targets) + text_glass_edge_matte_bevel(光影/Bevel) + text_glass_edge_matte_tint(染色/Tint) + text_glass_edge_matte_base(底色/Base)
+- 高级面板 UI (text-glass-advanced-panel.tsx):
+  - 在"边缘哑光"toggle ON 时，下方展开三个紧凑按钮（光影/染色/底色）
+  - 每个按钮对应一个 bit，点击切换该 bit（setState functional form 用 prev 计算）
+  - selected = accent fill，unselected = outline
+  - 缩进 16px 表示从属关系
+- lint: 0 error。dev.log: HMR 干净编译。
+
+Stage Summary:
+- 修改文件（8）：shaders/{element,element-uniforms}.ts、renderer/{methods-uniforms,methods-render-glass-element-pass,types}.ts、catalog/{types,i18n,build-text-glass}.ts、text-glass-advanced-panel.tsx、app/page.tsx。
+- 效果：
+  ① 高级面板高度 300→150px（更紧凑）
+  ② 边缘哑光可分层作用：光影/染色/底色三个独立开关（bitmask），默认全开
+  ③ 着色器重构：移除全局 matte，改为每层独立 matte（base 去饱和+压暗 / bevel 削弱高光 / tint 减少染色混合）
+  ④ 用户可以只哑光光影层、只哑光染色层、或任意组合
+- 未浏览器验证（用户要求不要自己测试）。

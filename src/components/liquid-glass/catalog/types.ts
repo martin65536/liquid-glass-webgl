@@ -379,6 +379,14 @@ export interface CatalogState {
   // into the clear glass interior. Faithful to the user request: "用sdf渲染
   // 边缘，然后给边缘降低提亮与饱和度". Default false (off).
   textGlassEdgeMatte: boolean
+  // TextGlass — edge matte target bitmask. Controls WHICH layers the matte
+  // desaturate+darken applies to. bit 0 (1) = bevel (光影 highlight), bit 1
+  // (2) = tint (染色), bit 2 (4) = base (refraction/body). Default 7 = all.
+  // When a bit is unset, that layer's edge contribution is preserved (not
+  // matted). The overall textGlassEdgeMatte toggle still gates whether ANY
+  // matte is applied. Faithful to the user request: "哑光层可以调是否作用
+  // 于某些层" (the matte layer can be tuned to apply to certain layers).
+  textGlassEdgeMatteTargets: number
   // TextGlass — raw SDF debug render toggle. When true, the glass element
   // bypasses all glass effects (refraction, bevel, colorControls, surface
   // tint) and renders the SDF texture's R channel directly as a grayscale
@@ -468,6 +476,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   textGlassBrighten: 0,
   textGlassGlassTintHue: 0,
   textGlassEdgeMatte: false,
+  textGlassEdgeMatteTargets: 7,
   textGlassRawSdf: false,
   textGlassAdvanced: false,
 }

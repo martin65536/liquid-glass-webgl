@@ -43,7 +43,7 @@ const TG_ADVANCED_BTN_H = 44
 // advanced button. A DOM overlay (TextGlassAdvancedPanel) is rendered on top
 // of this area — completely transparent so the sheet's glass card shows
 // through, with the DOM controls scrolling inside the fixed-height box.
-const TG_ADVANCED_PANEL_H = 300
+const TG_ADVANCED_PANEL_H = 150
 
 /* ------------------------------------------------------------------ *
  * TEXT GLASS — custom text rendered as an SDF-texture glass shape, with
@@ -158,6 +158,12 @@ export function buildTextGlass(
     glassTintHue: state.textGlassGlassTintHue,
     // Edge matte (0 or 1). Desaturates + darkens the SDF edge band.
     edgeMatteEnabled: state.textGlassEdgeMatte,
+    // Edge matte target bitmask — which layers the matte desaturate+darken
+    // applies to. bit 0 = bevel (光影), bit 1 = tint (染色), bit 2 = base
+    // (折射/底色). Default 7 = all. When a bit is unset, that layer's edge
+    // contribution is preserved (not matted). The overall edgeMatteEnabled
+    // toggle still gates whether ANY matte is applied.
+    edgeMatteTargets: state.textGlassEdgeMatteTargets,
     debugMode: state.textGlassRawSdf,
     aaMin: 0.0,
   }

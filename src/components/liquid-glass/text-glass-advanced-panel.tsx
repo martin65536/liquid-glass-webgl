@@ -49,7 +49,7 @@ import type { SetCatalogState } from '@/app/hooks/use-catalog-state'
 
 // MUST match the const in build-text-glass.ts.
 const TG_ADVANCED_BTN_H = 44
-const TG_ADVANCED_PANEL_H = 300
+const TG_ADVANCED_PANEL_H = 150
 
 interface TextGlassAdvancedPanelProps {
   state: CatalogState
@@ -230,6 +230,51 @@ export function TextGlassAdvancedPanel({
         t('text_glass_edge_matte', locale),
         state.textGlassEdgeMatte,
         (v) => setState({ textGlassEdgeMatte: v }),
+      )}
+      {/* Edge matte layer targets — only shown when edge matte is ON.
+          Three compact toggles controlling which layers the matte applies to:
+          光影 (bevel), 染色 (tint), 底色 (base). Each toggles a bit in the
+          bitmask (1/2/4). Default all on (7). */}
+      {state.textGlassEdgeMatte && (
+        <div style={{ padding: '4px 0 6px 16px', borderBottom: `1px solid ${dividerColor}` }}>
+          <div style={{ fontSize: 12, fontWeight: 500, color: subTextColor, marginBottom: 6 }}>
+            {t('text_glass_edge_matte_targets', locale)}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {([
+              { bit: 1, key: 'text_glass_edge_matte_bevel' as const },
+              { bit: 2, key: 'text_glass_edge_matte_tint' as const },
+              { bit: 4, key: 'text_glass_edge_matte_base' as const },
+            ] as const).map(({ bit, key }) => {
+              const on = (state.textGlassEdgeMatteTargets & bit) !== 0
+              return (
+                <Button
+                  key={bit}
+                  variant={on ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() =>
+                    setState((prev: CatalogState) => ({
+                      textGlassEdgeMatteTargets: on
+                        ? prev.textGlassEdgeMatteTargets & ~bit
+                        : prev.textGlassEdgeMatteTargets | bit,
+                    }))
+                  }
+                  style={{
+                    flex: 1,
+                    fontSize: 12,
+                    height: 30,
+                    padding: 0,
+                    ...(on
+                      ? { background: accentColor, color: '#fff', borderColor: accentColor }
+                      : { color: textColor, borderColor: isLightTheme ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.22)' }),
+                  }}
+                >
+                  {t(key, locale)}
+                </Button>
+              )
+            })}
+          </div>
+        </div>
       )}
       {renderToggle(
         t('text_glass_raw_sdf', locale),
