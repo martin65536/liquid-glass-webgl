@@ -239,15 +239,18 @@ void main() {
         // The bevel highlight is always pure white (no dye) — the whole-glass
         // tint (uSdfGlassTintHue) is applied separately below and affects the
         // ENTIRE glass body, not just the bevel band.
-        // Edge matte (bit 0): when matteBevel is true, the bevel's edge
-        // brightening is reduced by the matte strength — the highlight gets
-        // desaturated + darkened toward the matte rim instead of adding pure
-        // white brightness at the edge. The edge factor here is shaped by the
-        // BEVEL layer's (range, min) params, not the global one.
+        // Edge matte (bit 0): when matteBevel is true, TWO things happen at
+        // the bevel band's edge:
+        //   1. The bevel brightening is reduced (less shiny highlight at edge).
+        //   2. A real desaturate + darken is APPLIED to the color at the edge,
+        //      producing a visible frosted/matte rim — not just a dimmer
+        //      highlight. This is the actual "matte applied to bevel" effect.
+        // Both effects are scaled by bevelMatteS (the per-layer strength slider)
+        // and shaped by the BEVEL layer's (range, min) params.
         float matteEdgeBevel = clamp(intensity / max(uSdfEdgeMatteBevelParams.x, 0.001), 0.0, 1.0)
             * (1.0 - uSdfEdgeMatteBevelParams.y) + uSdfEdgeMatteBevelParams.y;
-        // Bevel matte strength — scales the desaturate+darken applied to the
-        // bevel highlight at the edge.
+        // Bevel matte strength — scales BOTH the bevel reduction and the
+        // desaturate+darken application at the edge.
         float bevelMatteS = uSdfEdgeMatteBevelStrength;
         if (uSdfBevelEnabled > 0.5) {
             float angleRad = uSdfLightAngle * 3.1415926 / 180.0;
@@ -255,9 +258,7 @@ void main() {
             float bevel1 = clamp(dot(normal, lightDir), 0.0, 1.0);
             float bevel1Amt = 0.5 * intensity * bevel1;
             if (matteBevel) {
-                // Reduce the bevel brightening at the edge by the matte strength:
-                // the highlight is dimmed + desaturated (mixed toward 1.0 neutral
-                // rather than boosting above 1.0).
+                // (1) Reduce the bevel brightening at the edge.
                 bevel1Amt *= 1.0 - matteEdgeBevel * (matteStrength + matteDarken) * bevelMatteS;
             }
             color.rgb *= 1.0 + bevel1Amt;
@@ -267,6 +268,15 @@ void main() {
                 bevel2Amt *= 1.0 - matteEdgeBevel * (matteStrength + matteDarken) * bevelMatteS;
             }
             color.rgb *= 1.0 + bevel2Amt;
+            // (2) APPLY a real matte rim: desaturate toward luminance + darken
+            // at the edge, scaled by the bevel matte strength. This makes the
+            // "matte on bevel" visually distinct — a frosted band instead of
+            // just a dimmer highlight. Faithful to "哑光加应用与提亮层".
+            if (matteBevel) {
+                float lum = dot(color.rgb, vec3(0.213, 0.715, 0.072));
+                color.rgb = mix(color.rgb, vec3(lum), matteEdgeBevel * matteStrength * bevelMatteS);
+                color.rgb *= 1.0 - matteEdgeBevel * matteDarken * bevelMatteS;
+            }
         }
 
         // Whole-glass tint (染色) — gated by uSdfGlassTintEnabled master switch.

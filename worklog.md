@@ -709,3 +709,30 @@ Stage Summary:
   ① 每层哑光可调强度：光影/染色/底色三层各自独立的 strength 滑块（0..2），控制该层 desaturate+darken 的总强度
   ② 卡顿分析完成，给出 6 条用户可操作的优化建议
 - 未浏览器验证（用户要求不要自己测试）。
+
+---
+Task ID: 24
+Agent: main (Z.ai Code)
+Task: 修复提亮层（bevel）哑光：让哑光真正"应用"到提亮层（desaturate+darken），而不只是削弱提亮增量
+
+Work Log:
+- 用户反馈："我说哑光加应用与提亮层的" — 澄清哑光应该真正"应用"到提亮层
+- 问题定位：当前提亮层哑光（bit 0 / matteBevel）只做了"削弱提亮增量"（bevel1Amt *= 1 - ...），注释里写"desaturated + darkened toward the matte rim"但实际代码并没有执行 desaturate/darken。用户调 strength 滑块时，效果只是"边缘高光变暗一点"，没有可见的磨砂边带
+- shaders/element.ts: 在 bevel 计算块末尾（两个 bevel pass 都应用后）新增 (2) APPLY matte rim 块：
+    if (matteBevel) {
+        float lum = dot(color.rgb, vec3(0.213, 0.715, 0.072));
+        color.rgb = mix(color.rgb, vec3(lum), matteEdgeBevel * matteStrength * bevelMatteS);
+        color.rgb *= 1.0 - matteEdgeBevel * matteDarken * bevelMatteS;
+    }
+  - 与 base 层哑光同样的 desaturate(0.65) + darken(0.18) 公式
+  - 受 bevelMatteS（提亮层 strength 滑块）缩放
+  - 受 matteEdgeBevel（提亮层 range/min 成形的边缘因子）空间门控
+  - 在 bevel brightening 应用之后执行，所以是对最终颜色（含提亮）做去饱和+压暗
+- 保留原有 (1) 削弱提亮增量逻辑（bevel1Amt/bevel2Amt 削弱），现在提亮层哑光 = 削弱提亮 + 应用磨砂边带，两阶段都受 strength 滑块控制
+- 注释更新：明确两阶段效果（reduce bevel + apply matte rim）
+
+Stage Summary:
+- 修改文件（1）：shaders/element.ts
+- 效果：提亮层哑光现在产生可见的磨砂边带（desaturate + darken），不再只是削弱高光。strength 滑块从 0→2 时：0=无哑光，1=边缘去饱和65%+压暗18%，2=边缘去饱和130%+压暗36%（强磨砂）。range/min 滑块控制磨砂带向内延伸范围与内部最低量。
+- lint: 0 error。dev.log: HMR 干净编译（✓ Compiled in 178ms）。
+- 未浏览器验证（用户要求不要自己测试）。
