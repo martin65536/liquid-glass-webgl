@@ -221,10 +221,12 @@ void main() {
 
         // --- Base layer matte (bit 2) ---
         // Desaturate + darken the base refraction/body color at the edge.
+        // Strength scales both the desaturate and darken amounts.
         if (matteBase) {
+            float s = uSdfEdgeMatteBaseStrength;
             float lum = dot(color.rgb, vec3(0.213, 0.715, 0.072));
-            color.rgb = mix(color.rgb, vec3(lum), matteEdgeBase * matteStrength);
-            color.rgb *= 1.0 - matteEdgeBase * matteDarken;
+            color.rgb = mix(color.rgb, vec3(lum), matteEdgeBase * matteStrength * s);
+            color.rgb *= 1.0 - matteEdgeBase * matteDarken * s;
         }
 
         // Bevel lighting — gated by uSdfBevelEnabled so the TextGlass "光影"
@@ -244,6 +246,9 @@ void main() {
         // BEVEL layer's (range, min) params, not the global one.
         float matteEdgeBevel = clamp(intensity / max(uSdfEdgeMatteBevelParams.x, 0.001), 0.0, 1.0)
             * (1.0 - uSdfEdgeMatteBevelParams.y) + uSdfEdgeMatteBevelParams.y;
+        // Bevel matte strength — scales the desaturate+darken applied to the
+        // bevel highlight at the edge.
+        float bevelMatteS = uSdfEdgeMatteBevelStrength;
         if (uSdfBevelEnabled > 0.5) {
             float angleRad = uSdfLightAngle * 3.1415926 / 180.0;
             vec2 lightDir = vec2(cos(angleRad), sin(angleRad));
@@ -253,13 +258,13 @@ void main() {
                 // Reduce the bevel brightening at the edge by the matte strength:
                 // the highlight is dimmed + desaturated (mixed toward 1.0 neutral
                 // rather than boosting above 1.0).
-                bevel1Amt *= 1.0 - matteEdgeBevel * (matteStrength + matteDarken);
+                bevel1Amt *= 1.0 - matteEdgeBevel * (matteStrength + matteDarken) * bevelMatteS;
             }
             color.rgb *= 1.0 + bevel1Amt;
             float bevel2 = clamp(dot(normal, -lightDir), 0.0, 1.0);
             float bevel2Amt = 0.5 * bevel2 * min(1.0, smoothstep(1.0, 0.0, abs(intensity - 0.25) * 6.0));
             if (matteBevel) {
-                bevel2Amt *= 1.0 - matteEdgeBevel * (matteStrength + matteDarken);
+                bevel2Amt *= 1.0 - matteEdgeBevel * (matteStrength + matteDarken) * bevelMatteS;
             }
             color.rgb *= 1.0 + bevel2Amt;
         }
@@ -285,13 +290,15 @@ void main() {
         // layer's (range, min) params.
         float matteEdgeTint = clamp(intensity / max(uSdfEdgeMatteTintParams.x, 0.001), 0.0, 1.0)
             * (1.0 - uSdfEdgeMatteTintParams.y) + uSdfEdgeMatteTintParams.y;
+        // Tint matte strength — scales how much the tint is suppressed at edge.
+        float tintMatteS = uSdfEdgeMatteTintStrength;
         if (uSdfGlassTintEnabled > 0.5 && uSdfGlassTintHue > 0.5) {
             vec3 tintSrc = hsv2rgb(vec3(uSdfGlassTintHue / 360.0, 1.0, 1.0));
             // Stage 1: color-mix filter (before hue-dye).
             if (uSdfGlassTintMix > 0.001) {
                 float mixAmt = uSdfGlassTintMix;
                 if (matteTint) {
-                    mixAmt *= 1.0 - matteEdgeTint * matteStrength;
+                    mixAmt *= 1.0 - matteEdgeTint * matteStrength * tintMatteS;
                 }
                 color.rgb = mix(color.rgb, tintSrc, mixAmt);
             }
@@ -302,7 +309,7 @@ void main() {
             vec3 hueBlended = blendHue(color, tintSrc);
             float tintMix = uSdfGlassTintStrength;
             if (matteTint) {
-                tintMix *= 1.0 - matteEdgeTint * matteStrength;
+                tintMix *= 1.0 - matteEdgeTint * matteStrength * tintMatteS;
             }
             color.rgb = mix(color.rgb, hueBlended, tintMix);
         }

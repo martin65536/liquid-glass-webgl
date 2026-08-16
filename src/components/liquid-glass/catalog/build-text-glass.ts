@@ -184,6 +184,10 @@ export function buildTextGlass(
     edgeMatteBevelParams: [state.textGlassEdgeMatteBevelRange, state.textGlassEdgeMatteBevelMin],
     edgeMatteTintParams: [state.textGlassEdgeMatteTintRange, state.textGlassEdgeMatteTintMin],
     edgeMatteBaseParams: [state.textGlassEdgeMatteBaseRange, state.textGlassEdgeMatteBaseMin],
+    // Per-layer matte strength — scales desaturate+darken per layer.
+    edgeMatteBevelStrength: state.textGlassEdgeMatteBevelStrength,
+    edgeMatteTintStrength: state.textGlassEdgeMatteTintStrength,
+    edgeMatteBaseStrength: state.textGlassEdgeMatteBaseStrength,
     debugMode: state.textGlassRawSdf,
     aaMin: 0.0,
   }

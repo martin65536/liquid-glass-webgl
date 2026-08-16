@@ -658,3 +658,54 @@ Stage Summary:
   ② blur 大小滑块：0..20dp 可调，控制玻璃背后背景模糊度
   ③ 着色器重构为 per-layer edge factor，每层用自己参数计算 matte 权重
 - 未浏览器验证（用户要求不要自己测试）。
+
+---
+Task ID: 23
+Agent: main (Z.ai Code)
+Task: 给每层哑光加强度参数 + 分析卡顿原因
+
+Work Log:
+- 用户反馈两件事：①调整提亮层哑光的（参数） ②卡顿怎么解决
+
+- Task 1: 每层 matte 加 strength 参数
+  - 设计：每层独立 strength (0..2, default 1.0)，缩放该层的 desaturate(0.65) + darken(0.18)
+    - 0 = 该层无哑光效果（即使边缘全强度）
+    - 1 = 原始强度
+    - 2 = 加倍
+  - shaders/element-uniforms.ts: 新增 3 个 float uniform uSdfEdgeMatte{Bevel,Tint,Base}Strength
+  - shaders/element.ts: 每层 matte 应用处乘以该层 strength
+    - base: mix 去饱和量 * s, 压暗量 * s
+    - bevel: bevelAmt 削弱量 * s
+    - tint: mixAmt/tintMix 削弱量 * s
+  - renderer/types.ts: isSdfTexture 加 edgeMatte{Bevel,Tint,Base}Strength
+  - renderer/methods-uniforms.ts: elNames 加 3 个
+  - renderer/methods-render-glass-element-pass.ts: set 3 个 uniform1f + else reset 1.0
+  - catalog/types.ts: CatalogState 加 3 个 strength + DEFAULT 默认值 1
+  - catalog/build-text-glass.ts: isSdfTexture 传 3 个 strength
+  - catalog/i18n.ts: 新增 text_glass_edge_matte_strength (强度/Strength)
+  - text-glass-advanced-panel.tsx: 每层 section 新增 strength 滑块 (0..2, step 0.02)
+
+- Task 2: 卡顿分析
+  - 已确认：matte/blur/tint/strength 等纯 uniform 参数改动只触发 setState → catalog 重建 → uniform 更新，不触发 SDF 纹理重生成（SDF 重生成依赖 text/size/quality/weight/fontIdx，已 150/250ms debounce）
+  - 卡顿主要原因（按影响排序）：
+    1. SDF 纹理重生成（拖动 size/quality/weight 滑块时，150ms debounce）：Canvas2D 绘制 + 距离场变换 + GPU 上传，大 fontSize * quality * dpr 时很重
+    2. 2-pass blur 管线（globalSeparableBlur ON）：每次渲染走 blur FBO 分配 + 多 pass
+    3. per-element FBO 缓存失效：拖动 glass 位置、改 blurRadius 都可能让缓存失效
+    4. DOM 滑块高频 setState：拖动滑块每帧 setState，触发 React 重渲染 + catalog 重建
+    5. 高 DPR：渲染像素数随 dpr² 增长
+  - 解决方案（用户可操作）：
+    - Settings → DPR 调小（如 1.0 或更低）
+    - Settings → 降采样调大（如 8）+ 打开动态降采样
+    - Settings → 采样上限调小（如 5）
+    - Settings → 可分离双通道模糊 → 全局 → 关（TextGlass 走 inline poisson，小半径更快）
+    - TextGlass 高级面板 → 质量调小（0.5 半分辨率）
+    - 拖动滑块时慢一点，让 debounce 生效
+
+- lint: 0 error。dev.log: HMR 干净编译。
+
+Stage Summary:
+- 修改文件（8）：shaders/{element,element-uniforms}.ts、renderer/{types,methods-uniforms,methods-render-glass-element-pass}.ts、catalog/{types,i18n,build-text-glass}.ts、text-glass-advanced-panel.tsx。
+- 效果：
+  ① 每层哑光可调强度：光影/染色/底色三层各自独立的 strength 滑块（0..2），控制该层 desaturate+darken 的总强度
+  ② 卡顿分析完成，给出 6 条用户可操作的优化建议
+- 未浏览器验证（用户要求不要自己测试）。

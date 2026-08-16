@@ -328,26 +328,32 @@ export function TextGlassAdvancedPanel({
               label: t('text_glass_edge_matte_bevel', locale),
               range: state.textGlassEdgeMatteBevelRange,
               min: state.textGlassEdgeMatteBevelMin,
+              strength: state.textGlassEdgeMatteBevelStrength,
               setRange: (v: number) => setState({ textGlassEdgeMatteBevelRange: v }),
               setMin: (v: number) => setState({ textGlassEdgeMatteBevelMin: v }),
+              setStrength: (v: number) => setState({ textGlassEdgeMatteBevelStrength: v }),
             },
             {
               key: 'text_glass_edge_matte_tint' as const,
               label: t('text_glass_edge_matte_tint', locale),
               range: state.textGlassEdgeMatteTintRange,
               min: state.textGlassEdgeMatteTintMin,
+              strength: state.textGlassEdgeMatteTintStrength,
               setRange: (v: number) => setState({ textGlassEdgeMatteTintRange: v }),
               setMin: (v: number) => setState({ textGlassEdgeMatteTintMin: v }),
+              setStrength: (v: number) => setState({ textGlassEdgeMatteTintStrength: v }),
             },
             {
               key: 'text_glass_edge_matte_base' as const,
               label: t('text_glass_edge_matte_base', locale),
               range: state.textGlassEdgeMatteBaseRange,
               min: state.textGlassEdgeMatteBaseMin,
+              strength: state.textGlassEdgeMatteBaseStrength,
               setRange: (v: number) => setState({ textGlassEdgeMatteBaseRange: v }),
               setMin: (v: number) => setState({ textGlassEdgeMatteBaseMin: v }),
+              setStrength: (v: number) => setState({ textGlassEdgeMatteBaseStrength: v }),
             },
-          ]).map(({ key, label, range, min, setRange, setMin }) => (
+          ]).map(({ key, label, range, min, strength, setRange, setMin, setStrength }) => (
             <div key={key} style={{ marginTop: 8 }}>
               <div style={{ fontSize: 11, fontWeight: 500, color: subTextColor, marginBottom: 2 }}>
                 {label}
@@ -367,6 +373,14 @@ export function TextGlassAdvancedPanel({
                 1,
                 0.02,
                 (v) => setMin(Math.round(v * 100) / 100),
+              )}
+              {renderSlider(
+                t('text_glass_edge_matte_strength', locale),
+                strength,
+                0,
+                2,
+                0.02,
+                (v) => setStrength(Math.round(v * 100) / 100),
               )}
             </div>
           ))}

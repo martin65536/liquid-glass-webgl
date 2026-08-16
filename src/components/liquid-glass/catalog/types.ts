@@ -422,6 +422,14 @@ export interface CatalogState {
   textGlassEdgeMatteBevelMin: number
   textGlassEdgeMatteTintMin: number
   textGlassEdgeMatteBaseMin: number
+  // TextGlass — per-layer matte STRENGTH (0..2, default 1.0). Scales the
+  // desaturate (0.65) + darken (0.18) amounts for that layer. 0 = no matte
+  // effect at all; 1 = original strength; 2 = doubled. Independent per layer
+  // so the user can crank the bevel (提亮) matte without affecting tint/base.
+  // Faithful to "调整提亮层哑光的".
+  textGlassEdgeMatteBevelStrength: number
+  textGlassEdgeMatteTintStrength: number
+  textGlassEdgeMatteBaseStrength: number
   // TextGlass — backdrop blur radius in dp (0..20, default 2). Controls the
   // inline poisson-disc blur radius when sampling the wallpaper (or the
   // pre-blur amount hint for the 2-pass Gaussian path). Larger = more frosted
@@ -526,6 +534,9 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   textGlassEdgeMatteBevelMin: 0,
   textGlassEdgeMatteTintMin: 0,
   textGlassEdgeMatteBaseMin: 0,
+  textGlassEdgeMatteBevelStrength: 1,
+  textGlassEdgeMatteTintStrength: 1,
+  textGlassEdgeMatteBaseStrength: 1,
   textGlassBlurRadius: 2,
   textGlassRawSdf: false,
   textGlassAdvanced: false,

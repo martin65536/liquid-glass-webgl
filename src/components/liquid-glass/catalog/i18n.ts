@@ -213,6 +213,7 @@ const translations: Record<string, { zh: string; en: string }> = {
   text_glass_edge_matte_base:    { zh: '底色', en: 'Base' },
   text_glass_edge_matte_range:   { zh: '范围', en: 'Range' },
   text_glass_edge_matte_min:     { zh: '最小值', en: 'Min' },
+  text_glass_edge_matte_strength: { zh: '强度', en: 'Strength' },
   text_glass_blur_radius:        { zh: '模糊', en: 'Blur' },
   text_glass_raw_sdf:       { zh: '直接渲染SDF', en: 'Raw SDF' },
   text_glass_raw_on:        { zh: '开启', en: 'ON' },

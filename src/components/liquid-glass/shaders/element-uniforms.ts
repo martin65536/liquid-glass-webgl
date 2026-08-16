@@ -186,6 +186,15 @@ uniform float uSdfEdgeMatteTargets; // default 7 (all three layers)
 uniform vec2  uSdfEdgeMatteBevelParams; // (range, min) for bevel layer
 uniform vec2  uSdfEdgeMatteTintParams;  // (range, min) for tint layer
 uniform vec2  uSdfEdgeMatteBaseParams;  // (range, min) for base layer
+// Per-layer matte STRENGTH (0..2, default 1.0). Scales the desaturate amount
+// (matteStrength 0.65) AND the darken amount (matteDarken 0.18) for that
+// layer. 0 = no matte effect at all (even at full edge); 1 = original
+// strength; 2 = doubled. Independent per layer so the user can crank the
+// bevel matte without affecting the tint/base matte. Faithful to "调整提亮
+// 层哑光的".
+uniform float uSdfEdgeMatteBevelStrength; // default 1.0
+uniform float uSdfEdgeMatteTintStrength;  // default 1.0
+uniform float uSdfEdgeMatteBaseStrength;  // default 1.0
 // Raw SDF debug render — when > 0.5, the SDF-texture glass path bypasses all
 // glass effects and outputs the SDF's R channel directly as grayscale
 // (inside = white, outside = black, AA via A channel). Used by TextGlass to
