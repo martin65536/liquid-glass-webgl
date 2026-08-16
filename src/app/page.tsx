@@ -448,8 +448,13 @@ export default function Page() {
 
             The sheet is NON-SCROLLABLE now (only 3 rows: input + size slider
             + advanced button), so no scroll-offset tracking is needed — the
-            pill is always at a fixed position. */}
-        {destination === CatalogDestination.TextGlass && rendererReady && state.textGlassSheetExpanded && !state.textGlassAdvanced && (
+            pill is always at a fixed position.
+
+            The input overlay stays visible even when the advanced floating
+            panel is open — the panel floats ABOVE the sheet with a gap, so
+            both the sheet (with text input + size slider) and the panel are
+            usable at the same time. */}
+        {destination === CatalogDestination.TextGlass && rendererReady && state.textGlassSheetExpanded && (
           (() => {
             // Match build-text-glass.ts geometry (CSS px; DP≈1 on these screens).
             // Keep this IN SYNC with the sheet height formula in build-text-glass.ts
@@ -502,8 +507,12 @@ export default function Page() {
                     border: 'none',
                     outline: 'none',
                     boxShadow: 'none',
-                    color: '#fff',
-                    caretColor: '#fff',
+                    // Theme-aware text + caret color — follows the light/dark
+                    // toggle so the typed text is always readable on the glass
+                    // input pill (the pill samples the wallpaper, so its tone
+                    // tracks the theme roughly).
+                    color: isLightTheme ? '#1c1c1e' : '#f5f5f7',
+                    caretColor: isLightTheme ? '#1c1c1e' : '#f5f5f7',
                     fontSize: 15,
                     fontWeight: 600,
                     textAlign: 'center',
@@ -514,15 +523,16 @@ export default function Page() {
             )
           })()
         )}
-        {/* TextGlass — DOM "Advanced Settings" panel overlay. Mounted when
+        {/* TextGlass — DOM "Advanced Settings" floating panel. Mounted when
             the user taps the "Advanced" capsule button in the canvas sheet
-            (state.textGlassAdvanced = true). Renders a bottom-anchored sheet
-            with all the controls that used to live in the canvas sheet:
-            font weight, glass thickness, quality, saturation, brighten, tint,
-            lighting toggle, edge matte toggle, raw-SDF toggle, font family.
-            Uses native HTML inputs (shadcn/ui Slider/Switch/Button) for
-            crisper typography + accessibility. Closes on backdrop click or
-            the Close button. */}
+            (state.textGlassAdvanced = true). This is NOT a modal — there is
+            no full-screen backdrop. The panel floats ABOVE the canvas sheet
+            (which stays visible + interactive) with a visible gap, and has a
+            semi-transparent frosted-glass background so the wallpaper + glass
+            text show through. Contains: font weight, glass thickness, quality,
+            saturation, brighten, tint sliders + lighting / edge-matte / raw-SDF
+            toggles + font family picker. Closes via the panel's Close button
+            or by tapping the "Advanced" button again (it toggles). */}
         {destination === CatalogDestination.TextGlass && rendererReady && state.textGlassAdvanced && (
           <TextGlassAdvancedPanel
             state={state}
