@@ -771,3 +771,30 @@ Stage Summary:
   ① 提亮层哑光只削弱提亮增量（不再额外 desaturate+darken），符合用户"就是削弱"的明确要求
   ② 每层哑光参数从 3 个（范围/最小值/强度）简化为 2 个（范围/强度），UI 更简洁
 - 未浏览器验证（用户要求不要自己测试）。
+
+---
+Task ID: 26
+Agent: main (Z.ai Code)
+Task: 修复提亮层哑光调强度滑块无可见效果（用户抱怨"没有选项！我要能调提亮层的哑光"）
+
+Work Log:
+- 问题诊断：用户反馈调提亮层（光影）的强度滑块看不到效果。原因：上一轮把 desaturate+darken pass 删了，只剩"削弱提亮增量"。当提亮值本身小（用户当前 0.32），bevel1Amt = 0.5 * 0.32 * bevel1 ≈ 0.16，再乘 (1 - edge*0.83*1) 顶多削弱到 0，视觉差异极小，等于"调了没反应"。用户以为没有选项。
+- shaders/element.ts: 恢复 (2) APPLY matte rim 块（在 bevel2Amt 应用之后）：
+    if (matteBevel) {
+        float lum = dot(color.rgb, vec3(0.213, 0.715, 0.072));
+        color.rgb = mix(color.rgb, vec3(lum), matteEdgeBevel * matteStrength * bevelMatteS);
+        color.rgb *= 1.0 - matteEdgeBevel * matteDarken * bevelMatteS;
+    }
+  - 与底色层哑光同样公式（desaturate 0.65 + darken 0.18）
+  - 受 bevelMatteS（提亮层 strength 滑块）缩放
+  - 受 matteEdgeBevel（提亮层 range 成形的边缘因子）空间门控
+  - 在 bevel brightening 应用之后执行，对最终颜色（含提亮）做去饱和+压暗
+- 现在提亮层哑光 = (1) 削弱提亮增量 + (2) 应用 desaturate+darken 磨砂边带，两阶段都受同一个 strength 滑块控制
+- 效果：strength 从 0→2 时边缘可见地从"亮高光"→"去饱和磨砂带"→"强磨砂暗边"，用户调强度时视觉反馈明显
+- 注释更新：说明为何需要 (2)（小 bevel 值时削弱不可见，必须加 desaturate+darken 才能让滑块有可见反馈）
+
+Stage Summary:
+- 修改文件（1）：shaders/element.ts
+- 效果：提亮层强度滑块现在有可见效果——0=无哑光（纯高光），1=边缘去饱和65%+压暗18%，2=强磨砂。用户能看到调强度的视觉变化。
+- lint: 0 error。dev.log: HMR 干净编译（✓ Compiled in 152ms）。
+- 未浏览器验证（用户要求不要自己测试）。
