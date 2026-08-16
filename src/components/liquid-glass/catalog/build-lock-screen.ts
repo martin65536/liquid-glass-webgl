@@ -56,8 +56,17 @@ export function buildLockScreen(W: number, H: number, onBack: () => void, state:
     }
   )
   lsGlass.isSdfTexture = { refractionHeight: 48 * DP, lightAngle: 45 }
-  // SDF texture glass uses sampleWallpaperBlurred (already independent),
-  // but keep ping-pong for correctness — the SDF path is special.
+  // Sample the WALLPAPER directly (bypass the ls-scrim dark overlay).
+  // Without this, uSampleWallpaper defaults to 0 → the SDF shader takes the
+  // `else` branch (sampleBackdrop) and reads the scene FBO, which by now has
+  // the 30% black scrim composited on top of the wallpaper → the clock glass
+  // shows a darkened wallpaper instead of the clean wallpaper.
+  // sampleWallpaper=true forces uSampleWallpaper=1 so the shader calls
+  // sampleWallpaperBlurred() → samples uWallpaperSampler (clean wallpaper) with
+  // the inline 2dp poisson blur, faithful to SdfShader.kt's
+  // content.eval(refractedCoord) which receives LayerBackdrop(wallpaper).
+  // The element still composites onto the scene FBO normally (ping-pong kept).
+  lsGlass.sampleWallpaper = true
   lsGlass.independentBackdrop = false
   elements.push(lsGlass)
   // Drag — faithful to draggable2D { offset += delta }. The web drag delta

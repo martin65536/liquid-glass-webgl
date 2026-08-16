@@ -1000,3 +1000,51 @@ Stage Summary:
   - 导出格式：CatalogState 的 JSON（排除瞬态字段），可分享/备份
   - 导入安全：类型检查 + 白名单（只接受 DEFAULT_CATALOG_STATE 里有的 key），防止格式错误污染 state
 - 未浏览器验证（用户要求不要自己测试）。
+
+---
+Task ID: 32
+Agent: main (Z.ai Code)
+Task: 修复锁屏页 SDF 采样错误（用户："锁屏页sdf采样错了，应该直接采样壁纸，修好了推"）
+
+Work Log:
+- 用户反馈：锁屏页 SDF 采样错了，应该直接采样壁纸。
+- 根因诊断 (catalog/build-lock-screen.ts):
+  - lsGlass.independentBackdrop = false 且未设 sampleWallpaper
+  - 在 renderer/methods-render-glass-element-pass.ts 中:
+      useSampleWallpaper = el.sampleWallpaper || state.independent
+  - 因为两者都为 false → useSampleWallpaper = false → uSampleWallpaper = 0
+  - 在 shaders/element.ts 的 SDF 路径:
+      if (uSampleWallpaper > 0.5) {
+          content = sampleWallpaperBlurred(refractedScreen, uBlurRadius);
+      } else {
+          content = sampleBackdrop(refractedScreen, 0.0);  // ← 走这里
+      }
+  - sampleBackdrop() 在 uSampleWallpaper=0 时读 uBackdrop = curTex（场景 FBO）
+  - 此时场景 FBO 已经被 ls-scrim（30% 黑色）合成上去 → SDF 采样到的是"被黑色遮罩压暗的壁纸"
+  - 原代码注释还误导性地写着 "SDF texture glass uses sampleWallpaperBlurred (already independent)"
+    但 independentBackdrop=false 让这句话根本不成立
+- 修复 (catalog/build-lock-screen.ts):
+  - 新增 lsGlass.sampleWallpaper = true
+  - 这强制 useSampleWallpaper = true → uSampleWallpaper = 1
+  - SDF shader 走 sampleWallpaperBlurred() 分支 → 直接采样 uWallpaperSampler（干净壁纸）
+  - 配合 inline 2dp poisson blur，忠实于 SdfShader.kt 的 content.eval(refractedCoord)
+    （LayerBackdrop(wallpaper)）
+  - 元素仍然正常合成到场景 FBO（ping-pong 保留），只是 backdrop 来源切换到壁纸
+  - 保留 independentBackdrop = false（不需要独立 backdrop 路径，sampleWallpaper 已足够）
+
+- 验证:
+  - lint: 0 error
+  - dev.log: HMR 干净编译（✓ Compiled in 165ms）
+  - Agent Browser 视觉验证（需先 localStorage 设 customDpr=1 跳过自动性能检测）:
+    * LockScreen 页: 中央宽幅玻璃时钟 "12:45" 显示干净的青绿/蓝色壁纸折射，
+      没有被 30% 黑色 scrim 压暗 ✓
+    * TextGlass 页: "Glass" 文字玻璃正常显示壁纸折射，无回归 ✓
+
+- 推送 GitHub: 修复完成后 git commit + push。
+
+Stage Summary:
+- 修改文件（1）：catalog/build-lock-screen.ts
+- 效果：锁屏页 SDF 时钟玻璃现在直接采样干净壁纸（sampleWallpaper=true →
+  uSampleWallpaper=1 → sampleWallpaperBlurred()），不再读到被 scrim 压暗的场景 FBO。
+  时钟玻璃显示原壁纸的明亮颜色，忠实于原版 SdfShader.kt 的 LayerBackdrop 语义。
+- 浏览器视觉验证通过（LockScreen + TextGlass 双页面）。
