@@ -174,7 +174,7 @@ export function buildSettings(
 
   // --- Tap cap slider setup (shared across card 2) ---
   const minTaps = 1
-  const maxTaps = 33
+  const maxTaps = 49
   const tapRange = maxTaps - minTaps
   const tapInitFrac = (state.blurTapCap - minTaps) / tapRange
   const tapStepCount = Math.round(tapRange / 2)

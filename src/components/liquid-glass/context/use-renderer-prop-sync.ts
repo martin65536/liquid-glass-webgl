@@ -57,7 +57,7 @@ export function useRendererPropSync(
   React.useEffect(() => {
     const renderer = rendererRef.current
     if (!renderer || blurTapCap == null) return
-    renderer.blurTapCap = Math.max(1, Math.min(33, blurTapCap | 0))
+    renderer.blurTapCap = Math.max(1, Math.min(49, blurTapCap | 0))
   }, [blurTapCap])
 
   // Apply blur downsample when it changes (Settings slider). Rebuilds the

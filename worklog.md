@@ -70,3 +70,33 @@ Stage Summary:
 - lint：src/ 零错误（唯一错误是 clone 的 examples/ 预存）。
 - 功能验证通过（6 blur-heavy 页 × cap=9/33 = GL clean + console clean）。
 - 视觉正确性需用户肉眼确认（我无法读像素/截图）。
+
+---
+Task ID: B-fix (blur bilinear 折叠 bug 修复)
+Agent: main (Z.ai Code orchestrator)
+Task: 用户指出 B 方案的 bilinear 折叠在"步长=radius 像素"时数学不成立——采样位置随 uRadius 缩放，uRadius≠σ₀ 时 bilinear 插值错误的 texel 对。按 Direction A 修复：pixel-unit offset + 不随 uRadius 缩放 + tier 加密 + 3σ 覆盖。
+
+Work Log:
+- 核对代码确认 bug：shader 里 `pxToUv = uRadius/uTexSize`，采样位置 = `off_σ₀ × uRadius`。uRadius=σ₀ 时位置=oc_pixels∈(j,j+1)✓；uRadius=σ₀/2 时位置=oc_pixels/2，bilinear 插值 tex(floor(j/2)),tex(ceil(j/2)) 而非 tex(j),tex(j+1)✗。
+- 修正用户细节：我的折叠 spacing 在 σ₀=8 时约 2px（非 8px，因折叠把 33→17 个分布在 ±22px），但核心 bug（位置随 uRadius 缩放）一致。
+- Direction A 实现：offset 以**像素**为单位烤进 shader（不再 /sigma），shader 里 `pxToUv = 1/uTexSize`（不再含 uRadius），uRadius 只选 tier 不缩放位置。
+- 发现 downsample 冲突：ds>1 时 1 downsampled px = ds 全屏 px，baked pixel-offset folding 的采样点落到错误 texel 对。Direction A 的折叠只在 ds=1 数学正确。
+- 双模式 shader：uRadius<0 → folded（ds=1，baked pixel offset，bilinear 折叠精确）；uRadius>0 → unfolded（ds>1，integer-σ₀ tap × uRadius，不折叠，legacy 行为）。一个 shader 服务两种模式。
+- tier 加密到 7 档（σ₀=[1,1.4,2,2.8,4,5.7,8]，约 1.4× 递增，量化步长 ≤1.4×）。3σ 完整覆盖（tier 6 σ₀=8 → k=24 → 49 tap folded 25）。
+- pickBlurTier 改 nearest-σ₀（不是"σ₀≥radius 最低档"），因 tier 现在是量化桶不是覆盖范围。
+- blurTapCap 上限 33→49（3 处 clamp：use-renderer-prop-sync、use-catalog-targets、build-settings；注释同步）。
+- runBlurPasses 签名加 visualRadius（tier 选择+跳过）+ shaderRadius（uniform）分离。
+- cropAndBlurBackdrop 传 shaderRadius=-1（elBlurFboA/B 全分辨率，folded 模式）。
+- 数据验证（node 复现）：7 档全部 folded/unfolded 权重和=1、对称、单调、无 NaN。folded maxOffset ≤ k（3σ₀ 完整）。pickBlurTier nearest-σ₀ 行为正确。
+- 浏览器验证（SwiftShader）：
+  - cap=49 + ds=1（强制全档 folded 模式，最严苛）：5 blur-heavy 页全 GL=clean console=[] shot=190-215KB。
+  - cap=9 + ds=4（默认，unfolded 模式为主）：2 页 GL=clean console=[] shot=222KB。
+  - 最终 GL=clean，console 仅 HMR/Supabase 正常日志。
+- 诚实声明：readPixels 仍因 preserveDrawingBuffer:false 拿不到当前帧，视觉正确性需用户肉眼确认。但 folded 模式的数学正确性已通过推导+数据验证，不再有"位置随 radius 缩放"的 bug。
+
+Stage Summary:
+- bug 已修：Direction A（pixel-unit offset，不随 uRadius 缩放），folded 模式在 ds=1 时 bilinear 折叠数学精确。
+- downsample 路径（ds>1）退回 unfolded 不折叠（legacy 行为），避免错误的折叠。Kawase 是 ds>1 的未来根治方向。
+- 7 tier + 49 cap + nearest-σ₀ + 3σ 完整覆盖。
+- 改动文件 6 个：separable-blur.ts(重写)、methods-blur.ts(双模式)、methods-fbo.ts、index.ts、use-renderer-prop-sync.ts、use-catalog-targets.ts、build-settings.ts、catalog/types.ts。
+- 验证通过（数据+7 浏览器场景）。视觉需用户确认。

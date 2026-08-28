@@ -61,8 +61,8 @@ export function useCatalogTargets({ destination, state, W, H }: UseCatalogTarget
       const dprRange = Math.max(0.0001, maxDpr - minDpr)
       const currentDpr = state.customDpr > 0 ? Math.max(minDpr, Math.min(maxDpr, state.customDpr)) : deviceDpr
       targets['settings-dpr'] = Math.max(0, Math.min(1, (currentDpr - minDpr) / dprRange))
-      // Tap cap slider: fraction = (blurTapCap - 1) / 32 (range 1..33)
-      targets['settings-blur-taps'] = Math.max(0, Math.min(1, (state.blurTapCap - 1) / 32))
+      // Tap cap slider: fraction = (blurTapCap - 1) / 48 (range 1..49)
+      targets['settings-blur-taps'] = Math.max(0, Math.min(1, (state.blurTapCap - 1) / 48))
       // Downsample slider: fraction = (maxDs - blurDownsample) / (maxDs - minDs)
       // range 1..8, left=low quality (ds=8), right=high quality (ds=1)
       targets['settings-blur-downsample'] = Math.max(0, Math.min(1, (8 - state.blurDownsample) / 7))
