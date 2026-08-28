@@ -79,11 +79,12 @@ export function useCatalogTargets({ destination, state, W, H }: UseCatalogTarget
       targets['settings-fps-toggle'] = state.showFps ? 1 : 0
       targets['settings-highlight-aa'] = state.highlightAa ? 1 : 0
       targets['settings-per-element-fbo'] = state.usePerElementFbo ? 1 : 0
+      targets['settings-kawase-blur'] = state.useKawaseBlur ? 1 : 0
       targets['settings-direct-backdrop-sample'] = state.directBackdropSample ? 1 : 0
       targets['settings-perf-monitor-toggle'] = state.showPerfMonitor ? 1 : 0
     }
     return targets
-  }, [destination, W, H, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration, state.textGlassFontSize, state.customDpr, state.blurTapCap, state.blurDownsample, state.globalSeparableBlur, state.dynamicBlurDownsample, state.capsuleShape, state.noContinuousSdf, state.capsuleSdfQuality, state.hideOverlayButtons, state.pageTransition, state.showFps, state.highlightAa, state.usePerElementFbo, state.showPerfMonitor, state.directBackdropSample])
+  }, [destination, W, H, state.toggleOn, state.sliderValue, state.cornerRadiusFrac, state.blurRadiusDp, state.refractionHeightFrac, state.refractionAmountFrac, state.chromaticAberration, state.textGlassFontSize, state.customDpr, state.blurTapCap, state.blurDownsample, state.globalSeparableBlur, state.dynamicBlurDownsample, state.capsuleShape, state.noContinuousSdf, state.capsuleSdfQuality, state.hideOverlayButtons, state.pageTransition, state.showFps, state.highlightAa, state.usePerElementFbo, state.useKawaseBlur, state.showPerfMonitor, state.directBackdropSample])
 
   const tabTargets = React.useMemo<Record<string, { tabIndex: number; tabsCount: number }>>(() => {
     const targets: Record<string, { tabIndex: number; tabsCount: number }> = {}

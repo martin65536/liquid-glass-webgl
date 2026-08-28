@@ -166,3 +166,36 @@ Stage Summary:
 - 架构仍是原始：动态 tapCount + generateSeparableBlurShader/generateHighlightBlurShader 两套 + ensureBlurPrograms/highlightBlurPrograms 两套 map。
 - 改动文件 3 个：methods-blur.ts(重写)、methods-fbo.ts(cropAndBlurBackdrop 用 runBlurPasses)、build-settings-blur-card.ts(松手 snap)。
 - 验证通过。tap cap 滑块显示与实际值现在一致。
+
+---
+Task ID: kawase (加 Kawase blur 开关)
+Agent: main (Z.ai Code orchestrator)
+Task: 在现有 Gaussian blur 之外加一个 Kawase blur 路径，通过 Settings toggle 切换。
+
+Work Log:
+- 新建 shaders/kawase-blur.ts：4-tap tent-filter shader（premul-aware，RGB alpha-weighted、alpha 锐利，输出格式和 Gaussian 一致）+ kawaseIterationsForRadius（radius→iters，ceil(log2(r))，cap 6）+ MAX_KAWASE_ITERS=6。一个 program 服务所有迭代（uIteration uniform）。
+- shaders/index.ts 导出 Kawase。
+- methods-blur.ts：加 ensureKawaseProgram（H+V pair）+ kawaseBlurTexture（N iterations × H+V ping-pong，复用 dsBlurFboA/B pool）。blurTexture 顶部 if (useKawaseBlur) 分流到 kawaseBlurTexture。
+- index.ts：加 kawasePrograms 字段 + useKawaseBlur flag（默认 false）。
+- methods-dispose.ts：释放 kawasePrograms。
+- context/types.ts：加 useKawaseBlur prop。
+- use-renderer-prop-sync.ts：同步 useKawaseBlur → renderer.useKawaseBlur + markAllDirty。
+- catalog/types.ts：CatalogState 加 useKawaseBlur + DEFAULT false。
+- use-catalog-state.ts：load + persist useKawaseBlur。
+- use-catalog-targets.ts：target 'settings-kawase-blur' + deps。
+- build-settings.ts：reset 默认值加 useKawaseBlur:false。
+- build-settings-blur-card.ts：blur card 末尾加 Kawase toggle（makeSettingsToggle）。
+- i18n.ts：加 settings_kawase_blur（zh:'Kawase 模糊' / en:'Kawase blur'）。
+- lint：src/ 零错误。
+- dev.log：多次 ✓ Compiled 无错。
+- 浏览器验证：
+  - Kawase OFF（Gaussian）：3 blur-heavy 页 GL=clean console=[]。
+  - Kawase ON：5 页（buttons/glass-playground/progressive-blur/lock-screen/control-center）全 GL=clean console=[]，截图 196-214KB。
+  - 最终 GL=clean。
+
+Stage Summary:
+- Kawase blur 开关完成。Settings → 模糊 card 末尾有 "Kawase 模糊" toggle。
+- 架构：blurTexture 顶部 if(useKawaseBlur) 分流；Kawase 路径独立（ensureKawaseProgram + kawaseBlurTexture），不动 Gaussian 路径。
+- Kawase 实现：4-tap tent-filter（1,3,3,1 binomial 权重），N iterations（radius→ceil(log2(r))，cap 6），ping-pong 复用 dsBlurFboA/B。premul-aware，输出格式和 Gaussian 一致（element pass 无需改）。
+- 默认 OFF（Gaussian），用户手动开。
+- 验证通过。视觉差异（tent vs Gaussian）需用户肉眼确认。

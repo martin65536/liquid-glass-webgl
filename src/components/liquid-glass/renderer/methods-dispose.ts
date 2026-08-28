@@ -104,6 +104,11 @@ export const disposeMethods = {
       gl.deleteProgram(vProg)
     }
     this.highlightBlurPrograms.clear()
+    if (this.kawasePrograms) {
+      gl.deleteProgram(this.kawasePrograms.hProg)
+      gl.deleteProgram(this.kawasePrograms.vProg)
+      this.kawasePrograms = null
+    }
     if (this.sdfTexture) gl.deleteTexture(this.sdfTexture)
     this.sdfTexture = null
     if (this.textSdfTexture) gl.deleteTexture(this.textSdfTexture)

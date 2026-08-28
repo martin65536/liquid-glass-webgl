@@ -56,6 +56,7 @@ const translations: Record<string, { zh: string; en: string }> = {
   settings_downsample_label_dynamic: { zh: '降采样上限', en: 'Downsample cap' },
   settings_downsample_hint_dynamic:  { zh: '(小半径模糊始终全分辨率)', en: '(small-radius blur always full-res)' },
   settings_dynamic_downsample: { zh: '动态降采样', en: 'Dynamic downsample' },
+  settings_kawase_blur:      { zh: 'Kawase 模糊', en: 'Kawase blur' },
   settings_shape_title:     { zh: '形状', en: 'Shape' },
   settings_capsule:         { zh: '胶囊形', en: 'Capsule' },
   settings_no_continuous_sdf: { zh: '不使用平滑圆角 SDF', en: 'Disable smooth SDF' },

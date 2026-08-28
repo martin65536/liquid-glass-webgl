@@ -27,6 +27,7 @@ export function useRendererPropSync(
     dynamicBlurDownsample,
     cornerStyle,
     usePerElementFbo,
+    useKawaseBlur,
     capsuleSdfQuality,
     noContinuousSdf,
     directBackdropSample,
@@ -108,6 +109,18 @@ export function useRendererPropSync(
     renderer.markAllDirty()
     renderer.requestRender()
   }, [usePerElementFbo])
+
+  // Apply Kawase blur toggle when it changes (Settings page). Switches the
+  // blurTexture path between Gaussian separable (default) and Kawase
+  // (4-tap tent-filter, N iterations). Marks all dirty so the next frame
+  // re-blurs with the new path.
+  React.useEffect(() => {
+    const renderer = rendererRef.current
+    if (!renderer || useKawaseBlur == null) return
+    renderer.useKawaseBlur = useKawaseBlur
+    renderer.markAllDirty()
+    renderer.requestRender()
+  }, [useKawaseBlur])
 
   // Apply capsule SDF quality coefficient when it changes (Settings page).
   // The coefficient scales the base texSize (2× oversample POT) before

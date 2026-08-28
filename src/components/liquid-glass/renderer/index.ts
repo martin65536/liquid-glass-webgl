@@ -270,6 +270,14 @@ export class LiquidGlassRenderer {
    *  ALPHA (mask), use Android BlurMaskFilter sigma semantics (uRadius=sigma),
    *  and support sub-pixel sigma (no 0.5 early-return). */
   highlightBlurPrograms = new Map<number, { hProg: WebGLProgram; vProg: WebGLProgram; uH: Record<string, WebGLUniformLocation | null>; uV: Record<string, WebGLUniformLocation | null>; aPosH: number; aPosV: number }>()
+  /** Kawase blur program (H + V). One pair serves all iterations — the
+   *  iteration index is a uniform (uIteration). Lazily compiled by
+   *  ensureKawaseProgram. Used when useKawaseBlur is on. */
+  kawasePrograms: { hProg: WebGLProgram; vProg: WebGLProgram; uTextureH: WebGLUniformLocation | null; uTexSizeH: WebGLUniformLocation | null; uIterationH: WebGLUniformLocation | null; uTextureV: WebGLUniformLocation | null; uTexSizeV: WebGLUniformLocation | null; uIterationV: WebGLUniformLocation | null; aPosH: number; aPosV: number } | null = null
+  /** Use Kawase blur (4-tap tent-filter, N iterations) instead of the
+   *  Gaussian separable path. Kawase is cheaper for large radii. Set from
+   *  CatalogState.useKawaseBlur via use-renderer-prop-sync. Default false. */
+  useKawaseBlur = false
   /** Gravity angle for glass highlight direction, in RADIANS. Updated live via
    *  setGravityAngle (no catalog rebuild). Default 45° = 0.785 rad.
    *  Elements with useGravityAngle=true read this at render time. */

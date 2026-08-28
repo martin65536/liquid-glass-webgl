@@ -49,3 +49,8 @@ export {
   generateHighlightBlurShader,
   computeHighlightBlurTapCount,
 } from './separable-blur'
+export {
+  generateKawaseBlurShader,
+  kawaseIterationsForRadius,
+  MAX_KAWASE_ITERS,
+} from './kawase-blur'

@@ -224,6 +224,10 @@ export interface CatalogState {
   // expected visual change. Kept as a toggle so it can be disabled if any
   // element shows a visual regression.
   usePerElementFbo: boolean
+  // Settings — "Kawase blur" toggle. When true, blurTexture uses the Kawase
+  // path (4-tap tent-filter, N iterations) instead of the Gaussian separable
+  // path. Kawase is cheaper for large radii. Default false (Gaussian).
+  useKawaseBlur: boolean
   // Settings — "direct backdrop sample" toggle. When true (default), glass
   // elements that use the LayerBackdrop semantic in the original Android
   // source (buttons, glass shapes, back/theme buttons, etc.) sample the CLEAN
@@ -499,6 +503,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   showPerfMonitor: false,
   highlightAa: true,
   usePerElementFbo: true,
+  useKawaseBlur: false,
   directBackdropSample: true,
   perfProgress: null,
   perfStatusText: '',

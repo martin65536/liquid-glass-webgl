@@ -163,6 +163,25 @@ export function buildBlurCard(ctx: BuildSettingsCtx): void {
   elements.push(dsLabelEl)
   nextY += dsLabelH
 
+  // Kawase blur toggle — switch the blurTexture path between Gaussian
+  // separable (default) and Kawase (4-tap tent-filter, N iterations).
+  // Kawase is cheaper for large radii; visually slightly different
+  // (tent kernel vs true Gaussian). Placed last in the blur card.
+  const kawaseToggle = makeSettingsToggle(
+    'settings-kawase-blur',
+    { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT + ITEM_GAP },
+    t('settings_kawase_blur', locale),
+    state.useKawaseBlur,
+    () => setState((prev) => ({ useKawaseBlur: !prev.useKawaseBlur })),
+    palette,
+    rendererRef,
+    true,
+    labelPad,
+  )
+  elements.push(...kawaseToggle.elements)
+  Object.assign(interactions, kawaseToggle.interactions)
+  nextY += BUTTON_HEIGHT + ITEM_GAP
+
   // Update card background height
   cardBgEl.rect.h = nextY - cardStartY
   nextY += CARD_GAP

@@ -61,6 +61,10 @@ export interface LiquidGlassCanvasProps {
    *  element renders into a small bbox-sized FBO instead of a fullscreen
    *  ping-pong blit — the biggest per-element cost saver. Pure optimization. */
   usePerElementFbo?: boolean
+  /** Use Kawase blur (4-tap tent-filter, N iterations) instead of the
+   *  Gaussian separable path. Kawase is cheaper for large radii (4 taps ×
+   *  N iters vs up-to-33 taps × 2 passes). Default false (Gaussian). */
+  useKawaseBlur?: boolean
   /** Capsule SDF texture quality coefficient [0.25, 1.0]. Scales the base
    *  texSize by this factor then Math.ceil'd. Default 0.5. When this changes,
    *  the GPU pool + CPU maskCache are cleared and all elFbos marked dirty so
