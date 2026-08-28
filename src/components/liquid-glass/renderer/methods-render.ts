@@ -117,9 +117,7 @@ export const renderMethods = {
     const sceneBlurEl = this.buttonConfigs.find((e) => (e.sceneBlurRadius ?? 0) >= 0.5)
     if (sceneBlurEl) {
       const r = sceneBlurEl.sceneBlurRadius! * this.dpr
-      // Scene-wide blur: bbox = full screen. Uses elBlurFboA/B at fboW×fboH
-      // (same size as dsBlurFbo, but via the bbox path for consistency).
-      const blurred = this.blurTexture(this.fboATex!, r, { x: 0, y: 0, w: this.fboW, h: this.fboH })
+      const blurred = this.blurTexture(this.fboATex!, r)
       // blurTexture restored the FBO binding to fboA (what renderBackground
       // bound). Rebind explicitly + copy blurred result back into fboA.
       this.bindFBO(this.fboA!)

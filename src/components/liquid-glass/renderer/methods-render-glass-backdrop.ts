@@ -216,8 +216,7 @@ export function resolveBackdropTex(
     // fullscreen. gpElementTex is already bbox-sized (cover-fitted wallpaper),
     // so no crop needed — just blur directly into elBlurFboA/B.
     const blurRadiusPx = el.blurRadius * layerScale * this.dpr
-    this.ensureElementFBO(sw, sh)
-    const blurred = this.blurTexture(this.gpElementTex!, blurRadiusPx, { x: 0, y: 0, w: sw, h: sh })
+    const blurred = this.blurTexture(this.gpElementTex!, blurRadiusPx)
     if (this.showBlurDebug) {
       const s = this.lastBlurStats
       this.debugBlurRegions.push({
@@ -267,7 +266,7 @@ export function resolveBackdropTex(
     } else {
       backdropSrc = curTex
     }
-    const blurred = this.blurTexture(backdropSrc, blurRadiusPx, { x: sx, y: sy, w: sw, h: sh })
+    const blurred = this.blurTexture(backdropSrc, blurRadiusPx)
     if (this.showBlurDebug) {
       const s = this.lastBlurStats
       this.debugBlurRegions.push({
