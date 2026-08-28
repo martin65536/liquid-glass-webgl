@@ -430,6 +430,7 @@ export default function Page() {
           blurDownsample={state.blurDownsample}
           dynamicBlurDownsample={state.dynamicBlurDownsample}
           usePerElementFbo={perfMeasuring ? false : state.usePerElementFbo}
+          useKawaseBlur={state.useKawaseBlur}
           capsuleSdfQuality={state.capsuleSdfQuality}
           noContinuousSdf={state.noContinuousSdf}
           directBackdropSample={state.directBackdropSample}

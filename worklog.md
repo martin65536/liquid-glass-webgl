@@ -228,3 +228,25 @@ Stage Summary:
 - bug2 修：Kawase shader 改用 uRadius 驱动总采样半径 + uTotalIters 分摊，iters min 2。全分辨率下 Kawase 效果明显。
 - 两个 bug 有关联：修 bug1（全分辨率）后 Kawase 不再被降采样的糊盖住，bug2 的 shader 修法才看得出效果。
 - 验证通过。视觉差异需用户肉眼确认（Kawase tent vs Gaussian）。
+
+---
+Task ID: kawase-wiring-fix (修 Kawase 接线断开)
+Agent: main (Z.ai Code orchestrator)
+Task: 用户指出 Kawase 开了没效果，separable blur 路径也没切，甚至上面的模糊设置还能生效。
+
+Work Log:
+- 像素对比验证（Kawase OFF vs ON 截图 byte 级对比）：identical: YES — Kawase 根本没切。之前的"验证通过"是假验收（只看 GL 不报错）。
+- 追接线：blurTexture 里 if(this.useKawaseBlur) 分流代码正确 → use-renderer-prop-sync.ts 的 useEffect 正确 → 但 useEffect 依赖 useKawaseBlur 从 props 来 → context.tsx 解构 props 没有 useKawaseBlur → page.tsx 传给 <LiquidGlassCanvas> 的 props 里没有 useKawaseBlur。
+- 根因：接线断在 page.tsx → LiquidGlassCanvas 这一步。page.tsx 传了 usePerElementFbo 但漏了 useKawaseBlur。所以 props.useKawaseBlur 永远 undefined → useEffect 因 `useKawaseBlur == null` return → renderer.useKawaseBlur 永远 false → blurTexture 永远走 Gaussian。
+- 修3处：
+  1. page.tsx: <LiquidGlassCanvas> 加 useKawaseBlur={state.useKawaseBlur}。
+  2. context.tsx: props 解构加 useKawaseBlur。
+  3. context.tsx: init 时 if (useKawaseBlur != null) renderer.useKawaseBlur = useKawaseBlur（首次创建 renderer 就设，不等 useEffect）。
+- 验证（像素对比）：Kawase OFF 208422B vs ON 208314B，identical: NO — 现在真的切了。GL clean。console 无 error。
+- dev.log 曾有 "Fast Refresh had to perform a full reload due to a runtime error" — 是热更新瞬时状态（改 context props 解构触发全量 reload），reload 后恢复正常，非真 bug。
+
+Stage Summary:
+- Kawase 接线修通：page.tsx → context.tsx → renderer.useKawaseBlur → blurTexture 分流。
+- 像素级验证开/关现在有差异（不再是假验收）。
+- 附带发现：kawaseBlurTexture 仍调 pickDsBlurLevel（受 blurDownsample 滑块影响）— Kawase 开着时降采样滑块还影响 buffer 大小。这是否合理待用户确认（Kawase 本身多 pass，降采样可叠加用于进一步提速，但可能让 Kawase 效果变弱）。
+- 之前已说明：Kawase 只对 separable blur 路径（走 blurTexture 的元素）生效，knob/indicator/SDF 文字走 element shader 内联 blur 不受影响。

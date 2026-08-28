@@ -60,6 +60,7 @@ export function LiquidGlassCanvas(props: LiquidGlassCanvasProps) {
     cornerStyle,
     showPefBboxOverlay = false,
     usePerElementFbo,
+    useKawaseBlur,
     capsuleSdfQuality,
     noContinuousSdf,
     directBackdropSample,
@@ -132,6 +133,7 @@ export function LiquidGlassCanvas(props: LiquidGlassCanvasProps) {
     if (dynamicBlurDownsample != null) renderer.dynamicBlurDownsample = dynamicBlurDownsample
     if (cornerStyle != null) renderer.cornerStyle = cornerStyle
     if (usePerElementFbo != null) renderer.usePerElementFbo = usePerElementFbo
+    if (useKawaseBlur != null) renderer.useKawaseBlur = useKawaseBlur
     if (perfMonitorEnabled != null) renderer.perfMonitor.enabled = perfMonitorEnabled
     renderer.showPefBbox = showPefBboxOverlay
     resize()
