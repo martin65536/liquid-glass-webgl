@@ -38,7 +38,7 @@ function loadPersistedSettings(): Partial<CatalogState> {
       pageTransition: typeof parsed.pageTransition === 'boolean' ? parsed.pageTransition : true,
       showFps: typeof parsed.showFps === 'boolean' ? parsed.showFps : false,
       usePerElementFbo: typeof parsed.usePerElementFbo === 'boolean' ? parsed.usePerElementFbo : true,
-      useKawaseBlur: typeof parsed.useKawaseBlur === 'boolean' ? parsed.useKawaseBlur : false,
+      useKawaseBlur: typeof parsed.useKawaseBlur === 'boolean' ? parsed.useKawaseBlur : true,
       kawaseQuality: typeof parsed.kawaseQuality === 'number' ? Math.max(0, Math.min(1, parsed.kawaseQuality)) : 0.5,
       showPerfMonitor: typeof parsed.showPerfMonitor === 'boolean' ? parsed.showPerfMonitor : false,
       directBackdropSample: typeof parsed.directBackdropSample === 'boolean' ? parsed.directBackdropSample : true,

@@ -63,7 +63,7 @@ export interface LiquidGlassCanvasProps {
   usePerElementFbo?: boolean
   /** Use Kawase blur (4-tap tent-filter, N iterations) instead of the
    *  Gaussian separable path. Kawase is cheaper for large radii (4 taps ×
-   *  N iters vs up-to-33 taps × 2 passes). Default false (Gaussian). */
+   *  N iters vs up-to-33 taps × 2 passes). Default true (Kawase). */
   useKawaseBlur?: boolean
   /** Kawase quality multiplier [0, 1], default 0.5. Scales the base
    *  iteration count before clamping to [2, 8]. */

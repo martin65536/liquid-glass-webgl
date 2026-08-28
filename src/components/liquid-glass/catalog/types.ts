@@ -226,7 +226,7 @@ export interface CatalogState {
   usePerElementFbo: boolean
   // Settings — "Kawase blur" toggle. When true, blurTexture uses the Kawase
   // path (4-tap tent-filter, N iterations) instead of the Gaussian separable
-  // path. Kawase is cheaper for large radii. Default false (Gaussian).
+  // path. Kawase is cheaper for large radii. Default true (Kawase).
   useKawaseBlur: boolean
   // Settings — Kawase quality multiplier [0, 1], default 0.5. Scales the
   // base iteration count before clamping to [2, 8]. 0 = min iters (fastest),
@@ -507,7 +507,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   showPerfMonitor: false,
   highlightAa: true,
   usePerElementFbo: true,
-  useKawaseBlur: false,
+  useKawaseBlur: true,
   kawaseQuality: 0.5,
   directBackdropSample: true,
   perfProgress: null,

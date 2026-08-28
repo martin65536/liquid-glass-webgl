@@ -276,8 +276,8 @@ export class LiquidGlassRenderer {
   kawasePrograms: { prog: WebGLProgram; uTexture: WebGLUniformLocation | null; uTexSize: WebGLUniformLocation | null; uRadius: WebGLUniformLocation | null; uIteration: WebGLUniformLocation | null; uTotalIters: WebGLUniformLocation | null; aPos: number } | null = null
   /** Use Kawase blur (4-tap tent-filter, N iterations) instead of the
    *  Gaussian separable path. Kawase is cheaper for large radii. Set from
-   *  CatalogState.useKawaseBlur via use-renderer-prop-sync. Default false. */
-  useKawaseBlur = false
+   *  CatalogState.useKawaseBlur via use-renderer-prop-sync. Default true. */
+  useKawaseBlur = true
   /** Kawase quality multiplier [0, 1], default 0.5. Scales the base
    *  iteration count (from kawaseIterationsForRadius) before clamping to
    *  [2, 8]. 0 = min iters (fastest), 1 = base iter count. Set from
