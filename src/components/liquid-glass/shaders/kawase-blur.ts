@@ -22,24 +22,37 @@
  * ------------------------------------------------------------------ */
 
 /** Max Kawase iterations. Each iter is one H+V pass pair (2 draw calls).
- *  4 iters is enough for large radii — the sample distance d grows with
- *  (iter+1)/total × radius, so 4 iters already cover the full radius.
- *  More iters = diminishing returns, just burns GPU time. */
-export const MAX_KAWASE_ITERS = 4
+ *  iter range [4, 8]: small radius → 4 iters (cheaper), large radius → 8
+ *  iters (smoother). The sample distance d is capped so the farthest tap
+ *  (±2d) lands exactly at `radius` — no over-spread. */
+export const MAX_KAWASE_ITERS = 8
+export const MIN_KAWASE_ITERS = 4
 
-/** Map a blur radius (px) to a Kawase iteration count.
- *  Kawase's iteration count is NOT proportional to radius — the radius
- *  is absorbed by the sample distance (d = radius × (iter+1)/total).
- *  Fewer iters = cheaper; the tent kernel still covers the full radius.
- *    radius < 1.5 → 2 iters (small blur, minimal cost)
- *    radius < 4   → 3 iters
- *    radius ≥ 4   → 4 iters (capped — larger radius just widens d)
- *  This keeps Kawase cheap: 4 iters × 2 pass = 8 draw calls, 4×4=16 taps
- *  total — vs Gaussian's up-to-33 taps × 2 pass = 66 taps. */
+/** Map a blur radius (px) to a Kawase iteration count in [4, 8].
+ *  More iters for larger radius → smoother gradient (denser sampling
+ *  along the d axis), but never below 4 (too coarse) or above 8 (diminishing
+ *  returns, burns GPU). radius < 2 → 4, doubling at each step:
+ *    radius < 2  → 4
+ *    radius < 4  → 5
+ *    radius < 8  → 6
+ *    radius < 16 → 7
+ *    radius ≥ 16 → 8 */
 export function kawaseIterationsForRadius(radius: number): number {
-  if (radius < 1.5) return 2
-  if (radius < 4) return 3
-  return 4
+  if (radius < 2) return 4
+  if (radius < 4) return 5
+  if (radius < 8) return 6
+  if (radius < 16) return 7
+  return 8
+}
+
+/** The per-iteration sample distance for a given (radius, iter, totalIters).
+ *  d grows linearly from a small start to radius/2 at the last iter, so the
+ *  farthest tap (±2d) lands exactly at `radius` — matches the Gaussian
+ *  path's coverage, no over-spread.
+ *  Exposed so the debug overlay can display the actual d used. */
+export function kawaseSampleDistance(radius: number, iter: number, totalIters: number): number {
+  // (iter+1)/totalIters ∈ (0, 1]; × radius/2 → d ∈ (0, radius/2].
+  return (radius / 2) * (iter + 1) / totalIters
 }
 
 /** Generate the Kawase fragment shader for one direction.
@@ -62,9 +75,11 @@ uniform float uTotalIters;  // total iteration count
 void main() {
     vec2 uv = vec2(gl_FragCoord.x / uTexSize.x, gl_FragCoord.y / uTexSize.y);
     vec2 pxToUv = vec2(1.0 / uTexSize.x, 1.0 / uTexSize.y);
-    // This iteration's sample distance: spreads from small (iter 0) to
-    // ~radius (iter N-1). (iter+1)/total ∈ (0,1], so d ∈ (0, radius].
-    float d = uRadius * (uIteration + 1.0) / uTotalIters;
+    // This iteration's sample distance d: grows linearly to radius/2 at the
+    // last iter. The 4 taps are at ±d, ±2d — so the farthest tap (±2d) at
+    // the last iter lands at ±radius, matching Gaussian coverage (no over-spread).
+    // d ∈ (0, radius/2]; 2d ∈ (0, radius].
+    float d = (uRadius * 0.5) * (uIteration + 1.0) / uTotalIters;
     vec2 off = ${dirVec} * d * pxToUv;
     // 4 taps: -2d, -d, +d, +2d (binomial 1,3,3,1 / 8 ≈ Gaussian tent).
     vec4 s1 = texture2D(uTexture, uv - 2.0 * off);

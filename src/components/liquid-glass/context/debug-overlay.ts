@@ -65,7 +65,7 @@ export function drawDebugOverlay(
       ctx.setLineDash([])
       const rDpr = renderer.dpr || 1
       const typeTag = r.blurType === 'kawase' ? 'K' : 'G'
-      const label = `#${i} ${typeTag} ds=${r.ds} r=${(r.radius / rDpr).toFixed(1)} fbo=${r.blurW}×${r.blurH} pass=${r.passes} tap=${r.taps}`
+      const label = `#${i} ${typeTag} ds=${r.ds} r=${(r.radius / rDpr).toFixed(1)} fbo=${r.blurW}×${r.blurH} pass=${r.passes} tap=${r.taps} d=${(r.maxSample / rDpr).toFixed(1)}`
       // Label background + position clamp (mirrors cull/plainRect panels):
       // measure text → dark rounded rect behind → clamp X so it never
       // overflows the right edge of the canvas.

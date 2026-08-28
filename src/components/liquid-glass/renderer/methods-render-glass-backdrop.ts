@@ -225,6 +225,7 @@ export function resolveBackdropTex(
         blurType: s?.type ?? 'gauss',
         passes: s?.passes ?? 0,
         taps: s?.taps ?? 0,
+        maxSample: s?.maxSample ?? 0,
       })
     }
     this.perfMonitor.incBlurPass()
@@ -274,6 +275,7 @@ export function resolveBackdropTex(
         blurType: s?.type ?? 'gauss',
         passes: s?.passes ?? 0,
         taps: s?.taps ?? 0,
+        maxSample: s?.maxSample ?? 0,
       })
     }
     this.perfMonitor.incBlurPass()
