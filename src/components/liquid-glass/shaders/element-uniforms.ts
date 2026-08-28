@@ -11,6 +11,7 @@ uniform vec2  uCanvasSize;        // canvas size in px
 uniform vec2  uWallpaperSize;     // UNUSED — kept for uniform-set compatibility
 uniform vec2  uElementOffset;     // element top-left in canvas px (SCALED rect — where the quad is drawn)
 uniform vec2  uElementSize;       // element size in px (SCALED — includes graphicsLayer scaleX/scaleY)
+uniform vec4  uBackdropBbox;      // (offsetX, offsetY, sizeX, sizeY) in UV [0,1] — region of fullscreen scene the backdrop texture covers. Identity (0,0,1,1) when fullscreen.
 uniform vec4  uCornerRadii;       // (topLeft, topRight, bottomRight, bottomLeft) in px (ORIGINAL, unscaled)
 uniform float uRefractionHeight;  // px (ORIGINAL space — NOT scaled by layerScale, faithful to AGSL)
 uniform float uRefractionAmount;  // px (ORIGINAL space — NOT scaled, faithful to AGSL)

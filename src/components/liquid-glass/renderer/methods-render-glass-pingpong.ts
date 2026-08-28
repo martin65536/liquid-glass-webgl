@@ -121,7 +121,7 @@ export function renderGlassElement(
   // useSeparableBlur → 2-pass Gaussian on curTex / dialogBackdropTex / bgOnlyTex.
   // else → sample curTex (or bgOnlyTex) directly.
   const backdrop = resolveBackdropTex.call(this, state, curTex, otherFbo)
-  this.renderGlassElementPass(backdrop.passState ?? state, backdrop.backdropTex)
+  this.renderGlassElementPass(backdrop.passState ?? state, backdrop.backdropTex, backdrop.backdropBbox)
 
   // --- Steps 2c–2f: Press glow, white overlay, foreground, rim highlight ---
   this.renderGlassPostPasses(state)

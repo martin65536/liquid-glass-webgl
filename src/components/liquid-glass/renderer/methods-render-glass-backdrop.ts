@@ -149,6 +149,11 @@ export interface BackdropResolution {
   passState?: GlassRenderState
   /** True when a 2-pass Gaussian blur was performed (for perf accounting). */
   didBlur: boolean
+  /** When backdropTex is a bbox-sized texture (from cropAndBlurBackdrop),
+   *  this is the bbox in device px {x, y, w, h} — the region of the
+   *  fullscreen scene the bbox texture covers. Element pass sets
+   *  uBackdropBbox from this. Null = fullscreen texture (identity UV). */
+  backdropBbox?: { x: number; y: number; w: number; h: number } | null
 }
 
 /** Resolve the backdrop texture + state for the element pass.
@@ -266,14 +271,14 @@ export function resolveBackdropTex(
     } else {
       backdropSrc = curTex
     }
-    const blurred = this.blurTexture(backdropSrc, blurRadiusPx)
+    const blurred = this.blurTexture(backdropSrc, blurRadiusPx, { x: sx, y: sy, w: sw, h: sh })
     if (this.showBlurDebug) {
       const s = this.lastBlurStats
       this.debugBlurRegions.push({
         x: sx, y: sy, w: sw, h: sh,
         radius: blurRadiusPx,
         ds: this.effectiveBlurDownsample,
-        blurW: this.dsBlurFboW, blurH: this.dsBlurFboH,
+        blurW: this.elFboW, blurH: this.elFboH,
         blurType: s?.type ?? 'gauss',
         passes: s?.passes ?? 0,
         taps: s?.taps ?? 0,
@@ -293,7 +298,7 @@ export function resolveBackdropTex(
     // element pass binds curTex (the blurred backdrop) instead of the raw
     // dialogBackdropTex.
     const passState = el.backdropFbo ? { ...state, el: { ...el, backdropFbo: false } } : state
-    return { backdropTex: blurred, passState, didBlur: true }
+    return { backdropTex: blurred, passState, didBlur: true, backdropBbox: { x: sx, y: sy, w: sw, h: sh } }
   }
 
   // No blur: backdrop is sampled directly. Isolate → bgOnlyTex.

@@ -159,6 +159,14 @@ ${wallpaperBlurCode}            c = sum;
         return c;
     }
     vec2 uv = sceneUv(canvasPx);
+    // uBackdrop may be a bbox-sized texture (when blur ran in a bbox FBO via
+    // cropAndBlurBackdrop). uBackdropBbox = (offsetX, offsetY, sizeX, sizeY)
+    // in normalized UV [0,1] — the region of the fullscreen scene the bbox
+    // texture covers. Map sceneUv into that region, clamp to avoid bleeding
+    // at bbox edges. When uBackdropBbox.zw > 1.0 (sentinel = fullscreen),
+    // the mapping is identity (uv unchanged).
+    uv = (uv - uBackdropBbox.xy) / uBackdropBbox.zw;
+    uv = clamp(uv, vec2(0.0), vec2(1.0));
     if (radius < 0.5) {
         return texture2D(uBackdrop, uv);
     }

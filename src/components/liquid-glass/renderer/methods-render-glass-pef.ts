@@ -165,7 +165,7 @@ export function renderGlassElementPerFbo(
     gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT)
     gl.disable(gl.BLEND)
-    this.renderGlassElementPass(backdrop.passState ?? state, backdrop.backdropTex)
+    this.renderGlassElementPass(backdrop.passState ?? state, backdrop.backdropTex, backdrop.backdropBbox)
 
     // Cacheable miss → mark the entry valid so subsequent frames can hit.
     if (cache.cacheWrite) {

@@ -10,7 +10,7 @@ import { shouldUseSeparableBlur } from './methods-render-glass-backdrop'
 
 declare module './index' {
   interface LiquidGlassRenderer {
-    renderGlassElementPass(state: GlassRenderState, curTex: WebGLTexture): void
+    renderGlassElementPass(state: GlassRenderState, curTex: WebGLTexture, backdropBbox?: { x: number; y: number; w: number; h: number } | null): void
   }
 }
 
@@ -28,7 +28,8 @@ export const glassElementPassMethods = {
   renderGlassElementPass(
     this: LiquidGlassRenderer,
     state: GlassRenderState,
-    curTex: WebGLTexture
+    curTex: WebGLTexture,
+    backdropBbox?: { x: number; y: number; w: number; h: number } | null,
   ) {
     const gl = this.gl
     const { el, sx, sy, sw, sh, radii, togglePressProgress, layerScale } = state
@@ -89,6 +90,26 @@ export const glassElementPassMethods = {
     gl.uniform2f(this.uEl['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
     gl.uniform2f(this.uEl['uElementOffset'], sx * this.dpr, sy * this.dpr)
     gl.uniform2f(this.uEl['uElementSize'], sw * this.dpr, sh * this.dpr)
+    // uBackdropBbox: the region of the fullscreen scene the backdrop texture
+    // covers, in normalized UV [0,1]. When backdrop is a bbox-sized texture
+    // (from cropAndBlurBackdrop), sampleBackdrop maps sceneUv into this region.
+    // Null/absent → fullscreen texture, sentinel (0,0,2,2) makes the mapping
+    // identity (uv = (uv-0)/2 = uv/2, but clamp keeps it in-bounds; actually
+    // use (0,0,1,1) for true identity: (uv-0)/1 = uv).
+    // sceneUv flips Y (1 - y/H), so bbox Y is flipped too: top in device px
+    // → bottom in UV.
+    if (backdropBbox) {
+      const cw = this.canvas.width
+      const ch = this.canvas.height
+      const u0 = backdropBbox.x / cw
+      const u1 = (backdropBbox.x + backdropBbox.w) / cw
+      const v1 = 1.0 - backdropBbox.y / ch          // top in UV
+      const v0 = 1.0 - (backdropBbox.y + backdropBbox.h) / ch  // bottom in UV
+      gl.uniform4f(this.uEl['uBackdropBbox'], u0, v0, u1 - u0, v1 - v0)
+    } else {
+      // Fullscreen: identity mapping (uv = (uv - 0) / 1).
+      gl.uniform4f(this.uEl['uBackdropBbox'], 0, 0, 1, 1)
+    }
     gl.uniform4f(
       this.uEl['uCornerRadii'],
       radii[0] * this.dpr,
