@@ -1,5 +1,4 @@
 import type { LiquidGlassRenderer } from './index'
-import { computeBlur1DTapCount } from '../shaders'
 
 declare module './index' {
   interface LiquidGlassRenderer {
@@ -364,37 +363,17 @@ export const fboMethods = {
       return this.backdropCropTex!
     }
     // --- 2-pass separable Gaussian on backdropCropTex → elBlurFboB ---
-    let taps = computeBlur1DTapCount(blurRadius)
-    taps = Math.min(taps, Math.max(1, this.blurTapCap | 0))
-    this.ensureBlurPrograms(taps)
-    const entry = this.blurPrograms.get(taps)!
-    // Pass 1: horizontal — backdropCropTex → elBlurFboA
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.elBlurFboA)
-    gl.viewport(0, 0, dw, dh)
-    gl.useProgram(entry.hProg)
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
-    gl.enableVertexAttribArray(entry.aPosH)
-    gl.vertexAttribPointer(entry.aPosH, 2, gl.FLOAT, false, 0, 0)
-    gl.activeTexture(gl.TEXTURE0)
-    gl.bindTexture(gl.TEXTURE_2D, this.backdropCropTex!)
-    gl.uniform1i(entry.uH['uTexture'], 0)
-    gl.uniform2f(entry.uH['uTexSize'], dw, dh)
-    gl.uniform1f(entry.uH['uRadius'], blurRadius)
-    gl.drawArrays(gl.TRIANGLES, 0, 6)
-    // Pass 2: vertical — elBlurFboATex → elBlurFboB
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.elBlurFboB)
-    gl.viewport(0, 0, dw, dh)
-    gl.useProgram(entry.vProg)
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
-    gl.enableVertexAttribArray(entry.aPosV)
-    gl.vertexAttribPointer(entry.aPosV, 2, gl.FLOAT, false, 0, 0)
-    gl.activeTexture(gl.TEXTURE0)
-    gl.bindTexture(gl.TEXTURE_2D, this.elBlurFboATex!)
-    gl.uniform1i(entry.uV['uTexture'], 0)
-    gl.uniform2f(entry.uV['uTexSize'], dw, dh)
-    gl.uniform1f(entry.uV['uRadius'], blurRadius)
-    gl.drawArrays(gl.TRIANGLES, 0, 6)
-    return this.elBlurFboBTex!
+    // Routed through the shared runBlurPasses (same path as blurTexture):
+    // picks a tier via pickBlurTier(blurRadius, blurTapCap), compiles the
+    // unified shader lazily, runs H→V into elBlurFboA/B. No duplicated
+    // 2-pass boilerplate, no computeBlur1DTapCount.
+    return this.runBlurPasses(
+      this.backdropCropTex!,
+      this.elBlurFboA!, this.elBlurFboATex!,
+      this.elBlurFboB!, this.elBlurFboBTex!,
+      dw, dh,
+      blurRadius, false,
+    )
   },
 
   /** Composite the per-element FBO texture onto the currently-bound (fullscreen)
