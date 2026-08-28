@@ -29,7 +29,7 @@ function loadPersistedSettings(): Partial<CatalogState> {
       customDpr: typeof parsed.customDpr === 'number' ? parsed.customDpr : 0,
       globalSeparableBlur: typeof parsed.globalSeparableBlur === 'boolean' ? parsed.globalSeparableBlur : true,
       blurTapCap: typeof parsed.blurTapCap === 'number' ? parsed.blurTapCap : 9,
-      blurDownsample: typeof parsed.blurDownsample === 'number' ? Math.max(1, Math.min(8, parsed.blurDownsample)) : 4,
+      blurDownsample: typeof parsed.blurDownsample === 'number' ? Math.max(1, Math.min(8, parsed.blurDownsample)) : 1,
       dynamicBlurDownsample: typeof parsed.dynamicBlurDownsample === 'boolean' ? parsed.dynamicBlurDownsample : false,
       capsuleShape: typeof parsed.capsuleShape === 'boolean' ? parsed.capsuleShape : true,
       noContinuousSdf,
