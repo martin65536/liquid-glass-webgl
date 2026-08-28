@@ -279,10 +279,14 @@ export const blurMethods = {
       hProg, vProg,
       uTextureH: gl.getUniformLocation(hProg, 'uTexture'),
       uTexSizeH: gl.getUniformLocation(hProg, 'uTexSize'),
+      uRadiusH: gl.getUniformLocation(hProg, 'uRadius'),
       uIterationH: gl.getUniformLocation(hProg, 'uIteration'),
+      uTotalItersH: gl.getUniformLocation(hProg, 'uTotalIters'),
       uTextureV: gl.getUniformLocation(vProg, 'uTexture'),
       uTexSizeV: gl.getUniformLocation(vProg, 'uTexSize'),
+      uRadiusV: gl.getUniformLocation(vProg, 'uRadius'),
       uIterationV: gl.getUniformLocation(vProg, 'uIteration'),
+      uTotalItersV: gl.getUniformLocation(vProg, 'uTotalIters'),
       aPosH: 0, aPosV: 0,
     }
   },
@@ -326,7 +330,9 @@ export const blurMethods = {
       gl.bindTexture(gl.TEXTURE_2D, curSrc)
       gl.uniform1i(kp.uTextureH, 0)
       gl.uniform2f(kp.uTexSizeH, w, h)
+      gl.uniform1f(kp.uRadiusH, dsRadius)
       gl.uniform1f(kp.uIterationH, i)
+      gl.uniform1f(kp.uTotalItersH, iters)
       gl.drawArrays(gl.TRIANGLES, 0, 6)
       // V pass: lvl.texA → lvl.fboB
       gl.bindFramebuffer(gl.FRAMEBUFFER, lvl.fboB)
@@ -339,7 +345,9 @@ export const blurMethods = {
       gl.bindTexture(gl.TEXTURE_2D, lvl.texA)
       gl.uniform1i(kp.uTextureV, 0)
       gl.uniform2f(kp.uTexSizeV, w, h)
+      gl.uniform1f(kp.uRadiusV, dsRadius)
       gl.uniform1f(kp.uIterationV, i)
+      gl.uniform1f(kp.uTotalItersV, iters)
       gl.drawArrays(gl.TRIANGLES, 0, 6)
       // Next iteration reads from fboB. ping-pong: swap fboA/fboB roles by
       // binding fboB as next src. But our pool has fixed fboA (dst H) / fboB

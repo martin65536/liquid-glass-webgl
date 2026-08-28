@@ -129,8 +129,13 @@ export const fboMethods = {
     // DPR=N device, fboW = CSS×N, so we multiply ds by dpr to keep
     // blurFbo = CSS/rawDs regardless of DPR. Max clamp 64 prevents absurdly
     // tiny FBOs at extreme slider + high DPR (rawDs=8 × DPR=8 = 64).
+    //
+    // BUT: rawDs=1 means the user explicitly wants FULL resolution (slider
+    // at max quality). Multiplying by dpr would still downsample (dpr=2 →
+    // effectiveDs=2), which violates the user's intent — the slider's min
+    // value must mean "no downsample". So rawDs=1 short-circuits to 1.
     const rawDs = Math.max(1, this.blurDownsample)
-    const ds = Math.max(1, Math.min(rawDs * (this.dpr || 1), 64))
+    const ds = rawDs <= 1 ? 1 : Math.max(1, Math.min(rawDs * (this.dpr || 1), 64))
     this.effectiveBlurDownsample = ds
     const ge = this.createFBO(w, h)
     const ba = this.createFBO(w, h)
