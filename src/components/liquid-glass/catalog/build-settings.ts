@@ -211,10 +211,10 @@ export function buildSettings(
   const qClampFrac = (f: number) => Math.max(0, Math.min(1, f))
 
   // --- Kawase quality slider setup (card 2) ---
-  // Continuous (stepless): left = 0.5× (fewer iters, faster), right = 2.0×
-  // (more iters, smoother). Default = 1.0×. Only effective when useKawaseBlur.
-  const minKq = 0.5
-  const maxKq = 2.0
+  // Continuous (stepless): 0 = min iters (fastest), 1 = base iter count.
+  // Default = 0.5 (half of base). Only effective when useKawaseBlur.
+  const minKq = 0
+  const maxKq = 1
   const kqRange = maxKq - minKq
   const kqInitFrac = Math.max(0, Math.min(1, (state.kawaseQuality - minKq) / kqRange))
   const kqFracToQ = (f: number) => minKq + f * kqRange
@@ -258,7 +258,7 @@ export function buildSettings(
     elements.push(resetBtn)
     interactions['settings-reset'] = {
       onTap: () => {
-        setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 9, blurDownsample: 4, dynamicBlurDownsample: false, capsuleShape: true, noContinuousSdf: true, capsuleSdfQuality: 0.5, hideOverlayButtons: false, locale: 'zh', pageTransition: true, liveDpr: null, liveTapCap: null, liveBlurDownsample: null, liveCapsuleSdfQuality: null, showFps: false, showPerfMonitor: false, highlightAa: true, usePerElementFbo: false, useKawaseBlur: false, kawaseQuality: 1.0, directBackdropSample: true, perfProgress: null, perfDone: false, perfResultDpr: 0, perfStatusText: '' })
+        setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 9, blurDownsample: 4, dynamicBlurDownsample: false, capsuleShape: true, noContinuousSdf: true, capsuleSdfQuality: 0.5, hideOverlayButtons: false, locale: 'zh', pageTransition: true, liveDpr: null, liveTapCap: null, liveBlurDownsample: null, liveCapsuleSdfQuality: null, showFps: false, showPerfMonitor: false, highlightAa: true, usePerElementFbo: false, useKawaseBlur: false, kawaseQuality: 0.5, directBackdropSample: true, perfProgress: null, perfDone: false, perfResultDpr: 0, perfStatusText: '' })
         try { window.localStorage.removeItem('liquid-glass-perf-dpr') } catch {}
         const d = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
         const dprFrac = (d - 0.5) / Math.max(0.0001, d - 0.5)

@@ -65,7 +65,7 @@ export interface LiquidGlassCanvasProps {
    *  Gaussian separable path. Kawase is cheaper for large radii (4 taps ×
    *  N iters vs up-to-33 taps × 2 passes). Default false (Gaussian). */
   useKawaseBlur?: boolean
-  /** Kawase quality multiplier [0.5, 2.0], default 1.0. Scales the base
+  /** Kawase quality multiplier [0, 1], default 0.5. Scales the base
    *  iteration count before clamping to [2, 8]. */
   kawaseQuality?: number
   /** Capsule SDF texture quality coefficient [0.25, 1.0]. Scales the base

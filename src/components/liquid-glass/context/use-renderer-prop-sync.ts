@@ -129,7 +129,7 @@ export function useRendererPropSync(
   React.useEffect(() => {
     const renderer = rendererRef.current
     if (!renderer || kawaseQuality == null) return
-    renderer.kawaseQuality = Math.max(0.5, Math.min(2.0, kawaseQuality))
+    renderer.kawaseQuality = Math.max(0, Math.min(1, kawaseQuality))
     renderer.markAllDirty()
     renderer.requestRender()
   }, [kawaseQuality])

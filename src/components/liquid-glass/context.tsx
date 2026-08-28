@@ -135,7 +135,7 @@ export function LiquidGlassCanvas(props: LiquidGlassCanvasProps) {
     if (cornerStyle != null) renderer.cornerStyle = cornerStyle
     if (usePerElementFbo != null) renderer.usePerElementFbo = usePerElementFbo
     if (useKawaseBlur != null) renderer.useKawaseBlur = useKawaseBlur
-    if (kawaseQuality != null) renderer.kawaseQuality = Math.max(0.5, Math.min(2.0, kawaseQuality))
+    if (kawaseQuality != null) renderer.kawaseQuality = Math.max(0, Math.min(1, kawaseQuality))
     if (perfMonitorEnabled != null) renderer.perfMonitor.enabled = perfMonitorEnabled
     renderer.showPefBbox = showPefBboxOverlay
     resize()

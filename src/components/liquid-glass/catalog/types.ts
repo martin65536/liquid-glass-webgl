@@ -228,9 +228,9 @@ export interface CatalogState {
   // path (4-tap tent-filter, N iterations) instead of the Gaussian separable
   // path. Kawase is cheaper for large radii. Default false (Gaussian).
   useKawaseBlur: boolean
-  // Settings — Kawase quality multiplier [0.5, 2.0], default 1.0. Scales the
-  // base iteration count before clamping to [2, 8]. Only effective when
-  // useKawaseBlur is on. 0.5 = fewer iters (faster), 2.0 = more (smoother).
+  // Settings — Kawase quality multiplier [0, 1], default 0.5. Scales the
+  // base iteration count before clamping to [2, 8]. 0 = min iters (fastest),
+  // 1 = base iter count. Only effective when useKawaseBlur is on.
   kawaseQuality: number
   // Settings — "direct backdrop sample" toggle. When true (default), glass
   // elements that use the LayerBackdrop semantic in the original Android
@@ -508,7 +508,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   highlightAa: true,
   usePerElementFbo: true,
   useKawaseBlur: false,
-  kawaseQuality: 1.0,
+  kawaseQuality: 0.5,
   directBackdropSample: true,
   perfProgress: null,
   perfStatusText: '',
