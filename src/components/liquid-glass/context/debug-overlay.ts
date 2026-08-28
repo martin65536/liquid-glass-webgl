@@ -65,27 +65,27 @@ export function drawDebugOverlay(
       ctx.setLineDash([])
       const rDpr = renderer.dpr || 1
       const typeTag = r.blurType === 'kawase' ? 'K' : 'G'
-      const label = `#${i} ${typeTag} ds=${r.ds} r=${(r.radius / rDpr).toFixed(1)} fbo=${r.blurW}×${r.blurH} pass=${r.passes} tap=${r.taps} d=${(r.maxSample / rDpr).toFixed(1)}`
-      // Label background + position clamp (mirrors cull/plainRect panels):
-      // measure text → dark rounded rect behind → clamp X so it never
-      // overflows the right edge of the canvas.
-      const tw = ctx.measureText(label).width
+      // Two-line label: line 1 = element/radius/fbo/d, line 2 = pass + per-pass tap.
+      // tap on line 2 is PER-PASS (always 4 for Kawase, =taps for Gaussian
+      // since Gaussian is 1 tap count per pass). Total taps = per-pass × passes.
+      const line1 = `#${i} ${typeTag} ds=${r.ds} r=${(r.radius / rDpr).toFixed(1)} fbo=${r.blurW}×${r.blurH} d=${(r.maxSample / rDpr).toFixed(1)}`
+      const perPassTap = r.blurType === 'kawase' ? 4 : r.taps
+      const line2 = `pass=${r.passes} tap/pass=${perPassTap}`
+      const tw1 = ctx.measureText(line1).width
+      const tw2 = ctx.measureText(line2).width
+      const tw = Math.max(tw1, tw2)
       const padX = 4
       const boxW = tw + padX * 2
-      const boxH = 14
+      const boxH = 28  // two lines × 14
       let boxX = r.x + 2
-      // Clamp: if label would overflow right edge, shift left to fit.
       if (boxX + boxW > oc.width - 2) boxX = Math.max(2, oc.width - boxW - 2)
       let boxY = r.y + 2
-      // If element is at the very top (y<boxH), label would overflow top —
-      // place it just below the element's top edge instead.
       if (boxY < 2) boxY = r.y + r.h - boxH - 2
-      // Draw background rect (dark, semi-opaque) for readability over any content.
       ctx.fillStyle = 'rgba(0, 0, 0, 0.72)'
       ctx.fillRect(boxX, boxY, boxW, boxH)
-      // Cyan text on top.
       ctx.fillStyle = 'rgba(80, 200, 255, 0.98)'
-      ctx.fillText(label, boxX + padX, boxY + 11)
+      ctx.fillText(line1, boxX + padX, boxY + 11)
+      ctx.fillText(line2, boxX + padX, boxY + 24)
     }
     // NOTE: do NOT consume — see showPefBbox comment above.
   }
