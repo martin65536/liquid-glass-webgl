@@ -462,7 +462,12 @@ export class LiquidGlassRenderer {
    *  downsample / scissor / coverage bugs. CONSUME-AFTER-DRAW: the overlay
    *  clears the list after drawing it. Only populated when this flag is true. */
   showBlurDebug = false
-  debugBlurRegions: { x: number; y: number; w: number; h: number; radius: number; ds: number; blurW: number; blurH: number }[] = []
+  debugBlurRegions: { x: number; y: number; w: number; h: number; radius: number; ds: number; blurW: number; blurH: number; blurType: 'gauss' | 'kawase'; passes: number; taps: number }[] = []
+  /** Last blur call's stats, written by blurTexture/kawaseBlurTexture so
+   *  callers (e.g. the blur debug overlay push in render-glass-backdrop)
+   *  can read what actually happened (type, pass count, tap count) without
+   *  re-deriving it. Null until the first blur call. */
+  lastBlurStats: { type: 'gauss' | 'kawase'; passes: number; taps: number } | null = null
   /** Debug: when true, the renderer collects each glass element's SHADOW
    *  bbox (the TRUE per-direction reach of the shadow shape on screen,
    *  computed by shadowBboxCss from outerShadow.radius + offsetX/Y +

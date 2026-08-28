@@ -64,7 +64,9 @@ export function drawDebugOverlay(
       ctx.setLineDash([])
       ctx.fillStyle = 'rgba(80, 200, 255, 0.95)'
       ctx.font = 'bold 10px ui-monospace, monospace'
-      const label = `#${i} ds=${r.ds} r=${(r.radius / (renderer.dpr || 1)).toFixed(1)} fbo=${r.blurW}×${r.blurH}`
+      const rDpr = renderer.dpr || 1
+      const typeTag = r.blurType === 'kawase' ? 'K' : 'G'
+      const label = `#${i} ${typeTag} ds=${r.ds} r=${(r.radius / rDpr).toFixed(1)} fbo=${r.blurW}×${r.blurH} pass=${r.passes} tap=${r.taps}`
       ctx.fillText(label, r.x + 3, r.y + 11)
     }
     // NOTE: do NOT consume — see showPefBbox comment above.

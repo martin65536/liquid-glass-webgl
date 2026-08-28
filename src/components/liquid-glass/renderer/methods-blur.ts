@@ -239,9 +239,13 @@ export const blurMethods = {
     // Scale radius to the downsampled space (1/ds). Visual radius preserved.
     const dsRadius = ds > 1 ? radius / ds : radius
     // radius < 0.5 → no blur. Return srcTex UNCHANGED (no 0.6px floor).
-    if (dsRadius < 0.5) return srcTex
+    if (dsRadius < 0.5) {
+      this.lastBlurStats = { type: 'gauss', passes: 0, taps: 0 }
+      return srcTex
+    }
     let taps = computeBlur1DTapCount(dsRadius)
     taps = Math.min(taps, Math.max(1, this.blurTapCap | 0))
+    this.lastBlurStats = { type: 'gauss', passes: 2, taps }
     return this.runBlurPasses(
       srcTex,
       lvl.fboA, lvl.texA,
@@ -304,8 +308,12 @@ export const blurMethods = {
     const lvl = this.pickDsBlurLevel(radius)
     const ds = lvl.ds
     const dsRadius = ds > 1 ? radius / ds : radius
-    if (dsRadius < 0.5) return srcTex
+    if (dsRadius < 0.5) {
+      this.lastBlurStats = { type: 'kawase', passes: 0, taps: 0 }
+      return srcTex
+    }
     const iters = kawaseIterationsForRadius(dsRadius)
+    this.lastBlurStats = { type: 'kawase', passes: iters * 2, taps: 4 * iters }
     this.ensureKawaseProgram()
     const kp = this.kawasePrograms!
     const gl = this.gl

@@ -216,11 +216,15 @@ export function resolveBackdropTex(
     const blurRadiusPx = el.blurRadius * layerScale * this.dpr
     const blurred = this.blurTexture(this.gpElementTex!, blurRadiusPx)
     if (this.showBlurDebug) {
+      const s = this.lastBlurStats
       this.debugBlurRegions.push({
         x: sx, y: sy, w: sw, h: sh,
         radius: blurRadiusPx,
         ds: this.effectiveBlurDownsample,
         blurW: this.dsBlurFboW, blurH: this.dsBlurFboH,
+        blurType: s?.type ?? 'gauss',
+        passes: s?.passes ?? 0,
+        taps: s?.taps ?? 0,
       })
     }
     this.perfMonitor.incBlurPass()
@@ -261,11 +265,15 @@ export function resolveBackdropTex(
     }
     const blurred = this.blurTexture(backdropSrc, blurRadiusPx)
     if (this.showBlurDebug) {
+      const s = this.lastBlurStats
       this.debugBlurRegions.push({
         x: sx, y: sy, w: sw, h: sh,
         radius: blurRadiusPx,
         ds: this.effectiveBlurDownsample,
         blurW: this.dsBlurFboW, blurH: this.dsBlurFboH,
+        blurType: s?.type ?? 'gauss',
+        passes: s?.passes ?? 0,
+        taps: s?.taps ?? 0,
       })
     }
     this.perfMonitor.incBlurPass()

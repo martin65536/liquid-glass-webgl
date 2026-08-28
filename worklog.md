@@ -250,3 +250,24 @@ Stage Summary:
 - 像素级验证开/关现在有差异（不再是假验收）。
 - 附带发现：kawaseBlurTexture 仍调 pickDsBlurLevel（受 blurDownsample 滑块影响）— Kawase 开着时降采样滑块还影响 buffer 大小。这是否合理待用户确认（Kawase 本身多 pass，降采样可叠加用于进一步提速，但可能让 Kawase 效果变弱）。
 - 之前已说明：Kawase 只对 separable blur 路径（走 blurTexture 的元素）生效，knob/indicator/SDF 文字走 element shader 内联 blur 不受影响。
+
+---
+Task ID: blur-debug-type (blur debug overlay 加类型/pass/tap 显示)
+Agent: main (Z.ai Code orchestrator)
+Task: blur debug overlay 加显示类型（Gaussian/Kawase）+ pass 次数 + tap 数。
+
+Work Log:
+- index.ts: debugBlurRegions 类型加 blurType/passes/taps 字段；加 lastBlurStats 字段（blurTexture/kawaseBlurTexture 每次调用写入 {type, passes, taps}）。
+- methods-blur.ts: blurTexture 写 lastBlurStats={type:'gauss', passes:2, taps}（radius<0.5 时 passes:0,taps:0）；kawaseBlurTexture 写 {type:'kawase', passes:iters*2, taps:4*iters}。
+- methods-render-glass-backdrop.ts: 两处 debugBlurRegions push 读 lastBlurStats 加 blurType/passes/taps。
+- context/debug-overlay.ts: label 从 `#N ds= r= fbo=` 改成 `#N G/K ds= r= fbo= pass= tap=`（G=Gaussian, K=Kawase）。
+- 验证（临时 window.__lgRenderer 暴露，验完删）：
+  - Gaussian: {type:'gauss', passes:2, taps:7, ds:2, radius:1} ✓
+  - Kawase: {type:'kawase', passes:4, taps:8, ds:2, radius:1} ✓（2 iter × 2 pass, 4 tap × 2 iter）
+- lint: src/ 零错误。dev.log 编译无错。
+- 临时 window 暴露已删除。
+
+Stage Summary:
+- blur debug overlay 现在显示：类型（G/K）+ pass 次数 + tap 数。
+- 数据流：blurTexture/kawaseBlurTexture → lastBlurStats → debugBlurRegions push → overlay label。
+- 验证两条路径数据正确。
