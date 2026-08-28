@@ -278,6 +278,11 @@ export class LiquidGlassRenderer {
    *  Gaussian separable path. Kawase is cheaper for large radii. Set from
    *  CatalogState.useKawaseBlur via use-renderer-prop-sync. Default false. */
   useKawaseBlur = false
+  /** Kawase quality multiplier [0.5, 2.0], default 1.0. Scales the base
+   *  iteration count (from kawaseIterationsForRadius) before clamping to
+   *  [2, 8]. 0.5 = fewer iters (faster, coarser), 2.0 = more iters (slower,
+   *  smoother). Set from CatalogState.kawaseQuality. */
+  kawaseQuality = 1.0
   /** Gravity angle for glass highlight direction, in RADIANS. Updated live via
    *  setGravityAngle (no catalog rebuild). Default 45° = 0.785 rad.
    *  Elements with useGravityAngle=true read this at render time. */

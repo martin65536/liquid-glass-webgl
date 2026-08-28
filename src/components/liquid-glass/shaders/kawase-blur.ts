@@ -15,19 +15,33 @@
  *   RGB = alpha-weighted average of the 4 samples
  *   alpha = center pixel's alpha (silhouette stays sharp) */
 
-/** Max Kawase iterations. Each iter is ONE 2D pass (1 draw call) — not
- *  separable, so no H+V pair. Capped at 6; large radius absorbed by d. */
-export const MAX_KAWASE_ITERS = 6
-export const MIN_KAWASE_ITERS = 4
+/** Max/min Kawase iterations. Each iter is ONE 2D pass (1 draw call) — not
+ *  separable. Range [2, 8]: small radius → 2 (minimal), large → 8 (smooth).
+ *  The quality multiplier (kawaseQuality, 0.5-2.0) scales the base iter
+ *  count before clamping to [2, 8]. */
+export const MAX_KAWASE_ITERS = 8
+export const MIN_KAWASE_ITERS = 2
 
-/** Map a blur radius (px) to a Kawase iteration count in [4, 6].
- *    radius < 3  → 4
- *    radius < 8  → 5
- *    radius ≥ 8  → 6 (capped — larger radius just widens d) */
-export function kawaseIterationsForRadius(radius: number): number {
-  if (radius < 3) return 4
-  if (radius < 8) return 5
-  return 6
+/** Map a blur radius (px) to a BASE Kawase iteration count in [2, 8].
+ *  The quality multiplier (from the Settings slider) scales this before
+ *  clamping. Base mapping (quality=1.0):
+ *    radius < 1.5 → 2
+ *    radius < 3   → 3
+ *    radius < 6   → 4
+ *    radius < 12  → 6
+ *    radius ≥ 12  → 8
+ *  d_max absorbs the radius via variance-matching, so iter count only
+ *  affects smoothness (more iters = denser sampling along d axis), not
+ *  the total blur strength. */
+export function kawaseIterationsForRadius(radius: number, quality = 1.0): number {
+  let base: number
+  if (radius < 1.5) base = 2
+  else if (radius < 3) base = 3
+  else if (radius < 6) base = 4
+  else if (radius < 12) base = 6
+  else base = 8
+  const scaled = Math.round(base * quality)
+  return Math.max(MIN_KAWASE_ITERS, Math.min(MAX_KAWASE_ITERS, scaled))
 }
 
 /** The per-iteration sample distance for a given (radius, iter, totalIters).

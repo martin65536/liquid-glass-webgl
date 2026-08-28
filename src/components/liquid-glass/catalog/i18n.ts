@@ -57,6 +57,8 @@ const translations: Record<string, { zh: string; en: string }> = {
   settings_downsample_hint_dynamic:  { zh: '(小半径模糊始终全分辨率)', en: '(small-radius blur always full-res)' },
   settings_dynamic_downsample: { zh: '动态降采样', en: 'Dynamic downsample' },
   settings_kawase_blur:      { zh: 'Kawase 模糊', en: 'Kawase blur' },
+  settings_kawase_quality_label: { zh: 'Kawase 质量', en: 'Kawase quality' },
+  settings_kawase_quality_hint:  { zh: '(左=少迭代/快, 右=多迭代/平滑)', en: '(left=fewer iters, right=smoother)' },
   settings_shape_title:     { zh: '形状', en: 'Shape' },
   settings_capsule:         { zh: '胶囊形', en: 'Capsule' },
   settings_no_continuous_sdf: { zh: '不使用平滑圆角 SDF', en: 'Disable smooth SDF' },

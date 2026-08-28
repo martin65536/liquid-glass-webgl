@@ -15,6 +15,7 @@ export function buildBlurCard(ctx: BuildSettingsCtx): void {
     elements, interactions,
     tapFracToTaps, tapSnapFrac, tapInitFrac,
     dsFracToDs, dsClampFrac, dsInitFrac,
+    kqFracToQ, kqClampFrac, kqInitFrac,
   } = ctx
   let nextY = ctx.nextY
 
@@ -181,6 +182,42 @@ export function buildBlurCard(ctx: BuildSettingsCtx): void {
   elements.push(...kawaseToggle.elements)
   Object.assign(interactions, kawaseToggle.interactions)
   nextY += BUTTON_HEIGHT + ITEM_GAP
+
+  // Kawase quality slider — scales the base iteration count [0.5×, 2.0×].
+  // Left = fewer iters (faster, coarser), right = more iters (slower,
+  // smoother). Only effective when useKawaseBlur is on.
+  const kqTrackY = nextY + (24 - 6) / 2
+  const kqSlider = makeLiquidSlider(
+    'settings-kawase-quality',
+    contentX + SLIDER_PAD,
+    kqTrackY,
+    contentW - 2 * SLIDER_PAD,
+    'settings-kawase-quality',
+    palette.sliderTrackOff,
+    palette.sliderAccent,
+    rendererRef,
+    (f) => { setState({ kawaseQuality: kqFracToQ(kqClampFrac(f)) }) },
+    true,
+    false,
+    kqInitFrac,
+    kqClampFrac,
+  )
+  elements.push(...kqSlider.elements)
+  Object.assign(interactions, kqSlider.interactions)
+  nextY += 24 + 4
+
+  // Kawase quality label
+  const kqLabelText = `${t('settings_kawase_quality_label', locale)}: ${state.kawaseQuality.toFixed(2)}×  ${t('settings_kawase_quality_hint', locale)}`
+  const kqLabelH = 16 + CARD_PAD
+  const kqLabelEl = makeText(
+    'settings-kawase-quality-label',
+    { x: rowX, y: nextY, w: rowW, h: kqLabelH },
+    kqLabelText,
+    { color: hintColor, fontSizePx: 13, fontWeight: 400, align: 'left', paddingPx: labelPad, halo: palette.homeTextHalo, pressTintColor: labelColor }
+  )
+  kqLabelEl.isInteractive = true
+  elements.push(kqLabelEl)
+  nextY += kqLabelH
 
   // Update card background height
   cardBgEl.rect.h = nextY - cardStartY

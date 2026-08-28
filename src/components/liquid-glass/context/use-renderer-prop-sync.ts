@@ -28,6 +28,7 @@ export function useRendererPropSync(
     cornerStyle,
     usePerElementFbo,
     useKawaseBlur,
+    kawaseQuality,
     capsuleSdfQuality,
     noContinuousSdf,
     directBackdropSample,
@@ -121,6 +122,17 @@ export function useRendererPropSync(
     renderer.markAllDirty()
     renderer.requestRender()
   }, [useKawaseBlur])
+
+  // Apply Kawase quality multiplier when it changes (Settings slider).
+  // Scales the base iteration count; marks all dirty so the next frame
+  // re-blurs with the new iter count.
+  React.useEffect(() => {
+    const renderer = rendererRef.current
+    if (!renderer || kawaseQuality == null) return
+    renderer.kawaseQuality = Math.max(0.5, Math.min(2.0, kawaseQuality))
+    renderer.markAllDirty()
+    renderer.requestRender()
+  }, [kawaseQuality])
 
   // Apply capsule SDF quality coefficient when it changes (Settings page).
   // The coefficient scales the base texSize (2× oversample POT) before

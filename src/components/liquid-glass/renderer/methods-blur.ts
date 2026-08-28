@@ -301,7 +301,7 @@ export const blurMethods = {
       this.lastBlurStats = { type: 'kawase', passes: 0, taps: 0, maxSample: 0 }
       return srcTex
     }
-    const iters = kawaseIterationsForRadius(dsRadius)
+    const iters = kawaseIterationsForRadius(dsRadius, this.kawaseQuality)
     // Kawase: 1 pass per iter (not 2 — not separable). 4 taps per pass.
     // d_max = radius × √(6N/((N+1)(2N+1))) ≈ 0.63-0.73×radius (variance-matched).
     // Farthest tap = d_max×√2 (diagonal). Equivalent σ = radius (matches Gaussian).

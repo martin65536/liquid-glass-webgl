@@ -104,6 +104,11 @@ export interface BuildSettingsCtx {
   qFracToQ: (f: number) => number
   qClampFrac: (f: number) => number
   qInitFrac: number
+
+  // Kawase quality slider setup (card 2)
+  kqFracToQ: (f: number) => number
+  kqClampFrac: (f: number) => number
+  kqInitFrac: number
 }
 
 export function buildSettings(
@@ -205,6 +210,16 @@ export function buildSettings(
   const qFracToQ = (f: number) => minQ + f * qRange
   const qClampFrac = (f: number) => Math.max(0, Math.min(1, f))
 
+  // --- Kawase quality slider setup (card 2) ---
+  // Continuous (stepless): left = 0.5× (fewer iters, faster), right = 2.0×
+  // (more iters, smoother). Default = 1.0×. Only effective when useKawaseBlur.
+  const minKq = 0.5
+  const maxKq = 2.0
+  const kqRange = maxKq - minKq
+  const kqInitFrac = Math.max(0, Math.min(1, (state.kawaseQuality - minKq) / kqRange))
+  const kqFracToQ = (f: number) => minKq + f * kqRange
+  const kqClampFrac = (f: number) => Math.max(0, Math.min(1, f))
+
   const ctx: BuildSettingsCtx = {
     W, state, setState, rendererRef, palette, locale,
     elements, interactions,
@@ -217,6 +232,7 @@ export function buildSettings(
     tapFracToTaps, tapSnapFrac, tapInitFrac,
     dsFracToDs, dsClampFrac, dsInitFrac,
     qFracToQ, qClampFrac, qInitFrac,
+    kqFracToQ, kqClampFrac, kqInitFrac,
   }
 
   buildRenderingCard(ctx)
@@ -242,7 +258,7 @@ export function buildSettings(
     elements.push(resetBtn)
     interactions['settings-reset'] = {
       onTap: () => {
-        setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 9, blurDownsample: 4, dynamicBlurDownsample: false, capsuleShape: true, noContinuousSdf: true, capsuleSdfQuality: 0.5, hideOverlayButtons: false, locale: 'zh', pageTransition: true, liveDpr: null, liveTapCap: null, liveBlurDownsample: null, liveCapsuleSdfQuality: null, showFps: false, showPerfMonitor: false, highlightAa: true, usePerElementFbo: false, useKawaseBlur: false, directBackdropSample: true, perfProgress: null, perfDone: false, perfResultDpr: 0, perfStatusText: '' })
+        setState({ customDpr: 0, globalSeparableBlur: true, blurTapCap: 9, blurDownsample: 4, dynamicBlurDownsample: false, capsuleShape: true, noContinuousSdf: true, capsuleSdfQuality: 0.5, hideOverlayButtons: false, locale: 'zh', pageTransition: true, liveDpr: null, liveTapCap: null, liveBlurDownsample: null, liveCapsuleSdfQuality: null, showFps: false, showPerfMonitor: false, highlightAa: true, usePerElementFbo: false, useKawaseBlur: false, kawaseQuality: 1.0, directBackdropSample: true, perfProgress: null, perfDone: false, perfResultDpr: 0, perfStatusText: '' })
         try { window.localStorage.removeItem('liquid-glass-perf-dpr') } catch {}
         const d = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
         const dprFrac = (d - 0.5) / Math.max(0.0001, d - 0.5)
