@@ -99,6 +99,11 @@ export const disposeMethods = {
       gl.deleteProgram(vProg)
     }
     this.blurPrograms.clear()
+    for (const { hProg, vProg } of this.highlightBlurPrograms.values()) {
+      gl.deleteProgram(hProg)
+      gl.deleteProgram(vProg)
+    }
+    this.highlightBlurPrograms.clear()
     if (this.sdfTexture) gl.deleteTexture(this.sdfTexture)
     this.sdfTexture = null
     if (this.textSdfTexture) gl.deleteTexture(this.textSdfTexture)

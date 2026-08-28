@@ -44,9 +44,8 @@ export {
   PROGRESSIVE_BLUR_FRAGMENT_SHADER,
 } from './scene-fg'
 export {
-  generateBlurShader,
-  pickBlurTier,
-  BLUR_TIERS,
-  type BlurTier,
-  type BlurTap,
+  generateSeparableBlurShader,
+  computeBlur1DTapCount,
+  generateHighlightBlurShader,
+  computeHighlightBlurTapCount,
 } from './separable-blur'

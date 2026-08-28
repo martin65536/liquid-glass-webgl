@@ -21,6 +21,10 @@ import {
   SCENE_TINT_FRAGMENT_SHADER,
   EL_FBO_COMPOSITE_FRAGMENT_SHADER,
   EL_FBO_CROP_FRAGMENT_SHADER,
+  generateSeparableBlurShader,
+  computeBlur1DTapCount,
+  generateHighlightBlurShader,
+  computeHighlightBlurTapCount,
 } from '../shaders'
 import { compileShader, createProgram } from './gl-utils'
 import { destroyCache } from './inner-shadow-cache'
@@ -260,14 +264,12 @@ export class LiquidGlassRenderer {
    *  with the main FBOs. */
   bgOnlyFbo: WebGLFramebuffer | null = null
   bgOnlyTex: WebGLTexture | null = null
-  /** Blur programs keyed by tier (0..3). One unified shader per tier serves
-   *  both the glass backdrop blur (uBlurAlpha=0, premul RGB / alpha sharp)
-   *  and the highlight mask blur (uBlurAlpha=1, alpha blurred). The tier's
-   *  bilinear-folded kernel is baked into the shader source, so at most
-   *  4 tiers × 2 directions = 8 programs are ever compiled (vs the old
-   *  design's up-to-34 dynamically-compiled programs keyed by tapCount).
-   *  See shaders/separable-blur.ts for the tier table + folding math. */
-  blurPrograms = new Map<number, { hProg: WebGLProgram; vProg: WebGLProgram; uTexture: WebGLUniformLocation | null; uTexSize: WebGLUniformLocation | null; uRadius: WebGLUniformLocation | null; uBlurAlpha: WebGLUniformLocation | null; uTextureV: WebGLUniformLocation | null; uTexSizeV: WebGLUniformLocation | null; uRadiusV: WebGLUniformLocation | null; uBlurAlphaV: WebGLUniformLocation | null; aPosH: number; aPosV: number }>()
+  /** Blur shader variants keyed by 1D tap count (H + V programs each). */
+  blurPrograms = new Map<number, { hProg: WebGLProgram; vProg: WebGLProgram; uH: Record<string, WebGLUniformLocation | null>; uV: Record<string, WebGLUniformLocation | null>; aPosH: number; aPosV: number }>()
+  /** Highlight blur programs — separate from blurPrograms because these blur
+   *  ALPHA (mask), use Android BlurMaskFilter sigma semantics (uRadius=sigma),
+   *  and support sub-pixel sigma (no 0.5 early-return). */
+  highlightBlurPrograms = new Map<number, { hProg: WebGLProgram; vProg: WebGLProgram; uH: Record<string, WebGLUniformLocation | null>; uV: Record<string, WebGLUniformLocation | null>; aPosH: number; aPosV: number }>()
   /** Gravity angle for glass highlight direction, in RADIANS. Updated live via
    *  setGravityAngle (no catalog rebuild). Default 45° = 0.785 rad.
    *  Elements with useGravityAngle=true read this at render time. */
@@ -1031,10 +1033,10 @@ export class LiquidGlassRenderer {
     )
   }
 
-  // cacheUniforms, ensureBlurProgram, pickDsBlurLevel, runBlurPasses,
-  // blurTexture, blurHighlightMask, and dispose are defined in
-  // methods-uniforms.ts / methods-blur.ts / methods-dispose.ts and merged
-  // onto the prototype via Object.assign below.
+  // cacheUniforms, ensureBlurPrograms, pickDsBlurLevel, blurTexture,
+  // ensureHighlightBlurPrograms, blurHighlightMask, and dispose are
+  // defined in methods-uniforms.ts / methods-blur.ts / methods-dispose.ts
+  // and merged onto the prototype via Object.assign below.
 }
 
 // Install method bundles. Each methods-*.ts module exports a record of

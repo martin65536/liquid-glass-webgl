@@ -121,3 +121,23 @@ Stage Summary:
 - 已退回 4 档 B 版本（σ=[1,2,4,8]、单 folded shader、σ₀-unit offset 随 uRadius 缩放、cap 33）。
 - Direction A 的 7 档/双模式/pixel-unit/49 cap 全部移除。
 - 验证通过。bilinear 折叠在 uRadius≠σ₀ 时的 texel-pair 近似特性保留（用户认可"以前好好的"）。
+
+---
+Task ID: B-restore (退回原始版本，去掉 tier 设计)
+Agent: main (Z.ai Code orchestrator)
+Task: 用户要求彻底去掉 tier 分档设计，回到最初从 clone 来的原始版本（动态 tapCount + 两套 shader + 无折叠）。
+
+Work Log:
+- diff 确认 7 个文件被 B 改过：separable-blur.ts、shaders/index.ts、methods-blur.ts、methods-fbo.ts、index.ts、methods-dispose.ts、context/types.ts。其余 4 个（use-renderer-prop-sync、use-catalog-targets、build-settings、catalog/types）已和原始一致（之前退回 4 档 B 时已改回 33/32）。
+- 直接从 liquid-glass-webgl/ clone 目录 cp 7 个文件原样恢复。
+- diff 确认 7 个文件全部和 clone 原始一致。
+- grep 确认 tier 符号（pickBlurTier/BLUR_TIERS/generateBlurShader/runBlurPasses/MAX_BLUR_TAPS/BlurTier）零残留；命中全是 computeHighlightBlurTapCount（原始符号含 "BlurTap" 子串）。原始符号（generateSeparableBlurShader/computeBlur1DTapCount/ensureBlurPrograms/highlightBlurPrograms/blurPrograms）全回来。
+- lint：src/ 零错误（只剩 clone examples 预存）。
+- dev.log：✓ Compiled 无错。
+- 浏览器验证（5 blur-heavy 页）：buttons/glass-playground/progressive-blur/lock-screen/control-center 全 GL=clean console=[]，截图 222-223KB。最终 GL=clean。
+
+Stage Summary:
+- 已彻底退回原始版本（动态 tapCount + generateSeparableBlurShader/generateHighlightBlurShader 两套 + ensureBlurPrograms/highlightBlurPrograms 两套 map + 0.6 clamp + blurTexture/blurHighlightMask/cropAndBlurBackdrop 三处）。
+- tier 分档、bilinear 折叠、统一 shader、σ 统一、softAlpha、scissor 全保存——全部移除。
+- blur 相关代码现在和 clone 原始完全一致（diff 零差异）。
+- 验证通过。

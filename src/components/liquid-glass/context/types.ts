@@ -39,8 +39,8 @@ export interface LiquidGlassCanvasProps {
   dpr?: number
   /** Max 1D taps per separable blur pass (1..33). Performance knob for
    *  useSeparableBlur elements. Applied on renderer init + when it changes.
-   *  The tiered blur (shaders/separable-blur.ts) picks the highest tier
-   *  whose effectiveTaps ≤ this cap; this is the MAXIMUM quality ceiling. */
+   *  Small blur radii automatically use fewer taps (computeBlur1DTapCount);
+   *  this caps the MAXIMUM. */
   blurTapCap?: number
   /** Blur FBO downsample factor (float, 1=full-res high quality, up to 4=
    *  quarter-res low quality). Cuts blur fragment invocations by ds².
