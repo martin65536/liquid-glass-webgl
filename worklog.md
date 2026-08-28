@@ -271,3 +271,25 @@ Stage Summary:
 - blur debug overlay 现在显示：类型（G/K）+ pass 次数 + tap 数。
 - 数据流：blurTexture/kawaseBlurTexture → lastBlurStats → debugBlurRegions push → overlay label。
 - 验证两条路径数据正确。
+
+---
+Task ID: blur-debug-label-fix (修 blur debug label 超出/无背景 + 解释 tap 数变化)
+Agent: main (Z.ai Code orchestrator)
+Task: (1) 解释 tap 数为什么会变；(2) 修 blur debug 文字超出屏幕 + 没背景。
+
+Work Log:
+- 解释 tap 变化：label 的 tap= 显示的是 min(computeBlur1DTapCount(radius), blurTapCap)，即实际用的 tap 数，不是 cap 上限。radius 变 → 算出的理想 tap 变 → 显示值变（radius=1→9, radius=4→19, radius=8→33，都被 cap 截）。这是正确行为，label 标识 tap= 可能误导。不改文字（保持简洁），行为正确。
+- 修 label 渲染（参考 cull/plainRect panel）：
+  - measureText 算文字宽度 → 画深色背景 rect (rgba(0,0,0,0.72)) → cyan 文字在上。
+  - X clamp：boxX+boxW 超右边界时左移到 Math.max(2, oc.width-boxW-2)。
+  - Y clamp：元素在顶部 (boxY<2) 时 label 放元素底部 (r.y+r.h-boxH-2) 防上溢出。
+  - 删未用的 padY 变量。
+- 验证（临时 window.__lgRenderer，验完删）：
+  - Gaussian: {tap:9, pass:2, radius:1} ✓
+  - Kawase: 切换成功，截图 ✓
+- lint: src/ 零错误。dev.log 编译无错。
+- 临时 window 暴露已删。
+
+Stage Summary:
+- blur debug label 现在有深色背景 + 位置 clamp（防右/上溢出），和 cull/plainRect panel 风格一致。
+- tap= 显示的是实际 tap 数（随 radius 变），不是 cap 上限——这是正确行为。

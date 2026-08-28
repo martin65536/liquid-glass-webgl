@@ -54,6 +54,7 @@ export function drawDebugOverlay(
   }
   if (renderer.showBlurDebug) {
     const regions = renderer.debugBlurRegions
+    ctx.font = 'bold 10px ui-monospace, monospace'
     for (let i = 0; i < regions.length; i++) {
       const r = regions[i]
       // Cyan dashed rect = element whose backdrop was blurred.
@@ -62,12 +63,29 @@ export function drawDebugOverlay(
       ctx.setLineDash([5, 3])
       ctx.strokeRect(r.x + 0.5, r.y + 0.5, r.w - 1, r.h - 1)
       ctx.setLineDash([])
-      ctx.fillStyle = 'rgba(80, 200, 255, 0.95)'
-      ctx.font = 'bold 10px ui-monospace, monospace'
       const rDpr = renderer.dpr || 1
       const typeTag = r.blurType === 'kawase' ? 'K' : 'G'
       const label = `#${i} ${typeTag} ds=${r.ds} r=${(r.radius / rDpr).toFixed(1)} fbo=${r.blurW}×${r.blurH} pass=${r.passes} tap=${r.taps}`
-      ctx.fillText(label, r.x + 3, r.y + 11)
+      // Label background + position clamp (mirrors cull/plainRect panels):
+      // measure text → dark rounded rect behind → clamp X so it never
+      // overflows the right edge of the canvas.
+      const tw = ctx.measureText(label).width
+      const padX = 4
+      const boxW = tw + padX * 2
+      const boxH = 14
+      let boxX = r.x + 2
+      // Clamp: if label would overflow right edge, shift left to fit.
+      if (boxX + boxW > oc.width - 2) boxX = Math.max(2, oc.width - boxW - 2)
+      let boxY = r.y + 2
+      // If element is at the very top (y<boxH), label would overflow top —
+      // place it just below the element's top edge instead.
+      if (boxY < 2) boxY = r.y + r.h - boxH - 2
+      // Draw background rect (dark, semi-opaque) for readability over any content.
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.72)'
+      ctx.fillRect(boxX, boxY, boxW, boxH)
+      // Cyan text on top.
+      ctx.fillStyle = 'rgba(80, 200, 255, 0.98)'
+      ctx.fillText(label, boxX + padX, boxY + 11)
     }
     // NOTE: do NOT consume — see showPefBbox comment above.
   }
