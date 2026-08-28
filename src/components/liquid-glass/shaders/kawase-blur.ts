@@ -21,17 +21,25 @@
  * kernel vs true Gaussian). The user picks via useKawaseBlur toggle.
  * ------------------------------------------------------------------ */
 
-/** Max Kawase iterations. Each iter is one H+V pass pair.
- *  iters = clamp(round(radius), 2, MAX). radius 1→2, 4→4, 8→6, 16→6.
- *  Min 2 because 1 iteration of 4-tap tent is barely visible. */
-export const MAX_KAWASE_ITERS = 6
+/** Max Kawase iterations. Each iter is one H+V pass pair (2 draw calls).
+ *  4 iters is enough for large radii — the sample distance d grows with
+ *  (iter+1)/total × radius, so 4 iters already cover the full radius.
+ *  More iters = diminishing returns, just burns GPU time. */
+export const MAX_KAWASE_ITERS = 4
 
 /** Map a blur radius (px) to a Kawase iteration count.
- *  iters = clamp(round(radius), 2, MAX_KAWASE_ITERS).
- *  radius=1→2, 2→2, 3→3, 4→4, 5→5, 6→6, 8→6, 16→6.
- *  Min 2: a single 4-tap tent iteration is too subtle to read as blur. */
+ *  Kawase's iteration count is NOT proportional to radius — the radius
+ *  is absorbed by the sample distance (d = radius × (iter+1)/total).
+ *  Fewer iters = cheaper; the tent kernel still covers the full radius.
+ *    radius < 1.5 → 2 iters (small blur, minimal cost)
+ *    radius < 4   → 3 iters
+ *    radius ≥ 4   → 4 iters (capped — larger radius just widens d)
+ *  This keeps Kawase cheap: 4 iters × 2 pass = 8 draw calls, 4×4=16 taps
+ *  total — vs Gaussian's up-to-33 taps × 2 pass = 66 taps. */
 export function kawaseIterationsForRadius(radius: number): number {
-  return Math.max(2, Math.min(MAX_KAWASE_ITERS, Math.round(radius)))
+  if (radius < 1.5) return 2
+  if (radius < 4) return 3
+  return 4
 }
 
 /** Generate the Kawase fragment shader for one direction.
