@@ -363,17 +363,16 @@ export const fboMethods = {
       return this.backdropCropTex!
     }
     // --- 2-pass separable Gaussian on backdropCropTex → elBlurFboB ---
-    // elBlurFboA/B are full-resolution (dw×dh = elFbo size, NOT downsampled),
-    // so this runs in FOLDED mode (shaderRadius=-1): bilinear folding is
-    // exact, sample positions are baked pixel offsets. visualRadius selects
-    // the tier (nearest σ₀). Routed through the shared runBlurPasses — no
-    // duplicated 2-pass boilerplate.
+    // Routed through the shared runBlurPasses (same path as blurTexture):
+    // picks a tier via pickBlurTier(blurRadius, blurTapCap), compiles the
+    // unified shader lazily, runs H→V into elBlurFboA/B. No duplicated
+    // 2-pass boilerplate, no computeBlur1DTapCount.
     return this.runBlurPasses(
       this.backdropCropTex!,
       this.elBlurFboA!, this.elBlurFboATex!,
       this.elBlurFboB!, this.elBlurFboBTex!,
       dw, dh,
-      blurRadius, -1, false,
+      blurRadius, false,
     )
   },
 

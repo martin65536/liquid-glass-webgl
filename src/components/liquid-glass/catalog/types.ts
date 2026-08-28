@@ -144,7 +144,7 @@ export interface CatalogState {
   customDpr: number
   // Settings — global separable 2-pass blur toggle
   globalSeparableBlur: boolean
-  // Settings — blur tap cap (1..49, max 1D taps per separable pass)
+  // Settings — blur tap cap (1..33, max 1D taps per separable pass)
   blurTapCap: number
   // Settings — blur downsample factor (float, slider range 1–8). Continuous
   // slider: left=low quality (ds=8, fastest), right=high quality (ds=1, full-res).

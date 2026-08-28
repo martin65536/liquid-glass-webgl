@@ -100,3 +100,24 @@ Stage Summary:
 - 7 tier + 49 cap + nearest-σ₀ + 3σ 完整覆盖。
 - 改动文件 6 个：separable-blur.ts(重写)、methods-blur.ts(双模式)、methods-fbo.ts、index.ts、use-renderer-prop-sync.ts、use-catalog-targets.ts、build-settings.ts、catalog/types.ts。
 - 验证通过（数据+7 浏览器场景）。视觉需用户确认。
+
+---
+Task ID: B-revert (退回 4 档 B)
+Agent: main (Z.ai Code orchestrator)
+Task: 用户要求退回 4 档 B 版本（第一次 B 的状态），不要 Direction A 的 7 档 + 双模式改动。"以前好好的"。
+
+Work Log:
+- 退回 shaders/separable-blur.ts：4 档 σ=[1,2,4,8]、σ₀-unit offset（/sigma）、单模式 shader（pxToUv=uRadius/uTexSize，offset 随 uRadius 缩放）、pickBlurTier ascending radius<=sigma、buildFoldedKernel maxTaps=33。删 buildUnfoldedKernel、MAX_BLUR_TAPS、dual-mode 分支。
+- 退回 renderer/methods-blur.ts：runBlurPasses 单 radius 参数（删 visualRadius+shaderRadius 双参）、单 folded 模式（删 uRadius<0 sentinel）、blurTexture 传 dsRadius、blurHighlightMask 传 dsSigma。
+- 退回 methods-fbo.ts cropAndBlurBackdrop：传 blurRadius, false（删 -1 sentinel）。
+- 退回 index.ts：blurPrograms 注释 7→4 档、blurTapCap 注释 49→33。
+- 退回 4 处 blurTapCap clamp 49→33：use-renderer-prop-sync.ts、use-catalog-targets.ts(/48→/32)、build-settings.ts(maxTaps 49→33)、catalog/types.ts(注释 49→33)。
+- grep 确认无残留：49/7-tier/dual-mode/unfolded/MAX_BLUR_TAPS/visualRadius/shaderRadius 全清（唯一 49 命中是 about 页 URL 片段）。
+- lint：src/ 零错误（只剩 clone examples 预存）。
+- dev.log：多次 ✓ Compiled 无错。
+- 浏览器验证（7 场景）：默认 cap=9 5 页 + cap=33 2 页，全 GL=clean console=[]，截图 208-222KB。
+
+Stage Summary:
+- 已退回 4 档 B 版本（σ=[1,2,4,8]、单 folded shader、σ₀-unit offset 随 uRadius 缩放、cap 33）。
+- Direction A 的 7 档/双模式/pixel-unit/49 cap 全部移除。
+- 验证通过。bilinear 折叠在 uRadius≠σ₀ 时的 texel-pair 近似特性保留（用户认可"以前好好的"）。

@@ -260,23 +260,20 @@ export class LiquidGlassRenderer {
    *  with the main FBOs. */
   bgOnlyFbo: WebGLFramebuffer | null = null
   bgOnlyTex: WebGLTexture | null = null
-  /** Blur programs keyed by tier (0..6). One unified shader per tier serves
+  /** Blur programs keyed by tier (0..3). One unified shader per tier serves
    *  both the glass backdrop blur (uBlurAlpha=0, premul RGB / alpha sharp)
-   *  and the highlight mask blur (uBlurAlpha=1, alpha blurred). The shader
-   *  has a DUAL MODE: uRadius<0 = folded (ds=1, baked pixel offsets, bilinear
-   *  folding exact), uRadius>0 = unfolded (ds>1, integer-σ₀ taps scaled by
-   *  uRadius). 7 tiers × 2 directions = 14 programs max. See
-   *  shaders/separable-blur.ts for the tier table + folding math. */
+   *  and the highlight mask blur (uBlurAlpha=1, alpha blurred). The tier's
+   *  bilinear-folded kernel is baked into the shader source, so at most
+   *  4 tiers × 2 directions = 8 programs are ever compiled (vs the old
+   *  design's up-to-34 dynamically-compiled programs keyed by tapCount).
+   *  See shaders/separable-blur.ts for the tier table + folding math. */
   blurPrograms = new Map<number, { hProg: WebGLProgram; vProg: WebGLProgram; uTexture: WebGLUniformLocation | null; uTexSize: WebGLUniformLocation | null; uRadius: WebGLUniformLocation | null; uBlurAlpha: WebGLUniformLocation | null; uTextureV: WebGLUniformLocation | null; uTexSizeV: WebGLUniformLocation | null; uRadiusV: WebGLUniformLocation | null; uBlurAlphaV: WebGLUniformLocation | null; aPosH: number; aPosV: number }>()
   /** Gravity angle for glass highlight direction, in RADIANS. Updated live via
    *  setGravityAngle (no catalog rebuild). Default 45° = 0.785 rad.
    *  Elements with useGravityAngle=true read this at render time. */
   gravityAngle = 45 * Math.PI / 180
-  /** Max 1D taps per blur pass (1..49). Lower = faster, Higher = better
-   *  quality. Set from CatalogState.blurTapCap. Default 9. The tiered
-   *  blur (shaders/separable-blur.ts) picks the highest tier whose
-   *  effectiveTaps ≤ this cap; this is the MAXIMUM quality ceiling.
-   *  Raised from 33 to 49 to allow tier 6 (σ₀=8, full 3σ coverage). */
+  /** Max 1D taps per blur pass (1..33). Lower = faster, Higher = better quality.
+   *  Set from CatalogState.blurTapCap. Default 9. */
   blurTapCap = 9
   /** Blur downsample factor (float, slider range 1–8). Higher = much faster
    *  but lower quality. Set from CatalogState.blurDownsample. The downsampled

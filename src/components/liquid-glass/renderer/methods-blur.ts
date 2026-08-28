@@ -52,19 +52,15 @@ declare module './index' {
     ensureBlurProgram(tier: number): void
     /** Pick the downsampled blur FBO level for a given radius (legacy). */
     pickDsBlurLevel(radius: number): { ds: number; fboA: WebGLFramebuffer; texA: WebGLTexture; fboB: WebGLFramebuffer; texB: WebGLTexture; w: number; h: number }
-    /** Shared 2-pass H→V separable blur. Renders srcTex blurred by
-     *  `visualRadius` px (device px, for tier selection + skip test) into
-     *  dstFboA (H pass) then dstFboB (V pass); returns dstTexB.
-     *  `shaderRadius` is the uRadius uniform value: <0 = folded mode
-     *  (ds=1, baked pixel offsets, bilinear folding exact); >0 = unfolded
-     *  mode (σ in downsampled px, integer-σ₀ taps scaled by uRadius).
-     *  Returns srcTex unchanged when visualRadius < 0.5 (blur skipped). */
+    /** Shared 2-pass H→V separable blur. Renders srcTex blurred by `radius`
+     *  px into dstFboA (H pass) then dstFboB (V pass); returns dstTexB.
+     *  Returns srcTex unchanged when radius < 0.5 (blur skipped). */
     runBlurPasses(
       srcTex: WebGLTexture,
       dstFboA: WebGLFramebuffer, dstTexA: WebGLTexture,
       dstFboB: WebGLFramebuffer, dstTexB: WebGLTexture,
       w: number, h: number,
-      visualRadius: number, shaderRadius: number, softAlpha: boolean,
+      radius: number, softAlpha: boolean,
     ): WebGLTexture
     /** 2-pass blur a source texture by `radius` px into the downsampled
      *  pool. softAlpha=false (default) = sharp glass silhouette (no
@@ -155,10 +151,10 @@ export const blurMethods = {
     dstFboA: WebGLFramebuffer, dstTexA: WebGLTexture,
     dstFboB: WebGLFramebuffer, dstTexB: WebGLTexture,
     w: number, h: number,
-    visualRadius: number, shaderRadius: number, softAlpha: boolean,
+    radius: number, softAlpha: boolean,
   ): WebGLTexture {
-    const tier = pickBlurTier(visualRadius, this.blurTapCap)
-    // visualRadius < 0.5 → no blur. Return srcTex UNCHANGED (no downsample blit,
+    const tier = pickBlurTier(radius, this.blurTapCap)
+    // radius < 0.5 → no blur. Return srcTex UNCHANGED (no downsample blit,
     // no 0.6px clamp floor — the old `max(0.6, radius/ds)` hack is gone,
     // so press-scale animations can finally reach a truly crisp frame).
     if (tier < 0) return srcTex
@@ -183,7 +179,7 @@ export const blurMethods = {
     gl.bindTexture(gl.TEXTURE_2D, srcTex)
     gl.uniform1i(e.uTexture, 0)
     gl.uniform2f(e.uTexSize, w, h)
-    gl.uniform1f(e.uRadius, shaderRadius)
+    gl.uniform1f(e.uRadius, radius)
     gl.uniform1f(e.uBlurAlpha, alphaFlag)
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 
@@ -198,7 +194,7 @@ export const blurMethods = {
     gl.bindTexture(gl.TEXTURE_2D, dstTexA)
     gl.uniform1i(e.uTextureV, 0)
     gl.uniform2f(e.uTexSizeV, w, h)
-    gl.uniform1f(e.uRadiusV, shaderRadius)
+    gl.uniform1f(e.uRadiusV, radius)
     gl.uniform1f(e.uBlurAlphaV, alphaFlag)
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 
@@ -212,45 +208,38 @@ export const blurMethods = {
   },
 
   /** 2-pass blur a source texture by `radius` px into the downsampled pool.
-   *  `radius` is device px. The tier is picked by pickBlurTier(radius, cap)
-   *  (nearest σ₀). When the picked level's ds=1 (full-res), the shader runs
-   *  in FOLDED mode (uRadius=-1) — bilinear folding is exact, sample
-   *  positions are baked pixel offsets. When ds>1 (downsampled), the shader
-   *  runs in UNFOLDED mode (uRadius=radius/ds) — folding breaks under
-   *  downsample, so integer-σ₀ taps scaled by the downsampled σ are used
-   *  (legacy behavior). This dual mode keeps ds=1 (small radius, high
-   *  quality) mathematically correct while ds>1 (large radius, perf) stays
-   *  functional without crashing. */
+   *  `radius` is device px; it is scaled by 1/ds (downsample) so the visual
+   *  blur radius is preserved while fragment invocations drop by ds². */
   blurTexture(this: LiquidGlassRenderer, srcTex: WebGLTexture, radius: number, softAlpha = false): WebGLTexture {
     const lvl = this.pickDsBlurLevel(radius)
     const ds = lvl.ds
-    // ds=1 → folded mode sentinel (-1). ds>1 → unfolded, σ in downsampled px.
-    // NO 0.6 clamp — runBlurPasses returns srcTex for radius<0.5 (tier=-1).
-    const shaderRadius = ds > 1 ? radius / ds : -1
+    // Scale radius to downsampled space. NO 0.6 clamp — runBlurPasses
+    // returns srcTex for radius<0.5 (tier=-1), which is the correct
+    // crisp-passthrough behavior the old clamp was hackily faking.
+    const dsRadius = ds > 1 ? radius / ds : radius
     return this.runBlurPasses(
       srcTex,
       lvl.fboA, lvl.texA,
       lvl.fboB, lvl.texB,
       lvl.w, lvl.h,
-      radius, shaderRadius, softAlpha,
+      dsRadius, softAlpha,
     )
   },
 
   /** 2-pass Gaussian blur on a highlight stroke MASK (alpha only).
    *  Faithful to Android BlurMaskFilter(NORMAL, sigma): sigmaPx IS the
    *  Gaussian sigma. softAlpha=true (mask mode) blurs alpha. Preserved
-   *  for interface compatibility (currently no live caller). Same ds=1
-   *  folded / ds>1 unfolded dual mode as blurTexture. */
+   *  for interface compatibility (currently no live caller). */
   blurHighlightMask(this: LiquidGlassRenderer, srcTex: WebGLTexture, sigmaPx: number): WebGLTexture {
     const lvl = this.pickDsBlurLevel(sigmaPx)
     const ds = lvl.ds
-    const shaderRadius = ds > 1 ? sigmaPx / ds : -1
+    const dsSigma = ds > 1 ? sigmaPx / ds : sigmaPx
     return this.runBlurPasses(
       srcTex,
       lvl.fboA, lvl.texA,
       lvl.fboB, lvl.texB,
       lvl.w, lvl.h,
-      sigmaPx, shaderRadius, true,
+      dsSigma, true,
     )
   },
 } as const
