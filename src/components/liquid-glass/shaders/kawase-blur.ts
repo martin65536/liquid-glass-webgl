@@ -31,28 +31,37 @@ export function kawaseIterationsForRadius(radius: number): number {
 }
 
 /** The per-iteration sample distance for a given (radius, iter, totalIters).
- *  d grows linearly to radius at the last iter. The 4 diagonal taps are at
- *  (±d, ±d), distance d√2 from center — so the farthest reach at the last
- *  iter is radius√2. Exposed for the debug overlay. */
+ *  d_i = d_max × (i+1)/N, where d_max = radius × √(6N / ((N+1)(2N+1))).
+ *  This makes the accumulated variance Σd_i² = radius², so Kawase's
+ *  equivalent σ matches Gaussian's σ (= radius) — same visual blur strength
+ *  at the same radius. (Without this, d_max=radius gave σ ≈ 1.4-1.6×radius,
+ *  making Kawase visibly blurrier than Gaussian at equal radius.)
+ *  Exposed for the debug overlay. */
 export function kawaseSampleDistance(radius: number, iter: number, totalIters: number): number {
-  return radius * (iter + 1) / totalIters
+  const N = totalIters
+  const dMax = radius * Math.sqrt(6 * N / ((N + 1) * (2 * N + 1)))
+  return dMax * (iter + 1) / N
 }
 
 /** Generate the Kawase fragment shader (2D, single pass per iteration).
- *  One program serves ALL iterations — uIteration + uTotalIters are uniforms. */
+ *  One program serves ALL iterations — uIteration + uTotalIters are uniforms.
+ *  d_i = uRadius × √(6N/((N+1)(2N+1))) × (i+1)/N — calibrated so the
+ *  accumulated variance matches Gaussian σ = radius. */
 export function generateKawaseBlurShader(): string {
   return /* glsl */ `precision highp float;
 uniform sampler2D uTexture;
 uniform vec2 uTexSize;
-uniform float uRadius;      // total blur radius (px) across all iterations
+uniform float uRadius;      // target Gaussian σ (px) — Kawase accumulates to match
 uniform float uIteration;   // current iteration index, 0-based
-uniform float uTotalIters;  // total iteration count
+uniform float uTotalIters;  // total iteration count N
 void main() {
     vec2 uv = vec2(gl_FragCoord.x / uTexSize.x, gl_FragCoord.y / uTexSize.y);
     vec2 pxToUv = vec2(1.0 / uTexSize.x, 1.0 / uTexSize.y);
-    // This iteration's diagonal sample distance d: grows linearly to radius
-    // at the last iter. 4 taps at (±d, ±d) — diagonal neighbors.
-    float d = uRadius * (uIteration + 1.0) / uTotalIters;
+    // d_max = radius × √(6N / ((N+1)(2N+1))) — variance-matched to Gaussian σ.
+    // d_i = d_max × (i+1)/N.
+    float N = uTotalIters;
+    float dMax = uRadius * sqrt(6.0 * N / ((N + 1.0) * (2.0 * N + 1.0)));
+    float d = dMax * (uIteration + 1.0) / N;
     vec2 off = vec2(d, d) * pxToUv;
     // 4 diagonal taps (Kawase original): equal weight 0.25 each.
     vec4 s1 = texture2D(uTexture, uv + off);
