@@ -58,8 +58,9 @@ declare module './index' {
       w: number, h: number,
       radius: number, tapCount: number, glassMode: boolean,
     ): WebGLTexture
-    /** 2-pass blur a source texture by `radius` px. */
-    blurTexture(srcTex: WebGLTexture, radius: number): WebGLTexture
+    /** 2-pass blur a source texture by `radius` px. If bbox given, crops +
+     *  blurs in a bbox-sized FBO (cheap); else fullscreen dsBlur FBO. */
+    blurTexture(srcTex: WebGLTexture, radius: number, bbox?: { x: number; y: number; w: number; h: number }): WebGLTexture
     /** Lazy-compile the Kawase blur program (one H+V pair, all iters share it
      *  via the uIteration uniform). */
     ensureKawaseProgram(): void
@@ -224,15 +225,26 @@ export const blurMethods = {
     return dstTexB
   },
 
-  /** 2-pass blur a source texture by `radius` px. Reads srcTex, writes the
-   *  blurred result into the picked level's fboB, returns its tex.
-   *  Uses this.blurTapCap to cap 1D tap count (performance knob).
+  /** Blur a source texture by `radius` px. If bbox (srcX/Y/W/H) is given,
+   *  crops srcTex to that region and blurs in a bbox-sized FBO (cheap —
+   *  fragment work scales with bbox area, not fullscreen). If no bbox,
+   *  blurs the full srcTex in the fullscreen dsBlur FBO (used by scene-wide
+   *  blur where the "bbox" IS the full screen).
    *
-   *  Dispatches to kawaseBlurTexture when useKawaseBlur is on; otherwise the
-   *  Gaussian separable path.
-   *
-   *  No 0.6 clamp: radius < 0.5 (after ds scaling) returns srcTex immediately. */
-  blurTexture(this: LiquidGlassRenderer, srcTex: WebGLTexture, radius: number): WebGLTexture {
+   *  Dispatches to Kawase (2D diagonal) or Gaussian (separable H+V) based
+   *  on useKawaseBlur. No 0.6 clamp: radius < 0.5 returns srcTex. */
+  blurTexture(
+    this: LiquidGlassRenderer,
+    srcTex: WebGLTexture,
+    radius: number,
+    bbox?: { x: number; y: number; w: number; h: number },
+  ): WebGLTexture {
+    // Bbox path: crop + blur in elBlurFboA/B (bbox-sized, NOT fullscreen).
+    if (bbox) {
+      this.ensureElementFBO(bbox.w, bbox.h)
+      return this.cropAndBlurBackdrop(srcTex, bbox.x, bbox.y, bbox.w, bbox.h, radius)
+    }
+    // Fullscreen path (scene-wide blur): dsBlurFboA/B.
     if (this.useKawaseBlur) return this.kawaseBlurTexture(srcTex, radius)
     const lvl = this.pickDsBlurLevel(radius)
     const ds = lvl.ds

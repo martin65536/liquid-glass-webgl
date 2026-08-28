@@ -212,9 +212,12 @@ export function resolveBackdropTex(
     gl.uniform2f(this.uWp['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
     gl.drawArrays(gl.TRIANGLES, 0, 6)
 
-    // Step 2: 2-pass Gaussian blur on gpElementTex → dsBlurFboBTex.
+    // Step 2: blur gpElementTex in a bbox-sized FBO (elBlurFboA/B), NOT
+    // fullscreen. gpElementTex is already bbox-sized (cover-fitted wallpaper),
+    // so no crop needed — just blur directly into elBlurFboA/B.
     const blurRadiusPx = el.blurRadius * layerScale * this.dpr
-    const blurred = this.blurTexture(this.gpElementTex!, blurRadiusPx)
+    this.ensureElementFBO(sw, sh)
+    const blurred = this.blurTexture(this.gpElementTex!, blurRadiusPx, { x: 0, y: 0, w: sw, h: sh })
     if (this.showBlurDebug) {
       const s = this.lastBlurStats
       this.debugBlurRegions.push({
@@ -264,7 +267,7 @@ export function resolveBackdropTex(
     } else {
       backdropSrc = curTex
     }
-    const blurred = this.blurTexture(backdropSrc, blurRadiusPx)
+    const blurred = this.blurTexture(backdropSrc, blurRadiusPx, { x: sx, y: sy, w: sw, h: sh })
     if (this.showBlurDebug) {
       const s = this.lastBlurStats
       this.debugBlurRegions.push({

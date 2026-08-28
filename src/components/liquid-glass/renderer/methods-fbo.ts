@@ -1,5 +1,5 @@
 import type { LiquidGlassRenderer } from './index'
-import { computeBlur1DTapCount } from '../shaders'
+import { computeBlur1DTapCount, kawaseIterationsForRadius } from '../shaders'
 
 declare module './index' {
   interface LiquidGlassRenderer {
@@ -368,13 +368,53 @@ export const fboMethods = {
     if (blurRadius < 0.5) {
       return this.backdropCropTex!
     }
-    // --- 2-pass separable Gaussian on backdropCropTex → elBlurFboB ---
-    // Routed through the shared runBlurPasses (same path as blurTexture):
-    // computes tapCount via computeBlur1DTapCount, caps by blurTapCap,
-    // compiles the glass shader lazily, runs H→V into elBlurFboA/B.
-    // elBlurFboA/B are full-res (dw×dh), so no downsample scaling here.
+    // --- Blur on the bbox-sized elBlurFboA/B (NOT fullscreen) ---
+    // Kawase: 2D diagonal 4-tap, N iters ping-pong on elBlurFboA/B.
+    // Gaussian: 2-pass H+V separable on elBlurFboA/B via runBlurPasses.
+    if (this.useKawaseBlur) {
+      const iters = kawaseIterationsForRadius(blurRadius, this.kawaseQuality)
+      const dMax = blurRadius * Math.sqrt(6 * iters / ((iters + 1) * (2 * iters + 1)))
+      this.lastBlurStats = { type: 'kawase', passes: iters, taps: 4 * iters, maxSample: dMax * Math.SQRT2 }
+      this.ensureKawaseProgram()
+      const kp = this.kawasePrograms!
+      const savedFb = gl.getParameter(gl.FRAMEBUFFER_BINDING)
+      const savedScissor = gl.isEnabled(gl.SCISSOR_TEST)
+      const savedBox: [number, number, number, number] = gl.getParameter(gl.SCISSOR_BOX)
+      gl.disable(gl.SCISSOR_TEST)
+      gl.disable(gl.BLEND)
+      let curSrc = this.backdropCropTex!
+      for (let i = 0; i < iters; i++) {
+        const writeFboA = (i % 2 === 0)
+        const dstFbo = writeFboA ? this.elBlurFboA! : this.elBlurFboB!
+        gl.bindFramebuffer(gl.FRAMEBUFFER, dstFbo)
+        gl.viewport(0, 0, dw, dh)
+        gl.useProgram(kp.prog)
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+        gl.enableVertexAttribArray(kp.aPos)
+        gl.vertexAttribPointer(kp.aPos, 2, gl.FLOAT, false, 0, 0)
+        gl.activeTexture(gl.TEXTURE0)
+        gl.bindTexture(gl.TEXTURE_2D, curSrc)
+        gl.uniform1i(kp.uTexture, 0)
+        gl.uniform2f(kp.uTexSize, dw, dh)
+        gl.uniform1f(kp.uRadius, blurRadius)
+        gl.uniform1f(kp.uIteration, i)
+        gl.uniform1f(kp.uTotalIters, iters)
+        gl.drawArrays(gl.TRIANGLES, 0, 6)
+        curSrc = writeFboA ? this.elBlurFboATex! : this.elBlurFboBTex!
+      }
+      gl.bindFramebuffer(gl.FRAMEBUFFER, savedFb)
+      gl.viewport(0, 0, this.fboW, this.fboH)
+      if (savedScissor) {
+        gl.enable(gl.SCISSOR_TEST)
+        gl.scissor(savedBox[0], savedBox[1], savedBox[2], savedBox[3])
+      }
+      const lastWroteA = ((iters - 1) % 2 === 0)
+      return lastWroteA ? this.elBlurFboATex! : this.elBlurFboBTex!
+    }
+    // Gaussian path
     let taps = computeBlur1DTapCount(blurRadius)
     taps = Math.min(taps, Math.max(1, this.blurTapCap | 0))
+    this.lastBlurStats = { type: 'gauss', passes: 2, taps, maxSample: 3 * blurRadius }
     return this.runBlurPasses(
       this.backdropCropTex!,
       this.elBlurFboA!, this.elBlurFboATex!,
