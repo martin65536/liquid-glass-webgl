@@ -69,7 +69,7 @@ export function buildBlurCard(ctx: BuildSettingsCtx): void {
     palette.sliderTrackOff,
     palette.sliderAccent,
     rendererRef,
-    (f) => { setState({ blurTapCap: tapFracToTaps(f), liveTapCap: null }) },
+    (f) => { setState({ blurTapCap: tapFracToTaps(tapSnapFrac(f)), liveTapCap: null }) },
     true,
     false,
     tapInitFrac,

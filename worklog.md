@@ -141,3 +141,28 @@ Stage Summary:
 - tier 分档、bilinear 折叠、统一 shader、σ 统一、softAlpha、scissor 全保存——全部移除。
 - blur 相关代码现在和 clone 原始完全一致（diff 零差异）。
 - 验证通过。
+
+---
+Task ID: bugfix (4 bug 修 + tap cap 一致性，保持原始架构)
+Agent: main (Z.ai Code orchestrator)
+Task: 退回 tier 设计后，把被一起冲掉的 bug 修单独做回来（不碰 tier 架构），并修 tap cap 滑块"开5是3、3和1一模一样"的问题。
+
+Work Log:
+- 查证 tap cap 滑块根因：拖动时 liveTapCap = tapFracToTaps(tapSnapFrac(f))（snap后转），松手 blurTapCap = tapFracToTaps(f)（不snap）。两套不一致 → 显示和实际值错位（开5显示3）。cap=1/2/3 在小半径玻璃上视觉都接近无模糊（computeBlur1DTapCount 返回值被 cap 压到 1-3，tap≤3 的 kernel 极小）→ "3和1一模一样"。
+- 重写 methods-blur.ts（保持动态 tapCount + 两套 shader 生成器 + 两套 program map 架构）：
+  - bug#2 删 0.6 clamp：dsRadius<0.5 直接 return srcTex（不再 max(0.6, radius/ds)）。blurHighlightMask 同理（dsSigma<0.01 return srcTex）。
+  - bug#3 合并重复：抽 compileBlurPair（共享 program 编译）+ runBlurPasses（共享 2-pass H→V 驱动）。blurTexture/blurHighlightMask/cropAndBlurBackdrop 都调 runBlurPasses，~80 行重复模板消除。
+  - bug#4 scissor 全保存：runBlurPasses 存 gl.getParameter(SCISSOR_BOX) 四 int + enable bit，restore 时 gl.scissor(x,y,w,h) 完整恢复（不只 enable）。
+- bug#1（σ 矛盾）评估后决定不修：computeBlur1DTapCount 用 Skia σ=r×0.577+0.5 算 tap 数，shader 用 r 当 σ。但 tap 数足够覆盖 3σ（r=8→33tap 覆盖 ±24px 间距 1.5px，r=2→11tap 覆盖 ±6px 间距 1px），数学上 tap 够，改了反而风险。保留原始。
+- bug#5 tap cap 一致性：build-settings-blur-card.ts 松手提交改 tapFracToTaps(tapSnapFrac(f))，和拖动一致。
+- methods-fbo.ts cropAndBlurBackdrop：删内联 2-pass，改调 runBlurPasses（glassMode=true）。保留 computeBlur1DTapCount 导入（cropAndBlurBackdrop 仍需算 taps 传入）。
+- lint：src/ 零错误（只剩 clone examples 预存）。
+- dev.log：多次 ✓ Compiled 无错。
+- 浏览器验证：4 blur-heavy 页（buttons/glass-playground/progressive-blur/control-center）全 GL=clean console=[]，截图 222-223KB。localStorage 设 cap=5 正确存储读取。最终 GL=clean。
+
+Stage Summary:
+- 4 bug 修回（不碰 tier 架构）：删 0.6 clamp、合并重复模板（runBlurPasses 共享）、scissor 存 BOX、tap cap 滑块 snap 一致。
+- bug#1（σ 矛盾）保留原始（评估后 tap 数够，不修）。
+- 架构仍是原始：动态 tapCount + generateSeparableBlurShader/generateHighlightBlurShader 两套 + ensureBlurPrograms/highlightBlurPrograms 两套 map。
+- 改动文件 3 个：methods-blur.ts(重写)、methods-fbo.ts(cropAndBlurBackdrop 用 runBlurPasses)、build-settings-blur-card.ts(松手 snap)。
+- 验证通过。tap cap 滑块显示与实际值现在一致。
