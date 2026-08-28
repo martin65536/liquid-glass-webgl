@@ -270,10 +270,10 @@ export class LiquidGlassRenderer {
    *  ALPHA (mask), use Android BlurMaskFilter sigma semantics (uRadius=sigma),
    *  and support sub-pixel sigma (no 0.5 early-return). */
   highlightBlurPrograms = new Map<number, { hProg: WebGLProgram; vProg: WebGLProgram; uH: Record<string, WebGLUniformLocation | null>; uV: Record<string, WebGLUniformLocation | null>; aPosH: number; aPosV: number }>()
-  /** Kawase blur program (H + V). One pair serves all iterations — the
-   *  iteration index is a uniform (uIteration). Lazily compiled by
-   *  ensureKawaseProgram. Used when useKawaseBlur is on. */
-  kawasePrograms: { hProg: WebGLProgram; vProg: WebGLProgram; uTextureH: WebGLUniformLocation | null; uTexSizeH: WebGLUniformLocation | null; uRadiusH: WebGLUniformLocation | null; uIterationH: WebGLUniformLocation | null; uTotalItersH: WebGLUniformLocation | null; uTextureV: WebGLUniformLocation | null; uTexSizeV: WebGLUniformLocation | null; uRadiusV: WebGLUniformLocation | null; uIterationV: WebGLUniformLocation | null; uTotalItersV: WebGLUniformLocation | null; aPosH: number; aPosV: number } | null = null
+  /** Kawase blur program (single 2D program — not separable, no H+V pair).
+   *  One program serves all iterations via uIteration/uTotalIters uniforms.
+   *  Lazily compiled by ensureKawaseProgram. Used when useKawaseBlur is on. */
+  kawasePrograms: { prog: WebGLProgram; uTexture: WebGLUniformLocation | null; uTexSize: WebGLUniformLocation | null; uRadius: WebGLUniformLocation | null; uIteration: WebGLUniformLocation | null; uTotalIters: WebGLUniformLocation | null; aPos: number } | null = null
   /** Use Kawase blur (4-tap tent-filter, N iterations) instead of the
    *  Gaussian separable path. Kawase is cheaper for large radii. Set from
    *  CatalogState.useKawaseBlur via use-renderer-prop-sync. Default false. */

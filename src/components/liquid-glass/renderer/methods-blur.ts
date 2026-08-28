@@ -256,55 +256,43 @@ export const blurMethods = {
     )
   },
 
-  /** Lazy-compile the Kawase blur program (H + V). One program pair serves
-   *  all iterations — the iteration index is a uniform (uIteration). */
+  /** Lazy-compile the Kawase blur program (single 2D program, not H+V pair).
+   *  Kawase is NOT separable — one pass per iteration samples 4 diagonal
+   *  points. One program serves all iterations via uIteration/uTotalIters. */
   ensureKawaseProgram(this: LiquidGlassRenderer): void {
     if (this.kawasePrograms) return
     const gl = this.gl
-    const mk = (dir: 'horizontal' | 'vertical') => {
-      const fs = compileShader(gl, gl.FRAGMENT_SHADER, generateKawaseBlurShader(dir))
-      const vs = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER)
-      const p = gl.createProgram()!
-      gl.attachShader(p, vs)
-      gl.attachShader(p, fs)
-      gl.bindAttribLocation(p, 0, 'aPos')
-      gl.linkProgram(p)
-      gl.deleteShader(vs)
-      gl.deleteShader(fs)
-      if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
-        const log = gl.getProgramInfoLog(p)
-        gl.deleteProgram(p)
-        throw new Error('Kawase program link error (' + dir + '): ' + log)
-      }
-      return p
+    const fs = compileShader(gl, gl.FRAGMENT_SHADER, generateKawaseBlurShader())
+    const vs = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER)
+    const p = gl.createProgram()!
+    gl.attachShader(p, vs)
+    gl.attachShader(p, fs)
+    gl.bindAttribLocation(p, 0, 'aPos')
+    gl.linkProgram(p)
+    gl.deleteShader(vs)
+    gl.deleteShader(fs)
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+      const log = gl.getProgramInfoLog(p)
+      gl.deleteProgram(p)
+      throw new Error('Kawase program link error: ' + log)
     }
-    const hProg = mk('horizontal')
-    const vProg = mk('vertical')
     this.kawasePrograms = {
-      hProg, vProg,
-      uTextureH: gl.getUniformLocation(hProg, 'uTexture'),
-      uTexSizeH: gl.getUniformLocation(hProg, 'uTexSize'),
-      uRadiusH: gl.getUniformLocation(hProg, 'uRadius'),
-      uIterationH: gl.getUniformLocation(hProg, 'uIteration'),
-      uTotalItersH: gl.getUniformLocation(hProg, 'uTotalIters'),
-      uTextureV: gl.getUniformLocation(vProg, 'uTexture'),
-      uTexSizeV: gl.getUniformLocation(vProg, 'uTexSize'),
-      uRadiusV: gl.getUniformLocation(vProg, 'uRadius'),
-      uIterationV: gl.getUniformLocation(vProg, 'uIteration'),
-      uTotalItersV: gl.getUniformLocation(vProg, 'uTotalIters'),
-      aPosH: 0, aPosV: 0,
+      prog: p,
+      uTexture: gl.getUniformLocation(p, 'uTexture'),
+      uTexSize: gl.getUniformLocation(p, 'uTexSize'),
+      uRadius: gl.getUniformLocation(p, 'uRadius'),
+      uIteration: gl.getUniformLocation(p, 'uIteration'),
+      uTotalIters: gl.getUniformLocation(p, 'uTotalIters'),
+      aPos: 0,
     }
   },
 
-  /** Kawase blur: N iterations of 4-tap tent-filter ping-pong.
+  /** Kawase blur: N iterations of 2D 4-tap diagonal, ping-pong between
+   *  fboA and fboB. Each iter is ONE pass (not H+V — Kawase is not separable).
+   *  Iter 0: srcTex → fboA. Iter 1: texA → fboB. Iter 2: texB → fboA. ...
+   *  Result ends in the buffer that the last iter wrote to.
    *
-   *  Each iteration runs H pass (src→fboA) then V pass (fboA→fboB), with the
-   *  sample distance = (iter + 0.5) px. iter 0 is smallest, grows each iter.
-   *  After N iters the result is in fboB. Uses the downsampled pool like
-   *  blurTexture (ds scales the pixel size, so iteration distance in UV stays
-   *  correct for the downsampled buffer).
-   *
-   *  radius < 0.5 → return srcTex (no blur, same as Gaussian path). */
+   *  radius < 0.5 → return srcTex (no blur). */
   kawaseBlurTexture(this: LiquidGlassRenderer, srcTex: WebGLTexture, radius: number): WebGLTexture {
     const lvl = this.pickDsBlurLevel(radius)
     const ds = lvl.ds
@@ -314,9 +302,9 @@ export const blurMethods = {
       return srcTex
     }
     const iters = kawaseIterationsForRadius(dsRadius)
-    // Kawase: 4 taps at ±d, ±2d per iter; d_max = dsRadius/2 at last iter →
-    // farthest tap = ±2d = ±dsRadius. Matches Gaussian coverage.
-    this.lastBlurStats = { type: 'kawase', passes: iters * 2, taps: 4 * iters, maxSample: dsRadius }
+    // Kawase: 1 pass per iter (not 2 — not separable). 4 taps per pass.
+    // Farthest tap = d√2 at last iter, d = radius → farthest = radius√2.
+    this.lastBlurStats = { type: 'kawase', passes: iters, taps: 4 * iters, maxSample: dsRadius * Math.SQRT2 }
     this.ensureKawaseProgram()
     const kp = this.kawasePrograms!
     const gl = this.gl
@@ -327,53 +315,29 @@ export const blurMethods = {
     gl.disable(gl.SCISSOR_TEST)
     gl.disable(gl.BLEND)
 
+    // Ping-pong: even iters write fboA (read fboB/src), odd iters write fboB (read fboA).
+    // Iter 0 reads srcTex (external) → writes fboA.
+    // Iter 1 reads texA → writes fboB.
+    // Iter 2 reads texB → writes fboA. ...
     let curSrc = srcTex
-    let curIsExternal = true  // curSrc is srcTex (external), not lvl.texA
     for (let i = 0; i < iters; i++) {
-      // H pass: curSrc → lvl.fboA
-      gl.bindFramebuffer(gl.FRAMEBUFFER, lvl.fboA)
+      const writeFboA = (i % 2 === 0)
+      const dstFbo = writeFboA ? lvl.fboA : lvl.fboB
+      gl.bindFramebuffer(gl.FRAMEBUFFER, dstFbo)
       gl.viewport(0, 0, w, h)
-      gl.useProgram(kp.hProg)
+      gl.useProgram(kp.prog)
       gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
-      gl.enableVertexAttribArray(kp.aPosH)
-      gl.vertexAttribPointer(kp.aPosH, 2, gl.FLOAT, false, 0, 0)
+      gl.enableVertexAttribArray(kp.aPos)
+      gl.vertexAttribPointer(kp.aPos, 2, gl.FLOAT, false, 0, 0)
       gl.activeTexture(gl.TEXTURE0)
       gl.bindTexture(gl.TEXTURE_2D, curSrc)
-      gl.uniform1i(kp.uTextureH, 0)
-      gl.uniform2f(kp.uTexSizeH, w, h)
-      gl.uniform1f(kp.uRadiusH, dsRadius)
-      gl.uniform1f(kp.uIterationH, i)
-      gl.uniform1f(kp.uTotalItersH, iters)
+      gl.uniform1i(kp.uTexture, 0)
+      gl.uniform2f(kp.uTexSize, w, h)
+      gl.uniform1f(kp.uRadius, dsRadius)
+      gl.uniform1f(kp.uIteration, i)
+      gl.uniform1f(kp.uTotalIters, iters)
       gl.drawArrays(gl.TRIANGLES, 0, 6)
-      // V pass: lvl.texA → lvl.fboB
-      gl.bindFramebuffer(gl.FRAMEBUFFER, lvl.fboB)
-      gl.viewport(0, 0, w, h)
-      gl.useProgram(kp.vProg)
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
-      gl.enableVertexAttribArray(kp.aPosV)
-      gl.vertexAttribPointer(kp.aPosV, 2, gl.FLOAT, false, 0, 0)
-      gl.activeTexture(gl.TEXTURE0)
-      gl.bindTexture(gl.TEXTURE_2D, lvl.texA)
-      gl.uniform1i(kp.uTextureV, 0)
-      gl.uniform2f(kp.uTexSizeV, w, h)
-      gl.uniform1f(kp.uRadiusV, dsRadius)
-      gl.uniform1f(kp.uIterationV, i)
-      gl.uniform1f(kp.uTotalItersV, iters)
-      gl.drawArrays(gl.TRIANGLES, 0, 6)
-      // Next iteration reads from fboB. ping-pong: swap fboA/fboB roles by
-      // binding fboB as next src. But our pool has fixed fboA (dst H) / fboB
-      // (dst V). To chain, we'd need fboB→fboA copy. Simpler: after each H+V
-      // pair, blit fboB→fboA so the next iter reads from fboA as src.
-      // Actually: next iter's H pass reads curSrc and writes fboA. If we set
-      // curSrc = lvl.texB, the H pass writes to fboA (overwriting), which is
-      // fine — but we lose texB's content only after H writes. Since H writes
-      // ALL of fboA (fullscreen quad), and we read texB (not fboA), it's safe.
-      curSrc = lvl.texB
-      curIsExternal = false
-      // BUT: next iter H writes to fboA, then V reads fboA→fboB. fboB is now
-      // the PREVIOUS result (which we're reading as curSrc=texB). V pass
-      // overwrites fboB. Order: H reads texB (old fboB) → writes fboA;
-      // V reads fboA → writes fboB (new). This is correct — no aliasing.
+      curSrc = writeFboA ? lvl.texA : lvl.texB
     }
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, savedFb)
@@ -382,8 +346,9 @@ export const blurMethods = {
       gl.enable(gl.SCISSOR_TEST)
       gl.scissor(savedBox[0], savedBox[1], savedBox[2], savedBox[3])
     }
-    void curIsExternal
-    return lvl.texB
+    // Result is in the last-written buffer's texture.
+    const lastWroteA = ((iters - 1) % 2 === 0)
+    return lastWroteA ? lvl.texA : lvl.texB
   },
 
   /** Lazy-compile highlight blur programs (alpha-blurring, sigma semantics).
