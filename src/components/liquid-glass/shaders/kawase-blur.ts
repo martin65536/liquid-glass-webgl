@@ -22,27 +22,23 @@
  * ------------------------------------------------------------------ */
 
 /** Max Kawase iterations. Each iter is one H+V pass pair (2 draw calls).
- *  iter range [4, 8]: small radius → 4 iters (cheaper), large radius → 8
- *  iters (smoother). The sample distance d is capped so the farthest tap
- *  (±2d) lands exactly at `radius` — no over-spread. */
-export const MAX_KAWASE_ITERS = 8
+ *  Capped at 6 — beyond that, draw-call overhead dominates (12 passes
+ *  for one blur is already 6× Gaussian's 2). Large radius is absorbed by
+ *  the sample distance d (d = radius/2 → farthest tap = radius), NOT by
+ *  more iterations. */
+export const MAX_KAWASE_ITERS = 6
 export const MIN_KAWASE_ITERS = 4
 
-/** Map a blur radius (px) to a Kawase iteration count in [4, 8].
- *  More iters for larger radius → smoother gradient (denser sampling
- *  along the d axis), but never below 4 (too coarse) or above 8 (diminishing
- *  returns, burns GPU). radius < 2 → 4, doubling at each step:
- *    radius < 2  → 4
- *    radius < 4  → 5
- *    radius < 8  → 6
- *    radius < 16 → 7
- *    radius ≥ 16 → 8 */
+/** Map a blur radius (px) to a Kawase iteration count in [4, 6].
+ *  Small radius → 4 iters (8 passes), large → 6 iters (12 passes) max.
+ *  The sample distance d widens to cover radius, so iter count stays low.
+ *    radius < 3  → 4
+ *    radius < 8  → 5
+ *    radius ≥ 8  → 6 (capped — larger radius just widens d) */
 export function kawaseIterationsForRadius(radius: number): number {
-  if (radius < 2) return 4
-  if (radius < 4) return 5
-  if (radius < 8) return 6
-  if (radius < 16) return 7
-  return 8
+  if (radius < 3) return 4
+  if (radius < 8) return 5
+  return 6
 }
 
 /** The per-iteration sample distance for a given (radius, iter, totalIters).
