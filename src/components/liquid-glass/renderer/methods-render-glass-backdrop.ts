@@ -233,6 +233,7 @@ export function resolveBackdropTex(
         passes: s?.passes ?? 0,
         taps: s?.taps ?? 0,
         maxSample: s?.maxSample ?? 0,
+        scissorBox: s?.scissorBox ?? null,
       })
     }
     this.perfMonitor.incBlurPass()
@@ -283,6 +284,7 @@ export function resolveBackdropTex(
         passes: s?.passes ?? 0,
         taps: s?.taps ?? 0,
         maxSample: s?.maxSample ?? 0,
+        scissorBox: s?.scissorBox ?? null,
       })
     }
     this.perfMonitor.incBlurPass()

@@ -197,13 +197,18 @@ export const blurMethods = {
     // so no edge artifacts. bbox is in device px (same space as fboW/fboH);
     // scale by w/fboW when the dst FBO is downsampled (ds>1).
     if (bbox) {
+      // bbox is top-left origin device px (CSS y-down). scissor is
+      // bottom-left origin (gl_FragCoord y-up). Flip Y: scissorY = h - top.
       const sx = Math.max(0, Math.floor(bbox.x * w / this.fboW))
-      const sy = Math.max(0, Math.floor(bbox.y * h / this.fboH))
+      const sTop = Math.floor(bbox.y * h / this.fboH)
+      const sHgt = Math.ceil(bbox.h * h / this.fboH)
+      const sy = Math.max(0, Math.min(h - sHgt, h - sTop - sHgt))
       const sw = Math.min(w - sx, Math.ceil(bbox.w * w / this.fboW))
-      const sh = Math.min(h - sy, Math.ceil(bbox.h * h / this.fboH))
+      const sh = Math.min(h - sy, sHgt)
       if (sw > 0 && sh > 0) {
         gl.enable(gl.SCISSOR_TEST)
         gl.scissor(sx, sy, sw, sh)
+        if (this.lastBlurStats) this.lastBlurStats.scissorBox = [sx, sy, sw, sh]
       } else {
         gl.disable(gl.SCISSOR_TEST)
       }
@@ -273,13 +278,13 @@ export const blurMethods = {
     const dsRadius = ds > 1 ? radius / ds : radius
     // radius < 0.5 → no blur. Return srcTex UNCHANGED (no 0.6px floor).
     if (dsRadius < 0.5) {
-      this.lastBlurStats = { type: 'gauss', passes: 0, taps: 0, maxSample: 0 }
+      this.lastBlurStats = { type: 'gauss', passes: 0, taps: 0, maxSample: 0, scissorBox: null }
       return srcTex
     }
     let taps = computeBlur1DTapCount(dsRadius)
     taps = Math.min(taps, Math.max(1, this.blurTapCap | 0))
     // Gaussian shader samples at offset up to ±3σ (σ=uRadius=dsRadius).
-    this.lastBlurStats = { type: 'gauss', passes: 2, taps, maxSample: 3 * dsRadius }
+    this.lastBlurStats = { type: 'gauss', passes: 2, taps, maxSample: 3 * dsRadius, scissorBox: null }
     return this.runBlurPasses(
       srcTex,
       lvl.fboA, lvl.texA,
@@ -331,7 +336,7 @@ export const blurMethods = {
     const ds = lvl.ds
     const dsRadius = ds > 1 ? radius / ds : radius
     if (dsRadius < 0.5) {
-      this.lastBlurStats = { type: 'kawase', passes: 0, taps: 0, maxSample: 0 }
+      this.lastBlurStats = { type: 'kawase', passes: 0, taps: 0, maxSample: 0, scissorBox: null }
       return srcTex
     }
     const iters = kawaseIterationsForRadius(dsRadius, this.kawaseQuality)
@@ -339,7 +344,7 @@ export const blurMethods = {
     // d_max = radius × √(6N/((N+1)(2N+1))) ≈ 0.63-0.73×radius (variance-matched).
     // Farthest tap = d_max×√2 (diagonal). Equivalent σ = radius (matches Gaussian).
     const dMax = dsRadius * Math.sqrt(6 * iters / ((iters + 1) * (2 * iters + 1)))
-    this.lastBlurStats = { type: 'kawase', passes: iters, taps: 4 * iters, maxSample: dMax * Math.SQRT2 }
+    this.lastBlurStats = { type: 'kawase', passes: iters, taps: 4 * iters, maxSample: dMax * Math.SQRT2, scissorBox: null }
     this.ensureKawaseProgram()
     const kp = this.kawasePrograms!
     const gl = this.gl
@@ -352,12 +357,15 @@ export const blurMethods = {
     // to the element's region, reads still sample neighbors).
     if (bbox) {
       const sx = Math.max(0, Math.floor(bbox.x * w / this.fboW))
-      const sy = Math.max(0, Math.floor(bbox.y * h / this.fboH))
+      const sTop = Math.floor(bbox.y * h / this.fboH)
+      const sHgt = Math.ceil(bbox.h * h / this.fboH)
+      const sy = Math.max(0, Math.min(h - sHgt, h - sTop - sHgt))
       const sw = Math.min(w - sx, Math.ceil(bbox.w * w / this.fboW))
-      const sh = Math.min(h - sy, Math.ceil(bbox.h * h / this.fboH))
+      const sh = Math.min(h - sy, sHgt)
       if (sw > 0 && sh > 0) {
         gl.enable(gl.SCISSOR_TEST)
         gl.scissor(sx, sy, sw, sh)
+        if (this.lastBlurStats) this.lastBlurStats.scissorBox = [sx, sy, sw, sh]
       } else {
         gl.disable(gl.SCISSOR_TEST)
       }
