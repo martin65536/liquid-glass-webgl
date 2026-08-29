@@ -278,7 +278,7 @@ export function resolveBackdropTex(
         x: sx, y: sy, w: sw, h: sh,
         radius: blurRadiusPx,
         ds: this.effectiveBlurDownsample,
-        blurW: this.elFboW, blurH: this.elFboH,
+        blurW: this.dsBlurFboW, blurH: this.dsBlurFboH,
         blurType: s?.type ?? 'gauss',
         passes: s?.passes ?? 0,
         taps: s?.taps ?? 0,
