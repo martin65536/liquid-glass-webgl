@@ -143,12 +143,6 @@ export const renderMethods = {
       // drawCopy disables blend; re-enable for subsequent non-glass draws.
       this.gl.enable(this.gl.BLEND)
       this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA)
-      // NOTE: bgOnlyTex is rewritten every frame, but its CONTENT only
-      // changes when non-glass elements move/scroll. We do NOT bump
-      // bgOnlyVersion here — would invalidate the blur cache every frame,
-      // defeating it. Cache stays valid across frames; blur result reused.
-      // Stale for 1 frame when non-glass content actually changes
-      // (imperceptible). Trade-off: 1-frame lag vs 0 cache hits.
     }
 
     // Cull + iterate. We render elements in DECLARED ORDER (no Wave 1 /

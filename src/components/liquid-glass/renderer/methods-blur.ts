@@ -57,7 +57,6 @@ declare module './index' {
       dstFboB: WebGLFramebuffer, dstTexB: WebGLTexture,
       w: number, h: number,
       radius: number, tapCount: number, glassMode: boolean,
-      bbox?: { x: number; y: number; w: number; h: number } | null,
     ): WebGLTexture
     /** 2-pass blur a source texture by `radius` px. If bbox given, crops +
      *  blurs in a bbox-sized FBO (cheap); else fullscreen dsBlur FBO. */
@@ -68,7 +67,7 @@ declare module './index' {
     /** Kawase blur: N iterations of 4-tap tent-filter ping-pong (H+V per iter).
      *  radius → iterations via kawaseIterationsForRadius. Used when
      *  useKawaseBlur is on; same output contract as blurTexture. */
-    kawaseBlurTexture(srcTex: WebGLTexture, radius: number, bbox?: { x: number; y: number; w: number; h: number } | null): WebGLTexture
+    kawaseBlurTexture(srcTex: WebGLTexture, radius: number): WebGLTexture
     /** Lazy-compile highlight blur programs (alpha-blurring, sigma semantics). */
     ensureHighlightBlurPrograms(tapCount: number): void
     /** 2-pass Gaussian blur on a highlight stroke MASK (alpha only). */
@@ -175,7 +174,6 @@ export const blurMethods = {
     dstFboB: WebGLFramebuffer, dstTexB: WebGLTexture,
     w: number, h: number,
     radius: number, tapCount: number, glassMode: boolean,
-    bbox?: { x: number; y: number; w: number; h: number } | null,
   ): WebGLTexture {
     const gl = this.gl
     if (glassMode) {
@@ -187,34 +185,8 @@ export const blurMethods = {
     const savedFb = gl.getParameter(gl.FRAMEBUFFER_BINDING)
     const savedScissor = gl.isEnabled(gl.SCISSOR_TEST)
     const savedBox: [number, number, number, number] = gl.getParameter(gl.SCISSOR_BOX)
+    gl.disable(gl.SCISSOR_TEST)
     gl.disable(gl.BLEND)
-
-    // Scissor to bbox: limits fragment writes to the element's region on the
-    // dst FBO. The dst FBO is fullscreen (dsBlurFbo), so without scissor the
-    // blur shader runs over all w×h fragments. With scissor, only the bbox
-    // sub-rect is written — fragment work scales with bbox area. The shader
-    // still samples bbox-neighbor texels from srcTex (reads are not clipped),
-    // so no edge artifacts. bbox is in device px (same space as fboW/fboH);
-    // scale by w/fboW when the dst FBO is downsampled (ds>1).
-    if (bbox) {
-      // bbox is top-left origin device px (CSS y-down). scissor is
-      // bottom-left origin (gl_FragCoord y-up). Flip Y: scissorY = h - top.
-      const sx = Math.max(0, Math.floor(bbox.x * w / this.fboW))
-      const sTop = Math.floor(bbox.y * h / this.fboH)
-      const sHgt = Math.ceil(bbox.h * h / this.fboH)
-      const sy = Math.max(0, Math.min(h - sHgt, h - sTop - sHgt))
-      const sw = Math.min(w - sx, Math.ceil(bbox.w * w / this.fboW))
-      const sh = Math.min(h - sy, sHgt)
-      if (sw > 0 && sh > 0) {
-        gl.enable(gl.SCISSOR_TEST)
-        gl.scissor(sx, sy, sw, sh)
-        if (this.lastBlurStats) this.lastBlurStats.scissorBox = [sx, sy, sw, sh]
-      } else {
-        gl.disable(gl.SCISSOR_TEST)
-      }
-    } else {
-      gl.disable(gl.SCISSOR_TEST)
-    }
 
     // Pass 1: horizontal — srcTex → dstFboA.
     gl.bindFramebuffer(gl.FRAMEBUFFER, dstFboA)
@@ -267,30 +239,32 @@ export const blurMethods = {
     radius: number,
     bbox?: { x: number; y: number; w: number; h: number },
   ): WebGLTexture {
-    // scissor path: blur runs on the fullscreen dsBlurFbo, but scissor limits
-    // fragment writes to the bbox region. Texture stays fullscreen (UV unchanged,
-    // no edge artifacts — blur still samples bbox-neighbor texels). Fragment
-    // work scales with bbox area, not fullscreen. No bbox → no scissor (full).
-    if (this.useKawaseBlur) return this.kawaseBlurTexture(srcTex, radius, bbox)
+    // Bbox path: crop + blur in elBlurFboA/B (bbox-sized, NOT fullscreen).
+    if (bbox) {
+      this.ensureElementFBO(bbox.w, bbox.h)
+      return this.cropAndBlurBackdrop(srcTex, bbox.x, bbox.y, bbox.w, bbox.h, radius)
+    }
+    // Fullscreen path (scene-wide blur): dsBlurFboA/B.
+    if (this.useKawaseBlur) return this.kawaseBlurTexture(srcTex, radius)
     const lvl = this.pickDsBlurLevel(radius)
     const ds = lvl.ds
     // Scale radius to the downsampled space (1/ds). Visual radius preserved.
     const dsRadius = ds > 1 ? radius / ds : radius
     // radius < 0.5 → no blur. Return srcTex UNCHANGED (no 0.6px floor).
     if (dsRadius < 0.5) {
-      this.lastBlurStats = { type: 'gauss', passes: 0, taps: 0, maxSample: 0, scissorBox: null }
+      this.lastBlurStats = { type: 'gauss', passes: 0, taps: 0, maxSample: 0 }
       return srcTex
     }
     let taps = computeBlur1DTapCount(dsRadius)
     taps = Math.min(taps, Math.max(1, this.blurTapCap | 0))
     // Gaussian shader samples at offset up to ±3σ (σ=uRadius=dsRadius).
-    this.lastBlurStats = { type: 'gauss', passes: 2, taps, maxSample: 3 * dsRadius, scissorBox: null }
+    this.lastBlurStats = { type: 'gauss', passes: 2, taps, maxSample: 3 * dsRadius }
     return this.runBlurPasses(
       srcTex,
       lvl.fboA, lvl.texA,
       lvl.fboB, lvl.texB,
       lvl.w, lvl.h,
-      dsRadius, taps, true, bbox,
+      dsRadius, taps, true,
     )
   },
 
@@ -331,12 +305,12 @@ export const blurMethods = {
    *  Result ends in the buffer that the last iter wrote to.
    *
    *  radius < 0.5 → return srcTex (no blur). */
-  kawaseBlurTexture(this: LiquidGlassRenderer, srcTex: WebGLTexture, radius: number, bbox?: { x: number; y: number; w: number; h: number } | null): WebGLTexture {
+  kawaseBlurTexture(this: LiquidGlassRenderer, srcTex: WebGLTexture, radius: number): WebGLTexture {
     const lvl = this.pickDsBlurLevel(radius)
     const ds = lvl.ds
     const dsRadius = ds > 1 ? radius / ds : radius
     if (dsRadius < 0.5) {
-      this.lastBlurStats = { type: 'kawase', passes: 0, taps: 0, maxSample: 0, scissorBox: null }
+      this.lastBlurStats = { type: 'kawase', passes: 0, taps: 0, maxSample: 0 }
       return srcTex
     }
     const iters = kawaseIterationsForRadius(dsRadius, this.kawaseQuality)
@@ -344,7 +318,7 @@ export const blurMethods = {
     // d_max = radius × √(6N/((N+1)(2N+1))) ≈ 0.63-0.73×radius (variance-matched).
     // Farthest tap = d_max×√2 (diagonal). Equivalent σ = radius (matches Gaussian).
     const dMax = dsRadius * Math.sqrt(6 * iters / ((iters + 1) * (2 * iters + 1)))
-    this.lastBlurStats = { type: 'kawase', passes: iters, taps: 4 * iters, maxSample: dMax * Math.SQRT2, scissorBox: null }
+    this.lastBlurStats = { type: 'kawase', passes: iters, taps: 4 * iters, maxSample: dMax * Math.SQRT2 }
     this.ensureKawaseProgram()
     const kp = this.kawasePrograms!
     const gl = this.gl
@@ -352,26 +326,8 @@ export const blurMethods = {
     const savedFb = gl.getParameter(gl.FRAMEBUFFER_BINDING)
     const savedScissor = gl.isEnabled(gl.SCISSOR_TEST)
     const savedBox: [number, number, number, number] = gl.getParameter(gl.SCISSOR_BOX)
+    gl.disable(gl.SCISSOR_TEST)
     gl.disable(gl.BLEND)
-    // Scissor to bbox (same logic as runBlurPasses — limits fragment writes
-    // to the element's region, reads still sample neighbors).
-    if (bbox) {
-      const sx = Math.max(0, Math.floor(bbox.x * w / this.fboW))
-      const sTop = Math.floor(bbox.y * h / this.fboH)
-      const sHgt = Math.ceil(bbox.h * h / this.fboH)
-      const sy = Math.max(0, Math.min(h - sHgt, h - sTop - sHgt))
-      const sw = Math.min(w - sx, Math.ceil(bbox.w * w / this.fboW))
-      const sh = Math.min(h - sy, sHgt)
-      if (sw > 0 && sh > 0) {
-        gl.enable(gl.SCISSOR_TEST)
-        gl.scissor(sx, sy, sw, sh)
-        if (this.lastBlurStats) this.lastBlurStats.scissorBox = [sx, sy, sw, sh]
-      } else {
-        gl.disable(gl.SCISSOR_TEST)
-      }
-    } else {
-      gl.disable(gl.SCISSOR_TEST)
-    }
 
     // Ping-pong: even iters write fboA (read fboB/src), odd iters write fboB (read fboA).
     // Iter 0 reads srcTex (external) → writes fboA.

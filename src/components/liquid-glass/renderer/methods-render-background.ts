@@ -89,9 +89,6 @@ export const backgroundMethods = {
     const key = `${scrim.join(',')}|${brightness},${contrast},${saturation}`
     if (this.dialogBackdropKey === key) return  // cached
     this.dialogBackdropKey = key
-    // dialogBackdropTex will be rewritten → bump version to invalidate
-    // backdropBlurCache entries keyed on dialogBackdrop.
-    this.dialogBackdropVersion++
     const gl = this.gl
     // Step 1: paint wallpaper (opaque) into dialogBackdropFbo.
     this.bindFBO(this.dialogBackdropFbo!)

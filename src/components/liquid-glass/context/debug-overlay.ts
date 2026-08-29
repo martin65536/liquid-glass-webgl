@@ -70,7 +70,7 @@ export function drawDebugOverlay(
       // since Gaussian is 1 tap count per pass). Total taps = per-pass × passes.
       const line1 = `#${i} ${typeTag} ds=${r.ds} r=${(r.radius / rDpr).toFixed(1)} fbo=${r.blurW}×${r.blurH} d=${(r.maxSample / rDpr).toFixed(1)}`
       const perPassTap = r.blurType === 'kawase' ? 4 : r.taps
-      const line2 = `pass=${r.passes} tap/pass=${perPassTap}${r.cached ? ' CACHED' : ''}`
+      const line2 = `pass=${r.passes} tap/pass=${perPassTap}`
       const tw1 = ctx.measureText(line1).width
       const tw2 = ctx.measureText(line2).width
       const tw = Math.max(tw1, tw2)
@@ -86,22 +86,6 @@ export function drawDebugOverlay(
       ctx.fillStyle = 'rgba(80, 200, 255, 0.98)'
       ctx.fillText(line1, boxX + padX, boxY + 11)
       ctx.fillText(line2, boxX + padX, boxY + 24)
-      // Scissor box (yellow solid) — the actual gl.scissor rect, in FBO
-      // device px bottom-origin. Convert to CSS px top-origin for drawing:
-      // x/dpr, topY = oc.height - (sy+sh)/dpr.
-      if (r.scissorBox) {
-        const dpr = renderer.dpr || 1
-        const ssx = r.scissorBox[0] / dpr
-        const ssy = r.scissorBox[1] / dpr
-        const ssw = r.scissorBox[2] / dpr
-        const ssh = r.scissorBox[3] / dpr
-        const stopY = oc.height - (ssy + ssh)
-        ctx.strokeStyle = 'rgba(255, 220, 80, 0.9)'
-        ctx.lineWidth = 1
-        ctx.setLineDash([2, 2])
-        ctx.strokeRect(ssx + 0.5, stopY + 0.5, ssw - 1, ssh - 1)
-        ctx.setLineDash([])
-      }
     }
     // NOTE: do NOT consume — see showPefBbox comment above.
   }

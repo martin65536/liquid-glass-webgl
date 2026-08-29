@@ -467,25 +467,14 @@ export class LiquidGlassRenderer {
    *  downsample / scissor / coverage bugs. CONSUME-AFTER-DRAW: the overlay
    *  clears the list after drawing it. Only populated when this flag is true. */
   showBlurDebug = false
-  debugBlurRegions: { x: number; y: number; w: number; h: number; radius: number; ds: number; blurW: number; blurH: number; blurType: 'gauss' | 'kawase'; passes: number; taps: number; maxSample: number; scissorBox: [number, number, number, number] | null; cached: boolean }[] = []
+  debugBlurRegions: { x: number; y: number; w: number; h: number; radius: number; ds: number; blurW: number; blurH: number; blurType: 'gauss' | 'kawase'; passes: number; taps: number; maxSample: number }[] = []
   /** Last blur call's stats, written by blurTexture/kawaseBlurTexture so
    *  callers (e.g. the blur debug overlay push in render-glass-backdrop)
    *  can read what actually happened (type, pass count, tap count, farthest
    *  sample distance) without re-deriving it. Null until the first blur call.
    *  maxSample = the farthest tap distance from center (Gaussian: 3σ;
    *  Kawase: radius, the ±2d at the last iter). */
-  lastBlurStats: { type: 'gauss' | 'kawase'; passes: number; taps: number; maxSample: number; scissorBox: [number, number, number, number] | null } | null = null
-  /** Backdrop blur cache for stable backdrop sources (bgOnlyTex /
-   *  dialogBackdropTex). When multiple glass elements sample the same
-   *  stable backdrop at the same radius, the blur result is shared —
-   *  computed once, reused by all. Key = `${source}_${radius}`.
-   *  Invalidated when the source texture's version changes (rewritten). */
-  backdropBlurCache = new Map<string, { srcVersion: number; radius: number; tex: WebGLTexture; blurType: 'gauss' | 'kawase' }>()
-  /** Version counters for stable backdrop textures. Incremented each time
-   *  the texture is rewritten (renderBackground / renderDialogBackdrop).
-   *  backdropBlurCache uses these to detect staleness. */
-  bgOnlyVersion = 0
-  dialogBackdropVersion = 0
+  lastBlurStats: { type: 'gauss' | 'kawase'; passes: number; taps: number; maxSample: number } | null = null
   /** Debug: when true, the renderer collects each glass element's SHADOW
    *  bbox (the TRUE per-direction reach of the shadow shape on screen,
    *  computed by shadowBboxCss from outerShadow.radius + offsetX/Y +
