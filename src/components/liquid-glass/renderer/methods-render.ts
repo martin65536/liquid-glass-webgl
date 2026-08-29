@@ -143,6 +143,8 @@ export const renderMethods = {
       // drawCopy disables blend; re-enable for subsequent non-glass draws.
       this.gl.enable(this.gl.BLEND)
       this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA)
+      // bgOnlyTex rewritten → bump version to invalidate backdropBlurCache.
+      this.bgOnlyVersion++
     }
 
     // Cull + iterate. We render elements in DECLARED ORDER (no Wave 1 /
