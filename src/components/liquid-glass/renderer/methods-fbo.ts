@@ -420,7 +420,7 @@ export const fboMethods = {
       this.elBlurFboA!, this.elBlurFboATex!,
       this.elBlurFboB!, this.elBlurFboBTex!,
       dw, dh,
-      blurRadius, taps, true,
+      blurRadius, taps, true, null,
     )
   },
 

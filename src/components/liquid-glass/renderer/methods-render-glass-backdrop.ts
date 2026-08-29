@@ -271,7 +271,7 @@ export function resolveBackdropTex(
     } else {
       backdropSrc = curTex
     }
-    const blurred = this.blurTexture(backdropSrc, blurRadiusPx)
+    const blurred = this.blurTexture(backdropSrc, blurRadiusPx, { x: sx * this.dpr, y: sy * this.dpr, w: sw * this.dpr, h: sh * this.dpr })
     if (this.showBlurDebug) {
       const s = this.lastBlurStats
       this.debugBlurRegions.push({
