@@ -482,7 +482,7 @@ export class LiquidGlassRenderer {
    *  No version tracking — background doesn't move often. Invalidated only
    *  on scroll (scrollY change) which is when bgOnlyTex content actually
    *  changes. Other changes (nonglass animation) accept 1-frame staleness. */
-  backdropBlurCache = new Map<string, { radius: number; tex: WebGLTexture; blurType: 'gauss' | 'kawase' }>()
+  backdropBlurCache = new Map<string, { radius: number; tex: WebGLTexture; blurType: 'gauss' | 'kawase'; preview: HTMLCanvasElement | null }>()
   /** Last scrollY when cache was populated. When scrollY changes, cache is
    *  cleared (bgOnlyTex content shifts with scroll). */
   backdropBlurCacheScrollY = 0

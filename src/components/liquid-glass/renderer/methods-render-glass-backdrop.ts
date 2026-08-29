@@ -307,6 +307,7 @@ export function resolveBackdropTex(
           radius: qRadius,
           tex: cacheFbo.tex,
           blurType: this.lastBlurStats?.type ?? 'gauss',
+          preview: null,
         })
         blurred = cacheFbo.tex
       }
