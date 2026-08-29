@@ -233,6 +233,7 @@ export function resolveBackdropTex(
         passes: s?.passes ?? 0,
         taps: s?.taps ?? 0,
         maxSample: s?.maxSample ?? 0,
+        cached: false,
       })
     }
     this.perfMonitor.incBlurPass()
@@ -264,14 +265,54 @@ export function resolveBackdropTex(
     // of curTex (which includes other glass). backdropFbo elements keep
     // their own dialogBackdropTex (it's already wallpaper-only).
     let backdropSrc: WebGLTexture
+    let cacheSource: 'bgOnly' | 'dialog' | null = null
     if (el.backdropFbo && this.dialogBackdropTex) {
       backdropSrc = this.dialogBackdropTex
+      cacheSource = 'dialog'
     } else if (this.quickToggles.isolateBackdrop && this.bgOnlyTex) {
       backdropSrc = this.bgOnlyTex
+      cacheSource = 'bgOnly'
     } else {
       backdropSrc = curTex
     }
-    const blurred = this.blurTexture(backdropSrc, blurRadiusPx)
+    // Cache for stable sources (bgOnly/dialog). radius quantized to 0.1px
+    // so elements with slightly different radii share the same entry.
+    // curTex is never cached (changes every frame).
+    let blurred: WebGLTexture
+    let cacheHit = false
+    if (cacheSource) {
+      // Invalidate cache on scroll (bgOnlyTex content shifts with scroll).
+      if (this.scrollY !== this.backdropBlurCacheScrollY) {
+        for (const e of this.backdropBlurCache.values()) this.gl.deleteTexture(e.tex)
+        this.backdropBlurCache.clear()
+        this.backdropBlurCacheScrollY = this.scrollY
+      }
+      const qRadius = Math.round(blurRadiusPx * 10) / 10
+      const cacheKey = `${cacheSource}_${qRadius}_${this.useKawaseBlur ? 'k' : 'g'}`
+      const entry = this.backdropBlurCache.get(cacheKey)
+      if (entry) {
+        blurred = entry.tex
+        cacheHit = true
+        this.lastBlurStats = { type: entry.blurType, passes: 0, taps: 0, maxSample: 0 }
+      } else {
+        blurred = this.blurTexture(backdropSrc, blurRadiusPx)
+        // Copy to a dedicated cache texture (dsBlurFboBTex will be overwritten).
+        const cacheFbo = this.createFBO(this.fboW, this.fboH)
+        const gl = this.gl
+        const savedFb = gl.getParameter(gl.FRAMEBUFFER_BINDING)
+        this.bindFBO(cacheFbo.fb)
+        this.drawCopy(blurred)
+        this.bindFBO(savedFb as WebGLFramebuffer | null)
+        this.backdropBlurCache.set(cacheKey, {
+          radius: qRadius,
+          tex: cacheFbo.tex,
+          blurType: this.lastBlurStats?.type ?? 'gauss',
+        })
+        blurred = cacheFbo.tex
+      }
+    } else {
+      blurred = this.blurTexture(backdropSrc, blurRadiusPx)
+    }
     if (this.showBlurDebug) {
       const s = this.lastBlurStats
       this.debugBlurRegions.push({
@@ -283,6 +324,7 @@ export function resolveBackdropTex(
         passes: s?.passes ?? 0,
         taps: s?.taps ?? 0,
         maxSample: s?.maxSample ?? 0,
+        cached: cacheHit,
       })
     }
     this.perfMonitor.incBlurPass()

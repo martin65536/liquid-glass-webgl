@@ -70,7 +70,7 @@ export function drawDebugOverlay(
       // since Gaussian is 1 tap count per pass). Total taps = per-pass × passes.
       const line1 = `#${i} ${typeTag} ds=${r.ds} r=${(r.radius / rDpr).toFixed(1)} fbo=${r.blurW}×${r.blurH} d=${(r.maxSample / rDpr).toFixed(1)}`
       const perPassTap = r.blurType === 'kawase' ? 4 : r.taps
-      const line2 = `pass=${r.passes} tap/pass=${perPassTap}`
+      const line2 = `pass=${r.passes} tap/pass=${perPassTap}${r.cached ? ' CACHED' : ''}`
       const tw1 = ctx.measureText(line1).width
       const tw2 = ctx.measureText(line2).width
       const tw = Math.max(tw1, tw2)

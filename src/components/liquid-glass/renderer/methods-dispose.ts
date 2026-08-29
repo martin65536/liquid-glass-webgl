@@ -108,6 +108,10 @@ export const disposeMethods = {
       gl.deleteProgram(this.kawasePrograms.prog)
       this.kawasePrograms = null
     }
+    for (const entry of this.backdropBlurCache.values()) {
+      gl.deleteTexture(entry.tex)
+    }
+    this.backdropBlurCache.clear()
     if (this.sdfTexture) gl.deleteTexture(this.sdfTexture)
     this.sdfTexture = null
     if (this.textSdfTexture) gl.deleteTexture(this.textSdfTexture)
