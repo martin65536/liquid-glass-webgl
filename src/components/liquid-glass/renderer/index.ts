@@ -467,7 +467,7 @@ export class LiquidGlassRenderer {
    *  downsample / scissor / coverage bugs. CONSUME-AFTER-DRAW: the overlay
    *  clears the list after drawing it. Only populated when this flag is true. */
   showBlurDebug = false
-  debugBlurRegions: { x: number; y: number; w: number; h: number; radius: number; ds: number; blurW: number; blurH: number; blurType: 'gauss' | 'kawase'; passes: number; taps: number; maxSample: number; cached: boolean }[] = []
+  debugBlurRegions: { x: number; y: number; w: number; h: number; radius: number; ds: number; blurW: number; blurH: number; blurType: 'gauss' | 'kawase'; passes: number; taps: number; maxSample: number }[] = []
   /** Last blur call's stats, written by blurTexture/kawaseBlurTexture so
    *  callers (e.g. the blur debug overlay push in render-glass-backdrop)
    *  can read what actually happened (type, pass count, tap count, farthest
@@ -475,17 +475,6 @@ export class LiquidGlassRenderer {
    *  maxSample = the farthest tap distance from center (Gaussian: 3σ;
    *  Kawase: radius, the ±2d at the last iter). */
   lastBlurStats: { type: 'gauss' | 'kawase'; passes: number; taps: number; maxSample: number } | null = null
-  /** Backdrop blur cache for stable backdrop sources (bgOnlyTex /
-   *  dialogBackdropTex). Key = `${source}_${quantizedRadius}_${type}`.
-   *  radius quantized to 0.1px so elements with slightly different radii
-   *  (layerScale×dpr variation) share the same cache entry.
-   *  No version tracking — background doesn't move often. Invalidated only
-   *  on scroll (scrollY change) which is when bgOnlyTex content actually
-   *  changes. Other changes (nonglass animation) accept 1-frame staleness. */
-  backdropBlurCache = new Map<string, { radius: number; tex: WebGLTexture; blurType: 'gauss' | 'kawase'; preview: HTMLCanvasElement | null }>()
-  /** Last scrollY when cache was populated. When scrollY changes, cache is
-   *  cleared (bgOnlyTex content shifts with scroll). */
-  backdropBlurCacheScrollY = 0
   /** Debug: when true, the renderer collects each glass element's SHADOW
    *  bbox (the TRUE per-direction reach of the shadow shape on screen,
    *  computed by shadowBboxCss from outerShadow.radius + offsetX/Y +
