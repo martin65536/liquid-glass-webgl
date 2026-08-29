@@ -201,27 +201,55 @@ export function resolveBackdropTex(
     this.quickToggles.backdropBlur
   ) {
     const gl = this.gl
-    // Step 1: render wallpaper cover-fitted into gpElementFbo (reusing the
-    // currently-unused GP element FBO). This preserves the cover-fit aspect
-    // ratio so the blur samples the same texels the background pass displays.
-    this.bindFBO(this.gpElementFbo!)
-    gl.disable(gl.BLEND)
-    gl.useProgram(this.wallpaperProgram)
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
-    gl.enableVertexAttribArray(this.aPosLocWp)
-    gl.vertexAttribPointer(this.aPosLocWp, 2, gl.FLOAT, false, 0, 0)
-    gl.activeTexture(gl.TEXTURE0)
-    gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture!)
-    gl.uniform1i(this.uWp['uBackdrop'], 0)
-    gl.uniform2f(this.uWp['uCanvasSize'], this.canvas.width, this.canvas.height)
-    gl.uniform2f(this.uWp['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
-    gl.drawArrays(gl.TRIANGLES, 0, 6)
-
-    // Step 2: blur gpElementTex in a bbox-sized FBO (elBlurFboA/B), NOT
-    // fullscreen. gpElementTex is already bbox-sized (cover-fitted wallpaper),
-    // so no crop needed — just blur directly into elBlurFboA/B.
     const blurRadiusPx = el.blurRadius * layerScale * this.dpr
-    const blurred = this.blurTexture(this.gpElementTex!, blurRadiusPx)
+    // Cache: wallpaper is static (cover-fit, doesn't change with scroll).
+    // Same radius → same blur result → share across elements + frames.
+    // radius quantized to 0.1px so layerScale variation aligns.
+    const qRadius = Math.round(blurRadiusPx * 10) / 10
+    const cacheKey = `wallpaper_${qRadius}_${this.useKawaseBlur ? 'k' : 'g'}`
+    // Invalidate on scroll (cover-fit wallpaper shifts visually with scroll).
+    if (this.scrollY !== this.backdropBlurCacheScrollY) {
+      for (const e of this.backdropBlurCache.values()) this.gl.deleteTexture(e.tex)
+      this.backdropBlurCache.clear()
+      this.backdropBlurCacheScrollY = this.scrollY
+    }
+    const entry = this.backdropBlurCache.get(cacheKey)
+    let blurred: WebGLTexture
+    let cacheHit = false
+    if (entry) {
+      blurred = entry.tex
+      cacheHit = true
+      this.lastBlurStats = { type: entry.blurType, passes: 0, taps: 0, maxSample: 0 }
+    } else {
+      // Step 1: render wallpaper cover-fitted into gpElementFbo.
+      this.bindFBO(this.gpElementFbo!)
+      gl.disable(gl.BLEND)
+      gl.useProgram(this.wallpaperProgram)
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+      gl.enableVertexAttribArray(this.aPosLocWp)
+      gl.vertexAttribPointer(this.aPosLocWp, 2, gl.FLOAT, false, 0, 0)
+      gl.activeTexture(gl.TEXTURE0)
+      gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture!)
+      gl.uniform1i(this.uWp['uBackdrop'], 0)
+      gl.uniform2f(this.uWp['uCanvasSize'], this.canvas.width, this.canvas.height)
+      gl.uniform2f(this.uWp['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
+      gl.drawArrays(gl.TRIANGLES, 0, 6)
+      // Step 2: blur gpElementTex.
+      blurred = this.blurTexture(this.gpElementTex!, blurRadiusPx)
+      // Step 3: copy to cache texture (dsBlurFboBTex will be overwritten).
+      const cacheFbo = this.createFBO(this.fboW, this.fboH)
+      const savedFb = gl.getParameter(gl.FRAMEBUFFER_BINDING)
+      this.bindFBO(cacheFbo.fb)
+      this.drawCopy(blurred)
+      this.bindFBO(savedFb as WebGLFramebuffer | null)
+      this.backdropBlurCache.set(cacheKey, {
+        radius: qRadius,
+        tex: cacheFbo.tex,
+        blurType: this.lastBlurStats?.type ?? 'gauss',
+        preview: null,
+      })
+      blurred = cacheFbo.tex
+    }
     if (this.showBlurDebug) {
       const s = this.lastBlurStats
       this.debugBlurRegions.push({
@@ -233,7 +261,7 @@ export function resolveBackdropTex(
         passes: s?.passes ?? 0,
         taps: s?.taps ?? 0,
         maxSample: s?.maxSample ?? 0,
-        cached: false,
+        cached: cacheHit,
       })
     }
     this.perfMonitor.incBlurPass()
