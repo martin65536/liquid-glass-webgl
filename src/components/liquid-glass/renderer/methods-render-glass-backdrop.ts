@@ -271,7 +271,7 @@ export function resolveBackdropTex(
     } else {
       backdropSrc = curTex
     }
-    const blurred = this.blurTexture(backdropSrc, blurRadiusPx, { x: sx, y: sy, w: sw, h: sh })
+    const blurred = this.blurTexture(backdropSrc, blurRadiusPx)
     if (this.showBlurDebug) {
       const s = this.lastBlurStats
       this.debugBlurRegions.push({
@@ -298,7 +298,7 @@ export function resolveBackdropTex(
     // element pass binds curTex (the blurred backdrop) instead of the raw
     // dialogBackdropTex.
     const passState = el.backdropFbo ? { ...state, el: { ...el, backdropFbo: false } } : state
-    return { backdropTex: blurred, passState, didBlur: true, backdropBbox: { x: sx, y: sy, w: sw, h: sh } }
+    return { backdropTex: blurred, passState, didBlur: true }
   }
 
   // No blur: backdrop is sampled directly. Isolate → bgOnlyTex.
