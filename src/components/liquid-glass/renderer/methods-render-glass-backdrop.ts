@@ -217,13 +217,9 @@ export function resolveBackdropTex(
       this.lastBlurStats = { type: entry.blurType, passes: 0, taps: 0, maxSample: 0 }
     } else {
       // MISS: blur wallpaper + copy to cache texture.
-      // OPTIMIZATION: skip Step 1 (wallpaper render to wallpaperBlurFbo).
-      // renderBackground already rendered wallpaper to fboA earlier this
-      // frame. Use fboATex directly as the blur source — saves 1 drawArrays.
-      // fboA is still clean wallpaper at this point (scene blur, if any,
-      // runs before element loop and blurs in-place — still wallpaper, just
-      // blurred). Element compositing happens AFTER resolveBackdropTex.
-      const blurResult = this.blurTexture(this.fboATex!, blurRadiusPx)
+      // Use wallpaperBlurFbo (rendered once per frame, always clean wallpaper)
+      // NOT fboA — fboA gets composited with other elements during the loop.
+      const blurResult = this.blurTexture(this.wallpaperBlurTex!, blurRadiusPx)
       // Step 2: copy blurResult to a dedicated cache texture.
       const blurW = this.dsBlurFboW || this.fboW
       const blurH = this.dsBlurFboH || this.fboH

@@ -49,7 +49,9 @@ export const backgroundMethods = {
     )
   },
 
-  /** Render wallpaper or solid background color into fboA. */
+  /** Render wallpaper or solid background color into fboA.
+   *  Also renders into wallpaperBlurFbo so it's always clean wallpaper
+   *  (never composited with elements) — used by the blur cache. */
   renderBackground(this: LiquidGlassRenderer) {
     const gl = this.gl
     this.bindFBO(this.fboA)
@@ -68,6 +70,14 @@ export const backgroundMethods = {
       gl.uniform2f(this.uWp['uCanvasSize'], this.canvas.width, this.canvas.height)
       gl.uniform2f(this.uWp['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
       gl.drawArrays(gl.TRIANGLES, 0, 6)
+      // Also render to wallpaperBlurFbo (clean copy for blur cache).
+      // Only once per frame — no extra cost when cache hits.
+      if (this.wallpaperBlurFbo) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.wallpaperBlurFbo)
+        gl.viewport(0, 0, this.fboW, this.fboH)
+        gl.disable(gl.SCISSOR_TEST)
+        gl.drawArrays(gl.TRIANGLES, 0, 6)
+      }
     }
   },
 
