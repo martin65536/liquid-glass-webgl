@@ -100,6 +100,7 @@ export function LiquidGlassCanvas(props: LiquidGlassCanvasProps) {
     const renderer = new LiquidGlassRenderer(canvasRef.current)
     rendererRefInternal.current = renderer
     if (rendererRef) rendererRef.current = renderer
+    if (typeof window !== "undefined") (window as unknown as { __lgRenderer?: LiquidGlassRenderer }).__lgRenderer = renderer
     renderer.setBackgroundColor(backgroundColor)
     renderer.loadWallpaper(wallpaperSrc).then(() => {
       // Fire onReady after wallpaper loads + one frame renders
