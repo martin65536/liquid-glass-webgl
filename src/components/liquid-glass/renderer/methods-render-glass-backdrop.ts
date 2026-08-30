@@ -216,30 +216,15 @@ export function resolveBackdropTex(
       cacheHit = true
       this.lastBlurStats = { type: entry.blurType, passes: 0, taps: 0, maxSample: 0 }
     } else {
-      // MISS: render wallpaper + blur + copy to cache texture.
-      // Step 1: render wallpaper cover-fitted into wallpaperBlurFbo.
-      // CLEAR + disable scissor first — the caller (ping-pong/PEF) set a
-      // scissor to the element bbox; without disabling, wallpaper only
-      // renders inside the bbox.
-      this.bindFBO(this.wallpaperBlurFbo!)
-      gl.disable(gl.BLEND)
-      gl.disable(gl.SCISSOR_TEST)
-      gl.clearColor(0, 0, 0, 0)
-      gl.clear(gl.COLOR_BUFFER_BIT)
-      gl.useProgram(this.wallpaperProgram)
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
-      gl.enableVertexAttribArray(this.aPosLocWp)
-      gl.vertexAttribPointer(this.aPosLocWp, 2, gl.FLOAT, false, 0, 0)
-      gl.activeTexture(gl.TEXTURE0)
-      gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture!)
-      gl.uniform1i(this.uWp['uBackdrop'], 0)
-      gl.uniform2f(this.uWp['uCanvasSize'], this.fboW, this.fboH)
-      gl.uniform2f(this.uWp['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
-      gl.drawArrays(gl.TRIANGLES, 0, 6)
-      // Step 2: blur wallpaperBlurTex.
-      const blurResult = this.blurTexture(this.wallpaperBlurTex!, blurRadiusPx)
-      // Step 3: copy blurResult to a dedicated cache texture.
-      // blurResult is a dsBlurFbo texture — its size is dsBlurFboW×dsBlurFboH.
+      // MISS: blur wallpaper + copy to cache texture.
+      // OPTIMIZATION: skip Step 1 (wallpaper render to wallpaperBlurFbo).
+      // renderBackground already rendered wallpaper to fboA earlier this
+      // frame. Use fboATex directly as the blur source — saves 1 drawArrays.
+      // fboA is still clean wallpaper at this point (scene blur, if any,
+      // runs before element loop and blurs in-place — still wallpaper, just
+      // blurred). Element compositing happens AFTER resolveBackdropTex.
+      const blurResult = this.blurTexture(this.fboATex!, blurRadiusPx)
+      // Step 2: copy blurResult to a dedicated cache texture.
       const blurW = this.dsBlurFboW || this.fboW
       const blurH = this.dsBlurFboH || this.fboH
       const cacheFbo = this.createFBO(blurW, blurH)
@@ -247,9 +232,6 @@ export function resolveBackdropTex(
       const savedFb = gl2.getParameter(gl2.FRAMEBUFFER_BINDING)
       const savedScissor = gl2.isEnabled(gl2.SCISSOR_TEST)
       const savedBox: [number, number, number, number] = gl2.getParameter(gl2.SCISSOR_BOX)
-      // CRITICAL: disable scissor — blurTexture restored the caller's scissor
-      // (element bbox), which would clip the drawCopy to only the element's
-      // region instead of copying the full blurResult.
       gl2.disable(gl2.SCISSOR_TEST)
       gl2.bindFramebuffer(gl2.FRAMEBUFFER, cacheFbo.fb)
       gl2.viewport(0, 0, blurW, blurH)
