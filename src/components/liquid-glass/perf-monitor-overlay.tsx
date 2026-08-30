@@ -61,11 +61,15 @@ interface Props {
   capsuleDebug?: boolean
   /** Toggle handler for capsuleDebug. */
   onToggleCapsuleDebug?: () => void
+  /** Blur cache debug overlay state (owned by page.tsx). */
+  blurCacheDebug?: boolean
+  /** Toggle handler for blurCacheDebug. */
+  onToggleBlurCacheDebug?: () => void
 }
 
 const POLL_MS = 250
 
-export function PerfMonitorOverlay({ rendererRef, visible, rafFps, capsuleDebug, onToggleCapsuleDebug }: Props) {
+export function PerfMonitorOverlay({ rendererRef, visible, rafFps, capsuleDebug, onToggleCapsuleDebug, blurCacheDebug, onToggleBlurCacheDebug }: Props) {
   const [snapshot, setSnapshot] = React.useState<PerfSnapshot | null>(null)
   const [collapsed, setCollapsed] = React.useState(false)
   const [paused, setPaused] = React.useState(false)
@@ -288,7 +292,7 @@ export function PerfMonitorOverlay({ rendererRef, visible, rafFps, capsuleDebug,
 
       {snapshot ? (
         <div className="perfmon-scroll" style={scrollBodyStyle}>
-          <Body snapshot={snapshot} rafFps={rafFps} rendererRef={rendererRef} paused={paused} capsuleDebug={capsuleDebug} onToggleCapsuleDebug={onToggleCapsuleDebug} />
+          <Body snapshot={snapshot} rafFps={rafFps} rendererRef={rendererRef} paused={paused} capsuleDebug={capsuleDebug} onToggleCapsuleDebug={onToggleCapsuleDebug} blurCacheDebug={blurCacheDebug} onToggleBlurCacheDebug={onToggleBlurCacheDebug} />
         </div>
       ) : (
         <div style={{ padding: 12, color: '#888' }}>Waiting for samples…</div>

@@ -16,6 +16,8 @@ export function Body({
   paused,
   capsuleDebug,
   onToggleCapsuleDebug,
+  blurCacheDebug,
+  onToggleBlurCacheDebug,
 }: {
   snapshot: PerfSnapshot
   rafFps?: number
@@ -23,6 +25,8 @@ export function Body({
   paused: boolean
   capsuleDebug?: boolean
   onToggleCapsuleDebug?: () => void
+  blurCacheDebug?: boolean
+  onToggleBlurCacheDebug?: () => void
 }) {
   return (
     <>
@@ -70,7 +74,7 @@ export function Body({
         <Row label="Max texture" value={String(snapshot.maxTextureSize)} hint={`exts ${snapshot.extensionCount}`} />
       </Section>
       <QuickToggles rendererRef={rendererRef} />
-      <DebugToggles rendererRef={rendererRef} capsuleDebug={capsuleDebug} onToggleCapsuleDebug={onToggleCapsuleDebug} />
+      <DebugToggles rendererRef={rendererRef} capsuleDebug={capsuleDebug} onToggleCapsuleDebug={onToggleCapsuleDebug} blurCacheDebug={blurCacheDebug} onToggleBlurCacheDebug={onToggleBlurCacheDebug} />
       <div style={{ display: 'flex', gap: 6, padding: '8px 10px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
         <button
           style={{ ...btnStyle, flex: 1 }}

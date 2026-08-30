@@ -8,7 +8,7 @@ import type { LiquidGlassRenderer } from '../renderer'
  * debug overlays drawn on top of the canvas. They read/write flags directly
  * on the renderer; the LiquidGlassCanvas's overlay rAF loop picks them up.
  */
-export function DebugToggles({ rendererRef, capsuleDebug, onToggleCapsuleDebug }: { rendererRef: React.MutableRefObject<LiquidGlassRenderer | null>; capsuleDebug?: boolean; onToggleCapsuleDebug?: () => void }) {
+export function DebugToggles({ rendererRef, capsuleDebug, onToggleCapsuleDebug, blurCacheDebug, onToggleBlurCacheDebug }: { rendererRef: React.MutableRefObject<LiquidGlassRenderer | null>; capsuleDebug?: boolean; onToggleCapsuleDebug?: () => void; blurCacheDebug?: boolean; onToggleBlurCacheDebug?: () => void }) {
   const [showBbox, setShowBbox] = React.useState(false)
   const [showBlur, setShowBlur] = React.useState(false)
   const [showDirty, setShowDirty] = React.useState(false)
@@ -175,6 +175,16 @@ export function DebugToggles({ rendererRef, capsuleDebug, onToggleCapsuleDebug }
         <span>Show dirty markers</span>
         <span style={{ color: showDirty ? '#fc6' : '#888', fontWeight: 700, fontSize: 10 }}>
           {showDirty ? 'ON' : 'OFF'}
+        </span>
+      </button>
+      <button
+        onClick={() => onToggleBlurCacheDebug?.()}
+        title="Open the Blur Cache debug overlay — shows cached blurred-wallpaper textures as thumbnails (via GPU readPixels), cache entry count, and texture sizes. Use to verify the blur cache is actually populating + hitting."
+        style={debugBtnStyle(!!blurCacheDebug)}
+      >
+        <span>Blur cache debug</span>
+        <span style={{ color: blurCacheDebug ? '#0cf' : '#888', fontWeight: 700, fontSize: 10 }}>
+          {blurCacheDebug ? 'ON' : 'OFF'}
         </span>
       </button>
       <button

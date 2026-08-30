@@ -4,6 +4,7 @@ import * as React from 'react'
 import { LiquidGlassCanvas } from '@/components/liquid-glass/context'
 import { PerfMonitorOverlay } from '@/components/liquid-glass/perf-monitor-overlay'
 import { CapsuleSdfDebugOverlay } from '@/components/liquid-glass/capsule-sdf-debug-overlay'
+import { BlurCacheDebugOverlay } from '@/components/liquid-glass/blur-cache-debug-overlay'
 import {
   buildCatalog,
   CatalogDestination,
@@ -63,9 +64,13 @@ export default function Page() {
   // "DEBUG OVERLAYS" section (a dedicated button). State lives here so the
   // overlay component stays mounted/unmounted at the page level.
   const [capsuleDebug, setCapsuleDebug] = React.useState(false)
+  const [blurCacheDebug, setBlurCacheDebug] = React.useState(false)
   React.useEffect(() => {
     if (typeof window === 'undefined') return
-    const check = () => setCapsuleDebug(new URLSearchParams(window.location.search).get('capsuleDebug') === '1')
+    const check = () => {
+      setCapsuleDebug(new URLSearchParams(window.location.search).get('capsuleDebug') === '1')
+      setBlurCacheDebug(new URLSearchParams(window.location.search).get('blurCacheDebug') === '1')
+    }
     check()
     window.addEventListener('popstate', check)
     return () => window.removeEventListener('popstate', check)
@@ -77,6 +82,18 @@ export default function Page() {
         const url = new URL(window.location.href)
         if (next) url.searchParams.set('capsuleDebug', '1')
         else url.searchParams.delete('capsuleDebug')
+        window.history.replaceState(null, '', url.toString())
+      }
+      return next
+    })
+  }, [])
+  const toggleBlurCacheDebug = React.useCallback(() => {
+    setBlurCacheDebug(prev => {
+      const next = !prev
+      if (typeof window !== 'undefined') {
+        const url = new URL(window.location.href)
+        if (next) url.searchParams.set('blurCacheDebug', '1')
+        else url.searchParams.delete('blurCacheDebug')
         window.history.replaceState(null, '', url.toString())
       }
       return next
@@ -598,6 +615,8 @@ export default function Page() {
             rafFps={fpsDisplay}
             capsuleDebug={capsuleDebug}
             onToggleCapsuleDebug={toggleCapsuleDebug}
+            blurCacheDebug={blurCacheDebug}
+            onToggleBlurCacheDebug={toggleBlurCacheDebug}
           />
         )}
         {/* Capsule SDF debug overlay — per-step timing breakdown for each
@@ -605,6 +624,9 @@ export default function Page() {
             Monitor panel's "DEBUG OVERLAYS" section. */}
         {rendererReady && capsuleDebug && (
           <CapsuleSdfDebugOverlay rendererRef={rendererRef} />
+        )}
+        {rendererReady && blurCacheDebug && (
+          <BlurCacheDebugOverlay rendererRef={rendererRef} />
         )}
         {/* Progress bar is now rendered in the canvas (plain-rect elements) */}
         {/* Hidden file input for "Pick an image" — triggered by the canvas button */}
