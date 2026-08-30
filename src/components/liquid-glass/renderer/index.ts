@@ -480,7 +480,7 @@ export class LiquidGlassRenderer {
    *  sample distance) without re-deriving it. Null until the first blur call.
    *  maxSample = the farthest tap distance from center (Gaussian: 3σ;
    *  Kawase: radius, the ±2d at the last iter). */
-  lastBlurStats: { type: 'gauss' | 'kawase'; passes: number; taps: number; maxSample: number } | null = null
+  lastBlurStats: { type: 'gauss' | 'kawase'; passes: number; taps: number; maxSample: number; w: number; h: number } | null = null
   /** Backdrop blur cache for the independent path (wallpaperBlurFbo).
    *  When independent=true, the backdrop is static cover-fit wallpaper —
    *  same radius → same blur result. Key = `wallpaper_${qRadius}_${type}`

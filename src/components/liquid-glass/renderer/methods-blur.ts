@@ -252,13 +252,13 @@ export const blurMethods = {
     const dsRadius = ds > 1 ? radius / ds : radius
     // radius < 0.5 → no blur. Return srcTex UNCHANGED (no 0.6px floor).
     if (dsRadius < 0.5) {
-      this.lastBlurStats = { type: 'gauss', passes: 0, taps: 0, maxSample: 0 }
+      this.lastBlurStats = { type: 'gauss', passes: 0, taps: 0, maxSample: 0, w: lvl.w, h: lvl.h }
       return srcTex
     }
     let taps = computeBlur1DTapCount(dsRadius)
     taps = Math.min(taps, Math.max(1, this.blurTapCap | 0))
     // Gaussian shader samples at offset up to ±3σ (σ=uRadius=dsRadius).
-    this.lastBlurStats = { type: 'gauss', passes: 2, taps, maxSample: 3 * dsRadius }
+    this.lastBlurStats = { type: 'gauss', passes: 2, taps, maxSample: 3 * dsRadius, w: lvl.w, h: lvl.h }
     return this.runBlurPasses(
       srcTex,
       lvl.fboA, lvl.texA,
@@ -310,7 +310,7 @@ export const blurMethods = {
     const ds = lvl.ds
     const dsRadius = ds > 1 ? radius / ds : radius
     if (dsRadius < 0.5) {
-      this.lastBlurStats = { type: 'kawase', passes: 0, taps: 0, maxSample: 0 }
+      this.lastBlurStats = { type: 'kawase', passes: 0, taps: 0, maxSample: 0, w: lvl.w, h: lvl.h }
       return srcTex
     }
     const iters = kawaseIterationsForRadius(dsRadius, this.kawaseQuality)
@@ -318,7 +318,7 @@ export const blurMethods = {
     // d_max = radius × √(6N/((N+1)(2N+1))) ≈ 0.63-0.73×radius (variance-matched).
     // Farthest tap = d_max×√2 (diagonal). Equivalent σ = radius (matches Gaussian).
     const dMax = dsRadius * Math.sqrt(6 * iters / ((iters + 1) * (2 * iters + 1)))
-    this.lastBlurStats = { type: 'kawase', passes: iters, taps: 4 * iters, maxSample: dMax * Math.SQRT2 }
+    this.lastBlurStats = { type: 'kawase', passes: iters, taps: 4 * iters, maxSample: dMax * Math.SQRT2, w: lvl.w, h: lvl.h }
     this.ensureKawaseProgram()
     const kp = this.kawasePrograms!
     const gl = this.gl

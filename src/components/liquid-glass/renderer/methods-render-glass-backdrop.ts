@@ -236,8 +236,16 @@ export function resolveBackdropTex(
       const t0 = performance.now()
       const blurResult = this.blurTexture(this.wallpaperBlurTex!, blurRadiusPx)
       const t1 = performance.now()
-      const blurW = this.dsBlurFboW || this.fboW
-      const blurH = this.dsBlurFboH || this.fboH
+      // Use the ACTUAL blur texture dimensions (from lastBlurStats), NOT
+      // this.dsBlurFboW/H. When dynamicBlurDownsample=true, pickDsBlurLevel
+      // may select a different ds level (e.g. ds=1 full-res for small radius)
+      // than the legacy dsBlurFboW/H (= fboW / effectiveBlurDownsample).
+      // copyTexImage2D with mismatched source (blurResult is lvl.w×lvl.h) vs
+      // dest size (blurW×blurH) reads only a sub-rect on strict drivers
+      // (Adreno), producing a broken cache texture. Mali tolerates the
+      // mismatch (clamps / scales), masking the bug.
+      const blurW = this.lastBlurStats?.w ?? this.dsBlurFboW ?? this.fboW
+      const blurH = this.lastBlurStats?.h ?? this.dsBlurFboH ?? this.fboH
       const cacheFbo = this.acquireCacheFBO(blurW, blurH)
       const gl2 = this.gl
       const savedFb = gl2.getParameter(gl2.FRAMEBUFFER_BINDING)
@@ -246,10 +254,14 @@ export function resolveBackdropTex(
       gl2.disable(gl2.SCISSOR_TEST)
       // copyTexImage2D: reads from currently-bound READ framebuffer's color
       // buffer. blurResult is a texture — create temp FBO to attach it.
+      // Unbind blurResult from TEXTURE0 first: Adreno has a quirk where
+      // copyTexImage2D reading a texture that's still bound as a sampler
+      // produces undefined/garbage output. Mali tolerates it.
       const readFb = gl2.createFramebuffer()
       gl2.bindFramebuffer(gl2.FRAMEBUFFER, readFb)
       gl2.framebufferTexture2D(gl2.FRAMEBUFFER, gl2.COLOR_ATTACHMENT0, gl2.TEXTURE_2D, blurResult, 0)
       gl2.activeTexture(gl2.TEXTURE0)
+      gl2.bindTexture(gl2.TEXTURE_2D, null)
       gl2.bindTexture(gl2.TEXTURE_2D, cacheFbo.tex)
       gl2.copyTexImage2D(gl2.TEXTURE_2D, 0, gl2.RGBA, 0, 0, blurW, blurH, 0)
       gl2.deleteFramebuffer(readFb)
@@ -419,18 +431,23 @@ export function resolveBackdropTex(
         const sT0 = performance.now()
         blurred = this.blurTexture(backdropSrc, blurRadiusPx)
         const sT1 = performance.now()
-        const blurW = this.dsBlurFboW || this.fboW
-        const blurH = this.dsBlurFboH || this.fboH
+        // Use actual blur texture dims (see independent path comment above
+        // for the Adreno copyTexImage2D mismatch bug rationale).
+        const blurW = this.lastBlurStats?.w ?? this.dsBlurFboW ?? this.fboW
+        const blurH = this.lastBlurStats?.h ?? this.dsBlurFboH ?? this.fboH
         const cacheFbo = this.acquireCacheFBO(blurW, blurH)
         const gl2 = this.gl
         const savedFb = gl2.getParameter(gl2.FRAMEBUFFER_BINDING)
         const savedSc = gl2.isEnabled(gl2.SCISSOR_TEST)
         const savedBox: [number, number, number, number] = gl2.getParameter(gl2.SCISSOR_BOX)
         gl2.disable(gl2.SCISSOR_TEST)
+        // Unbind blurred from TEXTURE0 before copyTexImage2D (Adreno quirk —
+        // see independent path comment).
         const readFb = gl2.createFramebuffer()
         gl2.bindFramebuffer(gl2.FRAMEBUFFER, readFb)
         gl2.framebufferTexture2D(gl2.FRAMEBUFFER, gl2.COLOR_ATTACHMENT0, gl2.TEXTURE_2D, blurred, 0)
         gl2.activeTexture(gl2.TEXTURE0)
+        gl2.bindTexture(gl2.TEXTURE_2D, null)
         gl2.bindTexture(gl2.TEXTURE_2D, cacheFbo.tex)
         gl2.copyTexImage2D(gl2.TEXTURE_2D, 0, gl2.RGBA, 0, 0, blurW, blurH, 0)
         gl2.deleteFramebuffer(readFb)
