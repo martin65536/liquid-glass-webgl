@@ -233,17 +233,33 @@ export function resolveBackdropTex(
       // Step 2: blur wallpaperBlurTex.
       const blurResult = this.blurTexture(this.wallpaperBlurTex!, blurRadiusPx)
       // Step 3: copy blurResult to a dedicated cache texture.
-      const cacheFbo = this.createFBO(this.fboW, this.fboH)
+      // blurResult is a dsBlurFbo texture — its size is dsBlurFboW×dsBlurFboH,
+      // NOT fboW×fboH (when blurDownsample > 1). cacheFbo must match
+      // blurResult's size, and drawCopy must use that size for UV mapping.
+      const blurW = this.dsBlurFboW || this.fboW
+      const blurH = this.dsBlurFboH || this.fboH
+      const cacheFbo = this.createFBO(blurW, blurH)
       const gl2 = this.gl
       const savedFb = gl2.getParameter(gl2.FRAMEBUFFER_BINDING)
-      // Bind cacheFbo as write target, drawCopy blurResult into it.
-      this.bindFBO(cacheFbo.fb)
-      gl2.viewport(0, 0, this.fboW, this.fboH)
-      this.drawCopy(blurResult)
-      // Snapshot: read FULL texture for the debug overlay. Only done once
-      // at cache-miss time (not per-frame). Y-flipped for canvas display.
-      const snapW = this.fboW
-      const snapH = this.fboH
+      // Bind cacheFbo, set viewport to blurW×blurH (NOT fboW×fboH).
+      gl2.bindFramebuffer(gl2.FRAMEBUFFER, cacheFbo.fb)
+      gl2.viewport(0, 0, blurW, blurH)
+      // drawCopy: shader uses uCanvasSize for UV = gl_FragCoord/uCanvasSize.
+      // Override uCanvasSize to blurW×blurH so UV maps to [0,1] across the
+      // blurResult texture (which is blurW×blurH, not fboW×fboH).
+      gl2.useProgram(this.copyProgram)
+      gl2.bindBuffer(gl2.ARRAY_BUFFER, this.quadBuffer)
+      gl2.enableVertexAttribArray(this.aPosLocCp)
+      gl2.vertexAttribPointer(this.aPosLocCp, 2, gl2.FLOAT, false, 0, 0)
+      gl2.activeTexture(gl2.TEXTURE0)
+      gl2.bindTexture(gl2.TEXTURE_2D, blurResult)
+      gl2.uniform1i(this.uCp['uTexture'], 0)
+      gl2.uniform2f(this.uCp['uCanvasSize'], blurW, blurH)
+      gl2.disable(gl2.BLEND)
+      gl2.drawArrays(gl2.TRIANGLES, 0, 6)
+      // Snapshot: read FULL cache texture.
+      const snapW = blurW
+      const snapH = blurH
       const snapBuf = new Uint8Array(snapW * snapH * 4)
       gl2.readPixels(0, 0, snapW, snapH, gl2.RGBA, gl2.UNSIGNED_BYTE, snapBuf)
       let snapNZ = 0
