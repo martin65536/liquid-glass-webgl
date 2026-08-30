@@ -6,25 +6,23 @@ import type { LiquidGlassRenderer } from '../renderer'
 /* ------------------------------------------------------------------ *
  * BlurCacheDebugOverlay
  *
- * Debug overlay for the backdrop blur texture cache. Shows each cached
- * blurred-wallpaper texture as a thumbnail (readPixels → canvas), plus
- * cache stats (entry count, hit/miss per frame, texture sizes).
- *
- * Toggled from the Performance Monitor panel's "DEBUG OVERLAYS" section.
- * Polls every 200ms (decoupled from render loop). Dragging via pointer
- * events with setPointerCapture.
+ * Shows cached blur textures as thumbnails + detailed diagnostics.
+ * Only reads textures when cache size changes (not every 200ms —
+ * cached textures don't change once created).
  * ------------------------------------------------------------------ */
 
 interface Props {
   rendererRef: React.MutableRefObject<LiquidGlassRenderer | null>
 }
 
-const POLL_MS = 200
-
 interface CacheEntryInfo {
   key: string
-  blurType: 'gauss' | 'kawase'
+  fboStatus: string
+  nonZeroPixels: number
+  totalPixels: number
+  firstPixel: string  // RGBA of first non-zero pixel, or "all zero"
   thumb: HTMLCanvasElement | null
+  diag: string  // human-readable diagnostic
 }
 
 export function BlurCacheDebugOverlay({ rendererRef }: Props) {
@@ -32,8 +30,10 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
   const [cacheSize, setCacheSize] = React.useState(0)
   const [fboW, setFboW] = React.useState(0)
   const [fboH, setFboH] = React.useState(0)
+  const [lastUpdate, setLastUpdate] = React.useState(0)
   const [collapsed, setCollapsed] = React.useState(false)
   const [pos, setPos] = React.useState({ x: -1, y: 120 })
+  const lastSizeRef = React.useRef(-1)
 
   const [vh, setVh] = React.useState(() =>
     typeof window !== 'undefined' ? window.innerHeight : 800)
@@ -44,28 +44,46 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
     return () => window.removeEventListener('resize', update)
   }, [])
 
+  // Only re-read textures when cache size changes (not on a timer —
+  // cached textures are immutable once created).
   React.useEffect(() => {
     const id = setInterval(() => {
       const r = rendererRef.current
       if (!r) return
-      setCacheSize(r.backdropBlurCache.size)
+      const curSize = r.backdropBlurCache.size
+      setCacheSize(curSize)
       setFboW(r.fboW)
       setFboH(r.fboH)
 
-      // Read each cache texture into a thumbnail canvas.
+      // Only read textures when size changed.
+      if (curSize === lastSizeRef.current) return
+      lastSizeRef.current = curSize
+
+      if (curSize === 0) {
+        setEntries([])
+        return
+      }
+
       const gl = r.gl
-      const infos: CacheEntryInfo[] = []
       const savedFb = gl.getParameter(gl.FRAMEBUFFER_BINDING)
+      const infos: CacheEntryInfo[] = []
 
       r.backdropBlurCache.forEach((entry, key) => {
+        const parts = key.split('_')
+        const radius = parts[1] ?? '?'
+        const type = parts[2] ?? '?'
+        const label = `r=${radius} ${type === 'k' ? 'Kawase' : 'Gauss'}`
+
+        // Create temp FBO to read the texture.
         const tmpFb = gl.createFramebuffer()
         gl.bindFramebuffer(gl.FRAMEBUFFER, tmpFb)
         gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, entry.tex, 0)
 
-        // Check FBO completeness — if incomplete, readPixels returns all 0.
         const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER)
+        const statusStr = status === gl.FRAMEBUFFER_COMPLETE
+          ? 'COMPLETE'
+          : `0x${status.toString(16)}`
 
-        // Read a small region from bottom-left.
         const tw = Math.min(120, r.fboW)
         const th = Math.max(1, Math.min(120, Math.round(tw * r.fboH / r.fboW)))
         const buf = new Uint8Array(tw * th * 4)
@@ -74,12 +92,31 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
           gl.readPixels(0, 0, tw, th, gl.RGBA, gl.UNSIGNED_BYTE, buf)
         }
 
-        // Count non-zero pixels for diagnostics.
         let nonZero = 0
+        let firstNZ = 'all zero'
         for (let i = 0; i < buf.length; i += 4) {
-          if (buf[i] + buf[i+1] + buf[i+2] + buf[i+3] > 0) nonZero++
+          if (buf[i] + buf[i+1] + buf[i+2] + buf[i+3] > 0) {
+            nonZero++
+            if (nonZero === 1) {
+              firstNZ = `rgba(${buf[i]},${buf[i+1]},${buf[i+2]},${buf[i+3]})`
+            }
+          }
         }
 
+        // Build diagnostic string.
+        const diags: string[] = []
+        diags.push(`FBO: ${statusStr}`)
+        diags.push(`tex: ${tw}×${th} of ${r.fboW}×${r.fboH}`)
+        diags.push(`pixels: ${nonZero}/${tw*th} non-zero`)
+        diags.push(`1st px: ${firstNZ}`)
+        if (status !== gl.FRAMEBUFFER_COMPLETE) {
+          diags.push('⚠ FBO incomplete — texture may be deleted or wrong size')
+        }
+        if (nonZero === 0 && status === gl.FRAMEBUFFER_COMPLETE) {
+          diags.push('⚠ FBO OK but all pixels zero — copyTexImage2D failed?')
+        }
+
+        // Build thumbnail canvas.
         const canvas = document.createElement('canvas')
         canvas.width = tw
         canvas.height = th
@@ -94,34 +131,34 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
             }
           }
           ctx.putImageData(imageData, 0, 0)
-        } else {
-          // Draw a red "EMPTY" indicator.
-          if (ctx) {
-            ctx.fillStyle = '#300'
-            ctx.fillRect(0, 0, tw, th)
-            ctx.fillStyle = '#f44'
-            ctx.font = '10px monospace'
-            ctx.fillText(status === gl.FRAMEBUFFER_COMPLETE ? 'EMPTY (0 px)' : `FBO 0x${status.toString(16)}`, 4, 14)
-          }
+        } else if (ctx) {
+          ctx.fillStyle = '#400'
+          ctx.fillRect(0, 0, tw, th)
+          ctx.fillStyle = '#f44'
+          ctx.font = '9px monospace'
+          ctx.fillText('NO DATA', 8, 20)
+          ctx.fillText(statusStr, 8, 32)
         }
 
         gl.deleteFramebuffer(tmpFb)
 
-        // Parse key: wallpaper_${radius}_${type}
-        const parts = key.split('_')
-        const radius = parts[1] ?? '?'
-        const type = parts[2] ?? '?'
-
         infos.push({
-          key: `r=${radius} ${type === 'k' ? 'Kawase' : 'Gauss'}`,
-          blurType: entry.blurType,
+          key: label,
+          fboStatus: statusStr,
+          nonZeroPixels: nonZero,
+          totalPixels: tw * th,
+          firstPixel: firstNZ,
           thumb: canvas,
+          diag: diags.join('\n'),
         })
       })
 
       gl.bindFramebuffer(gl.FRAMEBUFFER, savedFb)
       setEntries(infos)
-    }, POLL_MS)
+      setLastUpdate(Date.now())
+      // Force re-render to show new data.
+      rendererRef.current?.requestRender?.()
+    }, 200)
     return () => clearInterval(id)
   }, [rendererRef])
 
@@ -172,7 +209,7 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
     <div
       style={{
         position: 'absolute', top: pos.y, left, right,
-        width: 280,
+        width: 300,
         maxHeight: Math.max(220, vh - pos.y - 8),
         display: 'flex', flexDirection: 'column',
         background: 'rgba(0,0,0,0.92)', color: '#0cf',
@@ -201,8 +238,9 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
               rendererRef.current?.clearBackdropBlurCache()
               rendererRef.current?.markAllDirty()
               rendererRef.current?.requestRender()
+              lastSizeRef.current = -1  // force re-read
             }}
-            title="Clear all cached blur textures. Forces re-blur on next render."
+            title="Clear cache + force re-blur"
             style={{
               background: 'rgba(255,68,68,0.2)', border: '1px solid #f44',
               color: '#f88', cursor: 'pointer', fontSize: 10, padding: '0 4px', borderRadius: 3,
@@ -216,48 +254,65 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
         </span>
       </div>
 
-      {/* Scrollable body */}
+      {/* Body */}
       <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
         {/* Summary */}
         <div style={{ padding: '8px 10px', borderBottom: '1px solid rgba(0,200,255,0.2)' }}>
-          <div>
-            Cache entries: <b style={{ color: cacheSize > 0 ? '#0f0' : '#888' }}>{cacheSize}</b>
-          </div>
-          <div style={{ color: '#888', fontSize: 10, marginTop: 2 }}>
-            FBO: {fboW}×{fboH}
-          </div>
+          <div>Entries: <b style={{ color: cacheSize > 0 ? '#0f0' : '#888' }}>{cacheSize}</b></div>
+          <div style={{ color: '#888', fontSize: 10 }}>FBO: {fboW}×{fboH}</div>
+          <div style={{ color: '#666', fontSize: 10 }}>Updated: {lastUpdate ? new Date(lastUpdate).toLocaleTimeString() : 'never'}</div>
         </div>
 
-        {/* Cached textures */}
+        {/* Entries with diagnostics */}
         <div style={{ padding: '8px 10px' }}>
-          <div style={{ color: '#888', marginBottom: 6 }}>Cached blur textures:</div>
           {entries.length === 0 && (
             <div style={{ color: '#666' }}>
-              No cached textures. Blur an element to populate.
+              No cached textures. Open a page with blur elements.
             </div>
           )}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {entries.map((e, i) => (
-              <div key={i} style={{
-                border: '1px solid rgba(0,200,255,0.3)',
-                borderRadius: 4, padding: 4, background: 'rgba(0,0,0,0.4)',
-              }}>
-                <div style={{ color: '#0cf', fontSize: 10, marginBottom: 2 }}>
-                  #{i} {e.key}
-                </div>
-                {e.thumb && (
-                  <img
-                    src={e.thumb.toDataURL()}
-                    style={{
-                      width: 120, height: 'auto', display: 'block',
-                      borderRadius: 2, border: '1px solid rgba(0,200,255,0.2)',
-                    }}
-                    alt={`cache entry ${e.key}`}
-                  />
-                )}
+          {entries.map((e, i) => (
+            <div key={i} style={{
+              marginBottom: 10, padding: 6,
+              border: `1px solid ${e.nonZeroPixels > 0 ? 'rgba(0,255,0,0.3)' : 'rgba(255,68,68,0.5)'}`,
+              borderRadius: 4, background: 'rgba(0,0,0,0.4)',
+            }}>
+              <div style={{ color: '#0cf', fontWeight: 'bold', marginBottom: 4 }}>
+                #{i} {e.key}
               </div>
-            ))}
-          </div>
+              {e.thumb && (
+                <img
+                  src={e.thumb.toDataURL()}
+                  style={{
+                    width: '100%', height: 'auto', display: 'block',
+                    borderRadius: 2, marginBottom: 4,
+                  }}
+                  alt={`cache ${e.key}`}
+                />
+              )}
+              {/* Detailed diagnostics */}
+              <pre style={{
+                color: e.nonZeroPixels > 0 ? '#8f8' : '#f88',
+                fontSize: 10, lineHeight: 1.4, margin: 0,
+                whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+              }}>
+{e.diag}
+              </pre>
+            </div>
+          ))}
+        </div>
+
+        {/* Raw cache dump for debugging */}
+        <div style={{ padding: '8px 10px', borderTop: '1px solid rgba(0,200,255,0.15)' }}>
+          <div style={{ color: '#888', marginBottom: 4 }}>Raw cache keys:</div>
+          {(() => {
+            const r = rendererRef.current
+            if (!r || r.backdropBlurCache.size === 0) return <span style={{ color: '#666' }}>(empty)</span>
+            return Array.from(r.backdropBlurCache.entries()).map(([k, v]) => (
+              <div key={k} style={{ fontSize: 10, color: '#aaa' }}>
+                {k} → tex:{v.tex ? 'ok' : 'null'} type:{v.blurType}
+              </div>
+            ))
+          })()}
         </div>
       </div>
     </div>
