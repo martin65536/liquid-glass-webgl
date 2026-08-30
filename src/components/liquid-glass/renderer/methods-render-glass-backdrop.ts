@@ -399,6 +399,32 @@ export function resolveBackdropTex(
           tex: cacheFbo.tex,
           blurType: this.lastBlurStats?.type ?? 'gauss',
         })
+        // Snapshot for debug overlay (same as independent path).
+        const sBlurMs = 0, sCopyMs = 0 // already timed above if needed
+        const sSnapW = this.showBlurCachePreview ? blurW : Math.min(64, blurW)
+        const sSnapH = this.showBlurCachePreview ? blurH : Math.min(64, blurH)
+        const sBuf = new Uint8Array(sSnapW * sSnapH * 4)
+        const sReadFb = gl2.createFramebuffer()
+        gl2.bindFramebuffer(gl2.FRAMEBUFFER, sReadFb)
+        gl2.framebufferTexture2D(gl2.FRAMEBUFFER, gl2.COLOR_ATTACHMENT0, gl2.TEXTURE_2D, cacheFbo.tex, 0)
+        const sX = Math.floor((blurW - sSnapW) / 2)
+        const sY = Math.floor((blurH - sSnapH) / 2)
+        gl2.readPixels(sX, sY, sSnapW, sSnapH, gl2.RGBA, gl2.UNSIGNED_BYTE, sBuf)
+        gl2.deleteFramebuffer(sReadFb)
+        gl2.bindFramebuffer(gl2.FRAMEBUFFER, savedFb)
+        if (savedSc) { gl2.enable(gl2.SCISSOR_TEST); gl2.scissor(savedBox[0], savedBox[1], savedBox[2], savedBox[3]) }
+        let sNZ = 0
+        for (let i = 0; i < sBuf.length; i += 4) {
+          if (sBuf[i] + sBuf[i+1] + sBuf[i+2] + sBuf[i+3] > 0) sNZ++
+        }
+        this.backdropBlurCacheSnapshots.push({
+          key: `${sceneCacheKey} — ${sNZ > 0 ? '✓' : '⚠ EMPTY'}`,
+          w: sSnapW, h: sSnapH,
+          rgba: sBuf,
+          nonZero: sNZ,
+          blurMs: sBlurMs, copyMs: sCopyMs, readMs: 0,
+          totalMs: sBlurMs + sCopyMs,
+        })
         blurred = cacheFbo.tex
       }
     } else {
