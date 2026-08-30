@@ -284,11 +284,11 @@ export class LiquidGlassRenderer {
    *  cost). When false, the cache lookup + store are skipped — every frame
    *  re-blurs from scratch. Toggling off also clears the existing cache. */
   useBlurCache = true
-  /** Kawase quality multiplier [0, 1], default 0.5. Scales the base
-   *  iteration count (from kawaseIterationsForRadius) before clamping to
-   *  [2, 8]. 0 = min iters (fastest), 1 = base iter count. Set from
-   *  CatalogState.kawaseQuality. */
-  kawaseQuality = 0.5
+  /** Kawase quality multiplier [0, 1], default 1.0 (full base iter count).
+   *  Scales the iteration count (from kawaseIterationsForRadius) before
+   *  clamping to [2, 8]. 0 = min iters (fastest), 1 = base iter count.
+   *  Set from CatalogState.kawaseQuality. */
+  kawaseQuality = 1.0
   /** Gravity angle for glass highlight direction, in RADIANS. Updated live via
    *  setGravityAngle (no catalog rebuild). Default 45° = 0.785 rad.
    *  Elements with useGravityAngle=true read this at render time. */

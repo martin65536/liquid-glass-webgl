@@ -183,9 +183,9 @@ export function buildBlurCard(ctx: BuildSettingsCtx): void {
   Object.assign(interactions, kawaseToggle.interactions)
   nextY += BUTTON_HEIGHT + ITEM_GAP
 
-  // Kawase quality slider — scales the base iteration count [0.5×, 2.0×].
+  // Kawase quality slider — scales the base iteration count [0, 1].
   // Left = fewer iters (faster, coarser), right = more iters (slower,
-  // smoother). Only effective when useKawaseBlur is on.
+  // smoother). Only effective when useKawaseBlur is on. Default 1.0 (full).
   const kqTrackY = nextY + (24 - 6) / 2
   const kqSlider = makeLiquidSlider(
     'settings-kawase-quality',
@@ -196,18 +196,21 @@ export function buildBlurCard(ctx: BuildSettingsCtx): void {
     palette.sliderTrackOff,
     palette.sliderAccent,
     rendererRef,
-    (f) => { setState({ kawaseQuality: kqFracToQ(kqClampFrac(f)) }) },
+    (f) => { setState({ kawaseQuality: kqFracToQ(kqClampFrac(f)), liveKawaseQuality: null }) },
     true,
     false,
     kqInitFrac,
     kqClampFrac,
+    (f) => { setState({ liveKawaseQuality: kqFracToQ(kqClampFrac(f)) }) },
   )
   elements.push(...kqSlider.elements)
   Object.assign(interactions, kqSlider.interactions)
   nextY += 24 + 4
 
-  // Kawase quality label
-  const kqLabelText = `${t('settings_kawase_quality_label', locale)}: ${state.kawaseQuality.toFixed(2)}×  ${t('settings_kawase_quality_hint', locale)}`
+  // Kawase quality label — shows live value during drag (like tap cap + ds
+  // sliders), falls back to committed value when not dragging.
+  const displayKq = state.liveKawaseQuality != null ? state.liveKawaseQuality : state.kawaseQuality
+  const kqLabelText = `${t('settings_kawase_quality_label', locale)}: ${displayKq.toFixed(2)}×  ${t('settings_kawase_quality_hint', locale)}`
   const kqLabelH = 16 + CARD_PAD
   const kqLabelEl = makeText(
     'settings-kawase-quality-label',

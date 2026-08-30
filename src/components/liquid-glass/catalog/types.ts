@@ -192,6 +192,7 @@ export interface CatalogState {
   liveTapCap: number | null
   liveBlurDownsample: number | null
   liveCapsuleSdfQuality: number | null
+  liveKawaseQuality: number | null
   // Settings — hide the overlay exit (back) and theme toggle buttons on all
   // non-Home pages. Default false (buttons visible). When true, the back
   // button is still reachable via the browser back button / Esc.
@@ -235,9 +236,9 @@ export interface CatalogState {
   // no cache storage) — useful for A/B comparing cache benefit or when the
   // scene is animating so fast the cache never hits anyway.
   useBlurCache: boolean
-  // Settings — Kawase quality multiplier [0, 1], default 0.5. Scales the
-  // base iteration count before clamping to [2, 8]. 0 = min iters (fastest),
-  // 1 = base iter count. Only effective when useKawaseBlur is on.
+  // Settings — Kawase quality multiplier [0, 1], default 1.0 (full base iter
+  // count). Scales the iteration count before clamping to [2, 8]. 0 = min
+  // iters (fastest), 1 = base iter count. Only effective when useKawaseBlur.
   kawaseQuality: number
   // Settings — "direct backdrop sample" toggle. When true (default), glass
   // elements that use the LayerBackdrop semantic in the original Android
@@ -507,6 +508,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   liveTapCap: null,
   liveBlurDownsample: null,
   liveCapsuleSdfQuality: null,
+  liveKawaseQuality: null,
   hideOverlayButtons: false,
   locale: 'zh',
   pageTransition: true,
@@ -516,7 +518,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   usePerElementFbo: true,
   useKawaseBlur: true,
   useBlurCache: true,
-  kawaseQuality: 0.5,
+  kawaseQuality: 1.0,
   directBackdropSample: true,
   perfProgress: null,
   perfStatusText: '',

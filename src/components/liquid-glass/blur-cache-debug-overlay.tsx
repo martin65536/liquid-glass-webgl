@@ -70,30 +70,44 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
           // new state reference and re-renders without reading the ref during
           // render.
           setSnaps([...list])
-          if (showPreview) {
-            for (const snap of list) {
-              const canvas = canvasRefs.current.get(snap.key)
-              if (canvas && canvas.width === snap.w && canvas.height === snap.h) {
-                const ctx = canvas.getContext('2d')
-                if (ctx && snap.w > 0) {
-                  const imgData = ctx.createImageData(snap.w, snap.h)
-                  for (let y = 0; y < snap.h; y++) {
-                    const srcRow = (snap.h - 1 - y) * snap.w * 4
-                    const dstRow = y * snap.w * 4
-                    imgData.data.set(snap.rgba.subarray(srcRow, srcRow + snap.w * 4), dstRow)
-                  }
-                  ctx.putImageData(imgData, 0, 0)
-                }
-              }
-            }
-          }
         }
       }
       raf = requestAnimationFrame(check)
     }
     raf = requestAnimationFrame(check)
     return () => cancelAnimationFrame(raf)
-  }, [rendererRef, showPreview])
+  }, [rendererRef])
+
+  // Separate effect: paint canvases whenever snaps OR showPreview changes.
+  // Decoupled from the rAF check so showPreview toggle (which doesn't change
+  // sig when cache is already populated) still triggers a repaint. Previously
+  // painting was inside the sig-change block, so toggling img on when cache
+  // was already full never painted (sig unchanged) — "显示不出图像".
+  React.useEffect(() => {
+    if (!showPreview) return
+    for (const snap of snaps) {
+      if (snap.w <= 0) continue
+      const canvas = canvasRefs.current.get(snap.key)
+      if (!canvas) continue
+      // Resize canvas to match snap if needed (also clears old content).
+      if (canvas.width !== snap.w || canvas.height !== snap.h) {
+        canvas.width = snap.w
+        canvas.height = snap.h
+      }
+      const ctx = canvas.getContext('2d')
+      if (!ctx) continue
+      // Clear any leftover pixels from a previous snap before painting.
+      ctx.clearRect(0, 0, snap.w, snap.h)
+      const imgData = ctx.createImageData(snap.w, snap.h)
+      // Flip vertically: GL readPixels is bottom-origin, canvas is top-origin.
+      for (let y = 0; y < snap.h; y++) {
+        const srcRow = (snap.h - 1 - y) * snap.w * 4
+        const dstRow = y * snap.w * 4
+        imgData.data.set(snap.rgba.subarray(srcRow, srcRow + snap.w * 4), dstRow)
+      }
+      ctx.putImageData(imgData, 0, 0)
+    }
+  }, [snaps, showPreview])
 
   const dragRef = React.useRef<{ sx: number; sy: number; px: number; py: number } | null>(null)
   const onPointerDown = (e: React.PointerEvent) => {

@@ -40,7 +40,7 @@ function loadPersistedSettings(): Partial<CatalogState> {
       usePerElementFbo: typeof parsed.usePerElementFbo === 'boolean' ? parsed.usePerElementFbo : true,
       useKawaseBlur: typeof parsed.useKawaseBlur === 'boolean' ? parsed.useKawaseBlur : true,
       useBlurCache: typeof parsed.useBlurCache === 'boolean' ? parsed.useBlurCache : true,
-      kawaseQuality: typeof parsed.kawaseQuality === 'number' ? Math.max(0, Math.min(1, parsed.kawaseQuality)) : 0.5,
+      kawaseQuality: typeof parsed.kawaseQuality === 'number' ? Math.max(0, Math.min(1, parsed.kawaseQuality)) : 1.0,
       showPerfMonitor: typeof parsed.showPerfMonitor === 'boolean' ? parsed.showPerfMonitor : false,
       directBackdropSample: typeof parsed.directBackdropSample === 'boolean' ? parsed.directBackdropSample : true,
     }
