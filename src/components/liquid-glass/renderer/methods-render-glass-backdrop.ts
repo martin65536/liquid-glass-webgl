@@ -220,7 +220,8 @@ export function resolveBackdropTex(
       const t0 = performance.now()
       const blurResult = this.blurTexture(this.wallpaperBlurTex!, blurRadiusPx)
       const t1 = performance.now()
-      // Step 2: copy blurResult to a dedicated cache texture.
+      // Step 2: copy blurResult to cacheFbo using copyTexImage2D (GPU memcpy,
+      // no shader pass — faster than drawCopy which runs a fragment shader).
       const blurW = this.dsBlurFboW || this.fboW
       const blurH = this.dsBlurFboH || this.fboH
       const cacheFbo = this.createFBO(blurW, blurH)
@@ -229,27 +230,25 @@ export function resolveBackdropTex(
       const savedScissor = gl2.isEnabled(gl2.SCISSOR_TEST)
       const savedBox: [number, number, number, number] = gl2.getParameter(gl2.SCISSOR_BOX)
       gl2.disable(gl2.SCISSOR_TEST)
-      gl2.bindFramebuffer(gl2.FRAMEBUFFER, cacheFbo.fb)
-      gl2.viewport(0, 0, blurW, blurH)
-      gl2.useProgram(this.copyProgram)
-      gl2.bindBuffer(gl2.ARRAY_BUFFER, this.quadBuffer)
-      gl2.enableVertexAttribArray(this.aPosLocCp)
-      gl2.vertexAttribPointer(this.aPosLocCp, 2, gl2.FLOAT, false, 0, 0)
+      // copyTexImage2D: reads from currently-bound READ framebuffer's color
+      // buffer. blurResult is a texture — create temp FBO to attach it.
+      const readFb = gl2.createFramebuffer()
+      gl2.bindFramebuffer(gl2.FRAMEBUFFER, readFb)
+      gl2.framebufferTexture2D(gl2.FRAMEBUFFER, gl2.COLOR_ATTACHMENT0, gl2.TEXTURE_2D, blurResult, 0)
       gl2.activeTexture(gl2.TEXTURE0)
-      gl2.bindTexture(gl2.TEXTURE_2D, blurResult)
-      gl2.uniform1i(this.uCp['uTexture'], 0)
-      gl2.uniform2f(this.uCp['uCanvasSize'], blurW, blurH)
-      gl2.disable(gl2.BLEND)
-      gl2.drawArrays(gl2.TRIANGLES, 0, 6)
+      gl2.bindTexture(gl2.TEXTURE_2D, cacheFbo.tex)
+      gl2.copyTexImage2D(gl2.TEXTURE_2D, 0, gl2.RGBA, 0, 0, blurW, blurH, 0)
+      gl2.deleteFramebuffer(readFb)
+      // Checkerboard mask (if enabled).
       if (this.showBlurCacheCheckerboard) {
+        gl2.bindFramebuffer(gl2.FRAMEBUFFER, cacheFbo.fb)
+        gl2.viewport(0, 0, blurW, blurH)
         const cellSize = Math.max(8, Math.floor(blurW / 20))
         gl2.enable(gl2.SCISSOR_TEST)
         gl2.clearColor(0, 0, 0, 0)
         for (let cy = 0; cy < blurH; cy += cellSize) {
           for (let cx = 0; cx < blurW; cx += cellSize) {
-            const gx = Math.floor(cx / cellSize)
-            const gy = Math.floor(cy / cellSize)
-            if ((gx + gy) % 2 !== 0) {
+            if ((Math.floor(cx / cellSize) + Math.floor(cy / cellSize)) % 2 !== 0) {
               gl2.scissor(cx, cy, Math.min(cellSize, blurW - cx), Math.min(cellSize, blurH - cy))
               gl2.clear(gl2.COLOR_BUFFER_BIT)
             }
@@ -258,31 +257,39 @@ export function resolveBackdropTex(
         gl2.disable(gl2.SCISSOR_TEST)
       }
       const t2 = performance.now()
-      // Snapshot: read FULL cache texture.
-      const snapW = blurW
-      const snapH = blurH
+      // Snapshot: only read a small 64×64 center region (not full screen —
+      // readPixels on 1064×2092 = 8.9MB causes 76ms GPU sync stall).
+      // Full read only when blur debug overlay is actively viewing snapshots.
+      const wantFullSnap = this.backdropBlurCacheSnapshots.length < 10
+      const snapW = wantFullSnap ? Math.min(64, blurW) : 0
+      const snapH = wantFullSnap ? Math.min(64, blurH) : 0
       const snapBuf = new Uint8Array(snapW * snapH * 4)
-      gl2.readPixels(0, 0, snapW, snapH, gl2.RGBA, gl2.UNSIGNED_BYTE, snapBuf)
-      const t3 = performance.now()
       let snapNZ = 0
-      let minX = snapW, minY = snapH, maxX = 0, maxY = 0
-      for (let y = 0; y < snapH; y++) {
-        for (let x = 0; x < snapW; x++) {
-          const i = (y * snapW + x) * 4
-          if (snapBuf[i] + snapBuf[i+1] + snapBuf[i+2] + snapBuf[i+3] > 0) {
-            snapNZ++
-            if (x < minX) minX = x
-            if (x > maxX) maxX = x
-            if (y < minY) minY = y
-            if (y > maxY) maxY = y
+      let minX = 0, minY = 0, maxX = 0, maxY = 0
+      if (snapW > 0) {
+        const snapX = Math.floor((blurW - snapW) / 2)
+        const snapY = Math.floor((blurH - snapH) / 2)
+        gl2.bindFramebuffer(gl2.FRAMEBUFFER, cacheFbo.fb)
+        gl2.readPixels(snapX, snapY, snapW, snapH, gl2.RGBA, gl2.UNSIGNED_BYTE, snapBuf)
+        for (let y = 0; y < snapH; y++) {
+          for (let x = 0; x < snapW; x++) {
+            const i = (y * snapW + x) * 4
+            if (snapBuf[i] + snapBuf[i+1] + snapBuf[i+2] + snapBuf[i+3] > 0) {
+              snapNZ++
+              if (x < minX || snapNZ === 1) minX = x
+              if (x > maxX) maxX = x
+              if (y < minY || snapNZ === 1) minY = y
+              if (y > maxY) maxY = y
+            }
           }
         }
       }
+      const t3 = performance.now()
       const blurMs = t1 - t0
       const copyMs = t2 - t1
       const readMs = t3 - t2
       this.backdropBlurCacheSnapshots.push({
-        key: `${cacheKey} [${minX},${minY}-${maxX},${maxY}]`,
+        key: `${cacheKey} ${snapW > 0 ? `[${minX},${minY}-${maxX},${maxY}]` : '(no snap)'}`,
         w: snapW, h: snapH,
         rgba: snapBuf,
         nonZero: snapNZ,
