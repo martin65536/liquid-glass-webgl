@@ -483,6 +483,8 @@ export class LiquidGlassRenderer {
    *  share one blurred wallpaper texture.
    *  Invalidated on resize (cover-fit ratio changes) + loadWallpaper. */
   backdropBlurCache = new Map<string, { tex: WebGLTexture; blurType: 'gauss' | 'kawase' }>()
+  /** Tracks scrollY between frames — scene blur cache disabled when scrolling. */
+  _lastBlurCacheScrollY = 0
   /** Debug: when true, cached blur textures are masked with a checkerboard
    *  pattern (even cells keep blur content, odd cells cleared to transparent).
    *  This lets you visually compare blur vs no-blur in the live render. */

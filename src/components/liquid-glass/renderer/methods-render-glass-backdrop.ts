@@ -364,8 +364,14 @@ export function resolveBackdropTex(
     // Only cache when backdropSrc is curTex (dialogBackdropTex/bgOnlyTex are
     // already cached by their own mechanisms).
     const canCacheSceneBlur = (backdropSrc === curTex) && !el.backdropFbo
-    const sceneCacheKey = canCacheSceneBlur
-      ? `scene_${el.id}_${Math.round(blurRadiusPx * 10) / 10}_${this.scrollY}_${this.useKawaseBlur ? 'k' : 'g'}`
+    // No scrollY in key — scene blur uses curTex (scene FBO), which shifts
+    // with scroll. Instead of keying by scrollY (creates one entry per pixel),
+    // we DON'T cache scene blur when scrolling. Only cache when scrollY
+    // hasn't changed since last frame (static scene).
+    const isScrolling = this.scrollY !== this._lastBlurCacheScrollY
+    this._lastBlurCacheScrollY = this.scrollY
+    const sceneCacheKey = (canCacheSceneBlur && !isScrolling)
+      ? `scene_${el.id}_${Math.round(blurRadiusPx * 10) / 10}_${this.useKawaseBlur ? 'k' : 'g'}`
       : null
     let blurred: WebGLTexture
     let cacheHit = false
@@ -399,6 +405,16 @@ export function resolveBackdropTex(
           tex: cacheFbo.tex,
           blurType: this.lastBlurStats?.type ?? 'gauss',
         })
+        // LRU eviction: if cache has too many scene entries, delete the oldest.
+        // Map iteration is insertion order, so first entry = oldest.
+        if (this.backdropBlurCache.size > 16) {
+          const oldest = this.backdropBlurCache.keys().next().value
+          if (oldest) {
+            const oldEntry = this.backdropBlurCache.get(oldest)
+            if (oldEntry) gl2.deleteTexture(oldEntry.tex)
+            this.backdropBlurCache.delete(oldest)
+          }
+        }
         // Snapshot for debug overlay (same as independent path).
         const sBlurMs = 0, sCopyMs = 0 // already timed above if needed
         const sSnapW = this.showBlurCachePreview ? blurW : Math.min(64, blurW)
