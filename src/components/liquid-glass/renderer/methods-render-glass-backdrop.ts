@@ -247,11 +247,21 @@ export function resolveBackdropTex(
       const snapBuf = new Uint8Array(snapW * snapH * 4)
       gl2.readPixels(0, 0, snapW, snapH, gl2.RGBA, gl2.UNSIGNED_BYTE, snapBuf)
       let snapNZ = 0
-      for (let i = 0; i < snapBuf.length; i += 4) {
-        if (snapBuf[i] + snapBuf[i+1] + snapBuf[i+2] + snapBuf[i+3] > 0) snapNZ++
+      let minX = snapW, minY = snapH, maxX = 0, maxY = 0
+      for (let y = 0; y < snapH; y++) {
+        for (let x = 0; x < snapW; x++) {
+          const i = (y * snapW + x) * 4
+          if (snapBuf[i] + snapBuf[i+1] + snapBuf[i+2] + snapBuf[i+3] > 0) {
+            snapNZ++
+            if (x < minX) minX = x
+            if (x > maxX) maxX = x
+            if (y < minY) minY = y
+            if (y > maxY) maxY = y
+          }
+        }
       }
       this.backdropBlurCacheSnapshots.push({
-        key: cacheKey,
+        key: `${cacheKey} [${minX},${minY}-${maxX},${maxY}]`,
         w: snapW, h: snapH,
         rgba: snapBuf,
         nonZero: snapNZ,
