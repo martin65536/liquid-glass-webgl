@@ -217,9 +217,9 @@ export function resolveBackdropTex(
       this.lastBlurStats = { type: entry.blurType, passes: 0, taps: 0, maxSample: 0 }
     } else {
       // MISS: blur wallpaper + copy to cache texture.
-      // Use wallpaperBlurFbo (rendered once per frame, always clean wallpaper)
-      // NOT fboA — fboA gets composited with other elements during the loop.
+      const t0 = performance.now()
       const blurResult = this.blurTexture(this.wallpaperBlurTex!, blurRadiusPx)
+      const t1 = performance.now()
       // Step 2: copy blurResult to a dedicated cache texture.
       const blurW = this.dsBlurFboW || this.fboW
       const blurH = this.dsBlurFboH || this.fboH
@@ -241,8 +241,6 @@ export function resolveBackdropTex(
       gl2.uniform2f(this.uCp['uCanvasSize'], blurW, blurH)
       gl2.disable(gl2.BLEND)
       gl2.drawArrays(gl2.TRIANGLES, 0, 6)
-      // Checkerboard mask: clear odd cells to transparent so the live
-      // backdrop shows through in those cells. Even cells keep blur content.
       if (this.showBlurCacheCheckerboard) {
         const cellSize = Math.max(8, Math.floor(blurW / 20))
         gl2.enable(gl2.SCISSOR_TEST)
@@ -259,11 +257,13 @@ export function resolveBackdropTex(
         }
         gl2.disable(gl2.SCISSOR_TEST)
       }
+      const t2 = performance.now()
       // Snapshot: read FULL cache texture.
       const snapW = blurW
       const snapH = blurH
       const snapBuf = new Uint8Array(snapW * snapH * 4)
       gl2.readPixels(0, 0, snapW, snapH, gl2.RGBA, gl2.UNSIGNED_BYTE, snapBuf)
+      const t3 = performance.now()
       let snapNZ = 0
       let minX = snapW, minY = snapH, maxX = 0, maxY = 0
       for (let y = 0; y < snapH; y++) {
@@ -278,11 +278,16 @@ export function resolveBackdropTex(
           }
         }
       }
+      const blurMs = t1 - t0
+      const copyMs = t2 - t1
+      const readMs = t3 - t2
       this.backdropBlurCacheSnapshots.push({
         key: `${cacheKey} [${minX},${minY}-${maxX},${maxY}]`,
         w: snapW, h: snapH,
         rgba: snapBuf,
         nonZero: snapNZ,
+        blurMs, copyMs, readMs,
+        totalMs: blurMs + copyMs + readMs,
       })
       this.bindFBO(savedFb as WebGLFramebuffer | null)
       if (savedScissor) {

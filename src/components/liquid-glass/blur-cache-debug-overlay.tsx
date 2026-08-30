@@ -161,6 +161,12 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
               <div style={{ color: '#0cf', fontWeight: 'bold', marginBottom: 4 }}>
                 {snap.key} — {snap.w}×{snap.h} — {snap.nonZero > 0 ? `✓ ${pct}%` : '⚠ EMPTY'}
               </div>
+              <div style={{ color: '#888', fontSize: 10, marginBottom: 4 }}>
+                blur: <b style={{ color: snap.blurMs > 20 ? '#f44' : snap.blurMs > 5 ? '#fa0' : '#0f0' }}>{snap.blurMs.toFixed(1)}ms</b>
+                {' '}copy: <b style={{ color: snap.copyMs > 10 ? '#f44' : snap.copyMs > 3 ? '#fa0' : '#0f0' }}>{snap.copyMs.toFixed(1)}ms</b>
+                {' '}read: <b style={{ color: snap.readMs > 30 ? '#f44' : snap.readMs > 10 ? '#fa0' : '#0f0' }}>{snap.readMs.toFixed(1)}ms</b>
+                {' '}total: <b style={{ color: snap.totalMs > 50 ? '#f44' : snap.totalMs > 20 ? '#fa0' : '#0f0' }}>{snap.totalMs.toFixed(1)}ms</b>
+              </div>
               <canvas
                 ref={(el) => { if (el) canvasRefs.current.set(snap.key, el) }}
                 width={snap.w} height={snap.h}
