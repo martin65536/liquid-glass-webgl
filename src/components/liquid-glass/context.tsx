@@ -100,7 +100,6 @@ export function LiquidGlassCanvas(props: LiquidGlassCanvasProps) {
     const renderer = new LiquidGlassRenderer(canvasRef.current)
     rendererRefInternal.current = renderer
     if (rendererRef) rendererRef.current = renderer
-    if (typeof window !== "undefined") (window as unknown as { __lgRenderer?: LiquidGlassRenderer }).__lgRenderer = renderer
     renderer.setBackgroundColor(backgroundColor)
     renderer.loadWallpaper(wallpaperSrc).then(() => {
       // Fire onReady after wallpaper loads + one frame renders
@@ -123,7 +122,7 @@ export function LiquidGlassCanvas(props: LiquidGlassCanvasProps) {
     // the correct DPR from the start (otherwise resize caps at 1.5).
     if (dpr != null) {
       const deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
-      renderer.dpr = dpr > 0 ? Math.max(0.5, Math.min(deviceDpr, dpr)) : deviceDpr
+      renderer.dpr = dpr > 0 ? Math.max(0.5, Math.min(deviceDpr, dpr)) : Math.max(1, deviceDpr)
     }
     // Apply blur tap cap (Settings slider) so 2-pass separable blur uses it.
     if (blurTapCap != null) renderer.blurTapCap = Math.max(1, Math.min(33, blurTapCap | 0))

@@ -48,7 +48,7 @@ export function useRendererPropSync(
     const renderer = rendererRef.current
     if (!renderer || dpr == null) return
     const deviceDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
-    renderer.dpr = dpr > 0 ? Math.max(0.5, Math.min(deviceDpr, dpr)) : deviceDpr
+    renderer.dpr = dpr > 0 ? Math.max(0.5, Math.min(deviceDpr, dpr)) : Math.max(1, deviceDpr)
     const r = containerRef.current?.getBoundingClientRect()
     if (r) renderer.resize(r.width, r.height)
     renderer.resizeFBOs(renderer.fboW, renderer.fboH, true)
