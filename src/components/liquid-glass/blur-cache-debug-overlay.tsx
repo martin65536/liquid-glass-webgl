@@ -58,32 +58,34 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
       const savedFb = gl.getParameter(gl.FRAMEBUFFER_BINDING)
 
       r.backdropBlurCache.forEach((entry, key) => {
-        // Find the FBO that owns this texture. We stored tex but not fb.
-        // We need to create a temporary FBO to read the texture.
         const tmpFb = gl.createFramebuffer()
         gl.bindFramebuffer(gl.FRAMEBUFFER, tmpFb)
         gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, entry.tex, 0)
 
-        // Thumbnail size (max 120px wide, keep aspect)
+        // Check FBO completeness — if incomplete, readPixels returns all 0.
+        const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER)
+
+        // Read a small region from bottom-left.
         const tw = Math.min(120, r.fboW)
-        const th = Math.max(1, Math.round(tw * r.fboH / r.fboW))
-
-        // Read a small region (top-left tw×th) as a rough preview.
-        // Full readPixels on large FBOs is expensive; this is a debug tool.
+        const th = Math.max(1, Math.min(120, Math.round(tw * r.fboH / r.fboW)))
         const buf = new Uint8Array(tw * th * 4)
-        // Set viewport to tw×th so readPixels reads from the downscaled area
-        // Actually, readPixels reads at current FBO resolution. We can only
-        // read at native res. Read a small sub-rect from the bottom-left.
-        gl.readPixels(0, 0, Math.min(tw, r.fboW), Math.min(th, r.fboH), gl.RGBA, gl.UNSIGNED_BYTE, buf)
 
-        // Create a canvas with the pixel data (flipped Y).
+        if (status === gl.FRAMEBUFFER_COMPLETE) {
+          gl.readPixels(0, 0, tw, th, gl.RGBA, gl.UNSIGNED_BYTE, buf)
+        }
+
+        // Count non-zero pixels for diagnostics.
+        let nonZero = 0
+        for (let i = 0; i < buf.length; i += 4) {
+          if (buf[i] + buf[i+1] + buf[i+2] + buf[i+3] > 0) nonZero++
+        }
+
         const canvas = document.createElement('canvas')
         canvas.width = tw
         canvas.height = th
         const ctx = canvas.getContext('2d')
-        if (ctx) {
+        if (ctx && nonZero > 0) {
           const imageData = ctx.createImageData(tw, th)
-          // Flip Y (WebGL is bottom-up, canvas is top-down)
           for (let y = 0; y < th; y++) {
             const srcRow = (th - 1 - y) * tw * 4
             const dstRow = y * tw * 4
@@ -92,6 +94,15 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
             }
           }
           ctx.putImageData(imageData, 0, 0)
+        } else {
+          // Draw a red "EMPTY" indicator.
+          if (ctx) {
+            ctx.fillStyle = '#300'
+            ctx.fillRect(0, 0, tw, th)
+            ctx.fillStyle = '#f44'
+            ctx.font = '10px monospace'
+            ctx.fillText(status === gl.FRAMEBUFFER_COMPLETE ? 'EMPTY (0 px)' : `FBO 0x${status.toString(16)}`, 4, 14)
+          }
         }
 
         gl.deleteFramebuffer(tmpFb)
