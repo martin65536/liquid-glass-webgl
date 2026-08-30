@@ -399,6 +399,23 @@ export function resolveBackdropTex(
         gl2.bindTexture(gl2.TEXTURE_2D, cacheFbo.tex)
         gl2.copyTexImage2D(gl2.TEXTURE_2D, 0, gl2.RGBA, 0, 0, blurW, blurH, 0)
         gl2.deleteFramebuffer(readFb)
+        // Checkerboard mask (same as independent path).
+        if (this.showBlurCacheCheckerboard) {
+          gl2.bindFramebuffer(gl2.FRAMEBUFFER, cacheFbo.fb)
+          gl2.viewport(0, 0, blurW, blurH)
+          const cellSize = Math.max(8, Math.floor(blurW / 20))
+          gl2.enable(gl2.SCISSOR_TEST)
+          gl2.clearColor(0, 0, 0, 0)
+          for (let cy = 0; cy < blurH; cy += cellSize) {
+            for (let cx = 0; cx < blurW; cx += cellSize) {
+              if ((Math.floor(cx / cellSize) + Math.floor(cy / cellSize)) % 2 !== 0) {
+                gl2.scissor(cx, cy, Math.min(cellSize, blurW - cx), Math.min(cellSize, blurH - cy))
+                gl2.clear(gl2.COLOR_BUFFER_BIT)
+              }
+            }
+          }
+          gl2.disable(gl2.SCISSOR_TEST)
+        }
         gl2.bindFramebuffer(gl2.FRAMEBUFFER, savedFb)
         if (savedSc) { gl2.enable(gl2.SCISSOR_TEST); gl2.scissor(savedBox[0], savedBox[1], savedBox[2], savedBox[3]) }
         this.backdropBlurCache.set(sceneCacheKey, {
