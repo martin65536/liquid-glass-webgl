@@ -9,7 +9,7 @@ interface Props {
 
 type BlurCacheSnap = {
   key: string; w: number; h: number; rgba: Uint8Array; nonZero: number;
-  blurMs: number; copyMs: number; readMs: number; totalMs: number
+  blurMs: number; copyMs: number; readPixelsMs: number; scanMs: number; totalMs: number
 }
 
 export function BlurCacheDebugOverlay({ rendererRef }: Props) {
@@ -201,7 +201,8 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
               <div style={{ color: '#888', fontSize: 10, marginBottom: 4 }}>
                 blur: <b style={{ color: snap.blurMs > 20 ? '#f44' : snap.blurMs > 5 ? '#fa0' : '#0f0' }}>{snap.blurMs.toFixed(1)}ms</b>
                 {' '}copy: <b style={{ color: snap.copyMs > 10 ? '#f44' : snap.copyMs > 3 ? '#fa0' : '#0f0' }}>{snap.copyMs.toFixed(1)}ms</b>
-                {' '}read: <b style={{ color: snap.readMs > 30 ? '#f44' : snap.readMs > 10 ? '#fa0' : '#0f0' }}>{snap.readMs.toFixed(1)}ms</b>
+                {' '}rdPx: <b style={{ color: snap.readPixelsMs > 30 ? '#f44' : snap.readPixelsMs > 10 ? '#fa0' : '#0f0' }}>{snap.readPixelsMs.toFixed(1)}ms</b>
+                {' '}scan: <b style={{ color: snap.scanMs > 20 ? '#f44' : snap.scanMs > 5 ? '#fa0' : '#0f0' }}>{snap.scanMs.toFixed(1)}ms</b>
                 {' '}total: <b style={{ color: snap.totalMs > 50 ? '#f44' : snap.totalMs > 20 ? '#fa0' : '#0f0' }}>{snap.totalMs.toFixed(1)}ms</b>
               </div>
               {showPreview && snap.w > 0 && (

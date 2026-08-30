@@ -292,7 +292,8 @@ export function resolveBackdropTex(
       // still showing blur/copy ms per cache miss.
       const blurMs = t1 - t0
       const copyMs = t2 - t1
-      let readMs = 0
+      let readPixelsMs = 0
+      let scanMs = 0
       let snapW = 0, snapH = 0
       let snapBuf = new Uint8Array(0)
       let snapNZ = 0
@@ -300,9 +301,12 @@ export function resolveBackdropTex(
       if (this.showBlurCachePreview) {
         snapW = blurW
         snapH = blurH
+        const ta = performance.now()
         snapBuf = new Uint8Array(snapW * snapH * 4)
+        const tr0 = performance.now()
         gl2.bindFramebuffer(gl2.FRAMEBUFFER, cacheFbo.fb)
         gl2.readPixels(0, 0, snapW, snapH, gl2.RGBA, gl2.UNSIGNED_BYTE, snapBuf)
+        const tr1 = performance.now()
         for (let y = 0; y < snapH; y++) {
           for (let x = 0; x < snapW; x++) {
             const i = (y * snapW + x) * 4
@@ -315,16 +319,19 @@ export function resolveBackdropTex(
             }
           }
         }
-        const t3 = performance.now()
-        readMs = t3 - t2
+        const ts = performance.now()
+        // alloc is folded into scan (negligible, <0.1ms); report readPixels +
+        // nonZero/bbox scan separately so the user can see which dominates.
+        readPixelsMs = tr1 - tr0
+        scanMs = ts - tr1 + (tr0 - ta)
       }
       this.backdropBlurCacheSnapshots.push({
         key: snapW > 0 ? `${cacheKey} [${minX},${minY}-${maxX},${maxY}]` : cacheKey,
         w: snapW, h: snapH,
         rgba: snapBuf,
         nonZero: snapNZ,
-        blurMs, copyMs, readMs,
-        totalMs: blurMs + copyMs + readMs,
+        blurMs, copyMs, readPixelsMs, scanMs,
+        totalMs: blurMs + copyMs + readPixelsMs + scanMs,
       })
       this.bindFBO(savedFb as WebGLFramebuffer | null)
       if (savedScissor) {
@@ -469,10 +476,11 @@ export function resolveBackdropTex(
         }
         const sT2 = performance.now()
         // Snapshot: timing always recorded; readPixels only when preview on
-        // (same split as independent path).
+        // (same split as independent path — readPixels + scan timed separately).
         const sBlurMs = sT1 - sT0
         const sCopyMs = sT2 - sT1
-        let sReadMs = 0
+        let sReadPixelsMs = 0
+        let sScanMs = 0
         let sSnapW = 0, sSnapH = 0
         let sBuf = new Uint8Array(0)
         let sNZ = 0
@@ -480,9 +488,12 @@ export function resolveBackdropTex(
         if (this.showBlurCachePreview) {
           sSnapW = blurW
           sSnapH = blurH
+          const sTa = performance.now()
           sBuf = new Uint8Array(sSnapW * sSnapH * 4)
+          const sTr0 = performance.now()
           gl2.bindFramebuffer(gl2.FRAMEBUFFER, cacheFbo.fb)
           gl2.readPixels(0, 0, sSnapW, sSnapH, gl2.RGBA, gl2.UNSIGNED_BYTE, sBuf)
+          const sTr1 = performance.now()
           for (let y = 0; y < sSnapH; y++) {
             for (let x = 0; x < sSnapW; x++) {
               const i = (y * sSnapW + x) * 4
@@ -495,16 +506,17 @@ export function resolveBackdropTex(
               }
             }
           }
-          const sT3 = performance.now()
-          sReadMs = sT3 - sT2
+          const sTs = performance.now()
+          sReadPixelsMs = sTr1 - sTr0
+          sScanMs = sTs - sTr1 + (sTr0 - sTa)
         }
         this.backdropBlurCacheSnapshots.push({
           key: sSnapW > 0 ? `${sceneCacheKey} [${sMinX},${sMinY}-${sMaxX},${sMaxY}]` : sceneCacheKey,
           w: sSnapW, h: sSnapH,
           rgba: sBuf,
           nonZero: sNZ,
-          blurMs: sBlurMs, copyMs: sCopyMs, readMs: sReadMs,
-          totalMs: sBlurMs + sCopyMs + sReadMs,
+          blurMs: sBlurMs, copyMs: sCopyMs, readPixelsMs: sReadPixelsMs, scanMs: sScanMs,
+          totalMs: sBlurMs + sCopyMs + sReadPixelsMs + sScanMs,
         })
         gl2.bindFramebuffer(gl2.FRAMEBUFFER, savedFb)
         if (savedSc) { gl2.enable(gl2.SCISSOR_TEST); gl2.scissor(savedBox[0], savedBox[1], savedBox[2], savedBox[3]) }
