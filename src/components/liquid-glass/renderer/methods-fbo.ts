@@ -236,6 +236,7 @@ export const fboMethods = {
       gl.deleteTexture(entry.tex)
     }
     this.backdropBlurCache.clear()
+    this.backdropBlurCacheSnapshots.length = 0
   },
 
   /** Bind an FBO as the render target, set viewport to its size. */

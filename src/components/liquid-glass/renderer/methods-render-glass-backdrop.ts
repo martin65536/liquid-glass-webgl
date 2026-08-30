@@ -236,13 +236,28 @@ export function resolveBackdropTex(
       const cacheFbo = this.createFBO(this.fboW, this.fboH)
       const gl2 = this.gl
       const savedFb = gl2.getParameter(gl2.FRAMEBUFFER_BINDING)
-      const readFb = gl2.createFramebuffer()
-      gl2.bindFramebuffer(gl2.FRAMEBUFFER, readFb)
-      gl2.framebufferTexture2D(gl2.FRAMEBUFFER, gl2.COLOR_ATTACHMENT0, gl2.TEXTURE_2D, blurResult, 0)
-      gl2.activeTexture(gl2.TEXTURE0)
-      gl2.bindTexture(gl2.TEXTURE_2D, cacheFbo.tex)
-      gl2.copyTexImage2D(gl2.TEXTURE_2D, 0, gl2.RGBA, 0, 0, this.fboW, this.fboH, 0)
-      gl2.deleteFramebuffer(readFb)
+      // Bind cacheFbo as write target, drawCopy blurResult into it.
+      this.bindFBO(cacheFbo.fb)
+      gl2.viewport(0, 0, this.fboW, this.fboH)
+      this.drawCopy(blurResult)
+      // Snapshot: read center 64×64 pixels for the debug overlay.
+      // Done NOW while cacheFbo is bound and has content — no timing issues.
+      const snapW = Math.min(64, this.fboW)
+      const snapH = Math.min(64, this.fboH)
+      const snapBuf = new Uint8Array(snapW * snapH * 4)
+      const snapX = Math.floor((this.fboW - snapW) / 2)
+      const snapY = Math.floor((this.fboH - snapH) / 2)
+      gl2.readPixels(snapX, snapY, snapW, snapH, gl2.RGBA, gl2.UNSIGNED_BYTE, snapBuf)
+      let snapNZ = 0
+      for (let i = 0; i < snapBuf.length; i += 4) {
+        if (snapBuf[i] + snapBuf[i+1] + snapBuf[i+2] + snapBuf[i+3] > 0) snapNZ++
+      }
+      this.backdropBlurCacheSnapshots.push({
+        key: cacheKey,
+        w: snapW, h: snapH,
+        rgba: snapBuf,
+        nonZero: snapNZ,
+      })
       this.bindFBO(savedFb as WebGLFramebuffer | null)
       this.backdropBlurCache.set(cacheKey, {
         tex: cacheFbo.tex,

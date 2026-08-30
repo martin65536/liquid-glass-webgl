@@ -483,6 +483,10 @@ export class LiquidGlassRenderer {
    *  share one blurred wallpaper texture.
    *  Invalidated on resize (cover-fit ratio changes) + loadWallpaper. */
   backdropBlurCache = new Map<string, { tex: WebGLTexture; blurType: 'gauss' | 'kawase' }>()
+  /** Debug: snapshot of each cache entry's center pixels, taken at cache-miss
+   *  time (when the texture is first created). Stored as {key, w, h, rgba}
+   *  so the overlay can render without touching GL state. */
+  backdropBlurCacheSnapshots: Array<{ key: string; w: number; h: number; rgba: Uint8Array; nonZero: number }> = []
   /** Debug: when true, the renderer collects each glass element's SHADOW
    *  bbox (the TRUE per-direction reach of the shadow shape on screen,
    *  computed by shadowBboxCss from outerShadow.radius + offsetX/Y +
