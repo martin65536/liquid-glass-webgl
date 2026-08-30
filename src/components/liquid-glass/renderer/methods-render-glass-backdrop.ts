@@ -263,6 +263,24 @@ export function resolveBackdropTex(
       gl2.uniform2f(this.uCp['uCanvasSize'], blurW, blurH)
       gl2.disable(gl2.BLEND)
       gl2.drawArrays(gl2.TRIANGLES, 0, 6)
+      // Checkerboard mask: clear odd cells to transparent so the live
+      // backdrop shows through in those cells. Even cells keep blur content.
+      if (this.showBlurCacheCheckerboard) {
+        const cellSize = Math.max(8, Math.floor(blurW / 20))
+        gl2.enable(gl2.SCISSOR_TEST)
+        gl2.clearColor(0, 0, 0, 0)
+        for (let cy = 0; cy < blurH; cy += cellSize) {
+          for (let cx = 0; cx < blurW; cx += cellSize) {
+            const gx = Math.floor(cx / cellSize)
+            const gy = Math.floor(cy / cellSize)
+            if ((gx + gy) % 2 !== 0) {
+              gl2.scissor(cx, cy, Math.min(cellSize, blurW - cx), Math.min(cellSize, blurH - cy))
+              gl2.clear(gl2.COLOR_BUFFER_BIT)
+            }
+          }
+        }
+        gl2.disable(gl2.SCISSOR_TEST)
+      }
       // Snapshot: read FULL cache texture.
       const snapW = blurW
       const snapH = blurH
