@@ -218,8 +218,14 @@ export function resolveBackdropTex(
     } else {
       // MISS: render wallpaper + blur + copy to cache texture.
       // Step 1: render wallpaper cover-fitted into wallpaperBlurFbo.
+      // CLEAR + disable scissor first — the caller (ping-pong/PEF) set a
+      // scissor to the element bbox; without disabling, wallpaper only
+      // renders inside the bbox.
       this.bindFBO(this.wallpaperBlurFbo!)
       gl.disable(gl.BLEND)
+      gl.disable(gl.SCISSOR_TEST)
+      gl.clearColor(0, 0, 0, 0)
+      gl.clear(gl.COLOR_BUFFER_BIT)
       gl.useProgram(this.wallpaperProgram)
       gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
       gl.enableVertexAttribArray(this.aPosLocWp)
