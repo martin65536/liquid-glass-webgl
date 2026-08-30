@@ -233,10 +233,20 @@ export function resolveBackdropTex(
       // Step 2: blur wallpaperBlurTex.
       const blurResult = this.blurTexture(this.wallpaperBlurTex!, blurRadiusPx)
       // Step 3: copy to a dedicated cache FBO (dsBlurFboBTex will be overwritten
-      // by the next element's blur).
+      // by the next element's blur). Use gl.copyTexImage2D instead of drawCopy
+      // to avoid shader state issues — directly copy the currently-bound FBO's
+      // color buffer to the cache texture.
       const cacheFbo = this.createFBO(this.fboW, this.fboH)
-      const savedFb = gl.getParameter(gl.FRAMEBUFFER_BINDING)
+      const gl2 = this.gl
+      // Re-bind the blur result FBO to read from it. blurTexture returned
+      // dsBlurFboBTex (Gaussian) or dsBlurFboATex/BTex (Kawase). We need to
+      // bind that FBO, then copyTexImage2D to cacheFbo.tex.
+      // Actually simpler: bind cacheFbo as write target, bind blurResult as
+      // read texture, drawCopy a fullscreen quad. The issue was viewport —
+      // explicitly set it here.
+      const savedFb = gl2.getParameter(gl2.FRAMEBUFFER_BINDING)
       this.bindFBO(cacheFbo.fb)
+      gl2.viewport(0, 0, this.fboW, this.fboH)
       this.drawCopy(blurResult)
       this.bindFBO(savedFb as WebGLFramebuffer | null)
       this.backdropBlurCache.set(cacheKey, {
