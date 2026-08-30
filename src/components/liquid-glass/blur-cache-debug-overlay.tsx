@@ -3,15 +3,6 @@
 import * as React from 'react'
 import type { LiquidGlassRenderer } from '../renderer'
 
-/* ------------------------------------------------------------------ *
- * BlurCacheDebugOverlay
- *
- * Shows cached blur textures as canvas thumbnails + a GPU-side
- * checkerboard mask toggle. When checkerboard is ON, the cached blur
- * texture itself is masked (even cells = blur, odd cells = transparent)
- * so the live render shows blur vs no-blur side by side.
- * ------------------------------------------------------------------ */
-
 interface Props {
   rendererRef: React.MutableRefObject<LiquidGlassRenderer | null>
 }
@@ -20,6 +11,7 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
   const [snapCount, setSnapCount] = React.useState(0)
   const [collapsed, setCollapsed] = React.useState(false)
   const [checkerboard, setCheckerboard] = React.useState(false)
+  const [showPreview, setShowPreview] = React.useState(false)
   const [pos, setPos] = React.useState({ x: -1, y: 120 })
   const canvasRefs = React.useRef<Map<string, HTMLCanvasElement>>(new Map())
   const lastCount = React.useRef(-1)
@@ -33,19 +25,26 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
     return () => window.removeEventListener('resize', update)
   }, [])
 
-  // Sync checkerboard flag to renderer + force cache rebuild.
   React.useEffect(() => {
     const r = rendererRef.current
     if (!r) return
     r.showBlurCacheCheckerboard = checkerboard
-    // Clear cache so next render rebuilds with/without checkerboard mask.
     r.clearBackdropBlurCache()
     r.markAllDirty()
     r.requestRender()
     lastCount.current = -1
   }, [checkerboard, rendererRef])
 
-  // Check for new snapshots via rAF.
+  React.useEffect(() => {
+    const r = rendererRef.current
+    if (!r) return
+    r.showBlurCachePreview = showPreview
+    r.clearBackdropBlurCache()
+    r.markAllDirty()
+    r.requestRender()
+    lastCount.current = -1
+  }, [showPreview, rendererRef])
+
   React.useEffect(() => {
     let raf = 0
     const check = () => {
@@ -55,18 +54,20 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
         if (count !== lastCount.current) {
           lastCount.current = count
           setSnapCount(count)
-          for (const snap of r.backdropBlurCacheSnapshots) {
-            const canvas = canvasRefs.current.get(snap.key)
-            if (canvas && canvas.width === snap.w && canvas.height === snap.h) {
-              const ctx = canvas.getContext('2d')
-              if (ctx) {
-                const imgData = ctx.createImageData(snap.w, snap.h)
-                for (let y = 0; y < snap.h; y++) {
-                  const srcRow = (snap.h - 1 - y) * snap.w * 4
-                  const dstRow = y * snap.w * 4
-                  imgData.data.set(snap.rgba.subarray(srcRow, srcRow + snap.w * 4), dstRow)
+          if (showPreview) {
+            for (const snap of r.backdropBlurCacheSnapshots) {
+              const canvas = canvasRefs.current.get(snap.key)
+              if (canvas && canvas.width === snap.w && canvas.height === snap.h) {
+                const ctx = canvas.getContext('2d')
+                if (ctx && snap.w > 0) {
+                  const imgData = ctx.createImageData(snap.w, snap.h)
+                  for (let y = 0; y < snap.h; y++) {
+                    const srcRow = (snap.h - 1 - y) * snap.w * 4
+                    const dstRow = y * snap.w * 4
+                    imgData.data.set(snap.rgba.subarray(srcRow, srcRow + snap.w * 4), dstRow)
+                  }
+                  ctx.putImageData(imgData, 0, 0)
                 }
-                ctx.putImageData(imgData, 0, 0)
               }
             }
           }
@@ -76,9 +77,8 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
     }
     raf = requestAnimationFrame(check)
     return () => cancelAnimationFrame(raf)
-  }, [rendererRef])
+  }, [rendererRef, showPreview])
 
-  // --- Dragging ---
   const dragRef = React.useRef<{ sx: number; sy: number; px: number; py: number } | null>(null)
   const onPointerDown = (e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest('button')) return
@@ -109,9 +109,14 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
           background: 'rgba(0,0,0,0.85)', color: '#0cf', font: 'bold 12px monospace',
           padding: '6px 10px', borderRadius: 6, zIndex: 60, cursor: 'grab',
           border: '1px solid #0cf', touchAction: 'none', userSelect: 'none' }}>
-        Blur Cache [{snapCount}] {checkerboard ? '▦' : ''}
+        Blur Cache [{snapCount}] {checkerboard ? '▦' : ''} {showPreview ? 'img' : ''}
       </div>
     )
+  }
+
+  const btnBase: React.CSSProperties = {
+    cursor: 'pointer', fontSize: 10, padding: '0 4px', borderRadius: 3, border: '1px solid #0cf',
+    color: '#0cf', background: 'none',
   }
 
   return (
@@ -126,40 +131,33 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
           borderBottom: '1px solid rgba(0,200,255,0.3)', fontWeight: 'bold', fontSize: 12,
           touchAction: 'none', userSelect: 'none' }}>
         <span>Blur Cache ({snapCount})</span>
-        <span style={{ display: 'flex', gap: 6 }}>
+        <span style={{ display: 'flex', gap: 4 }}>
           <button onPointerDown={e => e.stopPropagation()} onClick={() => setCheckerboard(v => !v)}
-            title="Toggle GPU-side checkerboard mask on cached blur texture. Even cells keep blur, odd cells cleared to transparent — shows blur vs no-blur in the live render."
-            style={{ background: checkerboard ? 'rgba(0,200,255,0.4)' : 'none',
-              border: '1px solid #0cf', color: '#0cf', cursor: 'pointer', fontSize: 12,
-              padding: '0 6px', borderRadius: 3, fontWeight: 'bold' }}>▦</button>
+            title="GPU checkerboard mask on cached blur texture"
+            style={{ ...btnBase, background: checkerboard ? 'rgba(0,200,255,0.4)' : 'none', fontWeight: 'bold' }}>▦</button>
+          <button onPointerDown={e => e.stopPropagation()} onClick={() => setShowPreview(v => !v)}
+            title="Toggle full-resolution image preview of cached blur texture"
+            style={{ ...btnBase, background: showPreview ? 'rgba(0,255,100,0.3)' : 'none' }}>img</button>
           <button onPointerDown={e => e.stopPropagation()} onClick={() => {
             rendererRef.current?.clearBackdropBlurCache()
             rendererRef.current?.markAllDirty()
             rendererRef.current?.requestRender()
             lastCount.current = -1
-          }} style={{ background: 'rgba(255,68,68,0.2)', border: '1px solid #f44',
-            color: '#f88', cursor: 'pointer', fontSize: 10, padding: '0 4px', borderRadius: 3 }}>clr</button>
+          }} style={{ ...btnBase, border: '1px solid #f44', color: '#f88', background: 'rgba(255,68,68,0.2)' }}>clr</button>
           <button onPointerDown={e => e.stopPropagation()} onClick={() => setCollapsed(true)}
-          style={{ background: 'none', border: '1px solid #0cf', color: '#0cf',
-            cursor: 'pointer', fontSize: 11, padding: '0 4px', borderRadius: 3 }}>-</button>
+            style={{ ...btnBase }}>-</button>
         </span>
       </div>
       <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, padding: '8px 10px' }}>
-        {checkerboard && (
-          <div style={{ color: '#fa0', marginBottom: 8, fontSize: 10, padding: '4px 6px',
-            background: 'rgba(255,170,0,0.1)', borderRadius: 4 }}>
-            ▦ GPU checkerboard ON — cached blur texture masked: even cells = blur, odd cells = transparent (shows live backdrop).
-          </div>
-        )}
         {snaps.length === 0 && <div style={{ color: '#666' }}>No snapshots. Trigger a blur to populate.</div>}
         {snaps.map((snap) => {
-          const pct = (snap.nonZero / (snap.w * snap.h) * 100).toFixed(1)
+          const pct = snap.w > 0 ? (snap.nonZero / (snap.w * snap.h) * 100).toFixed(1) : '—'
           return (
             <div key={snap.key} style={{ marginBottom: 10, padding: 6,
               border: `1px solid ${snap.nonZero > 0 ? 'rgba(0,255,0,0.3)' : 'rgba(255,68,68,0.5)'}`,
               borderRadius: 4, background: 'rgba(0,0,0,0.4)' }}>
               <div style={{ color: '#0cf', fontWeight: 'bold', marginBottom: 4 }}>
-                {snap.key} — {snap.w}×{snap.h} — {snap.nonZero > 0 ? `✓ ${pct}%` : '⚠ EMPTY'}
+                {snap.key} — {snap.w > 0 ? `${snap.w}×${snap.h}` : 'no snap'} — {snap.nonZero > 0 ? `✓ ${pct}%` : '⚠ EMPTY'}
               </div>
               <div style={{ color: '#888', fontSize: 10, marginBottom: 4 }}>
                 blur: <b style={{ color: snap.blurMs > 20 ? '#f44' : snap.blurMs > 5 ? '#fa0' : '#0f0' }}>{snap.blurMs.toFixed(1)}ms</b>
@@ -167,12 +165,14 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
                 {' '}read: <b style={{ color: snap.readMs > 30 ? '#f44' : snap.readMs > 10 ? '#fa0' : '#0f0' }}>{snap.readMs.toFixed(1)}ms</b>
                 {' '}total: <b style={{ color: snap.totalMs > 50 ? '#f44' : snap.totalMs > 20 ? '#fa0' : '#0f0' }}>{snap.totalMs.toFixed(1)}ms</b>
               </div>
-              <canvas
-                ref={(el) => { if (el) canvasRefs.current.set(snap.key, el) }}
-                width={snap.w} height={snap.h}
-                style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 2,
-                  border: '1px solid rgba(0,200,255,0.2)', imageRendering: 'auto' }}
-              />
+              {showPreview && snap.w > 0 && (
+                <canvas
+                  ref={(el) => { if (el) canvasRefs.current.set(snap.key, el) }}
+                  width={snap.w} height={snap.h}
+                  style={{ width: '100%', height: 'auto', display: 'block', borderRadius: 2,
+                    border: '1px solid rgba(0,200,255,0.2)', imageRendering: 'auto' }}
+                />
+              )}
             </div>
           )
         })}

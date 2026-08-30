@@ -487,6 +487,9 @@ export class LiquidGlassRenderer {
    *  pattern (even cells keep blur content, odd cells cleared to transparent).
    *  This lets you visually compare blur vs no-blur in the live render. */
   showBlurCacheCheckerboard = false
+  /** Debug: when true, cache miss reads full-resolution texture for the
+   *  debug overlay preview. When false, only reads 64×64 center (cheap). */
+  showBlurCachePreview = false
   /** Debug: snapshot of each cache entry's center pixels, taken at cache-miss
    *  time (when the texture is first created). Stored as {key, w, h, rgba}
    *  so the overlay can render without touching GL state. */

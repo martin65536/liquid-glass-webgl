@@ -257,12 +257,11 @@ export function resolveBackdropTex(
         gl2.disable(gl2.SCISSOR_TEST)
       }
       const t2 = performance.now()
-      // Snapshot: only read a small 64×64 center region (not full screen —
-      // readPixels on 1064×2092 = 8.9MB causes 76ms GPU sync stall).
-      // Full read only when blur debug overlay is actively viewing snapshots.
-      const wantFullSnap = this.backdropBlurCacheSnapshots.length < 10
-      const snapW = wantFullSnap ? Math.min(64, blurW) : 0
-      const snapH = wantFullSnap ? Math.min(64, blurH) : 0
+      // Snapshot: full resolution when showPreview is on (renderer flag),
+      // otherwise 64×64 center (cheap, for diagnostics only).
+      const wantFull = this.showBlurCachePreview
+      const snapW = wantFull ? blurW : Math.min(64, blurW)
+      const snapH = wantFull ? blurH : Math.min(64, blurH)
       const snapBuf = new Uint8Array(snapW * snapH * 4)
       let snapNZ = 0
       let minX = 0, minY = 0, maxX = 0, maxY = 0
