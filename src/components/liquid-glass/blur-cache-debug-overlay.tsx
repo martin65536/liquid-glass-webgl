@@ -7,14 +7,19 @@ interface Props {
   rendererRef: React.MutableRefObject<LiquidGlassRenderer | null>
 }
 
+type BlurCacheSnap = {
+  key: string; w: number; h: number; rgba: Uint8Array; nonZero: number;
+  blurMs: number; copyMs: number; readMs: number; totalMs: number
+}
+
 export function BlurCacheDebugOverlay({ rendererRef }: Props) {
-  const [snapCount, setSnapCount] = React.useState(0)
+  const [snaps, setSnaps] = React.useState<BlurCacheSnap[]>([])
   const [collapsed, setCollapsed] = React.useState(false)
   const [checkerboard, setCheckerboard] = React.useState(false)
   const [showPreview, setShowPreview] = React.useState(false)
   const [pos, setPos] = React.useState({ x: -1, y: 120 })
   const canvasRefs = React.useRef<Map<string, HTMLCanvasElement>>(new Map())
-  const lastCount = React.useRef(-1)
+  const lastSig = React.useRef('')
 
   const [vh, setVh] = React.useState(() =>
     typeof window !== 'undefined' ? window.innerHeight : 800)
@@ -32,7 +37,8 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
     r.clearBackdropBlurCache()
     r.markAllDirty()
     r.requestRender()
-    lastCount.current = -1
+    lastSig.current = ''
+    setSnaps([])
   }, [checkerboard, rendererRef])
 
   React.useEffect(() => {
@@ -42,7 +48,8 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
     r.clearBackdropBlurCache()
     r.markAllDirty()
     r.requestRender()
-    lastCount.current = -1
+    lastSig.current = ''
+    setSnaps([])
   }, [showPreview, rendererRef])
 
   React.useEffect(() => {
@@ -50,12 +57,21 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
     const check = () => {
       const r = rendererRef.current
       if (r) {
-        const count = r.backdropBlurCacheSnapshots.length
-        if (count !== lastCount.current) {
-          lastCount.current = count
-          setSnapCount(count)
+        const list = r.backdropBlurCacheSnapshots
+        const count = list.length
+        // Signature catches additions (count up), evictions (last key changes
+        // while count stays the same), and clears (count down) — so the
+        // overlay stays in sync with LRU eviction in the renderer.
+        const sig = `${count}:${count > 0 ? list[count - 1].key : ''}`
+        if (sig !== lastSig.current) {
+          lastSig.current = sig
+          // Shallow copy the array (element objects are stable — renderer
+          // pushes new objects, never mutates existing ones) so React sees a
+          // new state reference and re-renders without reading the ref during
+          // render.
+          setSnaps([...list])
           if (showPreview) {
-            for (const snap of r.backdropBlurCacheSnapshots) {
+            for (const snap of list) {
               const canvas = canvasRefs.current.get(snap.key)
               if (canvas && canvas.width === snap.w && canvas.height === snap.h) {
                 const ctx = canvas.getContext('2d')
@@ -98,8 +114,7 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
 
   const left = pos.x === -1 ? undefined : pos.x
   const right = pos.x === -1 ? 8 : undefined
-  const r = rendererRef.current
-  const snaps = r?.backdropBlurCacheSnapshots ?? []
+  const snapCount = snaps.length
 
   if (collapsed) {
     return (
@@ -142,7 +157,8 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
             rendererRef.current?.clearBackdropBlurCache()
             rendererRef.current?.markAllDirty()
             rendererRef.current?.requestRender()
-            lastCount.current = -1
+            lastSig.current = ''
+            setSnaps([])
           }} style={{ ...btnBase, border: '1px solid #f44', color: '#f88', background: 'rgba(255,68,68,0.2)' }}>clr</button>
           <button onPointerDown={e => e.stopPropagation()} onClick={() => setCollapsed(true)}
             style={{ ...btnBase }}>-</button>
@@ -151,13 +167,22 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
       <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, padding: '8px 10px' }}>
         {snaps.length === 0 && <div style={{ color: '#666' }}>No snapshots. Trigger a blur to populate.</div>}
         {snaps.map((snap) => {
-          const pct = snap.w > 0 ? (snap.nonZero / (snap.w * snap.h) * 100).toFixed(1) : '—'
+          const hasImage = snap.w > 0
+          const pct = hasImage ? (snap.nonZero / (snap.w * snap.h) * 100).toFixed(1) : '—'
+          // Border: green if image read + non-empty; red if image read + empty
+          // (real problem); neutral cyan if no image read (img off — just timing).
+          const borderColor = !hasImage ? 'rgba(0,200,255,0.2)'
+            : snap.nonZero > 0 ? 'rgba(0,255,0,0.3)'
+            : 'rgba(255,68,68,0.5)'
+          const statusLabel = !hasImage ? 'timing only'
+            : snap.nonZero > 0 ? `✓ ${pct}%`
+            : '⚠ EMPTY'
           return (
             <div key={snap.key} style={{ marginBottom: 10, padding: 6,
-              border: `1px solid ${snap.nonZero > 0 ? 'rgba(0,255,0,0.3)' : 'rgba(255,68,68,0.5)'}`,
+              border: `1px solid ${borderColor}`,
               borderRadius: 4, background: 'rgba(0,0,0,0.4)' }}>
               <div style={{ color: '#0cf', fontWeight: 'bold', marginBottom: 4 }}>
-                {snap.key} — {snap.w > 0 ? `${snap.w}×${snap.h}` : 'no snap'} — {snap.nonZero > 0 ? `✓ ${pct}%` : '⚠ EMPTY'}
+                {snap.key} — {hasImage ? `${snap.w}×${snap.h}` : 'no img'} — {statusLabel}
               </div>
               <div style={{ color: '#888', fontSize: 10, marginBottom: 4 }}>
                 blur: <b style={{ color: snap.blurMs > 20 ? '#f44' : snap.blurMs > 5 ? '#fa0' : '#0f0' }}>{snap.blurMs.toFixed(1)}ms</b>

@@ -61,6 +61,7 @@ export function LiquidGlassCanvas(props: LiquidGlassCanvasProps) {
     showPefBboxOverlay = false,
     usePerElementFbo,
     useKawaseBlur,
+    useBlurCache,
     kawaseQuality,
     capsuleSdfQuality,
     noContinuousSdf,
@@ -135,6 +136,7 @@ export function LiquidGlassCanvas(props: LiquidGlassCanvasProps) {
     if (cornerStyle != null) renderer.cornerStyle = cornerStyle
     if (usePerElementFbo != null) renderer.usePerElementFbo = usePerElementFbo
     if (useKawaseBlur != null) renderer.useKawaseBlur = useKawaseBlur
+    if (useBlurCache != null) renderer.useBlurCache = useBlurCache
     if (kawaseQuality != null) renderer.kawaseQuality = Math.max(0, Math.min(1, kawaseQuality))
     if (perfMonitorEnabled != null) renderer.perfMonitor.enabled = perfMonitorEnabled
     renderer.showPefBbox = showPefBboxOverlay

@@ -278,6 +278,12 @@ export class LiquidGlassRenderer {
    *  Gaussian separable path. Kawase is cheaper for large radii. Set from
    *  CatalogState.useKawaseBlur via use-renderer-prop-sync. Default true. */
   useKawaseBlur = true
+  /** Blur cache toggle. When true (default), resolveBackdropTex caches
+   *  blurred backdrop textures (per-radius for wallpaper, per-element+radius
+   *  for scene) so repeated frames at the same radius hit the cache (0 blur
+   *  cost). When false, the cache lookup + store are skipped — every frame
+   *  re-blurs from scratch. Toggling off also clears the existing cache. */
+  useBlurCache = true
   /** Kawase quality multiplier [0, 1], default 0.5. Scales the base
    *  iteration count (from kawaseIterationsForRadius) before clamping to
    *  [2, 8]. 0 = min iters (fastest), 1 = base iter count. Set from
@@ -482,7 +488,39 @@ export class LiquidGlassRenderer {
    *  Cross-element + cross-frame: multiple elements at the same radius
    *  share one blurred wallpaper texture.
    *  Invalidated on resize (cover-fit ratio changes) + loadWallpaper. */
-  backdropBlurCache = new Map<string, { tex: WebGLTexture; blurType: 'gauss' | 'kawase' }>()
+  backdropBlurCache = new Map<string, {
+    tex: WebGLTexture
+    /** FBO the cache tex is attached to. Kept alongside the tex so the
+     *  checkerboard mask + debug readPixels can rebind it without creating
+     *  a throwaway FBO each time. Previously this fb leaked (createFBO
+     *  returned {fb,tex} but only tex was stored). */
+    fb: WebGLFramebuffer
+    w: number
+    h: number
+    blurType: 'gauss' | 'kawase'
+  }>()
+  /** Pool of freed cache FBOs ({fb, tex, w, h}). On cache miss we acquire
+   *  from here (reusing a size-matched tex+fb, avoiding gl.createTexture /
+   *  gl.createFramebuffer + texImage2D allocation cost); on LRU eviction we
+   *  release back here instead of deleting. clearBackdropBlurCache (resize /
+   *  loadWallpaper) deletes everything since sizes may change. */
+  backdropBlurCacheFboPool: Array<{ fb: WebGLFramebuffer; tex: WebGLTexture; w: number; h: number }> = []
+  /** Hard cap on the number of cached backdrop blur textures. When exceeded,
+   *  the oldest entry (Map insertion order) is evicted + returned to the
+   *  FBO pool. Each cached texture is ~fboW*fboH*4 bytes, so this bounds VRAM.
+   *  Applies to BOTH the independent (wallpaper_*) and scene (scene_*) paths.
+   *  Default 64. */
+  backdropBlurCacheMax = 64
+  /** Per-frame counter of cache-miss blur operations. Reset to 0 at the start
+   *  of each render(). When >= blurCacheMissesPerFrame, further cache misses
+   *  this frame fall back to didBlur=false (no separable blur, shader uses
+   *  inline poisson) so a frame with N simultaneous misses doesn't pay
+   *  N × full-screen 2-pass blur — only 1 does, the rest are deferred to
+   *  subsequent frames (progressive cache fill). */
+  _blurCacheMissesThisFrame = 0
+  /** Max cache-miss blurs allowed per frame. 1 = strictest (smoothest but
+   *  slowest cache fill); higher = faster fill but bigger spikes. */
+  blurCacheMissesPerFrame = 1
   /** Tracks scrollY between frames — scene blur cache disabled when scrolling. */
   _lastBlurCacheScrollY = 0
   /** Debug: when true, cached blur textures are masked with a checkerboard

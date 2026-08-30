@@ -65,6 +65,11 @@ export interface LiquidGlassCanvasProps {
    *  Gaussian separable path. Kawase is cheaper for large radii (4 taps ×
    *  N iters vs up-to-33 taps × 2 passes). Default true (Kawase). */
   useKawaseBlur?: boolean
+  /** Blur cache toggle. When true (default), the renderer caches blurred
+   *  backdrop textures (per-radius for wallpaper, per-element+radius for
+   *  scene) so repeated frames at the same radius hit the cache (0 blur
+   *  cost). When false, every frame re-blurs from scratch. */
+  useBlurCache?: boolean
   /** Kawase quality multiplier [0, 1], default 0.5. Scales the base
    *  iteration count before clamping to [2, 8]. */
   kawaseQuality?: number

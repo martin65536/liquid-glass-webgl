@@ -206,8 +206,10 @@ export function resolveBackdropTex(
     // static → same radius = same blur result. Cross-element + cross-frame.
     const cssRadius = el.blurRadius * layerScale
     const qRadius = Math.round(cssRadius * 10) / 10
-    const cacheKey = `wallpaper_${qRadius}_${this.useKawaseBlur ? 'k' : 'g'}`
-    const entry = this.backdropBlurCache.get(cacheKey)
+    const cacheKey = this.useBlurCache
+      ? `wallpaper_${qRadius}_${this.useKawaseBlur ? 'k' : 'g'}`
+      : null
+    const entry = cacheKey ? this.backdropBlurCache.get(cacheKey) : undefined
     let blurred: WebGLTexture
     let cacheHit = false
     if (entry) {
@@ -215,16 +217,28 @@ export function resolveBackdropTex(
       blurred = entry.tex
       cacheHit = true
       this.lastBlurStats = { type: entry.blurType, passes: 0, taps: 0, maxSample: 0 }
+    } else if (!cacheKey) {
+      // Cache disabled (useBlurCache=false): blur every frame, don't store.
+      // NO throttle here — throttle only applies to cache-miss path (to
+      // stagger cache fill). When cache is off, every element needs its blur
+      // every frame; throttling would drop blur from 2nd+ elements.
+      blurred = this.blurTexture(this.wallpaperBlurTex!, blurRadiusPx)
     } else {
-      // MISS: blur wallpaper + copy to cache texture.
+      // MISS. Throttle: if this frame already used its miss budget, fall
+      // back to the no-blur path (element samples raw wallpaper; visually
+      // slightly sharper for one frame, then the next frame's miss budget
+      // fills the cache). Prevents N simultaneous misses from stacking
+      // N × full-screen 2-pass blur into one frame.
+      if (this._blurCacheMissesThisFrame >= this.blurCacheMissesPerFrame) {
+        return { backdropTex: curTex, didBlur: false }
+      }
+      this._blurCacheMissesThisFrame++
       const t0 = performance.now()
       const blurResult = this.blurTexture(this.wallpaperBlurTex!, blurRadiusPx)
       const t1 = performance.now()
-      // Step 2: copy blurResult to cacheFbo using copyTexImage2D (GPU memcpy,
-      // no shader pass — faster than drawCopy which runs a fragment shader).
       const blurW = this.dsBlurFboW || this.fboW
       const blurH = this.dsBlurFboH || this.fboH
-      const cacheFbo = this.createFBO(blurW, blurH)
+      const cacheFbo = this.acquireCacheFBO(blurW, blurH)
       const gl2 = this.gl
       const savedFb = gl2.getParameter(gl2.FRAMEBUFFER_BINDING)
       const savedScissor = gl2.isEnabled(gl2.SCISSOR_TEST)
@@ -257,19 +271,25 @@ export function resolveBackdropTex(
         gl2.disable(gl2.SCISSOR_TEST)
       }
       const t2 = performance.now()
-      // Snapshot: full resolution when showPreview is on (renderer flag),
-      // otherwise 64×64 center (cheap, for diagnostics only).
-      const wantFull = this.showBlurCachePreview
-      const snapW = wantFull ? blurW : Math.min(64, blurW)
-      const snapH = wantFull ? blurH : Math.min(64, blurH)
-      const snapBuf = new Uint8Array(snapW * snapH * 4)
+      // Snapshot entry is ALWAYS pushed (timing + key are cheap, the overlay
+      // needs them visible even when image preview is off). The expensive
+      // readPixels + nonZero scan only run when showBlurCachePreview is on;
+      // when off, w/h=0 and rgba is empty — overlay shows timing but no
+      // canvas. This keeps the production path (img off) stall-free while
+      // still showing blur/copy ms per cache miss.
+      const blurMs = t1 - t0
+      const copyMs = t2 - t1
+      let readMs = 0
+      let snapW = 0, snapH = 0
+      let snapBuf = new Uint8Array(0)
       let snapNZ = 0
       let minX = 0, minY = 0, maxX = 0, maxY = 0
-      if (snapW > 0) {
-        const snapX = Math.floor((blurW - snapW) / 2)
-        const snapY = Math.floor((blurH - snapH) / 2)
+      if (this.showBlurCachePreview) {
+        snapW = blurW
+        snapH = blurH
+        snapBuf = new Uint8Array(snapW * snapH * 4)
         gl2.bindFramebuffer(gl2.FRAMEBUFFER, cacheFbo.fb)
-        gl2.readPixels(snapX, snapY, snapW, snapH, gl2.RGBA, gl2.UNSIGNED_BYTE, snapBuf)
+        gl2.readPixels(0, 0, snapW, snapH, gl2.RGBA, gl2.UNSIGNED_BYTE, snapBuf)
         for (let y = 0; y < snapH; y++) {
           for (let x = 0; x < snapW; x++) {
             const i = (y * snapW + x) * 4
@@ -282,13 +302,11 @@ export function resolveBackdropTex(
             }
           }
         }
+        const t3 = performance.now()
+        readMs = t3 - t2
       }
-      const t3 = performance.now()
-      const blurMs = t1 - t0
-      const copyMs = t2 - t1
-      const readMs = t3 - t2
       this.backdropBlurCacheSnapshots.push({
-        key: `${cacheKey} ${snapW > 0 ? `[${minX},${minY}-${maxX},${maxY}]` : '(no snap)'}`,
+        key: snapW > 0 ? `${cacheKey} [${minX},${minY}-${maxX},${maxY}]` : cacheKey,
         w: snapW, h: snapH,
         rgba: snapBuf,
         nonZero: snapNZ,
@@ -301,9 +319,13 @@ export function resolveBackdropTex(
         gl2.scissor(savedBox[0], savedBox[1], savedBox[2], savedBox[3])
       }
       this.backdropBlurCache.set(cacheKey, {
+        fb: cacheFbo.fb,
         tex: cacheFbo.tex,
+        w: blurW,
+        h: blurH,
         blurType: this.lastBlurStats?.type ?? 'gauss',
       })
+      this.evictBackdropBlurCacheIfNeeded()
       blurred = cacheFbo.tex
     }
     if (this.showBlurDebug) {
@@ -363,15 +385,22 @@ export function resolveBackdropTex(
     // clearBackdropBlurCache (called on resize/loadWallpaper/prop-change).
     // Only cache when backdropSrc is curTex (dialogBackdropTex/bgOnlyTex are
     // already cached by their own mechanisms).
-    const canCacheSceneBlur = (backdropSrc === curTex) && !el.backdropFbo
+    const canCacheSceneBlur = this.useBlurCache && (backdropSrc === curTex) && !el.backdropFbo
     // No scrollY in key — scene blur uses curTex (scene FBO), which shifts
     // with scroll. Instead of keying by scrollY (creates one entry per pixel),
     // we DON'T cache scene blur when scrolling. Only cache when scrollY
     // hasn't changed since last frame (static scene).
     const isScrolling = this.scrollY !== this._lastBlurCacheScrollY
     this._lastBlurCacheScrollY = this.scrollY
+    // Cache key: CSS px radius (NOT × dpr) quantized to 0.1 — same convention
+    // as the independent (wallpaper) path. dpr only affects the blur texture's
+    // pixel resolution, not the visual blur strength, so the same CSS radius
+    // produces visually identical blur regardless of dpr. resize clears the
+    // cache anyway (fboW/fboH change), so cross-dpr key reuse is safe.
+    const cssRadius = el.blurRadius * layerScale
+    const qRadius = Math.round(cssRadius * 10) / 10
     const sceneCacheKey = (canCacheSceneBlur && !isScrolling)
-      ? `scene_${el.id}_${Math.round(blurRadiusPx * 10) / 10}_${this.useKawaseBlur ? 'k' : 'g'}`
+      ? `scene_${el.id}_${qRadius}_${this.useKawaseBlur ? 'k' : 'g'}`
       : null
     let blurred: WebGLTexture
     let cacheHit = false
@@ -382,11 +411,17 @@ export function resolveBackdropTex(
         cacheHit = true
         this.lastBlurStats = { type: entry.blurType, passes: 0, taps: 0, maxSample: 0 }
       } else {
+        // MISS — throttle (same as independent path).
+        if (this._blurCacheMissesThisFrame >= this.blurCacheMissesPerFrame) {
+          return { backdropTex: backdropSrc, didBlur: false }
+        }
+        this._blurCacheMissesThisFrame++
+        const sT0 = performance.now()
         blurred = this.blurTexture(backdropSrc, blurRadiusPx)
-        // Copy to cache texture.
+        const sT1 = performance.now()
         const blurW = this.dsBlurFboW || this.fboW
         const blurH = this.dsBlurFboH || this.fboH
-        const cacheFbo = this.createFBO(blurW, blurH)
+        const cacheFbo = this.acquireCacheFBO(blurW, blurH)
         const gl2 = this.gl
         const savedFb = gl2.getParameter(gl2.FRAMEBUFFER_BINDING)
         const savedSc = gl2.isEnabled(gl2.SCISSOR_TEST)
@@ -416,51 +451,67 @@ export function resolveBackdropTex(
           }
           gl2.disable(gl2.SCISSOR_TEST)
         }
-        gl2.bindFramebuffer(gl2.FRAMEBUFFER, savedFb)
-        if (savedSc) { gl2.enable(gl2.SCISSOR_TEST); gl2.scissor(savedBox[0], savedBox[1], savedBox[2], savedBox[3]) }
-        this.backdropBlurCache.set(sceneCacheKey, {
-          tex: cacheFbo.tex,
-          blurType: this.lastBlurStats?.type ?? 'gauss',
-        })
-        // LRU eviction: if cache has too many scene entries, delete the oldest.
-        // Map iteration is insertion order, so first entry = oldest.
-        if (this.backdropBlurCache.size > 16) {
-          const oldest = this.backdropBlurCache.keys().next().value
-          if (oldest) {
-            const oldEntry = this.backdropBlurCache.get(oldest)
-            if (oldEntry) gl2.deleteTexture(oldEntry.tex)
-            this.backdropBlurCache.delete(oldest)
-          }
-        }
-        // Snapshot for debug overlay (same as independent path).
-        const sBlurMs = 0, sCopyMs = 0 // already timed above if needed
-        const sSnapW = this.showBlurCachePreview ? blurW : Math.min(64, blurW)
-        const sSnapH = this.showBlurCachePreview ? blurH : Math.min(64, blurH)
-        const sBuf = new Uint8Array(sSnapW * sSnapH * 4)
-        const sReadFb = gl2.createFramebuffer()
-        gl2.bindFramebuffer(gl2.FRAMEBUFFER, sReadFb)
-        gl2.framebufferTexture2D(gl2.FRAMEBUFFER, gl2.COLOR_ATTACHMENT0, gl2.TEXTURE_2D, cacheFbo.tex, 0)
-        const sX = Math.floor((blurW - sSnapW) / 2)
-        const sY = Math.floor((blurH - sSnapH) / 2)
-        gl2.readPixels(sX, sY, sSnapW, sSnapH, gl2.RGBA, gl2.UNSIGNED_BYTE, sBuf)
-        gl2.deleteFramebuffer(sReadFb)
-        gl2.bindFramebuffer(gl2.FRAMEBUFFER, savedFb)
-        if (savedSc) { gl2.enable(gl2.SCISSOR_TEST); gl2.scissor(savedBox[0], savedBox[1], savedBox[2], savedBox[3]) }
+        const sT2 = performance.now()
+        // Snapshot: timing always recorded; readPixels only when preview on
+        // (same split as independent path).
+        const sBlurMs = sT1 - sT0
+        const sCopyMs = sT2 - sT1
+        let sReadMs = 0
+        let sSnapW = 0, sSnapH = 0
+        let sBuf = new Uint8Array(0)
         let sNZ = 0
-        for (let i = 0; i < sBuf.length; i += 4) {
-          if (sBuf[i] + sBuf[i+1] + sBuf[i+2] + sBuf[i+3] > 0) sNZ++
+        let sMinX = 0, sMinY = 0, sMaxX = 0, sMaxY = 0
+        if (this.showBlurCachePreview) {
+          sSnapW = blurW
+          sSnapH = blurH
+          sBuf = new Uint8Array(sSnapW * sSnapH * 4)
+          gl2.bindFramebuffer(gl2.FRAMEBUFFER, cacheFbo.fb)
+          gl2.readPixels(0, 0, sSnapW, sSnapH, gl2.RGBA, gl2.UNSIGNED_BYTE, sBuf)
+          for (let y = 0; y < sSnapH; y++) {
+            for (let x = 0; x < sSnapW; x++) {
+              const i = (y * sSnapW + x) * 4
+              if (sBuf[i] + sBuf[i+1] + sBuf[i+2] + sBuf[i+3] > 0) {
+                sNZ++
+                if (x < sMinX || sNZ === 1) sMinX = x
+                if (x > sMaxX) sMaxX = x
+                if (y < sMinY || sNZ === 1) sMinY = y
+                if (y > sMaxY) sMaxY = y
+              }
+            }
+          }
+          const sT3 = performance.now()
+          sReadMs = sT3 - sT2
         }
         this.backdropBlurCacheSnapshots.push({
-          key: `${sceneCacheKey} — ${sNZ > 0 ? '✓' : '⚠ EMPTY'}`,
+          key: sSnapW > 0 ? `${sceneCacheKey} [${sMinX},${sMinY}-${sMaxX},${sMaxY}]` : sceneCacheKey,
           w: sSnapW, h: sSnapH,
           rgba: sBuf,
           nonZero: sNZ,
-          blurMs: sBlurMs, copyMs: sCopyMs, readMs: 0,
-          totalMs: sBlurMs + sCopyMs,
+          blurMs: sBlurMs, copyMs: sCopyMs, readMs: sReadMs,
+          totalMs: sBlurMs + sCopyMs + sReadMs,
         })
+        gl2.bindFramebuffer(gl2.FRAMEBUFFER, savedFb)
+        if (savedSc) { gl2.enable(gl2.SCISSOR_TEST); gl2.scissor(savedBox[0], savedBox[1], savedBox[2], savedBox[3]) }
+        this.backdropBlurCache.set(sceneCacheKey, {
+          fb: cacheFbo.fb,
+          tex: cacheFbo.tex,
+          w: blurW,
+          h: blurH,
+          blurType: this.lastBlurStats?.type ?? 'gauss',
+        })
+        this.evictBackdropBlurCacheIfNeeded()
         blurred = cacheFbo.tex
       }
     } else {
+      // Non-cache blur (scrolling, or cache disabled). When cache is DISABLED,
+      // every element needs blur every frame — NO throttle (throttling would
+      // drop blur from 2nd+ elements, same bug as the independent !cacheKey
+      // path). When cache is ENABLED but scrolling, throttle still applies
+      // (scrolling is transient, skipping a frame's blur is acceptable).
+      if (this.useBlurCache && this._blurCacheMissesThisFrame >= this.blurCacheMissesPerFrame) {
+        return { backdropTex: backdropSrc, didBlur: false }
+      }
+      if (this.useBlurCache) this._blurCacheMissesThisFrame++
       blurred = this.blurTexture(backdropSrc, blurRadiusPx)
     }
     if (this.showBlurDebug) {

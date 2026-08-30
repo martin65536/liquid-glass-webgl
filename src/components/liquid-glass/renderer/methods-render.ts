@@ -34,6 +34,11 @@ export const renderMethods = {
     this.dirtyRectsThisFrame.length = 0
     this.debugCacheMissLog.length = 0
     this.debugDirtySourceLog.length = 0
+    // Reset the per-frame cache-miss throttle counter so each frame gets a
+    // fresh blurCacheMissesPerFrame budget. resolveBackdropTex increments
+    // this on every cache miss; when it exceeds the budget, further misses
+    // fall back to didBlur=false (deferred to a later frame).
+    this._blurCacheMissesThisFrame = 0
     if (this.allDirty || this.scrollY !== this.lastRenderedScrollY) {
       this.dirtyRectsThisFrame.push({
         x: 0, y: 0, w: this.cssWidth, h: this.cssHeight,

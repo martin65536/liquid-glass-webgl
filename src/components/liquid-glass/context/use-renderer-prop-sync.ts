@@ -28,6 +28,7 @@ export function useRendererPropSync(
     cornerStyle,
     usePerElementFbo,
     useKawaseBlur,
+    useBlurCache,
     kawaseQuality,
     capsuleSdfQuality,
     noContinuousSdf,
@@ -110,6 +111,19 @@ export function useRendererPropSync(
     renderer.markAllDirty()
     renderer.requestRender()
   }, [usePerElementFbo])
+
+  // Apply blur cache toggle when it changes (Settings page). When turning
+  // OFF, clears the existing cache so the next frame re-blurs from scratch
+  // (no stale entries linger). When turning ON, marks all dirty so elements
+  // re-resolve their backdrop (cache miss → fill).
+  React.useEffect(() => {
+    const renderer = rendererRef.current
+    if (!renderer || useBlurCache == null) return
+    renderer.useBlurCache = useBlurCache
+    renderer.clearBackdropBlurCache()
+    renderer.markAllDirty()
+    renderer.requestRender()
+  }, [useBlurCache])
 
   // Apply Kawase blur toggle when it changes (Settings page). Switches the
   // blurTexture path between Gaussian separable (default) and Kawase

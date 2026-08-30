@@ -228,6 +228,13 @@ export interface CatalogState {
   // path (4-tap tent-filter, N iterations) instead of the Gaussian separable
   // path. Kawase is cheaper for large radii. Default true (Kawase).
   useKawaseBlur: boolean
+  // Settings — "Blur cache" toggle. When true (default), the renderer caches
+  // blurred backdrop textures (per-radius for wallpaper, per-element+radius
+  // for scene) so repeated frames at the same radius hit the cache (0 blur
+  // cost). When false, every frame re-blurs from scratch (no cache lookup,
+  // no cache storage) — useful for A/B comparing cache benefit or when the
+  // scene is animating so fast the cache never hits anyway.
+  useBlurCache: boolean
   // Settings — Kawase quality multiplier [0, 1], default 0.5. Scales the
   // base iteration count before clamping to [2, 8]. 0 = min iters (fastest),
   // 1 = base iter count. Only effective when useKawaseBlur is on.
@@ -508,6 +515,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   highlightAa: true,
   usePerElementFbo: true,
   useKawaseBlur: true,
+  useBlurCache: true,
   kawaseQuality: 0.5,
   directBackdropSample: true,
   perfProgress: null,

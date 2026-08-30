@@ -293,3 +293,126 @@ Work Log:
 Stage Summary:
 - blur debug label 现在有深色背景 + 位置 clamp（防右/上溢出），和 cull/plainRect panel 风格一致。
 - tap= 显示的是实际 tap 数（随 radius 变），不是 cap 上限——这是正确行为。
+
+---
+Task ID: blur-cache-fix (timing 0.0 + 16 tex cap)
+Agent: main (Z.ai Code orchestrator)
+Task: 用户报告 blur cache debug overlay 计时全显示 0.0，且要求 cache 加 16 tex 上限。
+
+Work Log:
+- 定位 bug 1（计时全 0）：scene cache 路径（methods-render-glass-backdrop.ts 的 `else` miss 分支）硬编码 `const sBlurMs = 0, sCopyMs = 0` + `readMs: 0`，从未用 performance.now() 包裹 blurTexture/copyTexImage2D/readPixels。independent 路径计时正确，但首帧后 cache hit 不再 push snapshot → overlay 只显示 scene 路径的 snapshot → 全 0。
+- 定位 bug 2（无 16 上限）：LRU eviction 只在 scene 路径内联（`if (size > 16)`），independent（wallpaper_*）路径无 cap → 不同 radius 会无限增长 VRAM。且 magic number 16 硬编码。
+- 修复 bug 1：scene 路径加 sT0/sT1/sT2/sT3 四个时间戳（blurTexture 前后、copy+checkerboard+restore 后、readPixels+nonZero 循环后），push 真实 blurMs/copyMs/readMs/totalMs。同时把 snapshot key 从 `— ✓/⚠ EMPTY` 改成 `[minX,minY-maxX,maxY]`（与 independent 路径一致），nonZero 循环也加 bbox 计算。
+- 修复 bug 2：
+  - index.ts 加 `backdropBlurCacheMax = 16` 字段（可配置，注释说明 VRAM 占用）。
+  - methods-fbo.ts 加 `evictBackdropBlurCacheIfNeeded()` 方法：`while (size > max) { 删最老 tex + delete }`，同时 trim snapshots 数组到同 cap（防 overlay 堆积 stale entry）。
+  - 两条路径（independent + scene）在 `backdropBlurCache.set()` 后都调 `this.evictBackdropBlurCacheIfNeeded()`。删掉 scene 路径内联的 `> 16` 块。
+- 附带修复 overlay lint（react-hooks/refs：render 期读 rendererRef.current）：把 `const r = rendererRef.current; const snaps = r?.backdropBlurCacheSnapshots ?? []` 改成 `snaps` state，在 rAF loop 里 `setSnaps([...list])` 浅拷�。用 `sig = count:lastKey` 代替 `lastCount`，catch eviction（count 不变但 lastKey 变）。
+- lint：src/ 全 clean（唯一剩错是 clone 的 examples/websocket/frontend.tsx 预存）。
+- 浏览器验证（agent-browser，420×577 SwiftShader，?blurCacheDebug=1）：
+  - 计时：overlay 显示真实值 `blur: 1.5ms copy: 1.5ms read: 228.1ms total: 231.1ms`（之前全 0.0）。readPixels 是瓶颈（64×64 仍 14–228ms，SwiftShader 软件 raster 慢）。
+  - 16 cap：通过 React fiber 直接拿 renderer 实例，注入 25 个 test entry → cache 恰好 16，evict 顺序 = 插入顺序（test_0–test_8 + 8 real 被删，test_9–test_24 存活）。清 test entry 后 clr 重置正常。
+
+Stage Summary:
+- bug 1 修复：scene 路径计时从硬编码 0 改成真实 performance.now() 测量 blur/copy/read/total ms。overlay 不再全 0.0。
+- bug 2 修复：`backdropBlurCacheMax=16` 字段 + `evictBackdropBlurCacheIfNeeded()` 共享方法，两条路径都调用。LRU（Map 插入顺序）eviction，VRAM 有界。snapshot 数组同步 trim。
+- 附带：overlay ref-during-render lint 修复（snaps 移入 state，sig 信号 catch eviction）。
+- 改动文件 4 个：index.ts、methods-fbo.ts、methods-render-glass-backdrop.ts、blur-cache-debug-overlay.tsx。
+
+---
+Task ID: blur-cache-fix-2 (scene key 去 dpr + cap 64)
+Agent: main (Z.ai Code orchestrator)
+Task: 用户指出 scene cache key 又乘了 dpr（与 independent 路径不一致），且要求 max 从 16 改成 64。
+
+Work Log:
+- 核对两条路径 cache key：
+  - independent (wallpaper_*)：`cssRadius = el.blurRadius * layerScale`（不含 dpr，注释明确 "NOT × dpr"）。
+  - scene (scene_*)：`Math.round(blurRadiusPx * 10) / 10`，而 blurRadiusPx = `el.blurRadius * layerScale * this.dpr`（含 dpr）→ 回归 bug。overlay 显示 key 是 `0.5`/`0.6`/`0.7`（device px）而非 CSS px。
+- 修复：scene 路径改成与 independent 一致——`cssRadius = el.blurRadius * layerScale` + `qRadius = Math.round(cssRadius * 10) / 10`，key = `scene_${el.id}_${qRadius}_${type}`。注释说明 dpr 只影响 tex 像素分辨率不影响视觉模糊强度，resize 会清 cache 所以跨 dpr key 复用安全。blurTexture 的 blurRadiusPx 参数保持 device px（tex 是 device px 分辨率，blur 算 device px radius 才对）——只改 cache key。
+- max 改 64：index.ts `backdropBlurCacheMax = 16` → `64`，注释同步。
+- lint：src/ 全 clean（唯一剩错是 clone examples/ 预存）。
+- 浏览器验证（agent-browser，?blurCacheDebug=1）：
+  - scene key 现在显示 CSS px：`scene_perf-btn_2_k`、`scene_perf-exit_1_k`、`1.5`、`1.6`、`1.8`、`1.9`、`2`（之前是 device px 的 `0.5`/`0.6`/`0.7`/`0.8`/`1`）。
+  - 64 cap：通过 fiber 注入 70 个 test entry → cache 恰好停在 64，`captest_0`–`captest_5` + 8 real 被淘汰，`captest_6`–`captest_69` 存活，LRU 顺序正确。
+
+Stage Summary:
+- scene cache key 回归修复：去 dpr，与 independent 路径统一用 CSS px radius 量化到 0.1。overlay key 从 `0.5`/`0.6` 变回 `1`/`1.5`/`2`。
+- max 16 → 64：VRAM 上限放宽，允许更多不同 radius 的 cache 共存（independent 跨 radius + scene 跨 element）。
+- 改动文件 2 个：methods-render-glass-backdrop.ts、index.ts。
+
+---
+Task ID: blur-cache-fix-3 (readPixels gate + texture pool + miss throttle + img-off 显示修复)
+Agent: main (Z.ai Code orchestrator)
+Task: 用户要求防 cache miss 卡顿（办法 1/2/3），且调试面板 img 关时也要显示计时——只去掉 64×64 readback，不删 entry。
+
+Work Log:
+- 办法 1（readPixels gate）：把 snapshot 采集拆成「计时（永远）」+「readback（仅 img on）」。img off 时 push w=0/h=0/rgba=empty 的 entry（overlay 显示计时 + "timing only" 标签，无 canvas）；img on 时读全分辨率 blurW×blurH 一次，存 rgba，overlay putImageData 一次不再 re-read。删掉 64×64 center readback 路径。
+- 办法 2（texture pool）：cache entry 从 `{tex}` 扩成 `{tex, fb, w, h}`（顺手修了 fb 泄漏——createFBO 返回 {fb,tex} 但只存了 tex）。加 `backdropBlurCacheFboPool` + `acquireCacheFBO(w,h)`/`releaseCacheFBO(entry)`。evict 不 delete 而是 releaseCacheFBO 放回 pool；miss 时 acquireCacheFBO 优先取同尺寸 pool entry（省 createTexture+createFramebuffer+texImage2D）。clearBackdropBlurCache（resize/loadWallpaper）仍全 delete（尺寸可能变）。
+- 办法 3（每帧 miss 限流）：加 `_blurCacheMissesThisFrame` counter + `blurCacheMissesPerFrame=1`。render() 开头重置 counter。resolveBackdropTex 三处 miss 分支（independent miss / scene miss / scene non-cache blur）都先检查 counter，超限则 return didBlur=false（元素本帧采未 blur backdrop，下帧再补）。把「一帧 N×blur」摊成「N 帧每帧 1×blur」。
+- 修复 img-off 不显示：第一版把整个 snapshot push gate 在 showBlurCachePreview 上 → img off 时 overlay 空白。拆成计时永远 push + readback 条件执行后解决。overlay 显示逻辑也改：w=0 时显示 "no img — timing only" + 中性 cyan 边框（原来显示 "⚠ EMPTY" + 红框，误导）。
+- dispose.ts 也清 pool（deleteTexture + deleteFramebuffer）。
+- lint：src/ 全 clean（唯一剩错是 clone examples/ 预存）。
+- 浏览器验证（agent-browser）：
+  - img OFF：显示 entry `wallpaper_2_k — no img — timing only blur: 46.6ms copy: 0.4ms read: 0.0ms total: 47.0ms`（之前完全空白）。
+  - img ON：显示 `wallpaper_2_k [0,0-209,288] — 210×289 — ✓ 100.0% blur: 3.1ms copy: 0.6ms read: 177.1ms total: 180.8ms`（全分辨率，读一次）。
+  - 限流：fiber 读 renderer state，`missesThisFrame=1, missesPerFrame=1`。
+  - pool 复用：注入 5 real + 60 fake 强制 evict → pool=1（1 个 real entry 回池），acquireCacheFBO(210,289) → 从池取同尺寸 → pool=0, pooledReuse=true。
+
+Stage Summary:
+- 办法 1：readPixels 只在 img on 时跑全分辨率，img off 零 readback stall。计时永远记录。
+- 办法 2：texture pool（acquireCacheFBO/releaseCacheFBO），evict 回池不 delete，miss 优先取池。修了 fb 泄漏。
+- 办法 3：每帧最多 1 miss，超限 fallback 到 didBlur=false，渐进填 cache。
+- img-off 显示修复：计时 entry 永远可见，只 gate 图像 readback。
+- 改动文件 5 个：index.ts、methods-fbo.ts、methods-render-glass-backdrop.ts、methods-render.ts、methods-dispose.ts、blur-cache-debug-overlay.tsx。
+
+---
+Task ID: blur-cache-toggle (Settings 加 blur 缓存开关)
+Agent: main (Z.ai Code orchestrator)
+Task: 在 Settings 页加一个 blur 缓存开关，能开关 cache 行为。
+
+Work Log:
+- 新增 CatalogState.useBlurCache（boolean，default true）+ DEFAULT_CATALOG_STATE + i18n key（settings_blur_cache: 模糊缓存/Blur cache）。
+- use-catalog-state.ts 持久化加载/保存 useBlurCache 到 localStorage。
+- LiquidGlassCanvasProps 加 useBlurCache?: boolean。
+- renderer/index.ts 加 useBlurCache 字段（default true）。
+- context.tsx destructure + init 时 renderer.useBlurCache = useBlurCache。
+- use-renderer-prop-sync.ts 加 effect：useBlurCache 变化时设 renderer.useBlurCache + clearBackdropBlurCache + markAllDirty（关时清 cache 防残留，开时 markAllDirty 触发重填）。
+- page.tsx 传 useBlurCache={perfMeasuring ? false : state.useBlurCache}（benchmark 时强制关）。
+- methods-render-glass-backdrop.ts 两路径 gate cache：
+  - independent：cacheKey = useBlurCache ? `wallpaper_...` : null。null 时走新增的 !cacheKey 分支（blurTexture 直接返回，不 acquireCacheFBO/copy/store，仍受 throttle 限制）。
+  - scene：canCacheSceneBlur = useBlurCache && (backdropSrc === curTex) && !el.backdropFbo。useBlurCache=false 时 sceneCacheKey=null → 走 non-cache blur 分支（已有 throttle）。
+- build-settings-blur-card.ts 加 toggle UI（makeSettingsToggle，id='settings-blur-cache'，label=模糊缓存/Blur cache，state.useBlurCache 驱动，点击 setState 翻转）。放在 Kawase quality label 之后、card 底部。
+- build-settings.ts reset 按钮的 setState patch 加 useBlurCache: true。
+- use-catalog-targets.ts 加 targets['settings-blur-cache'] = state.useBlurCache ? 1 : 0 + deps 加 state.useBlurCache（这一步是关键——makeSettingsToggle 的 isOn 参数不驱动 toggle 视觉位置，toggle 位置由 toggleTargets[groupId] 决定，漏了这步 toggle 永远显示 OFF）。
+- lint：src/ 全 clean（唯一剩错是 clone examples/ 预存）。
+- 浏览器验证（agent-browser + VLM）：
+  - ?dest=Settings 滚到 blur card：VLM 确认显示「模糊缓存」toggle，初始绿色 ON（state.useBlurCache=true）。
+  - fiber 直接改 renderer.useBlurCache=false → cache 保持 0（不存）；改回 true → cache 填到 2（miss 触发）。双向正确。
+  - localStorage 持久化：settings JSON 含 "useBlurCache":true。
+
+Stage Summary:
+- Settings 页 blur card 新增「模糊缓存」toggle（默认 ON，绿色）。
+- OFF：跳过 cache lookup/store，每帧 re-blur（仍受每帧 miss 限流保护）+ clearBackdropBlurCache 清残留。
+- ON：恢复 cache 行为（cache hit 0 blur，miss 走 acquireCacheFBO + copy + store + LRU）。
+- 持久化到 localStorage，benchmark 时自动关。
+- 改动文件 8 个：catalog/types.ts、catalog/i18n.ts、catalog/build-settings-blur-card.ts、catalog/build-settings.ts、context/types.ts、context.tsx、context/use-renderer-prop-sync.ts、renderer/index.ts、renderer/methods-render-glass-backdrop.ts、app/hooks/use-catalog-state.ts、app/hooks/use-catalog-targets.ts、app/page.tsx。
+
+---
+Task ID: blur-cache-toggle-fix (关 cache 时部分元素失去 blur)
+Agent: main (Z.ai Code orchestrator)
+Task: 用户报告关闭 blur 缓存后一些元素失去 blur 效果。
+
+Work Log:
+- 定位 bug：`!cacheKey` 分支（independent 路径 cache 关闭时）和 scene non-cache blur 分支都保留了 `blurCacheMissesPerFrame=1` 限流。cache 关闭时每帧每个元素都是「miss」，限流把第 2+ 个元素的 blur 砍掉 → 返回未 blur 的 curTex/backdropSrc → 元素失去 blur。
+- 根因：限流设计是「cache miss 限流」（防止 cache 填充期一帧 N 个 miss 叠加 N×blur）。但 cache 关闭时没有「填充」概念，每帧每元素都需要 blur，限流是错误适用。
+- 修复 independent 路径：`!cacheKey` 分支去掉限流，直接 `blurred = this.blurTexture(...)`。
+- 修复 scene 路径：non-cache blur 分支用 `this.useBlurCache` gate 限流——cache 开启时滚动仍限流（滚动短暂，跳一帧可接受），cache 关闭时不禁流（每元素都需要 blur）。
+- lint：src/ 全 clean。
+- 浏览器验证（agent-browser + VLM）：
+  - Buttons 页：cache on vs off，VLM 确认两张所有按钮都有 blur，无元素失去 blur。
+  - GlassPlayground 页（6+ glass 元素）：cache off 后 VLM 确认所有元素（settings 面板、back 按钮、dark mode toggle、3 个底部按钮）都保留 frosted blur，视觉与 cache on 一致。
+
+Stage Summary:
+- bug 修复：cache 关闭时去掉 miss 限流（independent 的 !cacheKey 分支 + scene 的 non-cache blur 分支用 useBlurCache gate）。
+- 限流现在只在 cache 开启时生效（cache 填充期 + 滚动时），cache 关闭时每元素每帧都 blur。
+- 改动文件 1 个：methods-render-glass-backdrop.ts。

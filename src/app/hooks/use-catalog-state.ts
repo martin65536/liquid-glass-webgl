@@ -39,6 +39,7 @@ function loadPersistedSettings(): Partial<CatalogState> {
       showFps: typeof parsed.showFps === 'boolean' ? parsed.showFps : false,
       usePerElementFbo: typeof parsed.usePerElementFbo === 'boolean' ? parsed.usePerElementFbo : true,
       useKawaseBlur: typeof parsed.useKawaseBlur === 'boolean' ? parsed.useKawaseBlur : true,
+      useBlurCache: typeof parsed.useBlurCache === 'boolean' ? parsed.useBlurCache : true,
       kawaseQuality: typeof parsed.kawaseQuality === 'number' ? Math.max(0, Math.min(1, parsed.kawaseQuality)) : 0.5,
       showPerfMonitor: typeof parsed.showPerfMonitor === 'boolean' ? parsed.showPerfMonitor : false,
       directBackdropSample: typeof parsed.directBackdropSample === 'boolean' ? parsed.directBackdropSample : true,
@@ -82,7 +83,8 @@ export function useCatalogState(): {
              p.capsuleShape !== undefined || p.noContinuousSdf !== undefined || p.capsuleSdfQuality !== undefined || p.hideOverlayButtons !== undefined ||
              p.locale !== undefined || p.pageTransition !== undefined ||
              p.showFps !== undefined || p.usePerElementFbo !== undefined ||
-            p.useKawaseBlur !== undefined ||
+             p.useKawaseBlur !== undefined ||
+             p.useBlurCache !== undefined ||
              p.showPerfMonitor !== undefined || p.directBackdropSample !== undefined)) {
           try {
             window.localStorage.setItem(SETTINGS_KEY, JSON.stringify({
@@ -100,6 +102,7 @@ export function useCatalogState(): {
               showFps: next.showFps,
               usePerElementFbo: next.usePerElementFbo,
               useKawaseBlur: next.useKawaseBlur,
+              useBlurCache: next.useBlurCache,
               kawaseQuality: next.kawaseQuality,
               showPerfMonitor: next.showPerfMonitor,
               directBackdropSample: next.directBackdropSample,

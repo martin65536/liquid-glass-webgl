@@ -219,6 +219,24 @@ export function buildBlurCard(ctx: BuildSettingsCtx): void {
   elements.push(kqLabelEl)
   nextY += kqLabelH
 
+  // Blur cache toggle — caches blurred backdrop textures so repeated frames
+  // at the same radius hit the cache (0 blur cost). When off, every frame
+  // re-blurs from scratch. Default on. Placed last in the blur card.
+  const blurCacheToggle = makeSettingsToggle(
+    'settings-blur-cache',
+    { x: rowX, y: nextY, w: rowW, h: BUTTON_HEIGHT + ITEM_GAP },
+    t('settings_blur_cache', locale),
+    state.useBlurCache,
+    () => setState((prev) => ({ useBlurCache: !prev.useBlurCache })),
+    palette,
+    rendererRef,
+    true,
+    labelPad,
+  )
+  elements.push(...blurCacheToggle.elements)
+  Object.assign(interactions, blurCacheToggle.interactions)
+  nextY += BUTTON_HEIGHT + ITEM_GAP
+
   // Update card background height
   cardBgEl.rect.h = nextY - cardStartY
   nextY += CARD_GAP

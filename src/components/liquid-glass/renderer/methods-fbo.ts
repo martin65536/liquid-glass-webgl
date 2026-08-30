@@ -11,6 +11,20 @@ declare module './index' {
     /** Clear the backdrop blur cache (delete all cached textures).
      *  Called on resize + loadWallpaper. */
     clearBackdropBlurCache(): void
+    /** Evict oldest cache entries while size > backdropBlurCacheMax.
+     *  Called after every cache-miss insert in both the independent
+     *  (wallpaper_*) and scene (scene_*) blur paths. */
+    evictBackdropBlurCacheIfNeeded(): void
+    /** Acquire a {fb, tex, w, h} for use as a cache target. Pulls a
+     *  size-matched entry from the FBO pool if available (avoids
+     *  gl.createTexture + gl.createFramebuffer + texImage2D allocation),
+     *  otherwise creates a fresh one. The returned tex already has LINEAR
+     *  filtering + CLAMP_TO_EDGE set; copyTexImage2D overwrites its contents
+     *  (and, if the size changed, its backing store). */
+    acquireCacheFBO(w: number, h: number): { fb: WebGLFramebuffer; tex: WebGLTexture; w: number; h: number }
+    /** Return a cache {fb, tex, w, h} to the pool for reuse by a future
+     *  acquireCacheFBO. Does NOT delete the GL objects. */
+    releaseCacheFBO(entry: { fb: WebGLFramebuffer; tex: WebGLTexture; w: number; h: number }): void
     /** Fullscreen colorControls pass: copy srcTex to the bound FBO applying
      *  brightness/contrast/saturation. Caller must bind the destination FBO. */
     drawColorControls(srcTex: WebGLTexture, brightness: number, contrast: number, saturation: number): void
@@ -227,16 +241,71 @@ export const fboMethods = {
     if (sizeChanged) this.clearBackdropBlurCache()
   },
 
-  /** Clear the backdrop blur cache: delete all cached GL textures + empty
-   *  the Map. Called on resize (cover-fit changes) + loadWallpaper (content
-   *  changes). Cheap (just texture deletes + Map.clear). */
+  /** Clear the backdrop blur cache: delete all cached GL textures + FBOs +
+   *  empty the Map + pool. Called on resize (cover-fit changes) +
+   *  loadWallpaper (content changes). Everything is deleted (not pooled)
+   *  because resize may change fboW/fboH, making pooled tex the wrong size. */
   clearBackdropBlurCache(this: LiquidGlassRenderer) {
     const gl = this.gl
     for (const entry of this.backdropBlurCache.values()) {
       gl.deleteTexture(entry.tex)
+      gl.deleteFramebuffer(entry.fb)
     }
     this.backdropBlurCache.clear()
+    for (const p of this.backdropBlurCacheFboPool) {
+      gl.deleteTexture(p.tex)
+      gl.deleteFramebuffer(p.fb)
+    }
+    this.backdropBlurCacheFboPool.length = 0
     this.backdropBlurCacheSnapshots.length = 0
+  },
+
+  /** Evict oldest entries (Map insertion order) while the cache exceeds
+   *  backdropBlurCacheMax. Evicted {fb, tex} are returned to the FBO pool
+   *  (not deleted) so the next cache miss can reuse them without GL
+   *  allocation. Called after every cache-miss insert in both the
+   *  independent (wallpaper) and scene blur paths. */
+  evictBackdropBlurCacheIfNeeded(this: LiquidGlassRenderer) {
+    while (this.backdropBlurCache.size > this.backdropBlurCacheMax) {
+      const oldest = this.backdropBlurCache.keys().next().value
+      if (!oldest) break
+      const oldEntry = this.backdropBlurCache.get(oldest)
+      if (oldEntry) this.releaseCacheFBO(oldEntry)
+      this.backdropBlurCache.delete(oldest)
+    }
+    // Keep the debug snapshot list in sync with the cache cap so the overlay
+    // doesn't accumulate stale entries for evicted textures.
+    while (this.backdropBlurCacheSnapshots.length > this.backdropBlurCacheMax) {
+      this.backdropBlurCacheSnapshots.shift()
+    }
+  },
+
+  /** Acquire a cache {fb, tex, w, h}. Reuses a size-matched entry from the
+   *  pool if available (tex already has filtering/wrap set + correct size,
+   *  so copyTexImage2D just overwrites pixels — no texImage2D reallocation);
+   *  otherwise creates a fresh tex+fb via createFBO. */
+  acquireCacheFBO(
+    this: LiquidGlassRenderer,
+    w: number, h: number
+  ): { fb: WebGLFramebuffer; tex: WebGLTexture; w: number; h: number } {
+    const pool = this.backdropBlurCacheFboPool
+    for (let i = pool.length - 1; i >= 0; i--) {
+      const p = pool[i]
+      if (p.w === w && p.h === h) {
+        pool.splice(i, 1)
+        return p
+      }
+    }
+    const fresh = this.createFBO(w, h)
+    return { fb: fresh.fb, tex: fresh.tex, w, h }
+  },
+
+  /** Return a cache {fb, tex, w, h} to the pool for reuse. No GL deletion. */
+  releaseCacheFBO(
+    this: LiquidGlassRenderer,
+    entry: { fb: WebGLFramebuffer; tex: WebGLTexture; w: number; h: number }
+  ) {
+    this.backdropBlurCacheFboPool.push(entry)
   },
 
   /** Bind an FBO as the render target, set viewport to its size. */

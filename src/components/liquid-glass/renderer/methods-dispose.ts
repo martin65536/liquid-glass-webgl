@@ -108,11 +108,17 @@ export const disposeMethods = {
       gl.deleteProgram(this.kawasePrograms.prog)
       this.kawasePrograms = null
     }
-    // Clear backdrop blur cache textures.
+    // Clear backdrop blur cache textures + FBO pool.
     for (const entry of this.backdropBlurCache.values()) {
       gl.deleteTexture(entry.tex)
+      gl.deleteFramebuffer(entry.fb)
     }
     this.backdropBlurCache.clear()
+    for (const p of this.backdropBlurCacheFboPool) {
+      gl.deleteTexture(p.tex)
+      gl.deleteFramebuffer(p.fb)
+    }
+    this.backdropBlurCacheFboPool.length = 0
     if (this.sdfTexture) gl.deleteTexture(this.sdfTexture)
     this.sdfTexture = null
     if (this.textSdfTexture) gl.deleteTexture(this.textSdfTexture)
