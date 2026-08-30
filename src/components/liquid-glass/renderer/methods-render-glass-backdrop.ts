@@ -356,7 +356,54 @@ export function resolveBackdropTex(
     } else {
       backdropSrc = curTex
     }
-    const blurred = this.blurTexture(backdropSrc, blurRadiusPx)
+    // Cache: curTex changes every frame (other elements composite on top),
+    // but when the scene is static (no animation, no scroll), the content
+    // behind this element doesn't change. Key by element id + radius + scrollY
+    // so scrolling invalidates (content shifts). markAllDirty clears via
+    // clearBackdropBlurCache (called on resize/loadWallpaper/prop-change).
+    // Only cache when backdropSrc is curTex (dialogBackdropTex/bgOnlyTex are
+    // already cached by their own mechanisms).
+    const canCacheSceneBlur = (backdropSrc === curTex) && !el.backdropFbo
+    const sceneCacheKey = canCacheSceneBlur
+      ? `scene_${el.id}_${Math.round(blurRadiusPx * 10) / 10}_${this.scrollY}_${this.useKawaseBlur ? 'k' : 'g'}`
+      : null
+    let blurred: WebGLTexture
+    let cacheHit = false
+    if (sceneCacheKey) {
+      const entry = this.backdropBlurCache.get(sceneCacheKey)
+      if (entry) {
+        blurred = entry.tex
+        cacheHit = true
+        this.lastBlurStats = { type: entry.blurType, passes: 0, taps: 0, maxSample: 0 }
+      } else {
+        blurred = this.blurTexture(backdropSrc, blurRadiusPx)
+        // Copy to cache texture.
+        const blurW = this.dsBlurFboW || this.fboW
+        const blurH = this.dsBlurFboH || this.fboH
+        const cacheFbo = this.createFBO(blurW, blurH)
+        const gl2 = this.gl
+        const savedFb = gl2.getParameter(gl2.FRAMEBUFFER_BINDING)
+        const savedSc = gl2.isEnabled(gl2.SCISSOR_TEST)
+        const savedBox: [number, number, number, number] = gl2.getParameter(gl2.SCISSOR_BOX)
+        gl2.disable(gl2.SCISSOR_TEST)
+        const readFb = gl2.createFramebuffer()
+        gl2.bindFramebuffer(gl2.FRAMEBUFFER, readFb)
+        gl2.framebufferTexture2D(gl2.FRAMEBUFFER, gl2.COLOR_ATTACHMENT0, gl2.TEXTURE_2D, blurred, 0)
+        gl2.activeTexture(gl2.TEXTURE0)
+        gl2.bindTexture(gl2.TEXTURE_2D, cacheFbo.tex)
+        gl2.copyTexImage2D(gl2.TEXTURE_2D, 0, gl2.RGBA, 0, 0, blurW, blurH, 0)
+        gl2.deleteFramebuffer(readFb)
+        gl2.bindFramebuffer(gl2.FRAMEBUFFER, savedFb)
+        if (savedSc) { gl2.enable(gl2.SCISSOR_TEST); gl2.scissor(savedBox[0], savedBox[1], savedBox[2], savedBox[3]) }
+        this.backdropBlurCache.set(sceneCacheKey, {
+          tex: cacheFbo.tex,
+          blurType: this.lastBlurStats?.type ?? 'gauss',
+        })
+        blurred = cacheFbo.tex
+      }
+    } else {
+      blurred = this.blurTexture(backdropSrc, blurRadiusPx)
+    }
     if (this.showBlurDebug) {
       const s = this.lastBlurStats
       this.debugBlurRegions.push({
@@ -368,7 +415,7 @@ export function resolveBackdropTex(
         passes: s?.passes ?? 0,
         taps: s?.taps ?? 0,
         maxSample: s?.maxSample ?? 0,
-        cached: false,
+        cached: cacheHit,
       })
     }
     this.perfMonitor.incBlurPass()
