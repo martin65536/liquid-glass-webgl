@@ -233,20 +233,20 @@ export function resolveBackdropTex(
       // Step 2: blur wallpaperBlurTex.
       const blurResult = this.blurTexture(this.wallpaperBlurTex!, blurRadiusPx)
       // Step 3: copy blurResult to a dedicated cache texture.
-      // blurResult is a dsBlurFbo texture — its size is dsBlurFboW×dsBlurFboH,
-      // NOT fboW×fboH (when blurDownsample > 1). cacheFbo must match
-      // blurResult's size, and drawCopy must use that size for UV mapping.
+      // blurResult is a dsBlurFbo texture — its size is dsBlurFboW×dsBlurFboH.
       const blurW = this.dsBlurFboW || this.fboW
       const blurH = this.dsBlurFboH || this.fboH
       const cacheFbo = this.createFBO(blurW, blurH)
       const gl2 = this.gl
       const savedFb = gl2.getParameter(gl2.FRAMEBUFFER_BINDING)
-      // Bind cacheFbo, set viewport to blurW×blurH (NOT fboW×fboH).
+      const savedScissor = gl2.isEnabled(gl2.SCISSOR_TEST)
+      const savedBox: [number, number, number, number] = gl2.getParameter(gl2.SCISSOR_BOX)
+      // CRITICAL: disable scissor — blurTexture restored the caller's scissor
+      // (element bbox), which would clip the drawCopy to only the element's
+      // region instead of copying the full blurResult.
+      gl2.disable(gl2.SCISSOR_TEST)
       gl2.bindFramebuffer(gl2.FRAMEBUFFER, cacheFbo.fb)
       gl2.viewport(0, 0, blurW, blurH)
-      // drawCopy: shader uses uCanvasSize for UV = gl_FragCoord/uCanvasSize.
-      // Override uCanvasSize to blurW×blurH so UV maps to [0,1] across the
-      // blurResult texture (which is blurW×blurH, not fboW×fboH).
       gl2.useProgram(this.copyProgram)
       gl2.bindBuffer(gl2.ARRAY_BUFFER, this.quadBuffer)
       gl2.enableVertexAttribArray(this.aPosLocCp)
@@ -283,6 +283,10 @@ export function resolveBackdropTex(
         nonZero: snapNZ,
       })
       this.bindFBO(savedFb as WebGLFramebuffer | null)
+      if (savedScissor) {
+        gl2.enable(gl2.SCISSOR_TEST)
+        gl2.scissor(savedBox[0], savedBox[1], savedBox[2], savedBox[3])
+      }
       this.backdropBlurCache.set(cacheKey, {
         tex: cacheFbo.tex,
         blurType: this.lastBlurStats?.type ?? 'gauss',
