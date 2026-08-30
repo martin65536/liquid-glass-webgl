@@ -6,34 +6,21 @@ import type { LiquidGlassRenderer } from '../renderer'
 /* ------------------------------------------------------------------ *
  * BlurCacheDebugOverlay
  *
- * Reads backdropBlurCacheSnapshots — pixel data captured at cache-miss
- * time (when the texture is first written). No GL state touched by
- * the overlay itself. Polls every 200ms but only re-renders React
- * state when snapshot count changes.
+ * Reads backdropBlurCacheSnapshots (captured at cache-miss time as
+ * full-resolution Uint8Array). Renders each snapshot to a <canvas>
+ * via putImageData — no img/base64, no GL calls, no polling timer.
+ * Only re-renders when snapshot count changes (checked via rAF).
  * ------------------------------------------------------------------ */
 
 interface Props {
   rendererRef: React.MutableRefObject<LiquidGlassRenderer | null>
 }
 
-interface SnapInfo {
-  key: string
-  w: number
-  h: number
-  nonZero: number
-  total: number
-  firstPixel: string
-  dataUrl: string | null
-  diag: string
-}
-
 export function BlurCacheDebugOverlay({ rendererRef }: Props) {
-  const [snaps, setSnaps] = React.useState<SnapInfo[]>([])
-  const [cacheSize, setCacheSize] = React.useState(0)
-  const [fboW, setFboW] = React.useState(0)
-  const [fboH, setFboH] = React.useState(0)
+  const [snapCount, setSnapCount] = React.useState(0)
   const [collapsed, setCollapsed] = React.useState(false)
   const [pos, setPos] = React.useState({ x: -1, y: 120 })
+  const canvasRefs = React.useRef<Map<string, HTMLCanvasElement>>(new Map())
   const lastCount = React.useRef(-1)
 
   const [vh, setVh] = React.useState(() =>
@@ -45,70 +32,42 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
     return () => window.removeEventListener('resize', update)
   }, [])
 
+  // Check for new snapshots via rAF (lightweight, no setInterval).
   React.useEffect(() => {
-    const id = setInterval(() => {
+    let raf = 0
+    const check = () => {
       const r = rendererRef.current
-      if (!r) return
-      const count = r.backdropBlurCacheSnapshots.length
-      setCacheSize(r.backdropBlurCache.size)
-      setFboW(r.fboW)
-      setFboH(r.fboH)
-      if (count === lastCount.current) return
-      lastCount.current = count
-
-      const infos: SnapInfo[] = r.backdropBlurCacheSnapshots.map(snap => {
-        const { w, h, rgba, nonZero } = snap
-        const total = w * h
-        let firstNZ = 'all zero'
-        for (let i = 0; i < rgba.length; i += 4) {
-          if (rgba[i] + rgba[i+1] + rgba[i+2] + rgba[i+3] > 0) {
-            firstNZ = `rgba(${rgba[i]},${rgba[i+1]},${rgba[i+2]},${rgba[i+3]})`
-            break
-          }
-        }
-
-        // Build thumbnail from rgba data (Y-flip: WebGL bottom-up → canvas top-down).
-        let dataUrl: string | null = null
-        if (nonZero > 0) {
-          const canvas = document.createElement('canvas')
-          canvas.width = w
-          canvas.height = h
-          const ctx = canvas.getContext('2d')
-          if (ctx) {
-            const imgData = ctx.createImageData(w, h)
-            for (let y = 0; y < h; y++) {
-              const srcRow = (h - 1 - y) * w * 4
-              const dstRow = y * w * 4
-              for (let x = 0; x < w * 4; x++) {
-                imgData.data[dstRow + x] = rgba[srcRow + x]
+      if (r) {
+        const count = r.backdropBlurCacheSnapshots.length
+        if (count !== lastCount.current) {
+          lastCount.current = count
+          setSnapCount(count)
+          // Draw all snapshots to their canvases.
+          for (const snap of r.backdropBlurCacheSnapshots) {
+            const canvas = canvasRefs.current.get(snap.key)
+            if (canvas && canvas.width === snap.w && canvas.height === snap.h) {
+              const ctx = canvas.getContext('2d')
+              if (ctx) {
+                // Y-flip: WebGL bottom-up → canvas top-down.
+                const imgData = ctx.createImageData(snap.w, snap.h)
+                for (let y = 0; y < snap.h; y++) {
+                  const srcRow = (snap.h - 1 - y) * snap.w * 4
+                  const dstRow = y * snap.w * 4
+                  imgData.data.set(snap.rgba.subarray(srcRow, srcRow + snap.w * 4), dstRow)
+                }
+                ctx.putImageData(imgData, 0, 0)
               }
             }
-            ctx.putImageData(imgData, 0, 0)
-            dataUrl = canvas.toDataURL()
           }
         }
-
-        const diags: string[] = [
-          `snap: ${w}×${h} from ${r.fboW}×${r.fboH}`,
-          `non-zero: ${nonZero}/${total} (${(nonZero/total*100).toFixed(1)}%)`,
-          `1st px: ${firstNZ}`,
-        ]
-        if (nonZero === 0) diags.push('⚠ EMPTY — drawCopy wrote nothing to cacheFbo')
-        else diags.push('✓ has content')
-
-        return {
-          key: snap.key,
-          w, h, nonZero, total,
-          firstPixel: firstNZ,
-          dataUrl,
-          diag: diags.join('\n'),
-        }
-      })
-      setSnaps(infos)
-    }, 200)
-    return () => clearInterval(id)
+      }
+      raf = requestAnimationFrame(check)
+    }
+    raf = requestAnimationFrame(check)
+    return () => cancelAnimationFrame(raf)
   }, [rendererRef])
 
+  // --- Dragging ---
   const dragRef = React.useRef<{ sx: number; sy: number; px: number; py: number } | null>(null)
   const onPointerDown = (e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest('button')) return
@@ -128,6 +87,8 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
 
   const left = pos.x === -1 ? undefined : pos.x
   const right = pos.x === -1 ? 8 : undefined
+  const r = rendererRef.current
+  const snaps = r?.backdropBlurCacheSnapshots ?? []
 
   if (collapsed) {
     return (
@@ -137,13 +98,13 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
           background: 'rgba(0,0,0,0.85)', color: '#0cf', font: 'bold 12px monospace',
           padding: '6px 10px', borderRadius: 6, zIndex: 60, cursor: 'grab',
           border: '1px solid #0cf', touchAction: 'none', userSelect: 'none' }}>
-        Blur Cache [{cacheSize}]
+        Blur Cache [{snapCount}]
       </div>
     )
   }
 
   return (
-    <div style={{ position: 'absolute', top: pos.y, left, right, width: 300,
+    <div style={{ position: 'absolute', top: pos.y, left, right, width: 320,
       maxHeight: Math.max(220, vh - pos.y - 8), display: 'flex', flexDirection: 'column',
       background: 'rgba(0,0,0,0.92)', color: '#0cf', font: '11px monospace',
       borderRadius: 8, zIndex: 60, border: '1px solid #0cf', overflow: 'hidden',
@@ -153,48 +114,44 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
           padding: '6px 10px', background: 'rgba(0,200,255,0.15)', cursor: 'grab',
           borderBottom: '1px solid rgba(0,200,255,0.3)', fontWeight: 'bold', fontSize: 12,
           touchAction: 'none', userSelect: 'none' }}>
-        <span>Blur Cache Debug</span>
+        <span>Blur Cache ({snapCount})</span>
         <span style={{ display: 'flex', gap: 6 }}>
           <button onPointerDown={e => e.stopPropagation()} onClick={() => {
             rendererRef.current?.clearBackdropBlurCache()
             rendererRef.current?.markAllDirty()
             rendererRef.current?.requestRender()
             lastCount.current = -1
-          }} title="Clear cache + force re-blur"
-          style={{ background: 'rgba(255,68,68,0.2)', border: '1px solid #f44',
+          }} style={{ background: 'rgba(255,68,68,0.2)', border: '1px solid #f44',
             color: '#f88', cursor: 'pointer', fontSize: 10, padding: '0 4px', borderRadius: 3 }}>clr</button>
           <button onPointerDown={e => e.stopPropagation()} onClick={() => setCollapsed(true)}
           style={{ background: 'none', border: '1px solid #0cf', color: '#0cf',
             cursor: 'pointer', fontSize: 11, padding: '0 4px', borderRadius: 3 }}>-</button>
         </span>
       </div>
-      <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
-        <div style={{ padding: '8px 10px', borderBottom: '1px solid rgba(0,200,255,0.2)' }}>
-          <div>Cache: <b style={{ color: cacheSize > 0 ? '#0f0' : '#888' }}>{cacheSize}</b> entries, {snaps.length} snapshots</div>
-          <div style={{ color: '#888', fontSize: 10 }}>FBO: {fboW}×{fboH}</div>
-        </div>
-        <div style={{ padding: '8px 10px' }}>
-          {snaps.length === 0 && <div style={{ color: '#666' }}>No snapshots. Trigger a blur to populate.</div>}
-          {snaps.map((s, i) => (
-            <div key={i} style={{ marginBottom: 10, padding: 6,
-              border: `1px solid ${s.nonZero > 0 ? 'rgba(0,255,0,0.3)' : 'rgba(255,68,68,0.5)'}`,
+      <div style={{ flex: 1, overflowY: 'auto', minHeight: 0, padding: '8px 10px' }}>
+        {snaps.length === 0 && <div style={{ color: '#666' }}>No snapshots. Trigger a blur to populate.</div>}
+        {snaps.map((snap) => {
+          const pct = (snap.nonZero / (snap.w * snap.h) * 100).toFixed(1)
+          return (
+            <div key={snap.key} style={{ marginBottom: 10, padding: 6,
+              border: `1px solid ${snap.nonZero > 0 ? 'rgba(0,255,0,0.3)' : 'rgba(255,68,68,0.5)'}`,
               borderRadius: 4, background: 'rgba(0,0,0,0.4)' }}>
-              <div style={{ color: '#0cf', fontWeight: 'bold', marginBottom: 4 }}>#{i} {s.key}</div>
-              {s.dataUrl ? (
-                <img src={s.dataUrl} style={{ width: 64, height: 64, imageRendering: 'pixelated',
-                  display: 'block', borderRadius: 2, marginBottom: 4, border: '1px solid rgba(0,200,255,0.2)' }}
-                  alt={`snapshot ${s.key}`} />
-              ) : (
-                <div style={{ width: 64, height: 64, background: '#400', borderRadius: 2, marginBottom: 4,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f44', fontSize: 9 }}>
-                  NO DATA
-                </div>
-              )}
-              <pre style={{ color: s.nonZero > 0 ? '#8f8' : '#f88', fontSize: 10, lineHeight: 1.4,
-                margin: 0, whiteSpace: 'pre-wrap' }}>{s.diag}</pre>
+              <div style={{ color: '#0cf', fontWeight: 'bold', marginBottom: 4 }}>
+                {snap.key} — {snap.w}×{snap.h} — {snap.nonZero > 0 ? `✓ ${pct}% non-zero` : '⚠ EMPTY'}
+              </div>
+              <canvas
+                ref={(el) => {
+                  if (el) canvasRefs.current.set(snap.key, el)
+                }}
+                width={snap.w}
+                height={snap.h}
+                style={{ width: '100%', height: 'auto', display: 'block',
+                  borderRadius: 2, border: '1px solid rgba(0,200,255,0.2)',
+                  imageRendering: 'auto' }}
+              />
             </div>
-          ))}
-        </div>
+          )
+        })}
       </div>
     </div>
   )
