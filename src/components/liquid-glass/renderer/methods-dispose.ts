@@ -119,6 +119,10 @@ export const disposeMethods = {
       gl.deleteFramebuffer(p.fb)
     }
     this.backdropBlurCacheFboPool.length = 0
+    if (this.cacheCopyReadFbo) {
+      gl.deleteFramebuffer(this.cacheCopyReadFbo)
+      this.cacheCopyReadFbo = null
+    }
     if (this.sdfTexture) gl.deleteTexture(this.sdfTexture)
     this.sdfTexture = null
     if (this.textSdfTexture) gl.deleteTexture(this.textSdfTexture)

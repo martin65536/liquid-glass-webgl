@@ -253,18 +253,19 @@ export function resolveBackdropTex(
       const savedBox: [number, number, number, number] = gl2.getParameter(gl2.SCISSOR_BOX)
       gl2.disable(gl2.SCISSOR_TEST)
       // copyTexImage2D: reads from currently-bound READ framebuffer's color
-      // buffer. blurResult is a texture — create temp FBO to attach it.
+      // buffer. blurResult is a texture — attach it to a PERSISTENT read FBO
+      // (cacheCopyReadFbo, lazily created + reused) instead of creating +
+      // deleting a temp FBO every miss (saves ~0.5-1ms driver allocation).
       // Unbind blurResult from TEXTURE0 first: Adreno has a quirk where
       // copyTexImage2D reading a texture that's still bound as a sampler
       // produces undefined/garbage output. Mali tolerates it.
-      const readFb = gl2.createFramebuffer()
-      gl2.bindFramebuffer(gl2.FRAMEBUFFER, readFb)
+      if (!this.cacheCopyReadFbo) this.cacheCopyReadFbo = gl2.createFramebuffer()
+      gl2.bindFramebuffer(gl2.FRAMEBUFFER, this.cacheCopyReadFbo)
       gl2.framebufferTexture2D(gl2.FRAMEBUFFER, gl2.COLOR_ATTACHMENT0, gl2.TEXTURE_2D, blurResult, 0)
       gl2.activeTexture(gl2.TEXTURE0)
       gl2.bindTexture(gl2.TEXTURE_2D, null)
       gl2.bindTexture(gl2.TEXTURE_2D, cacheFbo.tex)
       gl2.copyTexImage2D(gl2.TEXTURE_2D, 0, gl2.RGBA, 0, 0, blurW, blurH, 0)
-      gl2.deleteFramebuffer(readFb)
       // Checkerboard mask (if enabled).
       if (this.showBlurCacheCheckerboard) {
         gl2.bindFramebuffer(gl2.FRAMEBUFFER, cacheFbo.fb)
@@ -441,16 +442,14 @@ export function resolveBackdropTex(
         const savedSc = gl2.isEnabled(gl2.SCISSOR_TEST)
         const savedBox: [number, number, number, number] = gl2.getParameter(gl2.SCISSOR_BOX)
         gl2.disable(gl2.SCISSOR_TEST)
-        // Unbind blurred from TEXTURE0 before copyTexImage2D (Adreno quirk —
-        // see independent path comment).
-        const readFb = gl2.createFramebuffer()
-        gl2.bindFramebuffer(gl2.FRAMEBUFFER, readFb)
+        // Persistent read FBO + unbind source (see independent path comment).
+        if (!this.cacheCopyReadFbo) this.cacheCopyReadFbo = gl2.createFramebuffer()
+        gl2.bindFramebuffer(gl2.FRAMEBUFFER, this.cacheCopyReadFbo)
         gl2.framebufferTexture2D(gl2.FRAMEBUFFER, gl2.COLOR_ATTACHMENT0, gl2.TEXTURE_2D, blurred, 0)
         gl2.activeTexture(gl2.TEXTURE0)
         gl2.bindTexture(gl2.TEXTURE_2D, null)
         gl2.bindTexture(gl2.TEXTURE_2D, cacheFbo.tex)
         gl2.copyTexImage2D(gl2.TEXTURE_2D, 0, gl2.RGBA, 0, 0, blurW, blurH, 0)
-        gl2.deleteFramebuffer(readFb)
         // Checkerboard mask (same as independent path).
         if (this.showBlurCacheCheckerboard) {
           gl2.bindFramebuffer(gl2.FRAMEBUFFER, cacheFbo.fb)

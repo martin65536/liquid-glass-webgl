@@ -505,6 +505,12 @@ export class LiquidGlassRenderer {
    *  release back here instead of deleting. clearBackdropBlurCache (resize /
    *  loadWallpaper) deletes everything since sizes may change. */
   backdropBlurCacheFboPool: Array<{ fb: WebGLFramebuffer; tex: WebGLTexture; w: number; h: number }> = []
+  /** Lazy-created persistent read FBO for copyTexImage2D in the cache path.
+   *  Reused across all cache-miss copies (independent + scene) to avoid the
+   *  ~0.5-1ms per-miss cost of createFramebuffer + deleteFramebuffer + the
+   *  driver-side object allocation they trigger. Created on first use;
+   *  deleted in dispose + clearBackdropBlurCache (resize/loadWallpaper). */
+  cacheCopyReadFbo: WebGLFramebuffer | null = null
   /** Hard cap on the number of cached backdrop blur textures. When exceeded,
    *  the oldest entry (Map insertion order) is evicted + returned to the
    *  FBO pool. Each cached texture is ~fboW*fboH*4 bytes, so this bounds VRAM.

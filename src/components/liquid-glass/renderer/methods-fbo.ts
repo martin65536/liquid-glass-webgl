@@ -258,6 +258,10 @@ export const fboMethods = {
     }
     this.backdropBlurCacheFboPool.length = 0
     this.backdropBlurCacheSnapshots.length = 0
+    if (this.cacheCopyReadFbo) {
+      gl.deleteFramebuffer(this.cacheCopyReadFbo)
+      this.cacheCopyReadFbo = null
+    }
   },
 
   /** Evict oldest entries (Map insertion order) while the cache exceeds
