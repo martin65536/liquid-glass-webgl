@@ -227,28 +227,22 @@ export function resolveBackdropTex(
       gl.activeTexture(gl.TEXTURE0)
       gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture!)
       gl.uniform1i(this.uWp['uBackdrop'], 0)
-      gl.uniform2f(this.uWp['uCanvasSize'], this.canvas.width, this.canvas.height)
+      gl.uniform2f(this.uWp['uCanvasSize'], this.fboW, this.fboH)
       gl.uniform2f(this.uWp['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
       gl.drawArrays(gl.TRIANGLES, 0, 6)
       // Step 2: blur wallpaperBlurTex.
       const blurResult = this.blurTexture(this.wallpaperBlurTex!, blurRadiusPx)
       // Step 3: copy blurResult to a dedicated cache texture.
-      // blurTexture left the blur result in dsBlurFboA or dsBlurFboB.
-      // We use gl.copyTexImage2D: bind the blur result's FBO as read target,
-      // then copy its color buffer directly to the cache texture (no shader).
       const cacheFbo = this.createFBO(this.fboW, this.fboH)
       const gl2 = this.gl
       const savedFb = gl2.getParameter(gl2.FRAMEBUFFER_BINDING)
-      // Create temp FBO to read blurResult texture.
       const readFb = gl2.createFramebuffer()
       gl2.bindFramebuffer(gl2.FRAMEBUFFER, readFb)
       gl2.framebufferTexture2D(gl2.FRAMEBUFFER, gl2.COLOR_ATTACHMENT0, gl2.TEXTURE_2D, blurResult, 0)
-      // Copy from readFb's color buffer to cacheFbo.tex.
       gl2.activeTexture(gl2.TEXTURE0)
       gl2.bindTexture(gl2.TEXTURE_2D, cacheFbo.tex)
       gl2.copyTexImage2D(gl2.TEXTURE_2D, 0, gl2.RGBA, 0, 0, this.fboW, this.fboH, 0)
       gl2.deleteFramebuffer(readFb)
-      // Restore FBO binding.
       this.bindFBO(savedFb as WebGLFramebuffer | null)
       this.backdropBlurCache.set(cacheKey, {
         tex: cacheFbo.tex,

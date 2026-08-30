@@ -89,7 +89,11 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
         const buf = new Uint8Array(tw * th * 4)
 
         if (status === gl.FRAMEBUFFER_COMPLETE) {
-          gl.readPixels(0, 0, tw, th, gl.RGBA, gl.UNSIGNED_BYTE, buf)
+          // Read from CENTER of the texture (not bottom-left corner —
+          // cover-fit wallpaper may have transparent edges).
+          const offsetX = Math.max(0, Math.floor((r.fboW - tw) / 2))
+          const offsetY = Math.max(0, Math.floor((r.fboH - th) / 2))
+          gl.readPixels(offsetX, offsetY, tw, th, gl.RGBA, gl.UNSIGNED_BYTE, buf)
         }
 
         let nonZero = 0
