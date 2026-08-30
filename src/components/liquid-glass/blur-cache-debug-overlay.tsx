@@ -9,7 +9,7 @@ interface Props {
 
 type BlurCacheSnap = {
   key: string; w: number; h: number; rgba: Uint8Array; nonZero: number;
-  blurSetupMs: number; blurDrawMs: number; copyMs: number; readPixelsMs: number; scanMs: number; totalMs: number
+  progMs: number; stateMs: number; drawMs: number; copyMs: number; readPixelsMs: number; scanMs: number; totalMs: number
 }
 
 export function BlurCacheDebugOverlay({ rendererRef }: Props) {
@@ -199,8 +199,9 @@ export function BlurCacheDebugOverlay({ rendererRef }: Props) {
                 {snap.key} — {hasImage ? `${snap.w}×${snap.h}` : 'no img'} — {statusLabel}
               </div>
               <div style={{ color: '#888', fontSize: 10, marginBottom: 4 }}>
-                setup: <b style={{ color: snap.blurSetupMs > 5 ? '#f44' : snap.blurSetupMs > 1 ? '#fa0' : '#0f0' }}>{snap.blurSetupMs.toFixed(1)}ms</b>
-                {' '}draw: <b style={{ color: snap.blurDrawMs > 20 ? '#f44' : snap.blurDrawMs > 5 ? '#fa0' : '#0f0' }}>{snap.blurDrawMs.toFixed(1)}ms</b>
+                prog: <b style={{ color: snap.progMs > 5 ? '#f44' : snap.progMs > 1 ? '#fa0' : '#0f0' }}>{snap.progMs.toFixed(1)}ms</b>
+                {' '}state: <b style={{ color: snap.stateMs > 3 ? '#f44' : snap.stateMs > 1 ? '#fa0' : '#0f0' }}>{snap.stateMs.toFixed(1)}ms</b>
+                {' '}draw: <b style={{ color: snap.drawMs > 20 ? '#f44' : snap.drawMs > 5 ? '#fa0' : '#0f0' }}>{snap.drawMs.toFixed(1)}ms</b>
                 {' '}copy: <b style={{ color: snap.copyMs > 10 ? '#f44' : snap.copyMs > 3 ? '#fa0' : '#0f0' }}>{snap.copyMs.toFixed(1)}ms</b>
                 {' '}rdPx: <b style={{ color: snap.readPixelsMs > 30 ? '#f44' : snap.readPixelsMs > 10 ? '#fa0' : '#0f0' }}>{snap.readPixelsMs.toFixed(1)}ms</b>
                 {' '}scan: <b style={{ color: snap.scanMs > 20 ? '#f44' : snap.scanMs > 5 ? '#fa0' : '#0f0' }}>{snap.scanMs.toFixed(1)}ms</b>

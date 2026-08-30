@@ -176,19 +176,28 @@ export const blurMethods = {
     radius: number, tapCount: number, glassMode: boolean,
   ): WebGLTexture {
     const gl = this.gl
-    const tSetup0 = performance.now()
+    // Program ensure: first call compiles+links the shader (expensive, ~5-20ms);
+    // subsequent calls are a Map lookup (cheap, <0.01ms). Timed separately so
+    // the overlay can distinguish one-time compile cost from per-frame state
+    // overhead.
+    const tProg0 = performance.now()
     if (glassMode) {
       this.ensureBlurPrograms(tapCount)
     } else {
       this.ensureHighlightBlurPrograms(tapCount)
     }
     const entry = (glassMode ? this.blurPrograms : this.highlightBlurPrograms).get(tapCount)!
+    const tProg1 = performance.now()
+    // State save: getParameter × 3 (FRAMEBUFFER_BINDING, SCISSOR_TEST enable,
+    // SCISSOR_BOX) + disable scissor + disable blend. Each getParameter is a
+    // driver round-trip; restore at the end reverses them.
+    const tState0 = performance.now()
     const savedFb = gl.getParameter(gl.FRAMEBUFFER_BINDING)
     const savedScissor = gl.isEnabled(gl.SCISSOR_TEST)
     const savedBox: [number, number, number, number] = gl.getParameter(gl.SCISSOR_BOX)
     gl.disable(gl.SCISSOR_TEST)
     gl.disable(gl.BLEND)
-    const tSetup1 = performance.now()
+    const tState1 = performance.now()
 
     // Pass 1: horizontal — srcTex → dstFboA.
     const tH0 = performance.now()
@@ -222,6 +231,7 @@ export const blurMethods = {
     gl.drawArrays(gl.TRIANGLES, 0, 6)
     const tV1 = performance.now()
 
+    // State restore.
     const tR0 = performance.now()
     gl.bindFramebuffer(gl.FRAMEBUFFER, savedFb)
     gl.viewport(0, 0, this.fboW, this.fboH)
@@ -230,14 +240,9 @@ export const blurMethods = {
       gl.scissor(savedBox[0], savedBox[1], savedBox[2], savedBox[3])
     }
     const tR1 = performance.now()
-    // Record per-phase timing into lastBlurStats (merged with the stats set
-    // by blurTexture before calling runBlurPasses). setup = program ensure +
-    // state save; passH/passV = the two drawArrays; restore = FBO/scissor
-    // restore. Stored as setupMs/drawMs (draw = passH + passV) to keep the
-    // overlay compact — passH vs passV rarely diverges since both sample the
-    // same texel count.
     if (this.lastBlurStats) {
-      this.lastBlurStats.setupMs = (tSetup1 - tSetup0) + (tR1 - tR0)
+      this.lastBlurStats.progMs = tProg1 - tProg0
+      this.lastBlurStats.stateMs = (tState1 - tState0) + (tR1 - tR0)
       this.lastBlurStats.drawMs = (tH1 - tH0) + (tV1 - tV0)
     }
     return dstTexB
@@ -270,13 +275,13 @@ export const blurMethods = {
     const dsRadius = ds > 1 ? radius / ds : radius
     // radius < 0.5 → no blur. Return srcTex UNCHANGED (no 0.6px floor).
     if (dsRadius < 0.5) {
-      this.lastBlurStats = { type: 'gauss', passes: 0, taps: 0, maxSample: 0, w: lvl.w, h: lvl.h, setupMs: 0, drawMs: 0 }
+      this.lastBlurStats = { type: 'gauss', passes: 0, taps: 0, maxSample: 0, w: lvl.w, h: lvl.h, progMs: 0, stateMs: 0, drawMs: 0 }
       return srcTex
     }
     let taps = computeBlur1DTapCount(dsRadius)
     taps = Math.min(taps, Math.max(1, this.blurTapCap | 0))
     // Gaussian shader samples at offset up to ±3σ (σ=uRadius=dsRadius).
-    this.lastBlurStats = { type: 'gauss', passes: 2, taps, maxSample: 3 * dsRadius, w: lvl.w, h: lvl.h, setupMs: 0, drawMs: 0 }
+    this.lastBlurStats = { type: 'gauss', passes: 2, taps, maxSample: 3 * dsRadius, w: lvl.w, h: lvl.h, progMs: 0, stateMs: 0, drawMs: 0 }
     return this.runBlurPasses(
       srcTex,
       lvl.fboA, lvl.texA,
@@ -328,7 +333,7 @@ export const blurMethods = {
     const ds = lvl.ds
     const dsRadius = ds > 1 ? radius / ds : radius
     if (dsRadius < 0.5) {
-      this.lastBlurStats = { type: 'kawase', passes: 0, taps: 0, maxSample: 0, w: lvl.w, h: lvl.h, setupMs: 0, drawMs: 0 }
+      this.lastBlurStats = { type: 'kawase', passes: 0, taps: 0, maxSample: 0, w: lvl.w, h: lvl.h, progMs: 0, stateMs: 0, drawMs: 0 }
       return srcTex
     }
     const iters = kawaseIterationsForRadius(dsRadius, this.kawaseQuality)
@@ -336,10 +341,15 @@ export const blurMethods = {
     // d_max = radius × √(6N/((N+1)(2N+1))) ≈ 0.63-0.73×radius (variance-matched).
     // Farthest tap = d_max×√2 (diagonal). Equivalent σ = radius (matches Gaussian).
     const dMax = dsRadius * Math.sqrt(6 * iters / ((iters + 1) * (2 * iters + 1)))
-    this.lastBlurStats = { type: 'kawase', passes: iters, taps: 4 * iters, maxSample: dMax * Math.SQRT2, w: lvl.w, h: lvl.h, setupMs: 0, drawMs: 0 }
-    const tSetup0 = performance.now()
+    this.lastBlurStats = { type: 'kawase', passes: iters, taps: 4 * iters, maxSample: dMax * Math.SQRT2, w: lvl.w, h: lvl.h, progMs: 0, stateMs: 0, drawMs: 0 }
+    // Program ensure: first call compiles the Kawase shader; subsequent calls
+    // are a null check (kawasePrograms != null → return). Timed separately.
+    const tProg0 = performance.now()
     this.ensureKawaseProgram()
     const kp = this.kawasePrograms!
+    const tProg1 = performance.now()
+    // State save.
+    const tState0 = performance.now()
     const gl = this.gl
     const w = lvl.w, h = lvl.h
     const savedFb = gl.getParameter(gl.FRAMEBUFFER_BINDING)
@@ -347,7 +357,7 @@ export const blurMethods = {
     const savedBox: [number, number, number, number] = gl.getParameter(gl.SCISSOR_BOX)
     gl.disable(gl.SCISSOR_TEST)
     gl.disable(gl.BLEND)
-    const tSetup1 = performance.now()
+    const tState1 = performance.now()
 
     // Ping-pong: even iters write fboA (read fboB/src), odd iters write fboB (read fboA).
     // Iter 0 reads srcTex (external) → writes fboA.
@@ -376,6 +386,7 @@ export const blurMethods = {
     }
     const tDraw1 = performance.now()
 
+    // State restore.
     const tR0 = performance.now()
     gl.bindFramebuffer(gl.FRAMEBUFFER, savedFb)
     gl.viewport(0, 0, this.fboW, this.fboH)
@@ -384,7 +395,8 @@ export const blurMethods = {
       gl.scissor(savedBox[0], savedBox[1], savedBox[2], savedBox[3])
     }
     const tR1 = performance.now()
-    this.lastBlurStats.setupMs = (tSetup1 - tSetup0) + (tR1 - tR0)
+    this.lastBlurStats.progMs = tProg1 - tProg0
+    this.lastBlurStats.stateMs = (tState1 - tState0) + (tR1 - tR0)
     this.lastBlurStats.drawMs = tDraw1 - tDraw0
     // Result is in the last-written buffer's texture.
     const lastWroteA = ((iters - 1) % 2 === 0)

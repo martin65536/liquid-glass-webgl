@@ -480,7 +480,7 @@ export class LiquidGlassRenderer {
    *  sample distance) without re-deriving it. Null until the first blur call.
    *  maxSample = the farthest tap distance from center (Gaussian: 3σ;
    *  Kawase: radius, the ±2d at the last iter). */
-  lastBlurStats: { type: 'gauss' | 'kawase'; passes: number; taps: number; maxSample: number; w: number; h: number; setupMs: number; drawMs: number } | null = null
+  lastBlurStats: { type: 'gauss' | 'kawase'; passes: number; taps: number; maxSample: number; w: number; h: number; progMs: number; stateMs: number; drawMs: number } | null = null
   /** Backdrop blur cache for the independent path (wallpaperBlurFbo).
    *  When independent=true, the backdrop is static cover-fit wallpaper —
    *  same radius → same blur result. Key = `wallpaper_${qRadius}_${type}`
@@ -539,7 +539,7 @@ export class LiquidGlassRenderer {
   /** Debug: snapshot of each cache entry's center pixels, taken at cache-miss
    *  time (when the texture is first created). Stored as {key, w, h, rgba}
    *  so the overlay can render without touching GL state. */
-  backdropBlurCacheSnapshots: Array<{ key: string; w: number; h: number; rgba: Uint8Array; nonZero: number; blurSetupMs: number; blurDrawMs: number; copyMs: number; readPixelsMs: number; scanMs: number; totalMs: number }> = []
+  backdropBlurCacheSnapshots: Array<{ key: string; w: number; h: number; rgba: Uint8Array; nonZero: number; progMs: number; stateMs: number; drawMs: number; copyMs: number; readPixelsMs: number; scanMs: number; totalMs: number }> = []
   /** Debug: when true, the renderer collects each glass element's SHADOW
    *  bbox (the TRUE per-direction reach of the shadow shape on screen,
    *  computed by shadowBboxCss from outerShadow.radius + offsetX/Y +
