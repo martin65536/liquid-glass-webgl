@@ -70,7 +70,7 @@ export function drawDebugOverlay(
       // since Gaussian is 1 tap count per pass). Total taps = per-pass × passes.
       const line1 = `#${i} ${typeTag} ds=${r.ds} r=${(r.radius / rDpr).toFixed(1)} fbo=${r.blurW}×${r.blurH} d=${(r.maxSample / rDpr).toFixed(1)}`
       const perPassTap = r.blurType === 'kawase' ? 4 : r.taps
-      const line2 = `pass=${r.passes} tap/pass=${perPassTap}`
+      const line2 = `pass=${r.passes} tap/pass=${perPassTap}${r.cached ? ' CACHED' : ' MISS'}`
       const tw1 = ctx.measureText(line1).width
       const tw2 = ctx.measureText(line2).width
       const tw = Math.max(tw1, tw2)
@@ -86,6 +86,33 @@ export function drawDebugOverlay(
       ctx.fillStyle = 'rgba(80, 200, 255, 0.98)'
       ctx.fillText(line1, boxX + padX, boxY + 11)
       ctx.fillText(line2, boxX + padX, boxY + 24)
+    }
+    // Cache list panel (bottom-right): shows all backdropBlurCache entries.
+    const cache = renderer.backdropBlurCache
+    if (cache.size > 0) {
+      const lines: string[] = [`blur cache (${cache.size}):`]
+      cache.forEach((entry, key) => {
+        const parts = key.split('_')
+        const radius = parts[1] ?? '?'
+        const type = parts[2] ?? '?'
+        lines.push(`  r=${radius} ${type}`)
+      })
+      ctx.font = 'bold 10px ui-monospace, monospace'
+      let maxW = 0
+      for (const ln of lines) { const w = ctx.measureText(ln).width; if (w > maxW) maxW = w }
+      const panelW = maxW + 12
+      const panelH = lines.length * 13 + 8
+      const panelX = oc.width - panelW - 4
+      const panelY = oc.height - panelH - 4
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.82)'
+      ctx.fillRect(panelX, panelY, panelW, panelH)
+      ctx.strokeStyle = 'rgba(255, 220, 80, 0.5)'
+      ctx.lineWidth = 1
+      ctx.strokeRect(panelX + 0.5, panelY + 0.5, panelW - 1, panelH - 1)
+      for (let li = 0; li < lines.length; li++) {
+        ctx.fillStyle = li === 0 ? 'rgba(255, 220, 80, 0.95)' : 'rgba(230, 230, 230, 0.9)'
+        ctx.fillText(lines[li], panelX + 6, panelY + 13 + li * 13)
+      }
     }
     // NOTE: do NOT consume — see showPefBbox comment above.
   }

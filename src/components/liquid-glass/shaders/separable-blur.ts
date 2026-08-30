@@ -6,14 +6,14 @@
  * (2N samples) — a horizontal pass followed by a vertical pass.
  *
  * Used by the Glass Playground: the element pass renders refraction
- * (reading CLEAR backdrop) to gpElementFbo, then this 2-pass blur is
- * applied to gpElementFbo, and the result is composited back into the
+ * (reading CLEAR backdrop) to wallpaperBlurFbo, then this 2-pass blur is
+ * applied to wallpaperBlurFbo, and the result is composited back into the
  * scene. This mirrors the original Kotlin's
  *   RenderEffect.createChainEffect(refractionEffect, blurEffect)
  * where refraction runs first on clear content, then blur is applied
  * to the refraction output.
  *
- * ALPHA PROTECTION: gpElementFbo is transparent outside the glass shape.
+ * ALPHA PROTECTION: wallpaperBlurFbo is transparent outside the glass shape.
  * A naive Gaussian blur would blend the transparent (0,0,0,0) edge pixels
  * into the glass interior, darkening the rim and bleeding black into the
  * transparent surround. To prevent this, the blur:

@@ -210,8 +210,8 @@ export const glassElementPassMethods = {
     // Blur radius: when shouldUseSeparableBlur() is true, the backdrop was
     // already blurred via the 2-pass Gaussian pipeline in resolveBackdropTex:
     //   - Non-independent elements: blurTexture on curTex (scene)
-    //   - Independent elements: blurTexture on gpElementTex (wallpaper rendered
-    //     cover-fitted into gpElementFbo, with passState.independent=false so
+    //   - Independent elements: blurTexture on wallpaperBlurTex (wallpaper rendered
+    //     cover-fitted into wallpaperBlurFbo, with passState.independent=false so
     //     the shader samples uBackdrop via sceneUv instead of uWallpaperSampler)
     // In both cases, inlineBlurRadius=0 avoids double-blurring.
     //

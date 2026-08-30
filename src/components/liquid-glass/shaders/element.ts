@@ -161,7 +161,7 @@ void main() {
         //      glass to the global separable blur setting, so the TextGlass
         //      respects blurDownsample / blurTapCap / dynamicBlurDownsample
         //      just like every other glass element. The cover-fitted wallpaper
-        //      was rendered into gpElementFbo (canvas-sized) then 2-pass
+        //      was rendered into wallpaperBlurFbo (canvas-sized) then 2-pass
         //      blurred, so sceneUv(refractedScreen) maps correctly.
         vec4 content;
         if (uSampleWallpaper > 0.5) {

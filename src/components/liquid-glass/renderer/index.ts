@@ -212,7 +212,7 @@ export class LiquidGlassRenderer {
   tabsBackdropDirty = true
 
   // --- Separable 2-pass blur infrastructure (Glass Playground only) ---
-  // gpElementFbo: element pass renders here (refraction on CLEAR backdrop,
+  // wallpaperBlurFbo: element pass renders here (refraction on CLEAR backdrop,
   // uBlurRadius=0) for useSeparableBlur elements. Transparent background;
   // the element shader's discard leaves only the glass shape's refracted content.
   // blurFboA/blurFboB: FULL-RES scratch ping-pong. Used by the dialog backdrop
@@ -228,8 +228,8 @@ export class LiquidGlassRenderer {
   //   exactly. The ON path uses the dsBlurLevels pool instead. Half-res pixels
   //   are ds× wider, so radius is scaled by 1/ds to preserve the visual blur
   //   radius while cutting fragment invocations by ds².
-  gpElementFbo: WebGLFramebuffer | null = null
-  gpElementTex: WebGLTexture | null = null
+  wallpaperBlurFbo: WebGLFramebuffer | null = null
+  wallpaperBlurTex: WebGLTexture | null = null
   blurFboA: WebGLFramebuffer | null = null
   blurFboATex: WebGLTexture | null = null
   blurFboB: WebGLFramebuffer | null = null
@@ -467,7 +467,7 @@ export class LiquidGlassRenderer {
    *  downsample / scissor / coverage bugs. CONSUME-AFTER-DRAW: the overlay
    *  clears the list after drawing it. Only populated when this flag is true. */
   showBlurDebug = false
-  debugBlurRegions: { x: number; y: number; w: number; h: number; radius: number; ds: number; blurW: number; blurH: number; blurType: 'gauss' | 'kawase'; passes: number; taps: number; maxSample: number }[] = []
+  debugBlurRegions: { x: number; y: number; w: number; h: number; radius: number; ds: number; blurW: number; blurH: number; blurType: 'gauss' | 'kawase'; passes: number; taps: number; maxSample: number; cached: boolean }[] = []
   /** Last blur call's stats, written by blurTexture/kawaseBlurTexture so
    *  callers (e.g. the blur debug overlay push in render-glass-backdrop)
    *  can read what actually happened (type, pass count, tap count, farthest
@@ -475,6 +475,14 @@ export class LiquidGlassRenderer {
    *  maxSample = the farthest tap distance from center (Gaussian: 3σ;
    *  Kawase: radius, the ±2d at the last iter). */
   lastBlurStats: { type: 'gauss' | 'kawase'; passes: number; taps: number; maxSample: number } | null = null
+  /** Backdrop blur cache for the independent path (wallpaperBlurFbo).
+   *  When independent=true, the backdrop is static cover-fit wallpaper —
+   *  same radius → same blur result. Key = `wallpaper_${qRadius}_${type}`
+   *  where qRadius = CSS px radius quantized to 0.1 (NOT × dpr).
+   *  Cross-element + cross-frame: multiple elements at the same radius
+   *  share one blurred wallpaper texture.
+   *  Invalidated on resize (cover-fit ratio changes) + loadWallpaper. */
+  backdropBlurCache = new Map<string, { tex: WebGLTexture; blurType: 'gauss' | 'kawase' }>()
   /** Debug: when true, the renderer collects each glass element's SHADOW
    *  bbox (the TRUE per-direction reach of the shadow shape on screen,
    *  computed by shadowBboxCss from outerShadow.radius + offsetX/Y +

@@ -8,6 +8,9 @@ declare module './index' {
     bindFBO(fb: WebGLFramebuffer | null): void
     drawCopy(srcTex: WebGLTexture): void
     drawSolidFill(r: number, g: number, b: number, a: number): void
+    /** Clear the backdrop blur cache (delete all cached textures).
+     *  Called on resize + loadWallpaper. */
+    clearBackdropBlurCache(): void
     /** Fullscreen colorControls pass: copy srcTex to the bound FBO applying
      *  brightness/contrast/saturation. Caller must bind the destination FBO. */
     drawColorControls(srcTex: WebGLTexture, brightness: number, contrast: number, saturation: number): void
@@ -106,8 +109,8 @@ export const fboMethods = {
     // dsBlurFboA/dsBlurFboB: downsampled (blurDownsample) ping-pong for
     //   blurTexture/blurHighlightMask. radius is scaled by 1/ds so the visual
     //   blur radius is preserved; fragment invocations drop by ds².
-    if (this.gpElementFbo) gl.deleteFramebuffer(this.gpElementFbo)
-    if (this.gpElementTex) gl.deleteTexture(this.gpElementTex)
+    if (this.wallpaperBlurFbo) gl.deleteFramebuffer(this.wallpaperBlurFbo)
+    if (this.wallpaperBlurTex) gl.deleteTexture(this.wallpaperBlurTex)
     if (this.blurFboA) gl.deleteFramebuffer(this.blurFboA)
     if (this.blurFboATex) gl.deleteTexture(this.blurFboATex)
     if (this.blurFboB) gl.deleteFramebuffer(this.blurFboB)
@@ -140,8 +143,8 @@ export const fboMethods = {
     const ge = this.createFBO(w, h)
     const ba = this.createFBO(w, h)
     const bb = this.createFBO(w, h)
-    this.gpElementFbo = ge.fb
-    this.gpElementTex = ge.tex
+    this.wallpaperBlurFbo = ge.fb
+    this.wallpaperBlurTex = ge.tex
     this.blurFboA = ba.fb
     this.blurFboATex = ba.tex
     this.blurFboB = bb.fb
@@ -215,8 +218,24 @@ export const fboMethods = {
     const bg = this.createFBO(w, h)
     this.bgOnlyFbo = bg.fb
     this.bgOnlyTex = bg.tex
+    // Clear cache only on actual size change (not force=true rebuilds where
+    // w/h are the same — prop-sync like blurDownsample change triggers force
+    // but doesn't affect cover-fit wallpaper the cache holds).
+    const sizeChanged = this.fboW !== w || this.fboH !== h
     this.fboW = w
     this.fboH = h
+    if (sizeChanged) this.clearBackdropBlurCache()
+  },
+
+  /** Clear the backdrop blur cache: delete all cached GL textures + empty
+   *  the Map. Called on resize (cover-fit changes) + loadWallpaper (content
+   *  changes). Cheap (just texture deletes + Map.clear). */
+  clearBackdropBlurCache(this: LiquidGlassRenderer) {
+    const gl = this.gl
+    for (const entry of this.backdropBlurCache.values()) {
+      gl.deleteTexture(entry.tex)
+    }
+    this.backdropBlurCache.clear()
   },
 
   /** Bind an FBO as the render target, set viewport to its size. */

@@ -55,6 +55,8 @@ export const wallpaperMethods = {
     this.wallpaperTexture = tex
     this.wallpaperSize = [w || 1, h || 1]
     this.wallpaperReady = true
+    // New wallpaper → cached blur results are stale.
+    this.clearBackdropBlurCache()
     // Bump the wallpaper version so cached independent elFbos know their
     // sampled backdrop has changed. markAllDirty() below flips every entry's
     // valid flag; the version bump lets re-rendered entries stamp the new

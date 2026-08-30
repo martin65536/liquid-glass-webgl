@@ -180,7 +180,7 @@ export function resolveBackdropTex(
 
   // Independent elements (LayerBackdrop = wallpaper): the shader samples the
   // WALLPAPER directly via uWallpaperSampler, not the scene FBO. To apply
-  // separable blur, we render the wallpaper cover-fitted into gpElementFbo
+  // separable blur, we render the wallpaper cover-fitted into wallpaperBlurFbo
   // (canvas-sized, preserving the cover-fit aspect ratio), then 2-pass blur
   // that. The element pass receives the blurred result as uBackdrop with
   // uSampleWallpaper=0 (passState.independent=false), so the shader samples
@@ -201,27 +201,50 @@ export function resolveBackdropTex(
     this.quickToggles.backdropBlur
   ) {
     const gl = this.gl
-    // Step 1: render wallpaper cover-fitted into gpElementFbo (reusing the
-    // currently-unused GP element FBO). This preserves the cover-fit aspect
-    // ratio so the blur samples the same texels the background pass displays.
-    this.bindFBO(this.gpElementFbo!)
-    gl.disable(gl.BLEND)
-    gl.useProgram(this.wallpaperProgram)
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
-    gl.enableVertexAttribArray(this.aPosLocWp)
-    gl.vertexAttribPointer(this.aPosLocWp, 2, gl.FLOAT, false, 0, 0)
-    gl.activeTexture(gl.TEXTURE0)
-    gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture!)
-    gl.uniform1i(this.uWp['uBackdrop'], 0)
-    gl.uniform2f(this.uWp['uCanvasSize'], this.canvas.width, this.canvas.height)
-    gl.uniform2f(this.uWp['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
-    gl.drawArrays(gl.TRIANGLES, 0, 6)
-
-    // Step 2: blur gpElementTex in a bbox-sized FBO (elBlurFboA/B), NOT
-    // fullscreen. gpElementTex is already bbox-sized (cover-fitted wallpaper),
-    // so no crop needed — just blur directly into elBlurFboA/B.
     const blurRadiusPx = el.blurRadius * layerScale * this.dpr
-    const blurred = this.blurTexture(this.gpElementTex!, blurRadiusPx)
+    // Cache key: CSS px radius (NOT × dpr) quantized to 0.1. wallpaper is
+    // static → same radius = same blur result. Cross-element + cross-frame.
+    const cssRadius = el.blurRadius * layerScale
+    const qRadius = Math.round(cssRadius * 10) / 10
+    const cacheKey = `wallpaper_${qRadius}_${this.useKawaseBlur ? 'k' : 'g'}`
+    const entry = this.backdropBlurCache.get(cacheKey)
+    let blurred: WebGLTexture
+    let cacheHit = false
+    if (entry) {
+      // HIT: reuse cached blurred wallpaper, 0 draw calls.
+      blurred = entry.tex
+      cacheHit = true
+      this.lastBlurStats = { type: entry.blurType, passes: 0, taps: 0, maxSample: 0 }
+    } else {
+      // MISS: render wallpaper + blur + copy to cache texture.
+      // Step 1: render wallpaper cover-fitted into wallpaperBlurFbo.
+      this.bindFBO(this.wallpaperBlurFbo!)
+      gl.disable(gl.BLEND)
+      gl.useProgram(this.wallpaperProgram)
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.quadBuffer)
+      gl.enableVertexAttribArray(this.aPosLocWp)
+      gl.vertexAttribPointer(this.aPosLocWp, 2, gl.FLOAT, false, 0, 0)
+      gl.activeTexture(gl.TEXTURE0)
+      gl.bindTexture(gl.TEXTURE_2D, this.wallpaperTexture!)
+      gl.uniform1i(this.uWp['uBackdrop'], 0)
+      gl.uniform2f(this.uWp['uCanvasSize'], this.canvas.width, this.canvas.height)
+      gl.uniform2f(this.uWp['uWallpaperSize'], this.wallpaperSize[0], this.wallpaperSize[1])
+      gl.drawArrays(gl.TRIANGLES, 0, 6)
+      // Step 2: blur wallpaperBlurTex.
+      const blurResult = this.blurTexture(this.wallpaperBlurTex!, blurRadiusPx)
+      // Step 3: copy to a dedicated cache FBO (dsBlurFboBTex will be overwritten
+      // by the next element's blur).
+      const cacheFbo = this.createFBO(this.fboW, this.fboH)
+      const savedFb = gl.getParameter(gl.FRAMEBUFFER_BINDING)
+      this.bindFBO(cacheFbo.fb)
+      this.drawCopy(blurResult)
+      this.bindFBO(savedFb as WebGLFramebuffer | null)
+      this.backdropBlurCache.set(cacheKey, {
+        tex: cacheFbo.tex,
+        blurType: this.lastBlurStats?.type ?? 'gauss',
+      })
+      blurred = cacheFbo.tex
+    }
     if (this.showBlurDebug) {
       const s = this.lastBlurStats
       this.debugBlurRegions.push({
@@ -233,6 +256,7 @@ export function resolveBackdropTex(
         passes: s?.passes ?? 0,
         taps: s?.taps ?? 0,
         maxSample: s?.maxSample ?? 0,
+        cached: cacheHit,
       })
     }
     this.perfMonitor.incBlurPass()
@@ -283,6 +307,7 @@ export function resolveBackdropTex(
         passes: s?.passes ?? 0,
         taps: s?.taps ?? 0,
         maxSample: s?.maxSample ?? 0,
+        cached: false,
       })
     }
     this.perfMonitor.incBlurPass()

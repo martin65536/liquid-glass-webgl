@@ -460,7 +460,7 @@ export interface GlassElementConfig extends GlassButtonConfig {
     glassTintStrength?: number
     /** Separable 2-pass blur on the backdrop (default false). When true, the
      *  SDF-texture glass element uses the global 2-pass Gaussian blur pipeline
-     *  (resolveBackdropTex renders the cover-fitted wallpaper into gpElementFbo,
+     *  (resolveBackdropTex renders the cover-fitted wallpaper into wallpaperBlurFbo,
      *  2-pass blurs it, passes it as uBackdrop) instead of inline poisson-disc
      *  blur on uWallpaperSampler. The shader branches on uSampleWallpaper:
      *  when < 0.5 (pre-blurred backdrop available), it samples uBackdrop via

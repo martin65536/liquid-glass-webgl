@@ -36,8 +36,8 @@ export const disposeMethods = {
     this.tabsBackdropFbo = null
     this.tabsBackdropTex = null
     // GP element FBO + blur FBOs + programs
-    if (this.gpElementFbo) gl.deleteFramebuffer(this.gpElementFbo)
-    if (this.gpElementTex) gl.deleteTexture(this.gpElementTex)
+    if (this.wallpaperBlurFbo) gl.deleteFramebuffer(this.wallpaperBlurFbo)
+    if (this.wallpaperBlurTex) gl.deleteTexture(this.wallpaperBlurTex)
     if (this.blurFboA) gl.deleteFramebuffer(this.blurFboA)
     if (this.blurFboATex) gl.deleteTexture(this.blurFboATex)
     if (this.blurFboB) gl.deleteFramebuffer(this.blurFboB)
@@ -57,8 +57,8 @@ export const disposeMethods = {
       gl.deleteTexture(lvl.texB)
     }
     this.dsBlurLevels = []
-    this.gpElementFbo = this.blurFboA = this.blurFboB = this.dsBlurFboA = this.dsBlurFboB = null
-    this.gpElementTex = this.blurFboATex = this.blurFboBTex = this.dsBlurFboATex = this.dsBlurFboBTex = null
+    this.wallpaperBlurFbo = this.blurFboA = this.blurFboB = this.dsBlurFboA = this.dsBlurFboB = null
+    this.wallpaperBlurTex = this.blurFboATex = this.blurFboBTex = this.dsBlurFboATex = this.dsBlurFboBTex = null
     if (this.highlightMaskFbo) gl.deleteFramebuffer(this.highlightMaskFbo)
     if (this.highlightMaskTex) gl.deleteTexture(this.highlightMaskTex)
     this.highlightMaskFbo = null
@@ -108,6 +108,11 @@ export const disposeMethods = {
       gl.deleteProgram(this.kawasePrograms.prog)
       this.kawasePrograms = null
     }
+    // Clear backdrop blur cache textures.
+    for (const entry of this.backdropBlurCache.values()) {
+      gl.deleteTexture(entry.tex)
+    }
+    this.backdropBlurCache.clear()
     if (this.sdfTexture) gl.deleteTexture(this.sdfTexture)
     this.sdfTexture = null
     if (this.textSdfTexture) gl.deleteTexture(this.textSdfTexture)
