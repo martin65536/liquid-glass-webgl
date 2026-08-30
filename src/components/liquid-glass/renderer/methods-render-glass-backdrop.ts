@@ -232,22 +232,23 @@ export function resolveBackdropTex(
       gl.drawArrays(gl.TRIANGLES, 0, 6)
       // Step 2: blur wallpaperBlurTex.
       const blurResult = this.blurTexture(this.wallpaperBlurTex!, blurRadiusPx)
-      // Step 3: copy to a dedicated cache FBO (dsBlurFboBTex will be overwritten
-      // by the next element's blur). Use gl.copyTexImage2D instead of drawCopy
-      // to avoid shader state issues — directly copy the currently-bound FBO's
-      // color buffer to the cache texture.
+      // Step 3: copy blurResult to a dedicated cache texture.
+      // blurTexture left the blur result in dsBlurFboA or dsBlurFboB.
+      // We use gl.copyTexImage2D: bind the blur result's FBO as read target,
+      // then copy its color buffer directly to the cache texture (no shader).
       const cacheFbo = this.createFBO(this.fboW, this.fboH)
       const gl2 = this.gl
-      // Re-bind the blur result FBO to read from it. blurTexture returned
-      // dsBlurFboBTex (Gaussian) or dsBlurFboATex/BTex (Kawase). We need to
-      // bind that FBO, then copyTexImage2D to cacheFbo.tex.
-      // Actually simpler: bind cacheFbo as write target, bind blurResult as
-      // read texture, drawCopy a fullscreen quad. The issue was viewport —
-      // explicitly set it here.
       const savedFb = gl2.getParameter(gl2.FRAMEBUFFER_BINDING)
-      this.bindFBO(cacheFbo.fb)
-      gl2.viewport(0, 0, this.fboW, this.fboH)
-      this.drawCopy(blurResult)
+      // Create temp FBO to read blurResult texture.
+      const readFb = gl2.createFramebuffer()
+      gl2.bindFramebuffer(gl2.FRAMEBUFFER, readFb)
+      gl2.framebufferTexture2D(gl2.FRAMEBUFFER, gl2.COLOR_ATTACHMENT0, gl2.TEXTURE_2D, blurResult, 0)
+      // Copy from readFb's color buffer to cacheFbo.tex.
+      gl2.activeTexture(gl2.TEXTURE0)
+      gl2.bindTexture(gl2.TEXTURE_2D, cacheFbo.tex)
+      gl2.copyTexImage2D(gl2.TEXTURE_2D, 0, gl2.RGBA, 0, 0, this.fboW, this.fboH, 0)
+      gl2.deleteFramebuffer(readFb)
+      // Restore FBO binding.
       this.bindFBO(savedFb as WebGLFramebuffer | null)
       this.backdropBlurCache.set(cacheKey, {
         tex: cacheFbo.tex,
