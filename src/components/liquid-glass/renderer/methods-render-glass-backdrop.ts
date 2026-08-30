@@ -216,7 +216,7 @@ export function resolveBackdropTex(
       // HIT: reuse cached blurred wallpaper, 0 draw calls.
       blurred = entry.tex
       cacheHit = true
-      this.lastBlurStats = { type: entry.blurType, passes: 0, taps: 0, maxSample: 0 }
+      this.lastBlurStats = { type: entry.blurType, passes: 0, taps: 0, maxSample: 0, w: entry.w, h: entry.h, setupMs: 0, drawMs: 0 }
     } else if (!cacheKey) {
       // Cache disabled (useBlurCache=false): blur every frame, don't store.
       // NO throttle here — throttle only applies to cache-miss path (to
@@ -236,6 +236,12 @@ export function resolveBackdropTex(
       const t0 = performance.now()
       const blurResult = this.blurTexture(this.wallpaperBlurTex!, blurRadiusPx)
       const t1 = performance.now()
+      // blur = setup + draw (from lastBlurStats). setup = program ensure +
+      // GL state save/restore; draw = the actual drawArrays (passH+passV for
+      // gaussian, N iters for kawase). Reported separately so the overlay can
+      // show whether the cost is GL state overhead or GPU fragment work.
+      const blurSetupMs = this.lastBlurStats?.setupMs ?? 0
+      const blurDrawMs = this.lastBlurStats?.drawMs ?? (t1 - t0)
       // Use the ACTUAL blur texture dimensions (from lastBlurStats), NOT
       // this.dsBlurFboW/H. When dynamicBlurDownsample=true, pickDsBlurLevel
       // may select a different ds level (e.g. ds=1 full-res for small radius)
@@ -320,8 +326,6 @@ export function resolveBackdropTex(
           }
         }
         const ts = performance.now()
-        // alloc is folded into scan (negligible, <0.1ms); report readPixels +
-        // nonZero/bbox scan separately so the user can see which dominates.
         readPixelsMs = tr1 - tr0
         scanMs = ts - tr1 + (tr0 - ta)
       }
@@ -330,8 +334,8 @@ export function resolveBackdropTex(
         w: snapW, h: snapH,
         rgba: snapBuf,
         nonZero: snapNZ,
-        blurMs, copyMs, readPixelsMs, scanMs,
-        totalMs: blurMs + copyMs + readPixelsMs + scanMs,
+        blurSetupMs, blurDrawMs, copyMs, readPixelsMs, scanMs,
+        totalMs: blurSetupMs + blurDrawMs + copyMs + readPixelsMs + scanMs,
       })
       this.bindFBO(savedFb as WebGLFramebuffer | null)
       if (savedScissor) {
@@ -429,7 +433,7 @@ export function resolveBackdropTex(
       if (entry) {
         blurred = entry.tex
         cacheHit = true
-        this.lastBlurStats = { type: entry.blurType, passes: 0, taps: 0, maxSample: 0 }
+        this.lastBlurStats = { type: entry.blurType, passes: 0, taps: 0, maxSample: 0, w: entry.w, h: entry.h, setupMs: 0, drawMs: 0 }
       } else {
         // MISS — throttle (same as independent path).
         if (this._blurCacheMissesThisFrame >= this.blurCacheMissesPerFrame) {
@@ -439,6 +443,8 @@ export function resolveBackdropTex(
         const sT0 = performance.now()
         blurred = this.blurTexture(backdropSrc, blurRadiusPx)
         const sT1 = performance.now()
+        const sBlurSetupMs = this.lastBlurStats?.setupMs ?? 0
+        const sBlurDrawMs = this.lastBlurStats?.drawMs ?? (sT1 - sT0)
         // Use actual blur texture dims (see independent path comment above
         // for the Adreno copyTexImage2D mismatch bug rationale).
         const blurW = this.lastBlurStats?.w ?? this.dsBlurFboW ?? this.fboW
@@ -475,9 +481,6 @@ export function resolveBackdropTex(
           gl2.disable(gl2.SCISSOR_TEST)
         }
         const sT2 = performance.now()
-        // Snapshot: timing always recorded; readPixels only when preview on
-        // (same split as independent path — readPixels + scan timed separately).
-        const sBlurMs = sT1 - sT0
         const sCopyMs = sT2 - sT1
         let sReadPixelsMs = 0
         let sScanMs = 0
@@ -515,8 +518,8 @@ export function resolveBackdropTex(
           w: sSnapW, h: sSnapH,
           rgba: sBuf,
           nonZero: sNZ,
-          blurMs: sBlurMs, copyMs: sCopyMs, readPixelsMs: sReadPixelsMs, scanMs: sScanMs,
-          totalMs: sBlurMs + sCopyMs + sReadPixelsMs + sScanMs,
+          blurSetupMs: sBlurSetupMs, blurDrawMs: sBlurDrawMs, copyMs: sCopyMs, readPixelsMs: sReadPixelsMs, scanMs: sScanMs,
+          totalMs: sBlurSetupMs + sBlurDrawMs + sCopyMs + sReadPixelsMs + sScanMs,
         })
         gl2.bindFramebuffer(gl2.FRAMEBUFFER, savedFb)
         if (savedSc) { gl2.enable(gl2.SCISSOR_TEST); gl2.scissor(savedBox[0], savedBox[1], savedBox[2], savedBox[3]) }
