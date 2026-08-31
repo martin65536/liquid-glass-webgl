@@ -72,26 +72,6 @@ export function usePerfBenchmark({
     }
   }, [state.perfProgress, destination])
 
-  // Auto-detect on first visit (before any custom DPR set)
-  React.useEffect(() => {
-    if (typeof window === 'undefined') return
-    if (!rendererReady) return
-    if (state.customDpr > 0) return
-    try {
-      const cached = window.localStorage.getItem(PERF_KEY)
-      if (cached) {
-        const autoDpr = parseFloat(cached)
-        if (autoDpr > 0) {
-          setState({ customDpr: autoDpr })
-          return
-        }
-      }
-    } catch {}
-    // No cached result — navigate to PerfBenchmark and auto-start
-    setDestination(CatalogDestination.PerfBenchmark)
-    setState({ perfProgress: 'running', perfDone: false, perfResultDpr: 0, perfStatusText: '', customDpr: 0, perfGlassAngle: 0, perfProgressFrac: 0, perfProgressFracAnimated: 0, perfDeformMul: 1, perfExitProgress: 0, perfRoundTrigger: 1 })
-  }, [rendererReady, state.customDpr])
-
   // Run benchmark iteration when perfProgress='running' and the trigger changes.
   // perfRoundTrigger increments each round so the effect re-fires.
   // Standard binary search from midpoint of [deviceDpr/2, deviceDpr].

@@ -72,7 +72,6 @@ export const HOME_SECTIONS: { titleKey: string; items: { dest: CatalogDestinatio
       { dest: CatalogDestination.ProgressiveBlur, labelKey: 'item_progressive_blur' },
       { dest: CatalogDestination.ScrollContainer, labelKey: 'item_scroll_container' },
       { dest: CatalogDestination.LazyScrollContainer, labelKey: 'item_lazy_scroll' },
-      { dest: CatalogDestination.PerfBenchmark, labelKey: 'item_perf_benchmark' },
       { dest: CatalogDestination.TextGlass, labelKey: 'item_text_glass' },
     ],
   },
