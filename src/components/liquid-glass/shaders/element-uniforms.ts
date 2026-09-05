@@ -152,6 +152,12 @@ uniform float uSdfGlassTintMix;     // default 0 (off); 0..1 = mix strength
 // slider so the user can tune the dye intensity independently of the
 // color-mix filter. Faithful to "加一个调染色强度的".
 uniform float uSdfGlassTintStrength; // default 0.85; 0..1 = dye strength
+// Tint color saturation (0..1, default 1.0). The tint source color is
+// hsv2rgb(hue/360, S, V); S was hardcoded 1.0 before. 0 = gray, 1 = full.
+uniform float uSdfGlassTintSaturation; // default 1.0; 0..1
+// Tint color lightness/value (0..1, default 1.0). The V in hsv2rgb.
+// 0 = black, 0.5 = mid, 1 = full brightness.
+uniform float uSdfGlassTintLightness;  // default 1.0; 0..1
 // Edge matte (0 or 1). When 1, the SDF edge band (where intensity is high,
 // i.e. near the text boundary) is desaturated toward luminance AND slightly
 // darkened — a frosted/matte rim. The edge band factor is intensity itself

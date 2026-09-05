@@ -101,9 +101,18 @@ export function buildTextGlass(
   // button row + padding. When the advanced panel is OPEN, an extra
   // TG_ADVANCED_PANEL_H is reserved between the size slider and the advanced
   // button so the inline DOM panel (transparent, scrolls internally) fits.
+  //
+  // IMPORTANT: the glass text's vertical center is computed from
+  // availableH which ALWAYS uses advancedPanelH = 0 (advanced panel closed).
+  // This keeps tg-glass fixed when the user opens/closes the advanced panel —
+  // the panel opens BELOW the glass text, overlapping the sheet's lower region
+  // instead of pushing the glass up. (The sheet itself still grows by 150px
+  // when advanced opens — only the glass text position is stable.)
   const advancedPanelH = state.textGlassAdvanced ? TG_ADVANCED_PANEL_H : 0
   const fullSheetContentH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H + advancedPanelH + TG_ADVANCED_BTN_H + TG_INNER_PAD
-  const sheetReservedH = fullSheetContentH
+  // availableH uses the CLOSED-advanced height so tg-glass stays put when
+  // the advanced panel opens/closes (see comment block above).
+  const sheetReservedH = TG_INNER_PAD + TG_INPUT_ROW_H + TG_ROW_H + TG_ADVANCED_BTN_H + TG_INNER_PAD
   const availableH = H - bottomBtnSpace - sheetReservedH
   const aspect = state.textGlassAspect > 0 ? state.textGlassAspect : 3
   const texH = state.textGlassTexH > 0
@@ -168,6 +177,10 @@ export function buildTextGlass(
     // Hue-dye strength (0..1, default 0.85). Controls how strongly the
     // BlendMode.Hue dye is applied. Exposed as the 染色强度 slider.
     glassTintStrength: state.textGlassGlassTintStrength,
+    // Tint color saturation + lightness (replace hardcoded 1.0, 1.0 in
+    // hsv2rgb — gives full HSL control over the tint source color).
+    glassTintSaturation: state.textGlassGlassTintSaturation,
+    glassTintLightness: state.textGlassGlassTintLightness,
     // Adapt to global 2-pass blur: when the global separable blur setting is
     // ON, the SDF glass uses the 2-pass Gaussian pipeline (cover-fitted
     // wallpaper → blur → uBackdrop) instead of inline poisson-disc blur.
@@ -243,7 +256,7 @@ export function buildTextGlass(
         blurRadius: 4 * DP,
         saturation: 1.5,
         surfaceColor: palette.tabsContainer,
-        highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, alpha: 0.38 },
+        highlight: { ...DEFAULT_HIGHLIGHT, mode: 0, alpha: 0.38 },
       }
     )
     tgSheet.independentBackdrop = true

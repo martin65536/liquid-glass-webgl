@@ -405,6 +405,15 @@ export interface CatalogState {
   // exposed as a slider so the user can tune the dye intensity independently
   // of the color-mix filter. Faithful to "加一个调染色强度的".
   textGlassGlassTintStrength: number
+  // TextGlass — tint saturation [0,1], default 1.0. The tint color is built
+  // via hsv2rgb(hue, S, V); previously S was hardcoded 1.0 (full saturation).
+  // Exposing it lets the user pick pastel/desaturated tint colors. 0 = gray
+  // (hue ignored), 1 = fully saturated.
+  textGlassGlassTintSaturation: number
+  // TextGlass — tint lightness/value [0,1], default 1.0. The V in hsv2rgb.
+  // Previously hardcoded 1.0. 0 = black, 0.5 = mid, 1 = full brightness.
+  // Combined with saturation, gives full HSL control over the tint color.
+  textGlassGlassTintLightness: number
   // TextGlass — "边缘哑光" (Edge matte) toggle. When true, the SDF edge band
   // (high `intensity`, near the text boundary) is desaturated toward luminance
   // AND slightly darkened — a frosted/matte rim. The effect fades smoothly
@@ -560,6 +569,8 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   textGlassGlassTintEnabled: false,
   textGlassGlassTintMix: 0,
   textGlassGlassTintStrength: 0.85,
+  textGlassGlassTintSaturation: 1.0,
+  textGlassGlassTintLightness: 1.0,
   textGlassEdgeMatte: true,
   textGlassEdgeMatteTargets: 8,
   textGlassEdgeMatteBevelRange: 1,

@@ -341,6 +341,18 @@ export const glassElementPassMethods = {
         this.uEl['uSdfGlassTintStrength'],
         el.isSdfTexture.glassTintStrength ?? 0.85
       )
+      // Tint color saturation (0..1, default 1.0). Replaces the hardcoded
+      // 1.0 in hsv2rgb(hue, S, V) — lets the user pick pastel tints.
+      gl.uniform1f(
+        this.uEl['uSdfGlassTintSaturation'],
+        el.isSdfTexture.glassTintSaturation ?? 1.0
+      )
+      // Tint color lightness/value (0..1, default 1.0). Replaces the
+      // hardcoded 1.0 V in hsv2rgb.
+      gl.uniform1f(
+        this.uEl['uSdfGlassTintLightness'],
+        el.isSdfTexture.glassTintLightness ?? 1.0
+      )
       // Edge matte (0 or 1). Desaturates + darkens the SDF edge band.
       gl.uniform1f(
         this.uEl['uSdfEdgeMatteEnabled'],
@@ -391,6 +403,8 @@ export const glassElementPassMethods = {
       gl.uniform1f(this.uEl['uSdfGlassTintEnabled'], 0.0)
       gl.uniform1f(this.uEl['uSdfGlassTintMix'], 0.0)
       gl.uniform1f(this.uEl['uSdfGlassTintStrength'], 0.85)
+      gl.uniform1f(this.uEl['uSdfGlassTintSaturation'], 1.0)
+      gl.uniform1f(this.uEl['uSdfGlassTintLightness'], 1.0)
       gl.uniform1f(this.uEl['uSdfEdgeMatteEnabled'], 0.0)
       gl.uniform1f(this.uEl['uSdfEdgeMatteTargets'], 7.0)
       gl.uniform2f(this.uEl['uSdfEdgeMatteBevelParams'], 1.0, 0.0)

@@ -402,7 +402,6 @@ export function TextGlassAdvancedPanel({
             360,
             1,
             (v) => setState({ textGlassGlassTintHue: Math.round(v) }),
-            state.textGlassGlassTintHue === 0 ? (locale === 'zh' ? '关闭' : 'OFF') : undefined,
           )}
           {renderSlider(
             t('text_glass_glass_tint_mix', locale),
@@ -419,6 +418,22 @@ export function TextGlassAdvancedPanel({
             1,
             0.02,
             (v) => setState({ textGlassGlassTintStrength: Math.round(v * 100) / 100 }),
+          )}
+          {renderSlider(
+            t('text_glass_glass_tint_saturation', locale),
+            state.textGlassGlassTintSaturation,
+            0,
+            1,
+            0.02,
+            (v) => setState({ textGlassGlassTintSaturation: Math.round(v * 100) / 100 }),
+          )}
+          {renderSlider(
+            t('text_glass_glass_tint_lightness', locale),
+            state.textGlassGlassTintLightness,
+            0,
+            1,
+            0.02,
+            (v) => setState({ textGlassGlassTintLightness: Math.round(v * 100) / 100 }),
           )}
         </div>
       )}

@@ -35,7 +35,7 @@ export const uniformMethods = {
       'uTabContentRects[4]', 'uTabContentRects[5]', 'uTabContentRects[6]', 'uTabContentRects[7]',
       'uTabContentCount', 'uTabsGlassLayer',
       'uSdfTexSampler', 'uUseSdfTexture', 'uSdfTexSize', 'uSdfLightAngle', 'uEnterAlpha',
-      'uSdfHighlightScale', 'uSdfBevelEnabled', 'uSdfGlassTintHue', 'uSdfGlassTintEnabled', 'uSdfGlassTintMix', 'uSdfGlassTintStrength', 'uSdfEdgeMatteEnabled', 'uSdfEdgeMatteTargets', 'uSdfEdgeMatteBevelParams', 'uSdfEdgeMatteTintParams', 'uSdfEdgeMatteBaseParams', 'uSdfEdgeMatteBrightenParams', 'uSdfEdgeMatteBevelStrength', 'uSdfEdgeMatteTintStrength', 'uSdfEdgeMatteBaseStrength', 'uSdfEdgeMatteBrightenStrength', 'uSdfDebugMode', 'uSdfAaMin',
+      'uSdfHighlightScale', 'uSdfBevelEnabled', 'uSdfGlassTintHue', 'uSdfGlassTintEnabled', 'uSdfGlassTintMix', 'uSdfGlassTintStrength', 'uSdfGlassTintSaturation', 'uSdfGlassTintLightness', 'uSdfEdgeMatteEnabled', 'uSdfEdgeMatteTargets', 'uSdfEdgeMatteBevelParams', 'uSdfEdgeMatteTintParams', 'uSdfEdgeMatteBaseParams', 'uSdfEdgeMatteBrightenParams', 'uSdfEdgeMatteBevelStrength', 'uSdfEdgeMatteTintStrength', 'uSdfEdgeMatteBaseStrength', 'uSdfEdgeMatteBrightenStrength', 'uSdfDebugMode', 'uSdfAaMin',
       'uUsePerElementFbo', 'uSceneRectOffset', 'uElFboSize', 'uBackdropRect',
       'uCornerStyle', 'uSkipColorControls',
       'uUseMagnifier', 'uMagnifierZoom', 'uMagnifierOffsetY',

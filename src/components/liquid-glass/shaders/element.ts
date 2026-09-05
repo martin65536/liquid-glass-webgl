@@ -331,8 +331,8 @@ void main() {
             * (1.0 - uSdfEdgeMatteTintParams.y) + uSdfEdgeMatteTintParams.y;
         // Tint matte strength — scales how much the tint is suppressed at edge.
         float tintMatteS = uSdfEdgeMatteTintStrength;
-        if (uSdfGlassTintEnabled > 0.5 && uSdfGlassTintHue > 0.5) {
-            vec3 tintSrc = hsv2rgb(vec3(uSdfGlassTintHue / 360.0, 1.0, 1.0));
+        if (uSdfGlassTintEnabled > 0.5) {
+            vec3 tintSrc = hsv2rgb(vec3(uSdfGlassTintHue / 360.0, uSdfGlassTintSaturation, uSdfGlassTintLightness));
             // Stage 1: color-mix filter (before hue-dye).
             if (uSdfGlassTintMix > 0.001) {
                 float mixAmt = uSdfGlassTintMix;

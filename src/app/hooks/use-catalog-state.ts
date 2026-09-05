@@ -45,6 +45,8 @@ function loadPersistedSettings(): Partial<CatalogState> {
       directBackdropSample: typeof parsed.directBackdropSample === 'boolean' ? parsed.directBackdropSample : true,
       textGlassGravity: typeof parsed.textGlassGravity === 'boolean' ? parsed.textGlassGravity : false,
       textGlassHighlightAngle: typeof parsed.textGlassHighlightAngle === 'number' ? Math.max(0, Math.min(360, parsed.textGlassHighlightAngle)) : 45,
+      textGlassGlassTintSaturation: typeof parsed.textGlassGlassTintSaturation === 'number' ? Math.max(0, Math.min(1, parsed.textGlassGlassTintSaturation)) : 1.0,
+      textGlassGlassTintLightness: typeof parsed.textGlassGlassTintLightness === 'number' ? Math.max(0, Math.min(1, parsed.textGlassGlassTintLightness)) : 1.0,
     }
   } catch { return {} }
 }
@@ -88,7 +90,8 @@ export function useCatalogState(): {
              p.useKawaseBlur !== undefined ||
              p.useBlurCache !== undefined ||
              p.showPerfMonitor !== undefined || p.directBackdropSample !== undefined ||
-             p.textGlassGravity !== undefined || p.textGlassHighlightAngle !== undefined)) {
+             p.textGlassGravity !== undefined || p.textGlassHighlightAngle !== undefined ||
+             p.textGlassGlassTintSaturation !== undefined || p.textGlassGlassTintLightness !== undefined)) {
           try {
             window.localStorage.setItem(SETTINGS_KEY, JSON.stringify({
               customDpr: next.customDpr,
@@ -111,6 +114,8 @@ export function useCatalogState(): {
               directBackdropSample: next.directBackdropSample,
               textGlassGravity: next.textGlassGravity,
               textGlassHighlightAngle: next.textGlassHighlightAngle,
+              textGlassGlassTintSaturation: next.textGlassGlassTintSaturation,
+              textGlassGlassTintLightness: next.textGlassGlassTintLightness,
             }))
           } catch { /* ignore quota errors */ }
         }

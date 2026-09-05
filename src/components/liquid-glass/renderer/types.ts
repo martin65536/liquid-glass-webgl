@@ -458,6 +458,12 @@ export interface GlassElementConfig extends GlassButtonConfig {
      *  the original's hardcoded 0.85 constant, now exposed as a slider so the
      *  user can tune the dye intensity independently of the color-mix. */
     glassTintStrength?: number
+    /** Tint color saturation [0,1], default 1.0. Replaces the hardcoded 1.0
+     *  S in hsv2rgb(hue, S, V). 0 = gray, 1 = fully saturated. */
+    glassTintSaturation?: number
+    /** Tint color lightness/value [0,1], default 1.0. Replaces the hardcoded
+     *  1.0 V in hsv2rgb. 0 = black, 0.5 = mid, 1 = full brightness. */
+    glassTintLightness?: number
     /** Separable 2-pass blur on the backdrop (default false). When true, the
      *  SDF-texture glass element uses the global 2-pass Gaussian blur pipeline
      *  (resolveBackdropTex renders the cover-fitted wallpaper into wallpaperBlurFbo,
