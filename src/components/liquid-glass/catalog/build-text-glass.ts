@@ -162,7 +162,11 @@ export function buildTextGlass(
     // LockScreen's clock_sdf.webp are completely independent textures.
     textureSource: 'text',
     refractionHeight: 48 * DP,
-    lightAngle: 45,
+    // SDF light direction (光影方向): uSdfLightAngle in the shader drives the
+    // bevel edge-lighting direction. When textGlassGravity is on, the renderer
+    // reads renderer.gravityAngle live (device orientation) via
+    // el.useGravityAngle. When off, uses textGlassHighlightAngle (the slider).
+    lightAngle: state.textGlassHighlightAngle,
     highlightScale: state.textGlassHighlightScale,
     bevelEnabled: state.textGlassLightingEnabled,
     // Whole-glass tint dye hue (0..360°, 0 = OFF). Dyes the ENTIRE glass body
@@ -216,6 +220,9 @@ export function buildTextGlass(
   // and the shader samples uWallpaperSampler with inline poisson blur.
   tgGlass.independentBackdrop = true
   tgGlass.scroll = false
+  // When gravity is on, the renderer reads renderer.gravityAngle live and
+  // feeds it to uSdfLightAngle (see methods-render-glass-element-pass.ts).
+  if (state.textGlassGravity) tgGlass.useGravityAngle = true
   elements.push(tgGlass)
   interactions['tg-glass'] = {
     onDragStart: () => {
@@ -256,20 +263,11 @@ export function buildTextGlass(
         blurRadius: 4 * DP,
         saturation: 1.5,
         surfaceColor: palette.tabsContainer,
-        highlight: { ...DEFAULT_HIGHLIGHT, mode: 0, alpha: 0.38 },
+        highlight: { ...DEFAULT_HIGHLIGHT, mode: 2, alpha: 0.38 },
       }
     )
     tgSheet.independentBackdrop = true
     tgSheet.scroll = false
-    // Highlight direction: when textGlassGravity is on, follow device
-    // orientation live (el.useGravityAngle=true, reads renderer.gravityAngle
-    // each frame — same mechanism as ControlCenter tiles). When off, use the
-    // custom angle from the slider (textGlassHighlightAngle, degrees → rad).
-    if (state.textGlassGravity) {
-      tgSheet.useGravityAngle = true
-    } else if (tgSheet.highlight) {
-      tgSheet.highlight.angle = state.textGlassHighlightAngle * Math.PI / 180
-    }
     // Smooth (continuous-curvature squircle) corners on the sheet card.
     if (state.capsuleShape) tgSheet.useContinuousSdf = true
     elements.push(tgSheet)
@@ -444,12 +442,6 @@ export function buildTextGlass(
   }
   // Smooth (continuous-curvature squircle) corners on the toggle button.
   if (state.capsuleShape) toggleBtn.useContinuousSdf = true
-  // Highlight direction (same as tg-sheet above).
-  if (state.textGlassGravity) {
-    toggleBtn.useGravityAngle = true
-  } else if (toggleBtn.highlight) {
-    toggleBtn.highlight.angle = state.textGlassHighlightAngle * Math.PI / 180
-  }
   elements.push(toggleBtn)
   interactions['tg-toggle'] = {
     onTap: () => setState((prev) => ({ textGlassSheetExpanded: !prev.textGlassSheetExpanded })),

@@ -296,7 +296,11 @@ export const glassElementPassMethods = {
       gl.uniform1i(this.uEl['uSdfTexSampler'], 2)
       gl.uniform1f(this.uEl['uUseSdfTexture'], 1.0)
       gl.uniform2f(this.uEl['uSdfTexSize'], sdfTexSize[0], sdfTexSize[1])
-      gl.uniform1f(this.uEl['uSdfLightAngle'], el.isSdfTexture.lightAngle)
+      gl.uniform1f(this.uEl['uSdfLightAngle'],
+        el.useGravityAngle
+          ? (renderer.gravityAngle * 180 / Math.PI)  // live device orientation (rad → deg)
+          : el.isSdfTexture.lightAngle
+      )
       gl.uniform1f(
         this.uEl['uRefractionHeight'],
         (this.quickToggles.refraction ? el.isSdfTexture.refractionHeight : 0) * this.dpr
