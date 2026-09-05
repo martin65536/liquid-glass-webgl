@@ -298,7 +298,7 @@ export const glassElementPassMethods = {
       gl.uniform2f(this.uEl['uSdfTexSize'], sdfTexSize[0], sdfTexSize[1])
       gl.uniform1f(this.uEl['uSdfLightAngle'],
         el.useGravityAngle
-          ? (renderer.gravityAngle * 180 / Math.PI)  // live device orientation (rad → deg)
+          ? (this.gravityAngle * 180 / Math.PI)  // live device orientation (rad → deg)
           : el.isSdfTexture.lightAngle
       )
       gl.uniform1f(
