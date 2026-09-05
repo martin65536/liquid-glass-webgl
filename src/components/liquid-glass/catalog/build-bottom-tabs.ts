@@ -108,8 +108,13 @@ export function buildBottomTabs(W: number, H: number, onBack: () => void, state:
       }
     )
     containerEl.isBottomTabContainer = { groupId: idPrefix, tabsCount }
-    // Container needs the scene FBO for correct compositing with tab content.
-    containerEl.independentBackdrop = false
+    // Container uses the wallpaper blur cache (independent=true) instead of
+    // the scene FBO. The bottom tab bar sits over the wallpaper (rarely over
+    // other glass elements), so sampling the static blurred wallpaper is
+    // visually faithful to the original Android LayerBackdrop(wallpaper) and
+    // lets the wallpaper_* blur cache hit every frame (0 blur cost after the
+    // first miss), instead of re-blurring curTex each frame via scene cache.
+    containerEl.independentBackdrop = true
     // Capsule shape: container is a 64dp capsule (cornerRadius=32). When
     // capsuleShape is on, use the G2 continuous-curvature SDF texture.
     if (state.capsuleShape) containerEl.useContinuousSdf = true
