@@ -76,6 +76,7 @@ export function generateElementUtilsGLSL(tapCount: number = DEFAULT_BLUR_TAPS): 
 // the file for readability). GLSL ES 1.00 requires declaration before use.
 vec3 rgb2hsv(vec3 c);
 vec3 hsv2rgb(vec3 c);
+vec3 hsl2rgb(vec3 c);
 vec3 blendHue(vec3 dst, vec3 src);
 
 float circleMap(float x) {
@@ -558,6 +559,27 @@ vec3 hsv2rgb(vec3 c) {
     if (i < 4.0) return vec3(p, q, v);
     if (i < 5.0) return vec3(t, p, v);
     return vec3(v, p, q);
+}
+
+// HSL → RGB. Input: h in [0,1] (hue/360), s in [0,1], l in [0,1].
+// Unlike HSV (where V=1 gives the pure hue color), HSL with L=1 gives
+// WHITE and L=0 gives BLACK — so the 'lightness' slider behaves like a
+// proper brightness control: 1 = white, 0.5 = pure color, 0 = black.
+// L=0.5 + S=1 is the pure hue; S=0 makes it a grayscale by L.
+vec3 hsl2rgb(vec3 c) {
+    float h = c.x;
+    float s = c.y;
+    float l = c.z;
+    if (s < 0.001) return vec3(l);
+    float q = l < 0.5 ? l * (1.0 + s) : l + s - l * s;
+    float p = 2.0 * l - q;
+    float r = clamp(abs(mod(h * 6.0 + 0.0, 6.0) - 3.0) - 1.0, 0.0, 1.0);
+    float g = clamp(abs(mod(h * 6.0 + 2.0, 6.0) - 3.0) - 1.0, 0.0, 1.0);
+    float b = clamp(abs(mod(h * 6.0 + 4.0, 6.0) - 3.0) - 1.0, 0.0, 1.0);
+    r = p + (q - p) * r;
+    g = p + (q - p) * g;
+    b = p + (q - p) * b;
+    return vec3(r, g, b);
 }
 
 // BlendMode.Hue: take hue from src, sat+val from dst.
