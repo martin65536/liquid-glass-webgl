@@ -43,6 +43,8 @@ function loadPersistedSettings(): Partial<CatalogState> {
       kawaseQuality: typeof parsed.kawaseQuality === 'number' ? Math.max(0, Math.min(1, parsed.kawaseQuality)) : 1.0,
       showPerfMonitor: typeof parsed.showPerfMonitor === 'boolean' ? parsed.showPerfMonitor : false,
       directBackdropSample: typeof parsed.directBackdropSample === 'boolean' ? parsed.directBackdropSample : true,
+      textGlassGravity: typeof parsed.textGlassGravity === 'boolean' ? parsed.textGlassGravity : false,
+      textGlassHighlightAngle: typeof parsed.textGlassHighlightAngle === 'number' ? Math.max(0, Math.min(360, parsed.textGlassHighlightAngle)) : 45,
     }
   } catch { return {} }
 }
@@ -85,7 +87,8 @@ export function useCatalogState(): {
              p.showFps !== undefined || p.usePerElementFbo !== undefined ||
              p.useKawaseBlur !== undefined ||
              p.useBlurCache !== undefined ||
-             p.showPerfMonitor !== undefined || p.directBackdropSample !== undefined)) {
+             p.showPerfMonitor !== undefined || p.directBackdropSample !== undefined ||
+             p.textGlassGravity !== undefined || p.textGlassHighlightAngle !== undefined)) {
           try {
             window.localStorage.setItem(SETTINGS_KEY, JSON.stringify({
               customDpr: next.customDpr,
@@ -106,6 +109,8 @@ export function useCatalogState(): {
               kawaseQuality: next.kawaseQuality,
               showPerfMonitor: next.showPerfMonitor,
               directBackdropSample: next.directBackdropSample,
+              textGlassGravity: next.textGlassGravity,
+              textGlassHighlightAngle: next.textGlassHighlightAngle,
             }))
           } catch { /* ignore quota errors */ }
         }

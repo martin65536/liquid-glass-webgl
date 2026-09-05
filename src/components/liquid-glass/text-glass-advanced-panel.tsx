@@ -533,6 +533,20 @@ export function TextGlassAdvancedPanel({
         state.textGlassRawSdf,
         (v) => setState({ textGlassRawSdf: v }),
       )}
+      {renderToggle(
+        t('text_glass_gravity', locale),
+        state.textGlassGravity,
+        (v) => setState({ textGlassGravity: v }),
+      )}
+      {!state.textGlassGravity && renderSlider(
+        t('text_glass_highlight_angle', locale),
+        state.textGlassHighlightAngle,
+        0,
+        360,
+        1,
+        (v) => setState({ textGlassHighlightAngle: v }),
+        `${Math.round(state.textGlassHighlightAngle)}°`,
+      )}
 
       {/* Divider */}
       <div style={{ height: 1, background: dividerColor, margin: '6px 0' }} />

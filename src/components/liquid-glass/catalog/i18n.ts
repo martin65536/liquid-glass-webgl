@@ -215,6 +215,8 @@ const translations: Record<string, { zh: string; en: string }> = {
   text_glass_glass_tint_enabled: { zh: '染色开关', en: 'Tint on' },
   text_glass_glass_tint_mix:     { zh: '混合', en: 'Mix' },
   text_glass_glass_tint_strength: { zh: '染色强度', en: 'Dye strength' },
+  text_glass_gravity:       { zh: '陀螺仪方向', en: 'Gravity direction' },
+  text_glass_highlight_angle: { zh: '高光方向', en: 'Highlight angle' },
   text_glass_edge_matte:    { zh: '边缘哑光', en: 'Edge matte' },
   text_glass_edge_matte_targets: { zh: '哑光作用于', en: 'Matte targets' },
   text_glass_edge_matte_bevel:   { zh: '光影', en: 'Bevel' },

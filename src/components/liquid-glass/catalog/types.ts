@@ -468,6 +468,18 @@ export interface CatalogState {
   // in page.tsx (NOT in the WebGL canvas) so it can use native HTML inputs
   // for crisper typography + accessibility.
   textGlassAdvanced: boolean
+  // TextGlass — "Gravity direction" toggle in the advanced panel. When true,
+  // the sheet card + toggle button read renderer.gravityAngle live each
+  // frame (el.useGravityAngle=true) so the rim highlight rotates with
+  // device orientation. Also enables the devicemotion listener on the
+  // TextGlass page. When false, the highlight angle is fixed at
+  // textGlassHighlightAngle (user-controlled via the slider below the toggle).
+  textGlassGravity: boolean
+  // TextGlass — custom highlight direction in DEGREES [0, 360], used only
+  // when textGlassGravity is false. Default 45 (matches the original
+  // DEFAULT_HIGHLIGHT.angle = 45° = 0.785 rad). Converted to radians and
+  // set on el.highlight.angle at build time.
+  textGlassHighlightAngle: number
 }
 
 export const DEFAULT_CATALOG_STATE: CatalogState = {
@@ -565,6 +577,8 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   textGlassBlurRadius: 0,
   textGlassRawSdf: false,
   textGlassAdvanced: false,
+  textGlassGravity: false,
+  textGlassHighlightAngle: 45,
 }
 
 /* ------------------------------------------------------------------ *
