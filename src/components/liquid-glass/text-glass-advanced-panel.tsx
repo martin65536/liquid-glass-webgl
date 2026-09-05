@@ -533,6 +533,11 @@ export function TextGlassAdvancedPanel({
         state.textGlassRawSdf,
         (v) => setState({ textGlassRawSdf: v }),
       )}
+      {renderToggle(
+        t('text_glass_gravity', locale),
+        state.textGlassGravity,
+        (v) => setState({ textGlassGravity: v }),
+      )}
 
       {/* Divider */}
       <div style={{ height: 1, background: dividerColor, margin: '6px 0' }} />

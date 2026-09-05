@@ -248,6 +248,12 @@ export function buildTextGlass(
     )
     tgSheet.independentBackdrop = true
     tgSheet.scroll = false
+    // Gravity-driven highlight: when textGlassGravity is on, the rim
+    // highlight angle follows renderer.gravityAngle (updated live by the
+    // devicemotion effect in page.tsx). Same mechanism as ControlCenter
+    // tiles (el.useGravityAngle=true). When off, highlight stays at the
+    // fixed 45° default (DEFAULT_HIGHLIGHT.angle).
+    if (state.textGlassGravity) tgSheet.useGravityAngle = true
     // Smooth (continuous-curvature squircle) corners on the sheet card.
     if (state.capsuleShape) tgSheet.useContinuousSdf = true
     elements.push(tgSheet)
@@ -422,6 +428,8 @@ export function buildTextGlass(
   }
   // Smooth (continuous-curvature squircle) corners on the toggle button.
   if (state.capsuleShape) toggleBtn.useContinuousSdf = true
+  // Gravity-driven highlight (same as tg-sheet above).
+  if (state.textGlassGravity) toggleBtn.useGravityAngle = true
   elements.push(toggleBtn)
   interactions['tg-toggle'] = {
     onTap: () => setState((prev) => ({ textGlassSheetExpanded: !prev.textGlassSheetExpanded })),

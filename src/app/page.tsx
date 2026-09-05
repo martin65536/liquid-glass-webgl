@@ -272,10 +272,13 @@ export default function Page() {
   // Default 45° (matches UISensor.kt's initial value).
   React.useEffect(() => {
     if (typeof window === 'undefined' || !('DeviceMotionEvent' in window)) return
-    // Only listen for gravity angle on Control Center — it's the only page
-    // that uses it (el.useGravityAngle=true). Listening on all pages causes
+    // Only listen for gravity angle on pages that use it (el.useGravityAngle=
+    // true): Control Center (tiles) + TextGlass (sheet card + toggle button,
+    // gated by state.textGlassGravity). Listening on all pages causes
     // ~60 setGravityAngle calls/sec → 60 full WebGL renders/sec → high GPU.
-    if (destination !== CatalogDestination.ControlCenter) return
+    const gravityOn = destination === CatalogDestination.ControlCenter
+      || (destination === CatalogDestination.TextGlass && state.textGlassGravity)
+    if (!gravityOn) return
     let smoothed = 45
     const alpha = 0.5
     const handler = (e: DeviceMotionEvent) => {
@@ -295,7 +298,7 @@ export default function Page() {
     }
     window.addEventListener('devicemotion', handler)
     return () => window.removeEventListener('devicemotion', handler)
-  }, [rendererRef, destination])
+  }, [rendererRef, destination, state.textGlassGravity])
 
   // Build the catalog for the current destination.
   // gravityAngle is NOT a dependency — it's pushed live to the renderer via
