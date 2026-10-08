@@ -2,7 +2,7 @@
 
 # Liquid Glass — WebGL 移植版
 
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](./LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-red?style=flat-square)](./LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/martin65536/liquid-glass-webgl?style=flat-square&logo=github&color=yellow)](https://github.com/martin65536/liquid-glass-webgl/stargazers)
 [![GitHub Issues](https://img.shields.io/github/issues/martin65536/liquid-glass-webgl?style=flat-square&logo=github)](https://github.com/martin65536/liquid-glass-webgl/issues)
 [![Last Commit](https://img.shields.io/github/last-commit/martin65536/liquid-glass-webgl?style=flat-square&logo=github)](https://github.com/martin65536/liquid-glass-webgl/commits/main)
@@ -171,4 +171,4 @@ Settings 页提供 DPR 覆盖、模糊 tap cap、模糊降采样、全局可分�
 
 ## 许可证
 
-Apache-2.0 —— 见 [LICENSE](./LICENSE)，与上游 AndroidLiquidGlass 项目一致。
+AGPL-3.0 —— 见 [LICENSE](./LICENSE)。
