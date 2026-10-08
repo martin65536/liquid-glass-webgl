@@ -134,9 +134,21 @@ void main() {
         }
 
         // Compute the refracted sampling coordinate (SDF displacement).
+        // Normal inward refraction: sample the backdrop toward the text
+        // center (screenCoord - offset), offset = intensity * uRefractionHeight * normal.
+        // 向反折射 (uSdfOuterRefraction): REVERSE the direction (sample
+        // outward, away from text center via screenCoord + offset) AND DOUBLE
+        // the distance (offset * 2). The offset magnitude and intensity field
+        // are unchanged — only the sign flips and the distance scales by 2.
         vec2 refractedOffsetOrig = intensity * uRefractionHeight * normal;
         vec2 refractedOffsetScreen = refractedOffsetOrig * layerScale;
-        vec2 refractedScreen = screenCoord - refractedOffsetScreen;
+        float refractSign = 1.0;
+        float refractDistMul = 1.0;
+        if (uSdfOuterRefraction > 0.5) {
+            refractSign = -1.0;   // flip direction: + becomes -, - becomes +
+            refractDistMul = 2.0; // double the distance
+        }
+        vec2 refractedScreen = screenCoord - refractSign * refractDistMul * refractedOffsetScreen;
 
         // Faithful to SdfShader.kt: color = content.eval(refractedCoord) * v.a
         // The content is the wallpaper after colorControls + blur(2dp).

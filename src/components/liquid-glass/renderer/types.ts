@@ -517,6 +517,14 @@ export interface GlassElementConfig extends GlassButtonConfig {
      *  outside = black, edge AA preserved via the A channel). Used by the
      *  TextGlass page to inspect SDF texture quality / aliasing. */
     debugMode?: boolean
+    /** "向反折射" (Reverse refraction) toggle (default false). When true, the
+     *  SDF-texture glass path's refraction pixel offset is REVERSED in
+     *  direction and DOUBLED in distance: instead of sampling the backdrop
+     *  INWARD (toward text center via screenCoord - offset), it samples
+     *  OUTWARD (away from text center via screenCoord + 2*offset). The offset
+     *  magnitude and intensity field are unchanged — only the sign flips and
+     *  the distance doubles. Default false (normal inward refraction). */
+    outerRefraction?: boolean
     /** Coverage (A channel) → mask smoothstep lower bound. Default 0.5
      *  (matches clock_sdf.webp's narrow AA). Text SDF sets 0.0 to preserve
      *  the full Canvas2D AA gradient → smooth edges at all font sizes. */

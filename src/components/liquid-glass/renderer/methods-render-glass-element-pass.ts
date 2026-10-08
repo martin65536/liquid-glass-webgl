@@ -387,6 +387,12 @@ export const glassElementPassMethods = {
         this.uEl['uSdfDebugMode'],
         el.isSdfTexture.debugMode ? 1.0 : 0.0
       )
+      // 向反折射 — reverse the refraction offset direction + double the
+      // distance. Default off.
+      gl.uniform1f(
+        this.uEl['uSdfOuterRefraction'],
+        (el.isSdfTexture.outerRefraction ?? false) ? 1.0 : 0.0
+      )
       // AA range: clock_sdf uses (0.5, 1.0) for its narrow precomputed AA.
       // Text SDF uses (0.0, 1.0) to preserve the full Canvas2D AA gradient
       // (the text SDF's A channel is the raw alpha 0..255 with a 1-2px edge).
@@ -420,6 +426,7 @@ export const glassElementPassMethods = {
       gl.uniform1f(this.uEl['uSdfEdgeMatteBaseStrength'], 1.0)
       gl.uniform1f(this.uEl['uSdfEdgeMatteBrightenStrength'], 1.0)
       gl.uniform1f(this.uEl['uSdfDebugMode'], 0.0)
+      gl.uniform1f(this.uEl['uSdfOuterRefraction'], 0.0)
       gl.uniform1f(this.uEl['uSdfAaMin'], 0.5)
       // Bind the dummy 1×1 texture to TEXTURE2 so the uSdfTexSampler /
       // uContinuousSdf samplers (both declared in the shader, both pointing

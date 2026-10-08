@@ -210,6 +210,7 @@ const translations: Record<string, { zh: string; en: string }> = {
   text_glass_highlight_scale: { zh: '玻璃厚度', en: 'Glass thickness' },
   text_glass_saturation:    { zh: '饱和度', en: 'Saturation' },
   text_glass_lighting:      { zh: '光影', en: 'Lighting' },
+  text_glass_outer_refraction: { zh: '向反折射', en: 'Reverse refraction' },
   text_glass_brighten:      { zh: '提亮', en: 'Brighten' },
   text_glass_bevel_tint:    { zh: '染色', en: 'Tint' },
   text_glass_glass_tint_enabled: { zh: '染色开关', en: 'Tint on' },

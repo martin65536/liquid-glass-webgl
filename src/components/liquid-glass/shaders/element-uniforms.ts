@@ -210,6 +210,13 @@ uniform float uSdfEdgeMatteBrightenStrength; // default 1.0
 // (inside = white, outside = black, AA via A channel). Used by TextGlass to
 // inspect texture quality / aliasing / padding.
 uniform float uSdfDebugMode;        // 0 or 1
+// 向反折射 (Reverse refraction) toggle (0 or 1). When 1, the SDF-texture
+// glass path's refraction pixel offset is REVERSED in direction and DOUBLED
+// in distance: instead of sampling the backdrop INWARD (toward text center
+// via screenCoord - offset), it samples OUTWARD (away from text center via
+// screenCoord + 2*offset). The offset magnitude and intensity field are
+// unchanged — only the sign flips and the distance doubles. Default 0.
+uniform float uSdfOuterRefraction;  // 0 or 1
 // Coverage (A channel) → mask smoothstep range. The clock_sdf.webp texture
 // uses (0.5, 1.0) — its A channel is 0 outside, 255 inside with a 1px AA
 // edge, so smoothstep(0.5, 1.0) gives a 0.5px AA edge. The text SDF texture

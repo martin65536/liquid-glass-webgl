@@ -462,6 +462,14 @@ export interface CatalogState {
   // pre-blur amount hint for the 2-pass Gaussian path). Larger = more frosted
   // backdrop behind the text glass. Faithful to "调blur大小的".
   textGlassBlurRadius: number
+  // TextGlass — "向反折射" (Reverse refraction) toggle. When true, the
+  // SDF-texture glass path's refraction pixel offset is REVERSED in direction
+  // and DOUBLED in distance: instead of sampling the backdrop INWARD (toward
+  // the text center via screenCoord - offset), it samples OUTWARD (away from
+  // the text center via screenCoord + 2*offset). The offset magnitude and
+  // intensity field are unchanged — only the sign flips and the distance
+  // doubles. Default false (off = normal inward refraction).
+  textGlassOuterRefraction: boolean
   // TextGlass — raw SDF debug render toggle. When true, the glass element
   // bypasses all glass effects (refraction, bevel, colorControls, surface
   // tint) and renders the SDF texture's R channel directly as a grayscale
@@ -586,6 +594,7 @@ export const DEFAULT_CATALOG_STATE: CatalogState = {
   textGlassEdgeMatteBaseStrength: 1,
   textGlassEdgeMatteBrightenStrength: 1.3,
   textGlassBlurRadius: 0,
+  textGlassOuterRefraction: false,
   textGlassRawSdf: false,
   textGlassAdvanced: false,
   textGlassGravity: false,

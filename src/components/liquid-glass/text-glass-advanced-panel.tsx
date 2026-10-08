@@ -384,6 +384,14 @@ export function TextGlassAdvancedPanel({
         state.textGlassLightingEnabled,
         (v) => setState({ textGlassLightingEnabled: v }),
       )}
+      {/* 向反折射 (Reverse refraction) — reverses the SDF refraction pixel
+          offset direction (samples backdrop outward instead of inward) and
+          doubles the distance. Default off. */}
+      {renderToggle(
+        t('text_glass_outer_refraction', locale),
+        state.textGlassOuterRefraction,
+        (v) => setState({ textGlassOuterRefraction: v }),
+      )}
       {/* Tint master switch + hue slider + mix slider.
           When the switch is OFF, both the hue-dye and color-mix are disabled
           (shader gates on uSdfGlassTintEnabled). When ON, the hue slider picks

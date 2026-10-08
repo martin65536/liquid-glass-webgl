@@ -212,6 +212,10 @@ export function buildTextGlass(
     edgeMatteBaseStrength: state.textGlassEdgeMatteBaseStrength,
     edgeMatteBrightenStrength: state.textGlassEdgeMatteBrightenStrength,
     debugMode: state.textGlassRawSdf,
+    // 向反折射 — reverses the refraction pixel offset direction and doubles
+    // its distance (samples backdrop outward instead of inward, 2× far).
+    // Independent of 光影. Default off.
+    outerRefraction: state.textGlassOuterRefraction,
     aaMin: 0.0,
   }
   // independentBackdrop = true so resolveBackdropTex takes the wallpaper
